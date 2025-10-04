@@ -1,0 +1,31 @@
+\documentclass[fleqn,10pt]{olplainarticle}
+% Use option lineno for line numbers 
+
+
+\begin{document}
+
+\subsection*{Related Works}
+
+Research on different applications and protocols of distributed consensus in an Autonomous Vehicle space. 
+
+
+\subsection{Decentralized Distributed Consensus Approaches}
+Consensus among vehicles can be done by electing leaders, \cite{lee2025distributedconsensusalgorithmprioritizing}, which uses a Raft-inspired protocol. A view is formed upon arrival at the intersection, using a vision-based approach. 
+Candidates vote on who the leader is, and if consensus is not reached or unreachable, deterministic vision-based ordering is used. This protocol does not handle byzantine nodes during consensus, but provides safety and liveness. External factors such as velocity, speed, and braking distance are not considered. 
+
+
+A leadless approach, \cite{inproceedings}, is also possible, where Vehicles continually broadcast a "claim" message to the view. Here, a view is formed by a set of lurk distances, where a candidate can start to receive messages long before arriving at the intersection. However, it does not transmit until its distance from the intersection is less than the lurk distance.  
+
+An agent approaching an intersection generates a claim based on its earliest arrival time, predicted velocity, and exit time. When a claim is made, it is for an estimated period of time that the individual was in the intersection. 
+A vehicle can use its estimated arrival time to cancel its claim and let another car claim that time. 
+
+From both \cite{inproceedings} and \cite{lee2025distributedconsensusalgorithmprioritizing}, concurrency is allowed in the intersection. Suppose a car A has gotten votes for a quorum to enter the intersection, and another car B in the intersection is not conflicting with its path. In that case, Car B will be allowed to enter the intersection at the same time, despite not having a winning consensus. 
+
+
+
+
+
+
+\bibliography{sample}
+
+\end{document}
