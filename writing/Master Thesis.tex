@@ -8,6 +8,37 @@
 
 Research on different applications and protocols of distributed consensus in an Autonomous Vehicle space. 
 
+\subsection{Survey Paper}
+
+\subsubsection{Decentralized vs Centralized }
+The typical approach for CAV intersection is distributed or centralized. Centralized can be split into a query-based Intersection manager or an Assignment-based. 
+
+IN QB-IM, the IM will accept or reject requests from a CAV, while in AB-IM the IM will assign a reservation to the CAV. 
+
+AB-IM can achieve higher throughputs compared to QB-IM, but processing time is greater.
+
+Centralized is dependent on infrastructure and introduces a single point of failure 
+
+\subsubsection{Collision Detection}
+To detect a possible conflict that two CAVs may have at the intersection, existing works have proposed two approaches: 
+a spatio-temporal occupancy map, where an occupancy map is tracked to see which blocks of the grid are occupied by a CAV
+
+Another approach is keeping track of the CAV's trajectory where the expected path of two CAVs is used to determine the location at which two CAVs may have a conflict. This can be done offline, as the expected paths of CAVs are known, e.g., for going straight or making a turn.
+
+
+\subsubsection{Scheduling }
+The process of deciding which CAV should cross the intersection first and which CAV should cross second and so on. this can be done by policy like FCFS or Heuristics
+
+One cool heuristic approach that reminded me of Hambazi: Vehicles can bid currency to beat out other vehicles to get reservations for the intersection. In many cases, a vehicle has to pay for the reservation of vehicles in front of it, too, to clear the queue. \cite{Vasirani_2012}
+
+
+
+
+Time synchronization, which has received less attention, is a fundamental part of the intersection management. 
+
+
+Rest of the paper talks about safety and I guess more AV stuff rather than intersection management or distributed consensus.
+Realized very late into reading that its not stricly about distributed consensus... but it was knowledgeable
 
 \subsection{Decentralized Distributed Consensus Approaches}
 Consensus among vehicles can be done by electing leaders, \cite{lee2025distributedconsensusalgorithmprioritizing}, which uses a Raft-inspired protocol. A view is formed upon arrival at the intersection, using a vision-based approach. 
