@@ -60,25 +60,59 @@ In a reservation-based system proposed by \cite{dresner}, an intersection is con
 There is a significant delay introduced with this combinatorial auction, especially under heavy traffic. Even if a single vehicle is approaching with no one in the intersection, it will face a delay due to the auction process. 
 
 
+
+
+
 \end{enumerate}
 
 
 \subsection{Decentralized Distributed Consensus Approaches}
 
-
+\begin{enumerate}
+    \item 
 
 Consensus among vehicles can be done by electing leaders, \cite{lee2025distributedconsensusalgorithmprioritizing}, which uses a Raft-inspired protocol. A view is formed upon arrival at the intersection, using a vision-based approach. 
 Candidates vote on who the leader is, and if consensus is not reached or unreachable, deterministic vision-based ordering is used. This protocol does not handle byzantine nodes during consensus, but provides safety and liveness. External factors such as velocity, speed, and braking distance are not considered. 
 
 
+\item 
 A leadless approach, \cite{inproceedings}, is also possible, where Vehicles continually broadcast a "claim" message to the view. Here, a view is formed by a set of lurk distances, where a candidate can start to receive messages long before arriving at the intersection. However, it does not transmit until its distance from the intersection is less than the lurk distance.  
 
 An agent approaching an intersection generates a claim based on its earliest arrival time, predicted velocity, and exit time. When a claim is made, it is for an estimated period of time that the individual was in the intersection. 
 A vehicle can use its estimated arrival time to cancel its claim and let another car claim that time. 
 
+
+\item 
+In \cite{MIRHELI2019161}, they propose a distributed coordinated signal-free intersection control logic. 
+
+CAVs in this system use DSRC to continuously broadcast their predicted trajectories within a detection range (~650 ft). Each vehicle incorporates neighbors’ predictions into its own optimization, then updates and rebroadcasts. Through iterative averaging, they reach consensus on conflict-free trajectories without central coordination
+
+\paragraph{Consensus}
+Not leader election but a {numerical consensus}: vehicles broadcast predicted trajectories starting from a set distance and iteratively adjust until stable. 
+
+\begin{itemize}
+    \item \textbf{Init:} $t=0$, set of vehicles $N^0$, states $S_{ij}^0$.
+    \item \textbf{Iterate:} collect neighbors’ predictions, solve local optimization, update by averaging (Powell), repeat until stable.
+    \item \textbf{Implement:} apply first step of trajectory, rebroadcast rest.
+\end{itemize}
+
+\textbf{Safety:} guaranteed via collision-avoidance constraints (no near-crashes).  
+
+\textbf{Liveness:} not formally proven; empirically converges in 5--10 iterations.
+
+
+
+\item 
+\textbf{Similarities}
+
 From both \cite{inproceedings} and \cite{lee2025distributedconsensusalgorithmprioritizing}, concurrency is allowed in the intersection. Suppose a car A has gotten votes for a quorum to enter the intersection, and another car B in the intersection is not conflicting with its path. In that case, Car B will be allowed to enter the intersection at the same time, despite not having a winning consensus. 
 
+In \cite{MIRHELI2019161}, concurrent occupancy of the intersection is allowed by multiple CAVs, as long as trajectory constraints guarantee safety.
 
+
+\end{enumerate}
+
+\subsection{Consensus with churn}
 
 
 
