@@ -114,6 +114,23 @@ In \cite{MIRHELI2019161}, concurrent occupancy of the intersection is allowed by
 
 \subsection{Consensus with churn}
 
+\subsubsection{HQS}
+
+In order to address reconfiguration protocols for heterogeneous quorum systems with provable security guarantees, \cite{HQS}
+Heterogeneous quorum systems, which are a mapping of minimal quorums. 
+
+HQS provides consistency, availability, and inclusion properties, proven by quorum intersection and quorum inclusion.
+
+Each process $$p$$ has its own set of quorums (subsets of the system it trusts).
+
+
+ To help maintain consistency under reconfiguration, the system requires that quorums “include” quorums of their members (the set $Q$ of nodes is one of the quorums that $p$ recognizes)
+The paper also introduces a novel approach to leaving and joining a HQS, which maintain the quroum intersection to preserve safety 
+
+
+Federated (Byzantine) quorum systems, or FBQS, lets each process $p$ specifify its own quroum slices. A process can construct a quorum starting from one
+of its own slices. As each process calculates its own quorums, an HQS is formed. 
+ 
 
 
 
