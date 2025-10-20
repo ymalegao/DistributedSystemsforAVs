@@ -133,6 +133,42 @@ of its own slices. As each process calculates its own quorums, an HQS is formed.
  
 
 
+\subsection{consensus with unknown participants}
+
+In environments like unstructured p2p networks, the number of participants and their knowledge cannot be previously determined. 
+
+\cite{cup}, define a new problem, fault tolerant consensus with unknown participants (FT-CUP), where nodes are not aware of the set of processes in the system. 
+They come to the conclusion that in order to solve FT-CUP, strong synchrony and failure detectors are needed. 
+
+In \cite{alchieri2008byzantine}, they solve BFT-CUP. They consider an unknown network, where a process $i\in\Pi$ is only aware of a subset of processes belonging to $\Pi$. 
+
+To get partial knowledge about other processes, a participant detector or PD is used. A process can query $i.PD$ to return a subset of processes in $\Pi$. The PD abstraction provides a knowledge connectivity graph, called a \textit{k-One Sink Reducibility PD}
+
+They also introduce Reachable Reliable Broadcast, which includes 
+\begin{enumerate}
+    \item \textit{reachable-send(m,p}, where a participant $p$ sends a message $m$ to all reachable participants from $p$. 
+
+    \item 
+    \textit{reachable-deliver} - invoked by the receiver to deliver a message $m$ sent by participant $p$
+
+\end{enumerate}
+
+The main idea is that assuming a \textit{k-OSR PD}, process $i$ will send message $m$ to its neighbors (processes in i.PD)  and when $m$ is received at some process $p$, $p$ forwards $m$ to its neighbors and so on, until that $m$ arrives at all reachable participants. $p$ will deliver $m$ if it has received $m$ through $f+1$ paths. 
+
+They split the BFT-CUP into three phases:
+
+\begin{enumerate}
+    \item Participant Discovery - each participant $i$ broadcasts a message requesting information about neighbors of each reachable participant - this is essentially a BFS flood 
+    
+    \item Sink Component Determination - defines which participants belong to sink component of graph created by the k-OSR PD. 
+    \item classical BFT consensus - members of the sink component execute a classical BFT consensus and disseminate the value to the other participants in the system. 
+    
+\end{enumerate}
+
+The combination of k-OSR PD and RRB ensures that consensus is achievable in an open, unknown-participant setting. The sink component provides a consistent membership basis for safety, while availability is preserved through the propagation of the final decision to non-sink nodes.
+
+
+
 
 \bibliography{sample}
 
