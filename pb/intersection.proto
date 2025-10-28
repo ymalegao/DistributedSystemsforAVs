@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+option go_package = "github.com/ymalegao/DistributedSystemsforAVs/pb/consensus;consensus";
+
+
+package consensus;
+
+enum VoteDecision { ACKNOWLEDGED = 0; IGNORED = 1; }
+
+enum ElectionStatus { INIT_CANDIDATE = 0; FIN_CANDIDATE = 1; FOLLOWER = 2; LEADER = 3; }
+
+message VehicleMeta {
+  string id = 1;                    // unique addr
+  string plate = 2;                 // license plate string
+  string direction = 3;             // e.g., "N-left", "E-straight"
+  ElectionStatus status = 4;
+  uint32 sent_votes = 5;
+  uint32 received_votes = 6;
+  int64  election_time_ms = 7;      // last response time recorded
+}
+
+message CandidateVoteRequest {
+  VehicleMeta from = 1;
+}
+
+message CandidateVoteResponse {
+  VoteDecision decision = 1;        // ACKNOWLEDGED or IGNORED
+  bool direction_no_collision = 2;  // responder vs requester
+  VehicleMeta responder = 3;        // includes responder's timing info
+}
+
+message LeaderElectionRequest {
+  VehicleMeta fin_candidate = 1;
+}
+
+message LeaderElectionResponse {
+  VoteDecision decision = 1;        // ACKNOWLEDGED or IGNORED
+  VehicleMeta responder = 2;        // includes responder's timing info
+}
+
+service IntersectionConsensus {
+  rpc CandidateVote (CandidateVoteRequest) returns (CandidateVoteResponse);
+  rpc LeaderElection (LeaderElectionRequest) returns (LeaderElectionResponse);
+}
