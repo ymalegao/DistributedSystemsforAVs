@@ -1,7 +1,8 @@
 \documentclass[fleqn,10pt]{olplainarticle}
 % Use option lineno for line numbers 
 
-
+\usepackage{algorithm}
+\usepackage{algorithmic}
 \begin{document}
 
 \subsection*{Related Works}
@@ -121,7 +122,7 @@ Heterogeneous quorum systems, which are a mapping of minimal quorums.
 
 HQS provides consistency, availability, and inclusion properties, proven by quorum intersection and quorum inclusion.
 
-Each process $$p$$ has its own set of quorums (subsets of the system it trusts).
+Each process $p$ has its own set of quorums (subsets of the system it trusts).
 
 
  To help maintain consistency under reconfiguration, the system requires that quorums “include” quorums of their members (the set $Q$ of nodes is one of the quorums that $p$ recognizes)
@@ -167,9 +168,161 @@ They split the BFT-CUP into three phases:
 
 The combination of k-OSR PD and RRB ensures that consensus is achievable in an open, unknown-participant setting. The sink component provides a consistent membership basis for safety, while availability is preserved through the propagation of the final decision to non-sink nodes.
 
+\begin{verbatim}
+broadcast VOTE_REQ(from_meta := my current meta)
+
+upon receiving VOTE_RESP from peer p:
+if response == ACK:
+
+// time of first ACK
+ election_time := now()   
+ 
+ received_votes := received_votes + 1
+ if p reported direction_no_collision = True:
+     no_collision_list := no_collision_list ∪ {p.id}
+
+if received_votes ≥ quorum:
+    status := FIN_CANDIDATE
+
+    broadcast LEADER_REQ(fin_candidate_meta := my meta)
+    leader_acks := 0
+    
+    upon receiving LEADER_RESP from peer p:
+      if response == ACK:
+         leader_acks := leader_acks + 1
+      else 
+         if (p.received_votes > my.received_votes) or
+            (p.received_votes == my.received_votes and
+            p.election_time < my.election_time):
+              status := FOLLOWER
+              received_votes := p.received_votes
+              election_time := p.election_time
+    
+    if leader_acks + 1 (self) ≥ quorum:
+       status := LEADER
+        
+
+\end{verbatim}
+
+Handler for VOTE-REQ
+\begin{verbatim}
+mutex lock
+if sent_votes == 0 then 
+   sent_votes := 1         
+   direction_no_collision := !collides(req.from.direction, my.direction)
+   reply VOTE_RESP(ACK, direction_no_collision, my_meta)
+else
+   reply VOTE_RESP(IGNORED, responder_meta := my_meta)
+mutex unlock
+
+\end{verbatim}
+
+Handler for LEADER-REQ:
+\begin{verbatim}
+let S := my state, R := req.fin_candidate_meta
+
+if R.status == FOLLOWER:
+    reply LEADER_RESP(IGNORED, my_meta)
+    return
+
+sender_ahead :=
+   (R.received_votes > S.received_votes) OR
+   (R.received_votes == S.received_votes AND R.election_time > S.election_time)
+
+if sender_ahead:
+    S.status := FOLLOWER
+    S.received_votes := R.received_votes
+    S.election_time := R.election_time
+    reply LEADER_RESP(ACK, my_meta)
+else:
+    reply LEADER_RESP(IGNORED, my_meta)
+
+\end{verbatim}
+
+
+
+Byzantine Consensus using amplification:
+\begin{verbatim}
+status := INIT_CANDIDATE
+QC1 := ⊥
+sent_votes := 0
+received_votes := 1 
+election_time := ⊥
+no_collision_list := ∅
+
+payload := my_meta
+h := H(payload)
+
+broadcast SEND_VOTE(view, subject := my_id, h, sig := sign(...))
+
+upon receiving first valid SEND_VOTE(view, subject := s, payload := meta(s), sig)
+  or first valid ECHO_VOTE(view, subject := s, ...):
+  if verify(sig) = True then
+     broadcast ECHO_VOTE(view, subject := s, payload := meta(s), sig := sign(...))
+
+upon |ECHO_VOTE(subject := s)| ≥ f+1 and not yet sent READY_VOTE(s):
+  broadcast READY_VOTE(view, subject := s, payload := meta(s), sig := sign(...))
+
+upon |READY_VOTE(subject := s)| ≥ 2f+1:
+  DELIVER_VOTE(view, subject := s) with QC1 := set of those 2f+1 READY signatures
+  if s = my_id:
+     status := FIN_CANDIDATE
+  else
+     status := FOLLOWER
+
+if status = FIN_CANDIDATE:
+    QC1 := previously collected Phase-1 quorum certificate
+    QC2 := ⊥
+    
+    broadcast SEND_LEADER(view, subject := my_id, payload := (meta(me), QC1), sig := sign(...))
+    
+    upon receiving first valid SEND_LEADER(view, subject := s, payload := (meta(s), QC1_s), sig)
+      or first valid ECHO_LEADER(view, subject := s, ...):
+      if verifyQC(QC1_s) = True then
+         broadcast ECHO_LEADER(view, subject := s, payload := (meta(s), QC1_s), sig := sign(...))
+    
+    upon |ECHO_LEADER(subject := s)| ≥ f+1 and not yet sent READY_LEADER(s):
+      broadcast READY_LEADER(view, subject := s, payload := (meta(s), QC1_s), sig := sign(...))
+    
+    upon |READY_LEADER(subject := s)| ≥ 2f+1:
+      DELIVER_LEADER(view, subject := s) with QC2 := set of those 2f+1 READY signatures
+      if s = my_id:
+         status := LEADER
+      else
+         status := FOLLOWER
+
+// No leader_acks counter, no timestamp override logic, and no LEADER_RESP RPCs in Variant A.
+
+
+\end{verbatim}
+
 
 
 
 \bibliography{sample}
 
 \end{document}
+
+
+
+running simulation- find data, see what it is, 
+
+bring BFT.
+
+BFT-smart lib
+
+once you have total order, just push recongigureation as a event in the Total Order Broadcast 
+
+optimizaing protocol for intersection 
+
+recongiureation - single shot, only one person crosses- what about the other cars - can say its multishot, can integrate reconfiguration and fast and BZT 
+
+BFT smart in this enviornment now I want to be able to do BFT - look if there are BZ nodes 
+
+look at non byz protocl and then use BFT smart to do the reconfigureation 
+
+then HQS - I dont want to have uniform - only trust cars I know - that can detemined by wahtever we want, UC, Police, Digital signutre, now I have slices of trust, now I have to generatea heterogenous protocol after slices are made - PBC consensus
+
+Going in with limited knowlede - CUP 
+
+
