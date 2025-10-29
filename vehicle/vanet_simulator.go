@@ -25,7 +25,7 @@ type VANETConfig struct {
 // DefaultVANETConfig returns realistic VANET parameters
 func DefaultVANETConfig() VANETConfig {
 	return VANETConfig{
-		PacketLossRate: 0.10,          // 10% packet loss (typical for VANET)
+		PacketLossRate: 0.10, // 10% packet loss (typical for VANET)
 		MinLatency:     10 * time.Millisecond,
 		MaxLatency:     50 * time.Millisecond,
 		Jitter:         5 * time.Millisecond,
@@ -35,7 +35,7 @@ func DefaultVANETConfig() VANETConfig {
 // HighLossVANETConfig returns severe network conditions
 func HighLossVANETConfig() VANETConfig {
 	return VANETConfig{
-		PacketLossRate: 0.30,          // 30% packet loss
+		PacketLossRate: 0.30, // 30% packet loss
 		MinLatency:     20 * time.Millisecond,
 		MaxLatency:     100 * time.Millisecond,
 		Jitter:         10 * time.Millisecond,

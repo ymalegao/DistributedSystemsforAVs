@@ -71,19 +71,19 @@ type Node struct {
 // You can change status later per-epoch (INIT_CANDIDATE etc).
 func NewNode(id, plate, direction, addr string, quorum int) *Node {
 	return &Node{
-		id:                   id,
-		plate:                plate,
-		direction:            direction,
-		addr:                 addr,
-		status:               pb.ElectionStatus_INIT_CANDIDATE,
-		sentVotes:            0, // we haven't voted yet
-		receivedVotes:        0, // we'll include self-vote when epoch starts
-		electionTimeMs:       0, // will be set when we receive first ACK
+		id:                    id,
+		plate:                 plate,
+		direction:             direction,
+		addr:                  addr,
+		status:                pb.ElectionStatus_INIT_CANDIDATE,
+		sentVotes:             0, // we haven't voted yet
+		receivedVotes:         0, // we'll include self-vote when epoch starts
+		electionTimeMs:        0, // will be set when we receive first ACK
 		electionReceivedVotes: 0, // votes during election process
-		noCollisionSet:       make(map[string]bool),
-		messageReceiveTimes:  make(map[string]int64),
-		quorum:               quorum,
-		peers:                make(map[string]pb.IntersectionConsensusClient),
+		noCollisionSet:        make(map[string]bool),
+		messageReceiveTimes:   make(map[string]int64),
+		quorum:                quorum,
+		peers:                 make(map[string]pb.IntersectionConsensusClient),
 	}
 }
 
@@ -125,10 +125,10 @@ func (n *Node) ResetForEpoch() {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.status = pb.ElectionStatus_INIT_CANDIDATE
-	n.sentVotes = 0                    // we haven't voted for anyone else yet (Algorithm 1: sent-votes = 0 at epoch start)
-	n.receivedVotes = 1               // start with self-vote (each vehicle starts as candidate and self-votes)
-	n.electionTimeMs = 0              // will be set when we receive first ACK
-	n.electionReceivedVotes = 0       // reset election votes
+	n.sentVotes = 0             // we haven't voted for anyone else yet (Algorithm 1: sent-votes = 0 at epoch start)
+	n.receivedVotes = 1         // start with self-vote (each vehicle starts as candidate and self-votes)
+	n.electionTimeMs = 0        // will be set when we receive first ACK
+	n.electionReceivedVotes = 0 // reset election votes
 	n.noCollisionSet = make(map[string]bool)
 	n.messageReceiveTimes = make(map[string]int64)
 }
@@ -159,10 +159,10 @@ func (n *Node) meta() *pb.VehicleMeta {
 // -----------------------
 //
 // Semantics (from the paper):
-//  - Each vehicle may vote exactly once per term (first request wins).
-//  - On first vote: mark that we've voted, set electionTimeMs=now,
-//    and return ACK with direction_no_collision (responder vs requester).
-//  - Otherwise, return IGNORED.
+//   - Each vehicle may vote exactly once per term (first request wins).
+//   - On first vote: mark that we've voted, set electionTimeMs=now,
+//     and return ACK with direction_no_collision (responder vs requester).
+//   - Otherwise, return IGNORED.
 //
 // This method is invoked by *other* vehicles' clients.
 // We protect state with a mutex to avoid race conditions.
@@ -199,7 +199,7 @@ func (n *Node) CandidateVote(ctx context.Context, req *pb.CandidateVoteRequest) 
 	// Already voted earlier → ignore subsequent requests.
 	// DEBUG: Log when we ignore someone
 	log.Printf("    VOTE IGNORED: [%s] ignoring request from [%s] (already voted for someone else)", n.id, req.From.Id)
-	
+
 	return &pb.CandidateVoteResponse{
 		Decision:  pb.VoteDecision_IGNORED,
 		Responder: n.meta(),
@@ -211,13 +211,13 @@ func (n *Node) CandidateVote(ctx context.Context, req *pb.CandidateVoteRequest) 
 // -----------------------
 //
 // Semantics (from the paper):
-//  - A Fin-Candidate sends LeaderElection requests including its tally/time.
-//  - The receiver compares (receivedVotes, electionTimeMs):
-//      * If the sender is strictly AHEAD -> ACK and demote self to FOLLOWER,
-//        adopting sender's tally/time.
-//      * Otherwise -> IGNORE; the sender should demote itself when it sees
-//        that it's behind (paper's "override" rule).
-//  - If we're already FOLLOWER, we generally ignore new requests for the current term.
+//   - A Fin-Candidate sends LeaderElection requests including its tally/time.
+//   - The receiver compares (receivedVotes, electionTimeMs):
+//   - If the sender is strictly AHEAD -> ACK and demote self to FOLLOWER,
+//     adopting sender's tally/time.
+//   - Otherwise -> IGNORE; the sender should demote itself when it sees
+//     that it's behind (paper's "override" rule).
+//   - If we're already FOLLOWER, we generally ignore new requests for the current term.
 func (n *Node) LeaderElection(ctx context.Context, req *pb.LeaderElectionRequest) (*pb.LeaderElectionResponse, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -237,7 +237,7 @@ func (n *Node) LeaderElection(ctx context.Context, req *pb.LeaderElectionRequest
 	}
 
 	// Algorithm 2: Line 4 - Check if sender is ahead
-	// sender is ahead if: sender.receivedVotes > our.receivedVotes OR 
+	// sender is ahead if: sender.receivedVotes > our.receivedVotes OR
 	// (sender.receivedVotes == our.receivedVotes AND sender.electionTime > our.electionTime)
 	// Note: Later election-time is better (more recent/fresh candidate)
 	senderAhead := sender.ReceivedVotes > n.receivedVotes ||
@@ -292,37 +292,45 @@ func hasLeft(s string) bool {
 
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && ( // micro-optim for tiny strings; use strings.Contains otherwise
-		func() bool {
-			for i := 0; i+len(sub) <= len(s); i++ {
-				match := true
-				for j := 0; j < len(sub); j++ {
-					if s[i+j] != sub[j] {
-						match = false
-						break
-					}
-				}
-				if match {
-					return true
+	func() bool {
+		for i := 0; i+len(sub) <= len(s); i++ {
+			match := true
+			for j := 0; j < len(sub); j++ {
+				if s[i+j] != sub[j] {
+					match = false
+					break
 				}
 			}
-			return false
-		}())
+			if match {
+				return true
+			}
+		}
+		return false
+	}())
 }
 
 // -----------------------
 // Public getters/setters (useful to integrate with simulator)
 // -----------------------
 
-func (n *Node) ID() string                { return n.id }
-func (n *Node) Addr() string              { return n.addr }
-func (n *Node) Direction() string         { return n.direction }
-func (n *Node) Status() pb.ElectionStatus { n.mu.Lock(); defer n.mu.Unlock(); return n.status }
-func (n *Node) ReceivedVotes() uint32     { n.mu.Lock(); defer n.mu.Unlock(); return n.receivedVotes }
-func (n *Node) PeerCount() int            { n.mu.Lock(); defer n.mu.Unlock(); return len(n.peers) }
+func (n *Node) ID() string                 { return n.id }
+func (n *Node) Addr() string               { return n.addr }
+func (n *Node) Direction() string          { return n.direction }
+func (n *Node) Status() pb.ElectionStatus  { n.mu.Lock(); defer n.mu.Unlock(); return n.status }
+func (n *Node) ReceivedVotes() uint32      { n.mu.Lock(); defer n.mu.Unlock(); return n.receivedVotes }
+func (n *Node) PeerCount() int             { n.mu.Lock(); defer n.mu.Unlock(); return len(n.peers) }
 func (n *Node) UpdateQuorum(newQuorum int) { n.mu.Lock(); defer n.mu.Unlock(); n.quorum = newQuorum }
-func (n *Node) ElectionTimeMs() int64     { n.mu.Lock(); defer n.mu.Unlock(); return n.electionTimeMs }
-func (n *Node) SetStatus(status pb.ElectionStatus) { n.mu.Lock(); defer n.mu.Unlock(); n.status = status }
-func (n *Node) ElectionReceivedVotes() uint32 { n.mu.Lock(); defer n.mu.Unlock(); return n.electionReceivedVotes }
+func (n *Node) ElectionTimeMs() int64      { n.mu.Lock(); defer n.mu.Unlock(); return n.electionTimeMs }
+func (n *Node) SetStatus(status pb.ElectionStatus) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.status = status
+}
+func (n *Node) ElectionReceivedVotes() uint32 {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.electionReceivedVotes
+}
 
 // PromoteToFinCandidate is what you call *after* you’ve reached quorum in Algorithm 1.
 func (n *Node) PromoteToFinCandidate() {
@@ -338,13 +346,12 @@ func (n *Node) BecomeLeader() {
 	n.status = pb.ElectionStatus_LEADER
 }
 
-
 func (n *Node) AdoptLeaderMeta(receivedVotes uint32, electionTimeMs int64) {
-    n.mu.Lock()
-    defer n.mu.Unlock()
-    n.status         = pb.ElectionStatus_FOLLOWER
-    n.receivedVotes  = receivedVotes
-    n.electionTimeMs = electionTimeMs
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.status = pb.ElectionStatus_FOLLOWER
+	n.receivedVotes = receivedVotes
+	n.electionTimeMs = electionTimeMs
 }
 
 // SetVANETSimulator sets the network simulator for this node

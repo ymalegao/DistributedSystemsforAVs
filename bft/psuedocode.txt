@@ -1,0 +1,130 @@
+# System: n >= 3f + 1, quorum := 2f + 1
+# Sign over fields: (msg_type, view, subject, payload_hash)
+
+state:
+  view := 0
+  status := INIT_CANDIDATE
+  locked_subject[view] := ⊥
+  QC1 := ⊥
+  QC2 := ⊥
+
+helpers:
+  H(x) := cryptographic hash
+  valid(meta) and no_collision(meta)  # deterministic, locally checkable
+  seen_SEND[V][s] := false
+  sent_READY[V][s] := false
+  delivered[V][s] := false
+  echo_count[V][s][h] := set of senders
+  ready_count[V][s][h] := set of senders
+
+# ----------------------
+# Phase 1: Candidate cert (QC1)
+# ----------------------
+
+on election start in view V with me as candidate:
+  payload := my_meta
+  h := H(payload)
+  broadcast SEND_VOTE(V, subject=my_id, payload, sig=sign(...))
+
+on receive SEND_VOTE(V, subject=s, payload, sig) from s:
+  if V != view or delivered[V][s]: ignore
+  if !verify(sig) or seen_SEND[V][s]: ignore
+  seen_SEND[V][s] := true
+  if valid(payload) and no_collision(payload):
+    h := H(payload)
+    broadcast ECHO_VOTE(V, subject=s, payload_hash=h, sig=sign(...))
+
+on receive ECHO_VOTE(V, subject=s, payload_hash=h) from sender u (distinct):
+  echo_count[V][s][h].add(u)
+  if |echo_count[V][s][h]| >= (f+1) and !sent_READY[V][s]:
+     sent_READY[V][s] := true
+     broadcast READY_VOTE(V, subject=s, payload_hash=h, sig=sign(...))
+
+on receive READY_VOTE(V, subject=s, payload_hash=h) from sender u (distinct):
+  # amplification rule
+  if |ready_count[V][s][h]| == f and !sent_READY[V][s]:
+     sent_READY[V][s] := true
+     broadcast READY_VOTE(V, subject=s, payload_hash=h, sig=sign(...))
+  ready_count[V][s][h].add(u)
+
+  if |ready_count[V][s][h]| >= (2f + 1) and !delivered[V][s]:
+     delivered[V][s] := true
+     QC1 := QC{type=VOTE, view=V, subject=s, payload_hash=h, sigs=2f+1 READY}
+     locked_subject[V] := s
+     if s == my_id: status := FIN_CANDIDATE else status := FOLLOWER
+
+# Timeout → view change (if no QC1 delivered in time):
+on phase1_timeout and QC1 == ⊥:
+  view := view + 1
+  reset phase-1 maps for new view; keep highest QC1 seen to gossip forward
+
+# ----------------------
+# Phase 2: Leader cert (QC2)
+# ----------------------
+if status == FIN_CANDIDATE:
+  payload2 := (meta(me), QC1)
+  h2 := H(payload2)
+  broadcast SEND_LEADER(V, subject=my_id, payload=payload2, sig=sign(...))
+
+on receive SEND_LEADER(V, subject=s, payload=(meta_s, QC1_s), sig) from s:
+  if V != view or delivered[V][s]: ignore
+  if !verify(sig) or seen_SEND[V][s]: ignore
+  seen_SEND[V][s] := true
+  if verifyQC(QC1_s) and valid(meta_s) and no_collision(meta_s):
+    h2 := H(payload2)
+    broadcast ECHO_LEADER(V, subject=s, payload_hash=h2, sig=sign(...))
+
+on receive ECHO_LEADER(V, subject=s, payload_hash=h2) from u:
+  echo_count[V][s][h2].add(u)
+  if |echo_count[V][s][h2]| >= (n - f) and !sent_READY[V][s]:
+     sent_READY[V][s] := true
+     broadcast READY_LEADER(V, subject=s, payload_hash=h2, sig=sign(...))
+
+on receive READY_LEADER(V, subject=s, payload_hash=h2) from u:
+  if |ready_count[V][s][h2]| == f and !sent_READY[V][s]:
+     sent_READY[V][s] := true
+     broadcast READY_LEADER(V, subject=s, payload_hash=h2, sig=sign(...))
+  ready_count[V][s][h2].add(u)
+
+  if |ready_count[V][s][h2]| >= (2f + 1) and !delivered[V][s]:
+     delivered[V][s] := true
+     QC2 := QC{type=LEADER, view=V, subject=s, payload_hash=h2, sigs=2f+1 READY}
+     locked_subject[V] := s
+     if s == my_id: status := LEADER else status := FOLLOWER
+
+# Timeout → view change (if no QC2 in time):
+on phase2_timeout and QC2 == ⊥:
+  view := view + 1
+  reset phase-2 maps; carry forward highest QC1 you know
+
+
+“vote once per view” rule: enforce that once you ECHO (or READY) for (view, phase, subject), you won’t ECHO/READY for a conflicting subject in the same view and phase.
+
+/bft/
+  crypto/
+    attest.go        // make/verify attestation over (msgType, view, subject, payloadHash)
+  rbc/
+    rbc.go           // ASB: SEND/ECHO/READY state machine
+    rbc_store.go     // per-(view,phase,subject,hash) counters & dedup
+    types.go         // RBC messages, QC structs
+  proto/
+    messages.proto   // SEND_* / ECHO_* / READY_* envelopes (protobuf)
+  node/
+    state.go         // view, status, locked_subject, QC1/QC2, timers
+    phase1.go        // orchestration for candidate cert (QC1)
+    phase2.go        // orchestration for leader cert (QC2)
+    handlers.go      // gRPC service: Receive(Send/Echo/Ready)
+  transport/
+    server.go        // gRPC server
+    client.go        // connection pool, retry
+  main.go            // boot a “vehicle” with peers list & keys
+
+
+H = Hash(
+  encode(view) ||
+  encode(phase) ||
+  encode(subject_id) ||
+  payload_hash ||        // raw 32B/64B hash bytes
+  encode(signer_id)
+)
+sig = ed25519.Sign(sk, H)

@@ -68,9 +68,9 @@ func (n *Node) DialPeer(peerID, targetAddr string, dialTimeout time.Duration) er
 // relative to THIS node (so we may permit them to pass in parallel later).
 //
 // IMPORTANT:
-// - We count *our own* self-vote before broadcasting (paper: everyone self-votes).
-// - We set our electionTimeMs at the time we receive our **first** ACK,
-//   matching the paper's notion of "last response time recorded" for tie-breaks.
+//   - We count *our own* self-vote before broadcasting (paper: everyone self-votes).
+//   - We set our electionTimeMs at the time we receive our **first** ACK,
+//     matching the paper's notion of "last response time recorded" for tie-breaks.
 func (n *Node) solicitCandidateVotes(ctx context.Context, perRPC time.Duration) (acks uint32, noCollisionFrom map[string]bool) {
 	noCollisionFrom = map[string]bool{}
 
@@ -94,14 +94,14 @@ func (n *Node) solicitCandidateVotes(ctx context.Context, perRPC time.Duration) 
 			n.mu.Lock()
 			vanetSim := n.vanetSim
 			n.mu.Unlock()
-			
+
 			if vanetSim != nil {
 				// Check for packet loss
 				if vanetSim.SimulatePacketDrop() {
 					// Packet lost - simulate network failure
 					return nil
 				}
-				
+
 				// Apply network latency
 				latency := vanetSim.SimulateLatency()
 				select {
@@ -111,7 +111,7 @@ func (n *Node) solicitCandidateVotes(ctx context.Context, perRPC time.Duration) 
 					return nil
 				}
 			}
-			
+
 			// per-RPC timeout; the outer ctx enforces the overall consensus deadline
 			rpcCtx, cancel := context.WithTimeout(ctx, perRPC)
 			defer cancel()
@@ -177,14 +177,14 @@ func (n *Node) runLeaderElection(ctx context.Context, perRPC time.Duration) (ack
 			n.mu.Lock()
 			vanetSim := n.vanetSim
 			n.mu.Unlock()
-			
+
 			if vanetSim != nil {
 				// Check for packet loss
 				if vanetSim.SimulatePacketDrop() {
 					// Packet lost - simulate network failure
 					return nil
 				}
-				
+
 				// Apply network latency
 				latency := vanetSim.SimulateLatency()
 				select {
@@ -194,7 +194,7 @@ func (n *Node) runLeaderElection(ctx context.Context, perRPC time.Duration) (ack
 					return nil
 				}
 			}
-			
+
 			rpcCtx, cancel := context.WithTimeout(ctx, perRPC)
 			defer cancel()
 
@@ -231,7 +231,7 @@ func (n *Node) maybeAdoptIfBehind(other *pb.VehicleMeta) {
 	defer n.mu.Unlock()
 
 	// Algorithm 2 comparison: other is ahead if:
-	// other.receivedVotes > our.receivedVotes OR 
+	// other.receivedVotes > our.receivedVotes OR
 	// (other.receivedVotes == our.receivedVotes AND other.electionTime > our.electionTime)
 	// Note: Later election-time is better (more recent/fresh candidate)
 	otherAhead := other.ReceivedVotes > n.receivedVotes ||
@@ -263,11 +263,12 @@ func (n *Node) snapshotPeers() map[string]pb.IntersectionConsensusClient {
 // RunElectionCycle runs both phases with deadlines and quorum checks.
 //
 // Usage:
-//   ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond) // overall deadline
-//   defer cancel()
-//   res, err := node.RunElectionCycle(ctx, 100*time.Millisecond)
-//   if errors.Is(err, ErrConsensusTimeout) { ...fallback to vision... }
-//   if res.BecameLeader { ...pass through intersection... }
+//
+//	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond) // overall deadline
+//	defer cancel()
+//	res, err := node.RunElectionCycle(ctx, 100*time.Millisecond)
+//	if errors.Is(err, ErrConsensusTimeout) { ...fallback to vision... }
+//	if res.BecameLeader { ...pass through intersection... }
 //
 // Returns a small struct describing what happened.
 type ElectionResult struct {
