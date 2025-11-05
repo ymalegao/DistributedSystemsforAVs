@@ -1,0 +1,286 @@
+version 3
+run Default-0-20251105-12:31:33-477280
+attr configname Default
+attr datetime 20251105-12:31:33
+attr datetimef 20251105-123133
+attr experiment Default
+attr inifile omnetpp.ini
+attr iterationvars ""
+attr iterationvarsd ""
+attr iterationvarsf ""
+attr measurement ""
+attr network fourWay
+attr processid 477280
+attr repetition 0
+attr replication #0
+attr resultdir results
+attr runnumber 0
+attr seedset 0
+config image-path ../../../../mnt/c/Users/yashm/src/veins-veins-5.3.1/images
+config cmdenv-express-mode true
+config cmdenv-autoflush true
+config cmdenv-status-frequency 1s
+config **.cmdenv-log-level info
+config image-path ../../images
+config network fourWay
+config debug-on-errors true
+config print-undisposed true
+config sim-time-limit 200s
+config **.scalar-recording true
+config **.vector-recording true
+config *.playgroundSizeX 2500m
+config *.playgroundSizeY 2500m
+config *.playgroundSizeZ 50m
+config *.annotations.draw true
+config *.obstacles.debug false
+config *.manager.updateInterval 1s
+config *.manager.host "\"localhost\""
+config *.manager.port 9999
+config *.manager.autoShutdown true
+config *.manager.launchConfig "xmldoc(\"osm.launchd.xml\")"
+config *.manager.trafficLightModuleType "\"org.car2x.veins.nodes.TrafficLight\""
+config *.tls[*].mobility.x 0
+config *.tls[*].mobility.y 0
+config *.tls[*].mobility.z 3
+config *.tls[*].applType "\"org.car2x.veins.modules.application.traci.TraCIDemoTrafficLightApp\""
+config *.tls[*].logicType "\"org.car2x.veins.modules.world.traci.trafficLight.logics.TraCITrafficLightSimpleLogic\""
+config *.rsu[0].mobility.x 2000
+config *.rsu[0].mobility.y 2000
+config *.rsu[0].mobility.z 3
+config *.rsu[*].applType "\"TraCIDemoRSU11p\""
+config *.rsu[*].appl.headerLength "80 bit"
+config *.rsu[*].appl.sendBeacons false
+config *.rsu[*].appl.dataOnSch false
+config *.rsu[*].appl.beaconInterval 1s
+config *.rsu[*].appl.beaconUserPriority 7
+config *.rsu[*].appl.dataUserPriority 5
+config *.rsu[*].nic.phy80211p.antennaOffsetZ "0 m"
+config *.connectionManager.sendDirect true
+config *.connectionManager.maxInterfDist 2600m
+config *.connectionManager.drawMaxIntfDist false
+config *.**.nic.mac1609_4.useServiceChannel false
+config *.**.nic.mac1609_4.txPower 20mW
+config *.**.nic.mac1609_4.bitrate 6Mbps
+config *.**.nic.phy80211p.minPowerLevel -110dBm
+config *.**.nic.phy80211p.useNoiseFloor true
+config *.**.nic.phy80211p.noiseFloor -98dBm
+config *.**.nic.phy80211p.decider "xmldoc(\"config.xml\")"
+config *.**.nic.phy80211p.analogueModels "xmldoc(\"config.xml\")"
+config *.**.nic.phy80211p.usePropagationDelay true
+config *.**.nic.phy80211p.antenna "xmldoc(\"antenna.xml\", \"/root/Antenna[@id='monopole']\")"
+config *.node[*].nic.phy80211p.antennaOffsetY "0 m"
+config *.node[*].nic.phy80211p.antennaOffsetZ "1.895 m"
+config *.node[*].applType "\"src.IntersectionApp\""
+config *.node[*].appl.headerLength "80 bit"
+config *.node[*].appl.sendBeacons false
+config *.node[*].appl.dataOnSch false
+config *.node[*].appl.beaconInterval 1s
+config *.node[*].veinsmobility.x 0
+config *.node[*].veinsmobility.y 0
+config *.node[*].veinsmobility.z 0
+config *.node[*].veinsmobility.setHostSpeed false
+config *.node[*0].veinsmobility.accidentCount 0
+config *.node[*0].veinsmobility.accidentStart 73s
+config *.node[*0].veinsmobility.accidentDuration 50s
+
+vector 0 fourWay.rsu[0].nic.phy80211p RadioState ETV
+vector 1 fourWay.rsu[0].nic.phy80211p RadioChannel ETV
+vector 2 fourWay.node[0].nic.phy80211p RadioState ETV
+vector 3 fourWay.node[0].nic.phy80211p RadioChannel ETV
+vector 4 fourWay.manager posx ETV
+vector 5 fourWay.manager posy ETV
+vector 6 fourWay.node[1].nic.phy80211p RadioState ETV
+vector 7 fourWay.node[1].nic.phy80211p RadioChannel ETV
+vector 8 fourWay.manager posx ETV
+vector 9 fourWay.manager posy ETV
+vector 10 fourWay.node[2].nic.phy80211p RadioState ETV
+vector 11 fourWay.node[2].nic.phy80211p RadioChannel ETV
+vector 12 fourWay.manager posx ETV
+vector 13 fourWay.manager posy ETV
+vector 14 fourWay.node[3].nic.phy80211p RadioState ETV
+vector 15 fourWay.node[3].nic.phy80211p RadioChannel ETV
+vector 16 fourWay.manager posx ETV
+vector 17 fourWay.manager posy ETV
+4	12	11	138.28288923347
+5	12	11	92.691716678312
+8	12	11	126.29522939314
+9	12	11	96.064491463812
+12	12	11	127.94260646993
+13	12	11	90.280766946147
+16	12	11	118.25687991742
+17	12	11	101.54563071083
+vector 18 fourWay.manager speed ETV
+vector 19 fourWay.manager speed ETV
+vector 20 fourWay.manager speed ETV
+vector 21 fourWay.manager speed ETV
+4	13	12	138.27312084596
+5	13	12	92.694416622115
+8	13	12	130.50663996884
+9	13	12	110.64032254118
+12	13	12	123.20949436099
+13	13	12	73.460115828387
+16	13	12	118.27636410563
+17	13	12	101.54025006319
+18	13	12	0
+19	13	12	13.374987902834
+20	13	12	15.675848167485
+21	13	12	0
+vector 22 fourWay.manager acceleration ETV
+vector 23 fourWay.manager co2emission ETV
+vector 24 fourWay.manager acceleration ETV
+vector 25 fourWay.manager co2emission ETV
+vector 26 fourWay.manager acceleration ETV
+vector 27 fourWay.manager co2emission ETV
+vector 28 fourWay.manager acceleration ETV
+vector 29 fourWay.manager co2emission ETV
+4	14	13	138.27312084596
+5	14	13	92.694416622115
+8	14	13	133.39767160537
+9	14	13	120.91599668206
+12	14	13	119.7269695306
+13	14	13	60.963032844742
+16	14	13	118.27636410563
+17	14	13	101.54025006319
+18	14	13	0
+19	14	13	8.874987902834
+20	14	13	11.175848167485
+21	14	13	0
+22	14	13	0
+23	14	13	0.973
+24	14	13	-4.5
+25	14	13	0.973
+26	14	13	-4.5
+27	14	13	0.973
+28	14	13	0
+29	14	13	0.973
+4	19	14	136.9192982071
+5	19	14	93.068607862984
+8	19	14	135.07
+9	19	14	126.86
+12	19	14	117.44651775108
+13	19	14	52.779603718806
+16	19	14	119.64776276439
+17	19	14	101.1615320547
+18	19	14	2.2513805697433
+19	19	14	4.374987902834
+20	19	14	6.7022099114639
+21	19	14	2.2663876542284
+22	19	14	2.2513805697433
+23	19	14	2.4412209772244
+24	19	14	-4.5
+25	19	14	0.973
+26	19	14	-4.4736382560212
+27	19	14	0.973
+28	19	14	2.2663876542284
+29	19	14	2.4583055862511
+4	20	15	133.72921842459
+5	20	15	93.950333340176
+8	20	15	137.84692315302
+9	20	15	126.92270062304
+12	20	15	115.6605348477
+13	20	15	47.950277758568
+16	20	15	122.98469148411
+17	20	15	100.24002393511
+18	20	15	4.0998538428678
+19	20	15	3.7510247666648
+20	20	15	3.8168815576275
+21	20	15	4.3142705364733
+22	20	15	1.8484732731245
+23	20	15	3.1405544440895
+24	20	15	-0.62396313616921
+25	20	15	0.973
+26	20	15	-2.8853283538364
+27	20	15	0.973
+28	20	15	2.0478828822449
+29	20	15	3.4548026553592
+4	21	16	128.51113119668
+5	21	16	95.392592081255
+16	21	16	128.20036858373
+17	21	16	98.799690862362
+18	21	16	6.115304170837
+21	21	16	5.999248494657
+22	21	16	2.0154503279692
+23	21	16	4.3964758635645
+28	21	16	1.6849779581837
+29	21	16	3.8555230451719
+4	22	17	121.58358788482
+5	22	17	97.307337745583
+16	22	17	135.29888434358
+17	22	17	96.839403286835
+18	22	17	7.8690869140898
+21	22	17	8.1909031760528
+22	22	17	1.7537827432528
+23	22	17	4.8605797463372
+28	22	17	2.1916546813957
+29	22	17	5.882237740264
+4	23	18	112.9492601371
+5	23	18	99.770780428043
+16	23	18	144.29282077293
+17	23	18	94.441345144878
+18	23	18	9.6989892495464
+21	23	18	9.9956166552494
+22	23	18	1.8299023354566
+23	23	18	5.9394815396921
+28	23	18	1.8047134791966
+29	23	18	6.0318990128034
+4	24	19	102.45442788818
+5	24	19	102.86329691542
+16	24	19	155.07626401548
+17	24	19	91.647714261947
+18	24	19	11.904226284841
+21	24	19	12.011015190643
+22	24	19	2.205237035295
+23	24	19	8.1667443016821
+28	24	19	2.0153985353932
+29	24	19	7.683364835873
+4	25	20	89.679227109391
+5	25	20	106.62777052499
+16	25	20	167.71297684248
+17	25	20	88.373962973214
+18	25	20	14.233576757027
+21	25	20	13.812014727222
+22	25	20	2.3293504721858
+23	25	20	10.053368138518
+28	25	20	1.8009995365795
+29	25	20	8.0146837443242
+4	26	21	74.798644690042
+5	26	21	111.01263779891
+16	26	21	182.13332523009
+17	26	21	84.638131134333
+18	26	21	16.370757116791
+21	26	21	15.649789237056
+22	26	21	2.137180359764
+23	26	21	10.736957349358
+28	26	21	1.8377745098341
+29	26	21	9.1503720859754
+4	27	22	58.353506435268
+5	27	22	115.85853337721
+16	27	22	196.91108213203
+17	27	22	80.809706656814
+18	27	22	16.639281297139
+21	27	22	13.772913529601
+22	27	22	0.26852418034806
+23	27	22	3.4150540990485
+28	27	22	-1.8768757074549
+29	27	22	0.973
+4	28	23	44.927105055818
+5	28	23	119.79340487197
+16	28	23	207.65234082965
+17	28	23	78.027004384052
+18	28	23	12.266886471443
+21	28	23	9.3172093496309
+22	28	23	-4.3723948256959
+23	28	23	0.973
+28	28	23	-4.4557041799704
+29	28	23	0.973
+4	29	24	35.686994503094
+5	29	24	122.3033220349
+16	29	24	214.46242953133
+17	29	24	76.262737286371
+18	29	24	7.7668864714433
+21	29	24	5.8637430407428
+22	29	24	-4.5
+23	29	24	0.973
+28	29	24	-3.4534663088881
+29	29	24	0.973
+
