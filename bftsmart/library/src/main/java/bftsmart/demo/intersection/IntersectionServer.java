@@ -41,18 +41,20 @@ import java.util.Map;
 public final class IntersectionServer extends DefaultRecoverable {
     
     // Map of car_id -> arrival_time for cars currently waiting
-    private Map<String, Double> waitingCars;
+    private Map<String, Integer> waitMap = new HashMap<>(); // carId -> wait
+    private String lastLeaver = null;
+    private long roundNumber = 0;
     private int iterations = 0;
+    private int processId;
     private ServiceReplica replica;
     private int numCars;
-    private int processId;
+
     
     public IntersectionServer(int id, int numCars) {
-        this.waitingCars = new HashMap<>();
-        this.numCars = numCars;
-        this.processId = id;
+        this.waitMap = new HashMap<>();
         this.replica = new ServiceReplica(id, this, this);
-
+        this.processId = id;
+        this.numCars = numCars;
         if (numCars > 0) {
             new Thread(() -> {
                 try{
@@ -67,52 +69,25 @@ public final class IntersectionServer extends DefaultRecoverable {
         }
     }
 
-    private void sendCarRequest(){
-        try{
-            int clientId = 1000 + processId;
-            String carId = "CAR_" + processId;
-            String directions[] = {"left", "straight", "right"};
-            String direction = directions[processId % directions.length];
-            double arrivalTime;
-            if (processId == 0) {
-                arrivalTime = 0.001;
-                System.err.println("[SERVER " + processId + "] Car " + carId + " is lying about arrival time: claiming " + arrivalTime);
+    private void sendCarRequest() {
+    int clientId = 1000 + processId;
+    String carId = "CAR_" + processId;
 
-            }else{
-                arrivalTime = System.currentTimeMillis() / 1000.0;
-            }
-            String request = carId + ":" + direction + ":" + String.format("%.1f", arrivalTime);
-            System.out.println("═══════════════════════════════════════════════════════════");
-            System.out.println("[SERVER " + processId + "] Sending car request as client " + clientId);
-            System.out.println("  Request: " + request);
-            System.out.println("  Waiting for " + numCars + " total cars before consensus starts...");
-            System.out.println("═══════════════════════════════════════════════════════════");
-            System.out.println();
+    try (ServiceProxy proxy = new ServiceProxy(clientId)) {
+        String joinReq = "JOIN:" + carId;
+        byte[] joinReply = proxy.invokeOrdered(joinReq.getBytes(StandardCharsets.UTF_8));
+        System.out.println("[SERVER " + processId + "] JOIN reply: " + new String(joinReply, StandardCharsets.UTF_8));
 
-            try (ServiceProxy proxy = new ServiceProxy(clientId)) {
-                byte[] requestBytes = request.getBytes("UTF-8");
-                long startTime = System.nanoTime();
-                byte[] reply = proxy.invokeOrdered(requestBytes);
-                long endTime = System.nanoTime();
-                long consensusTimeNs = (endTime - startTime);
+        Thread.sleep(2000); // just to stagger the demo
 
-                if (reply != null) {
-                    String replyStr = new String(reply, "UTF-8").trim();
-                    System.out.println("[SERVER " + processId + "] Response received in " + String.format("%.3f", consensusTimeNs / 1_000_000.0) + " ms");
-                    System.out.println("[SERVER " + processId + "] Response: " + replyStr);
-                    System.out.println("═══════════════════════════════════════════════════════════");
-                } else {
-                    System.out.println("[SERVER " + processId + "] Consensus timed out");
-                }
-            } catch (IOException e) {
-                System.err.println("[SERVER " + processId + "] Error sending car request: " + e.getMessage());
-                e.printStackTrace();
-            } 
-        } catch (Exception e) {
-            System.err.println("[SERVER " + processId + "] Error sending car request: " + e.getMessage());
-            e.printStackTrace();
-        }
+        String leaveReq = "LEAVE:" + carId;
+        byte[] leaveReply = proxy.invokeOrdered(leaveReq.getBytes(StandardCharsets.UTF_8));
+        System.out.println("[SERVER " + processId + "] LEAVE reply: " + new String(leaveReply, StandardCharsets.UTF_8));
+    } catch (Exception e) {
+        System.err.println("[SERVER " + processId + "] Error sending car request: " + e.getMessage());
+        e.printStackTrace();
     }
+}
     
     /**
      * Parse a single car entry in the format "CAR_ID:direction:arrival_time"
@@ -137,7 +112,23 @@ public final class IntersectionServer extends DefaultRecoverable {
             return null;
         }
     }
-    
+
+    private static final class Cmd {
+        enum Type { JOIN, LEAVE, GET_STATE }
+        Type type;
+        String carId;
+    }
+
+    private Cmd parseCommand(String req) {
+        String[] parts = req.split(":", 2);
+        if (parts.length == 0 || parts[0].trim().isEmpty()) {
+            throw new IllegalArgumentException("Invalid command: " + req);
+        }
+        Cmd cmd = new Cmd();
+        cmd.type = Cmd.Type.valueOf(parts[0].trim().toUpperCase(java.util.Locale.ROOT));
+        cmd.carId = (parts.length > 1 && !parts[1].trim().isEmpty()) ? parts[1].trim() : null;
+        return cmd;
+    }
     /**
      * Parse a request containing multiple cars in the format:
      * "CAR_ID1:direction1:arrival_time1;CAR_ID2:direction2:arrival_time2;..."
@@ -166,33 +157,7 @@ public final class IntersectionServer extends DefaultRecoverable {
         return cars;
     }
     
-    /**
-     * Find the car with the smallest arrival time.
-     * In case of ties, break by car_id (lexicographically smallest).
-     * @return The car_id with the smallest arrival time, or null if no cars are waiting
-     */
-    private String findEarliestCar() {
-        if (waitingCars.isEmpty()) {
-            return null;
-        }
-        
-        String earliestCarId = null;
-        double earliestTime = Double.MAX_VALUE;
-        
-        for (Map.Entry<String, Double> entry : waitingCars.entrySet()) {
-            double time = entry.getValue();
-            String carId = entry.getKey();
-            
-            if (time < earliestTime || 
-                (time == earliestTime && (earliestCarId == null || carId.compareTo(earliestCarId) < 0))) {
-                earliestTime = time;
-                earliestCarId = carId;
-            }
-        }
-        
-        return earliestCarId;
-    }
-
+   
 
     private byte[][] generateByzantineResponse(byte[][] commands, java.util.List<String[]> allCars, String honestCarId) {
     
@@ -242,149 +207,102 @@ public final class IntersectionServer extends DefaultRecoverable {
     }
   
     @Override
-    public byte[][] appExecuteBatch(byte[][] commands, MessageContext[] msgCtxs, boolean fromConsensus) {
-        iterations++;
-        
-        // Measure application execution time
-        long appStartTime = System.nanoTime();
-        
-        byte[][] replies = new byte[commands.length][];
-        
-        try {
-            // Collect all cars from all requests in this batch
-            java.util.List<String[]> allCars = new java.util.ArrayList<>();
-            
-            for (int i = 0; i < commands.length; i++) {
-                String requestStr = new String(commands[i], "UTF-8");
-                String[][] cars = parseMultiCarRequest(requestStr);
-                
-                if (cars != null && cars.length > 0) {
-                    for (String[] car : cars) {
-                        allCars.add(car);
-                    }
-                }
-            }
-            
-            System.out.println("(" + iterations + ") Processing batch of " + commands.length + " request(s) with " + allCars.size() + " total car(s) in single consensus round");
-            System.out.println("(" + iterations + ") Total cars in batch: " + allCars.size() + " (expected: " + numCars + ")");
-            
-            // First, add all cars from all requests to waitingCars (for tracking)
-            for (String[] carData : allCars) {
-                String carId = carData[0];
-                String direction = carData[1];
-                double arrivalTime = Double.parseDouble(carData[2]);
-                
-                waitingCars.put(carId, arrivalTime);
-                System.out.println("  - Car " + carId + " arrived at time " + arrivalTime + 
-                                 " (direction: " + direction + ")");
-            }
-            System.out.println("  Total waiting cars: " + waitingCars.size());
-            
-            // Find the earliest car AMONG ALL CARS IN THIS BATCH
-            String earliestCarId = null;
-            double earliestTime = Double.MAX_VALUE;
-            
-            for (String[] carData : allCars) {
-                String carId = carData[0];
-                double arrivalTime = Double.parseDouble(carData[2]);
-                
-                if (arrivalTime < earliestTime || 
-                    (arrivalTime == earliestTime && (earliestCarId == null || carId.compareTo(earliestCarId) < 0))) {
-                    earliestTime = arrivalTime;
-                    earliestCarId = carId;
-                }
-            }
-            
-            if (earliestCarId == null && allCars.size() > 0) {
-                System.err.println("(" + iterations + ") No earliest car found (should not happen)");
-                // Return error for all requests
-                for (int i = 0; i < replies.length; i++) {
-                    replies[i] = "ERROR: No earliest car found".getBytes("UTF-8");
-                }
-                return replies;
-            }
-            
-            if (earliestCarId != null) {
-                System.out.println("  → Earliest car in this batch: " + earliestCarId + " (time: " + earliestTime + ")");
-            }
+public byte[][] appExecuteBatch(byte[][] commands, MessageContext[] msgCtxs, boolean fromConsensus) {
+    iterations++;
+    long appStartTime = System.nanoTime();
+    byte[][] replies = new byte[commands.length][];
 
-            // //ADD byzantine behavior here
-            // if (processId == 0) {
-            //     return generateByzantineResponse(commands, allCars, earliestCarId);
-            // }
-
-            
-            // Process each request and build responses
-            for (int i = 0; i < commands.length; i++) {
-                String requestStr = new String(commands[i], "UTF-8");
-                String[][] cars = parseMultiCarRequest(requestStr);
-                
-                if (cars == null || cars.length == 0) {
-                    replies[i] = "ERROR: Invalid request format".getBytes("UTF-8");
-                    continue;
-                }
-                
-                // Build response for all cars in this request
-                // Format: "CAR_ID1:GO;CAR_ID2:WAIT;CAR_ID3:WAIT;..."
-                StringBuilder response = new StringBuilder();
-                boolean first = true;
-                
-                for (String[] carData : cars) {
-                    String carId = carData[0];
-                    String decision;
-                    
-                    if (carId.equals(earliestCarId)) {
-                        // This car gets GO - remove it from waiting queue
-                        decision = "GO";
-                        waitingCars.remove(carId);
-                        System.out.println("  ✓ Car " + carId + " can GO (earliest in this batch). Removed from queue.");
-                    } else {
-                        // All other cars must WAIT (they stay in waitingCars for future processing)
-                        decision = "WAIT";
-                        System.out.println("  ⏸ Car " + carId + " must WAIT");
-                    }
-                    
-                    if (!first) {
-                        response.append(";");
-                    }
-                    response.append(carId).append(":").append(decision);
-                    first = false;
-                }
-                
-                replies[i] = response.toString().getBytes("UTF-8");
-            }
-            
-            // Calculate application execution time
-            long appEndTime = System.nanoTime();
-            long appTimeNs = appEndTime - appStartTime;
-            double appTimeMs = appTimeNs / 1_000_000.0;
-            double appTimeUs = appTimeNs / 1_000.0;
-            
-            System.out.println("(" + iterations + ") Batch processing complete. " + commands.length + " request(s) processed.");
-            System.out.println("(" + iterations + ") Application execution time: " + 
-                             String.format("%.3f", appTimeMs) + " ms (" + 
-                             String.format("%.2f", appTimeUs) + " μs)");
-            
-            return replies;
-            
-        } catch (Exception ex) {
-            // Calculate execution time even on error
-            long appEndTime = System.nanoTime();
-            long appTimeNs = appEndTime - appStartTime;
-            double appTimeMs = appTimeNs / 1_000_000.0;
-            
-            System.err.println("(" + iterations + ") Error processing batch: " + ex.getMessage());
-            System.err.println("(" + iterations + ") Application execution time (before error): " + 
-                             String.format("%.3f", appTimeMs) + " ms");
-            ex.printStackTrace();
-            
-            // Return error for all requests
-            for (int i = 0; i < replies.length; i++) {
-                replies[i] = "ERROR: Processing failed".getBytes(StandardCharsets.UTF_8);
-            }
-            return replies;
+    try {
+        // 1. Tick
+        for (Map.Entry<String, Integer> entry : waitMap.entrySet()) {
+            entry.setValue(entry.getValue() + 1);
         }
+        roundNumber++;
+
+        // 2. Decode commands
+        Cmd[] decoded = new Cmd[commands.length];
+        for (int i = 0; i < commands.length; i++) {
+            String reqStr = new String(commands[i], StandardCharsets.UTF_8).trim();
+            if (reqStr.isEmpty()) {
+                throw new IllegalArgumentException("Empty command at index " + i);
+            }
+            decoded[i] = parseCommand(reqStr);
+        }
+
+        // 3. Apply JOINs
+        for (Cmd cmd : decoded) {
+            if (cmd.type == Cmd.Type.JOIN && cmd.carId != null) {
+                waitMap.putIfAbsent(cmd.carId, 1);
+            }
+        }
+
+        // 4. Compute winner
+        String winner = null;
+        int bestWait = -1;
+        for (Map.Entry<String, Integer> entry : waitMap.entrySet()) {
+            String car = entry.getKey();
+            int w = entry.getValue();
+            if (w > bestWait || (w == bestWait && (winner == null || car.compareTo(winner) < 0))) {
+                bestWait = w;
+                winner = car;
+            }
+        }
+
+        // 5. Process commands + build replies
+        boolean winnerLeft = false;
+        for (int i = 0; i < commands.length; i++) {
+            Cmd cmd = decoded[i];
+            String carId = cmd.carId;
+            String reply;
+
+            switch (cmd.type) {
+                case LEAVE:
+                    if (carId == null || !waitMap.containsKey(carId)) {
+                        reply = (carId == null ? "UNKNOWN" : carId) + ":NOT_IN_QUEUE";
+                    } else if (!winnerLeft && carId.equals(winner)) {
+                        waitMap.remove(carId);
+                        lastLeaver = carId;
+                        winnerLeft = true;
+                        reply = carId + ":GO";
+                    } else {
+                        reply = carId + ":WAIT";
+                    }
+                    break;
+
+                case JOIN:
+                    int wait = waitMap.getOrDefault(carId, -1);
+                    reply = carId + ":JOINED_WAIT=" + wait;
+                    break;
+
+                case GET_STATE:
+                    //Should this be used for the new node to get the state?
+                    reply = "STATE:" + waitMap + ";WINNER=" + winner + ";ROUND=" + roundNumber;
+                    break;
+
+                default:
+                    reply = "ERROR:Unknown command";
+            }
+
+            replies[i] = reply.getBytes(StandardCharsets.UTF_8);
+        }
+
+        double appTimeMs = (System.nanoTime() - appStartTime) / 1_000_000.0;
+        System.out.println("(" + iterations + ") Round " + roundNumber + " processed "
+                + commands.length + " cmd(s). App time: " + String.format("%.3f", appTimeMs) + " ms");
+        System.out.println("   waitMap = " + waitMap);
+        System.out.println("   winner  = " + winner + ", lastLeaver = " + lastLeaver);
+
+        return replies;
+
+    } catch (Exception ex) {
+        System.err.println("(" + iterations + ") Error processing batch: " + ex.getMessage());
+        ex.printStackTrace();
+        for (int i = 0; i < replies.length; i++) {
+            replies[i] = "ERROR: Processing failed".getBytes(StandardCharsets.UTF_8);
+        }
+        return replies;
     }
+}
 
     public static void main(String[] args) {
         if (args.length < 2) {
@@ -399,34 +317,32 @@ public final class IntersectionServer extends DefaultRecoverable {
     @SuppressWarnings("unchecked")
     @Override
     public void installSnapshot(byte[] state) {
-        try {
-            ByteArrayInputStream bis = new ByteArrayInputStream(state);
-            ObjectInput in = new ObjectInputStream(bis);
-            waitingCars = (Map<String, Double>) in.readObject();
-            in.close();
-            bis.close();
-            System.out.println("[STATE] Snapshot installed. Waiting cars: " + waitingCars.size());
+        try (ObjectInput in = new ObjectInputStream(new ByteArrayInputStream(state))) {
+            waitMap = (Map<String, Integer>) in.readObject();
+            lastLeaver = (String) in.readObject();
+            roundNumber = in.readLong();
+            System.out.println("[STATE] Snapshot installed. Waiting cars: " + waitMap.size());
         } catch (IOException | ClassNotFoundException e) {
             System.err.println("[ERROR] Error deserializing state: " + e.getMessage());
-            waitingCars = new HashMap<>(); // Reset to empty map on error
+            waitMap = new HashMap<>();
+            lastLeaver = null;
+            roundNumber = 0;
         }
     }
 
     @Override
     public byte[] getSnapshot() {
-        try {
-            ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            ObjectOutput out = new ObjectOutputStream(bos);
-            out.writeObject(waitingCars);
+        try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            ObjectOutput out = new ObjectOutputStream(bos)) {
+            out.writeObject(waitMap);
+            out.writeObject(lastLeaver);
+            out.writeLong(roundNumber);
             out.flush();
-            bos.flush();
-            out.close();
-            bos.close();
-            System.out.println("[STATE] Snapshot taken. Waiting cars: " + waitingCars.size());
+            System.out.println("[STATE] Snapshot taken. Waiting cars: " + waitMap.size());
             return bos.toByteArray();
         } catch (IOException ioe) {
             System.err.println("[ERROR] Error serializing state: " + ioe.getMessage());
-            return "ERROR".getBytes();
+            return "ERROR".getBytes(StandardCharsets.UTF_8);
         }
     }
 }

@@ -76,4 +76,28 @@ for i in 0 1 2 3; do
 done
 
 echo "All 4 IntersectionServer instances have been started in separate terminal windows."
+sleep 5
 
+
+echo "=== ROUND 1: Genesis (4 cars JOIN, CAR_0 leaves) ==="
+sleep 8  # wait for Round 1+2 to complete
+echo "=== State transfer: New car E queries state ==="
+./smartrun.sh bftsmart.demo.intersection.IntersectionClient 2000 "GET_STATE:CAR_E"
+sleep 2
+echo ""
+echo "=== ROUND N: Car E joins ==="
+./smartrun.sh bftsmart.demo.intersection.IntersectionClient 2000 "JOIN:CAR_E"
+sleep 2
+
+echo ""
+echo "=== ROUND N+1: Car B (CAR_1) tries to leave ==="
+./smartrun.sh bftsmart.demo.intersection.IntersectionClient 1001 "LEAVE:CAR_1"
+
+sleep 2
+
+echo ""
+echo "=== Final state check ==="
+./smartrun.sh bftsmart.demo.intersection.IntersectionClient 2000 "GET_STATE:CAR_E"
+
+echo ""
+echo "=== Scenario complete! Replicas still running in separate terminals. ==="
