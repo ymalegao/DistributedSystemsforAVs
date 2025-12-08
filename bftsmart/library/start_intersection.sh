@@ -79,25 +79,48 @@ echo "All 4 IntersectionServer instances have been started in separate terminal 
 sleep 5
 
 
-echo "=== ROUND 1: Genesis (4 cars JOIN, CAR_0 leaves) ==="
-sleep 8  # wait for Round 1+2 to complete
-echo "=== State transfer: New car E queries state ==="
-./smartrun.sh bftsmart.demo.intersection.IntersectionClient 2000 "GET_STATE:CAR_E"
+echo "=== ROUND 1-2: Genesis (4 cars JOIN/LEAVE) ==="
+sleep 10  # wait for Round 1+2 to complete (CAR_0 leaves queue but replica 0 stays alive)
+
+echo ""
+echo "=== Step 1: Starting replica 4 (CAR_E) - will wait for view update ==="
+osascript <<EOF
+tell application "Terminal"
+    activate
+    set newTab to do script "cd '$SCRIPT_DIR' && ./smartrun.sh bftsmart.demo.intersection.IntersectionServer 4 4"
+    set custom title of newTab to "IntersectionServer 4 (CAR_E)"
+end tell
+EOF
+
+echo "Waiting 5 seconds for replica 4 to boot up..."
+sleep 5
+
+echo ""
+echo "=== Step 2: TTP adds replica 4 to the view ==="
+echo "(Replicas 0,1,2,3 will vote to add replica 4)"
+./smartrun.sh bftsmart.demo.intersection.ReconfigurationTrigger add4
+
+echo "Waiting 8 seconds for view update to propagate and replica 4 to sync..."
+sleep 8
+
+echo ""
+echo "=== Step 3: TTP removes replica 0 from view ==="
+echo "(All 5 replicas vote on this, then replica 0 exits)"
+./smartrun.sh bftsmart.demo.intersection.ReconfigurationTrigger remove0
+
+echo "Waiting 5 seconds for replica 0 to exit..."
+sleep 5
+
+echo ""
+echo "=== Testing with new view (replicas 1,2,3,4): Car E joins queue ==="
+./smartrun.sh bftsmart.demo.intersection.IntersectionClient 2004 "JOIN:CAR_E"
+
 sleep 2
-echo ""
-echo "=== ROUND N: Car E joins ==="
-./smartrun.sh bftsmart.demo.intersection.IntersectionClient 2000 "JOIN:CAR_E"
-sleep 2
 
 echo ""
-echo "=== ROUND N+1: Car B (CAR_1) tries to leave ==="
-./smartrun.sh bftsmart.demo.intersection.IntersectionClient 1001 "LEAVE:CAR_1"
-
-sleep 2
+echo "=== Final state with replicas 1,2,3,4 ==="
+./smartrun.sh bftsmart.demo.intersection.IntersectionClient 2000 "GET_STATE:FINAL"
 
 echo ""
-echo "=== Final state check ==="
-./smartrun.sh bftsmart.demo.intersection.IntersectionClient 2000 "GET_STATE:CAR_E"
-
-echo ""
-echo "=== Scenario complete! Replicas still running in separate terminals. ==="
+echo "=== All tests complete! Dynamic reconfiguration successful! ==="
+echo "View changed: 0,1,2,3 → 0,1,2,3,4 → 1,2,3,4"

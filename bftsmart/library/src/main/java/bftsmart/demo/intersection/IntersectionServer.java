@@ -58,6 +58,12 @@ public final class IntersectionServer extends DefaultRecoverable {
         if (numCars > 0) {
             new Thread(() -> {
                 try{
+                    // Replica 4 (CAR_E) doesn't auto-send - waits for manual JOIN command
+                    if (processId == 4) {
+                        System.out.println("[CAR_E/Replica 4] Waiting for manual JOIN command...");
+                        return;
+                    }
+                    
                     Thread.sleep(6000);
                     Thread.sleep((long)(Math.random() * 50));
 
@@ -82,7 +88,19 @@ public final class IntersectionServer extends DefaultRecoverable {
 
         String leaveReq = "LEAVE:" + carId;
         byte[] leaveReply = proxy.invokeOrdered(leaveReq.getBytes(StandardCharsets.UTF_8));
-        System.out.println("[SERVER " + processId + "] LEAVE reply: " + new String(leaveReply, StandardCharsets.UTF_8));
+        String replyStr = new String(leaveReply, StandardCharsets.UTF_8);
+
+        System.out.println("[SERVER " + processId + "] LEAVE reply: " + replyStr);
+
+        if (processId == 0 && replyStr.contains(":GO")) {
+            System.out.println("[CAR_0] Left intersection (application level).");
+            System.out.println("[CAR_0] Replica 0 staying alive to vote on reconfiguration (adding replica 4)...");
+            System.out.println("[CAR_0] Will remove self and exit after replica 4 joins.");
+            // Don't exit - let external script handle reconfiguration sequence
+        }
+
+
+
     } catch (Exception e) {
         System.err.println("[SERVER " + processId + "] Error sending car request: " + e.getMessage());
         e.printStackTrace();
@@ -271,6 +289,12 @@ public byte[][] appExecuteBatch(byte[][] commands, MessageContext[] msgCtxs, boo
 
                 case JOIN:
                     int wait = waitMap.getOrDefault(carId, -1);
+                    
+
+                    if (processId == 0 && carId.equals("CAR_E")){
+                        System.err.println("[BYZANTINE] Replica 0 lying: claiming CAR_E has wait=999");
+                        wait = 999;
+                    }
                     reply = carId + ":JOINED_WAIT=" + wait;
                     break;
 
