@@ -1,0 +1,207 @@
+version 3
+run WithChannelSwitching-0-20251209-16:34:08-42623
+attr configname WithChannelSwitching
+attr datetime 20251209-16:34:08
+attr datetimef 20251209-163408
+attr experiment WithChannelSwitching
+attr inifile omnetpp.ini
+attr iterationvars ""
+attr iterationvarsd ""
+attr iterationvarsf ""
+attr measurement ""
+attr network fourWay
+attr processid 42623
+attr repetition 0
+attr replication #0
+attr resultdir results
+attr runnumber 0
+attr seedset 0
+config image-path ../../../../mnt/c/Users/yashm/src/veins-veins-5.3.1/images
+config *.**.nic.mac1609_4.useServiceChannel true
+config *.node[*].appl.dataOnSch true
+config *.rsu[*].appl.dataOnSch true
+config *.node[0].appl.gatewayHost "\"127.0.0.1\""
+config *.node[0].appl.gatewayPort 9001
+config *.node[0].appl.carId "\"CAR_1\""
+config *.node[0].appl.direction "\"straight\""
+config *.node[0].appl.stopDistance 50m
+config *.node[0].appl.intersectionX 1250m
+config *.node[0].appl.intersectionY 1250m
+config *.node[1].appl.gatewayHost "\"127.0.0.1\""
+config *.node[1].appl.gatewayPort 9002
+config *.node[1].appl.carId "\"CAR_2\""
+config *.node[1].appl.direction "\"right\""
+config *.node[1].appl.stopDistance 50m
+config *.node[1].appl.intersectionX 1250m
+config *.node[1].appl.intersectionY 1250m
+config *.node[2].appl.gatewayHost "\"127.0.0.1\""
+config *.node[2].appl.gatewayPort 9003
+config *.node[2].appl.carId "\"CAR_3\""
+config *.node[2].appl.direction "\"left\""
+config *.node[2].appl.stopDistance 50m
+config *.node[2].appl.intersectionX 1250m
+config *.node[2].appl.intersectionY 1250m
+config *.node[3].appl.gatewayHost "\"127.0.0.1\""
+config *.node[3].appl.gatewayPort 9004
+config *.node[3].appl.carId "\"CAR_4\""
+config *.node[3].appl.direction "\"right\""
+config *.node[3].appl.stopDistance 50m
+config *.node[3].appl.intersectionX 1250m
+config *.node[3].appl.intersectionY 1250m
+config cmdenv-express-mode true
+config cmdenv-autoflush true
+config cmdenv-status-frequency 1s
+config **.cmdenv-log-level info
+config image-path ../../images
+config network fourWay
+config debug-on-errors true
+config print-undisposed true
+config sim-time-limit 200s
+config **.scalar-recording true
+config **.vector-recording true
+config *.playgroundSizeX 2500m
+config *.playgroundSizeY 2500m
+config *.playgroundSizeZ 50m
+config *.annotations.draw true
+config *.obstacles.debug false
+config *.manager.updateInterval 1s
+config *.manager.host "\"localhost\""
+config *.manager.port 9999
+config *.manager.autoShutdown true
+config *.manager.launchConfig "xmldoc(\"osm.launchd.xml\")"
+config *.manager.trafficLightModuleType "\"org.car2x.veins.nodes.TrafficLight\""
+config *.tls[*].mobility.x 0
+config *.tls[*].mobility.y 0
+config *.tls[*].mobility.z 3
+config *.tls[*].applType "\"org.car2x.veins.modules.application.traci.TraCIDemoTrafficLightApp\""
+config *.tls[*].logicType "\"org.car2x.veins.modules.world.traci.trafficLight.logics.TraCITrafficLightSimpleLogic\""
+config *.rsu[0].mobility.x 2000
+config *.rsu[0].mobility.y 2000
+config *.rsu[0].mobility.z 3
+config *.rsu[*].applType "\"TraCIDemoRSU11p\""
+config *.rsu[*].appl.headerLength "80 bit"
+config *.rsu[*].appl.sendBeacons false
+config *.rsu[*].appl.dataOnSch false
+config *.rsu[*].appl.beaconInterval 1s
+config *.rsu[*].appl.beaconUserPriority 7
+config *.rsu[*].appl.dataUserPriority 5
+config *.rsu[*].nic.phy80211p.antennaOffsetZ "0 m"
+config *.connectionManager.sendDirect true
+config *.connectionManager.maxInterfDist 2600m
+config *.connectionManager.drawMaxIntfDist false
+config *.connectionManagerName "\"connectionManager\""
+config *.**.nic.mac1609_4.useServiceChannel false
+config *.**.nic.mac1609_4.txPower 20mW
+config *.**.nic.mac1609_4.bitrate 6Mbps
+config *.**.nic.phy80211p.minPowerLevel -110dBm
+config *.**.nic.phy80211p.useNoiseFloor true
+config *.**.nic.phy80211p.noiseFloor -98dBm
+config *.**.nic.phy80211p.decider "xmldoc(\"config.xml\")"
+config *.**.nic.phy80211p.analogueModels "xmldoc(\"config.xml\")"
+config *.**.nic.phy80211p.usePropagationDelay true
+config *.**.nic.phy80211p.antenna "xmldoc(\"antenna.xml\", \"/root/Antenna[@id='monopole']\")"
+config *.node[*].nic.phy80211p.antennaOffsetY "0 m"
+config *.node[*].nic.phy80211p.antennaOffsetZ "1.895 m"
+config *.node[*].applType "\"src.IntersectionApp\""
+config *.node[*].appl.headerLength "80 bit"
+config *.node[*].appl.sendBeacons false
+config *.node[*].appl.dataOnSch false
+config *.node[*].appl.beaconInterval 1s
+config *.node[*].nic.phy80211p.connectionManagerName "\"connectionManager\""
+config *.node[*].veinsmobility.x 0
+config *.node[*].veinsmobility.y 0
+config *.node[*].veinsmobility.z 0
+config *.node[*].veinsmobility.setHostSpeed false
+config *.node[0].veinsmobility.accidentCount 0
+config *.node[0].veinsmobility.accidentStart 73s
+config *.node[0].veinsmobility.accidentDuration 50s
+
+vector 0 fourWay.node[0].nic.phy80211p RadioState ETV
+vector 1 fourWay.node[0].nic.phy80211p RadioChannel ETV
+vector 2 fourWay.manager posx ETV
+vector 3 fourWay.manager posy ETV
+vector 4 fourWay.node[1].nic.phy80211p RadioState ETV
+vector 5 fourWay.node[1].nic.phy80211p RadioChannel ETV
+vector 6 fourWay.manager posx ETV
+vector 7 fourWay.manager posy ETV
+vector 8 fourWay.node[2].nic.phy80211p RadioState ETV
+vector 9 fourWay.node[2].nic.phy80211p RadioChannel ETV
+vector 10 fourWay.manager posx ETV
+vector 11 fourWay.manager posy ETV
+vector 12 fourWay.node[3].nic.phy80211p RadioState ETV
+vector 13 fourWay.node[3].nic.phy80211p RadioChannel ETV
+vector 14 fourWay.manager posx ETV
+vector 15 fourWay.manager posy ETV
+2	12	11	138.62347301101
+3	12	11	92.610225476481
+6	12	11	119.46167683391
+7	12	11	71.919578239986
+10	12	11	132.66499171601
+11	12	11	106.51094422532
+14	12	11	117.9183309338
+15	12	11	101.6417550932
+vector 16 fourWay.manager speed ETV
+vector 17 fourWay.manager speed ETV
+vector 18 fourWay.manager speed ETV
+vector 19 fourWay.manager speed ETV
+vector 20 fourWay.manager acceleration ETV
+vector 21 fourWay.manager co2emission ETV
+vector 22 fourWay.manager acceleration ETV
+vector 23 fourWay.manager co2emission ETV
+vector 24 fourWay.manager acceleration ETV
+vector 25 fourWay.manager co2emission ETV
+vector 26 fourWay.manager acceleration ETV
+vector 27 fourWay.manager co2emission ETV
+2	125	12	138.55828310594
+2	246	13	138.26194295252
+2	367	14	137.33158037562
+3	125	12	92.627120286815
+3	246	13	92.707408514275
+3	367	14	92.964120478243
+6	125	12	121.84420391685
+6	246	13	123.27712430403
+6	367	14	123.75776480937
+7	125	12	80.47154927591
+7	246	13	85.614950891689
+7	367	14	87.340187809169
+10	125	12	132.05841860279
+10	246	13	130.94428097867
+10	367	14	129.27727149896
+11	125	12	104.42623731402
+11	246	13	100.59710220313
+11	367	14	94.86782388892
+14	125	12	118.05263798738
+14	246	13	118.65298253076
+14	367	14	120.70405830635
+15	125	12	101.60216985635
+15	246	13	101.43624516351
+15	367	14	100.86983121229
+16	125	12	0.093626566133991
+16	246	13	0.44607290719831
+16	367	14	1.4400412706479
+17	125	12	9.4463295065307
+17	246	13	4.9463295065307
+17	367	14	0.52919481149532
+18	125	12	2.7980008817546
+18	246	13	4.8083153875301
+18	367	14	6.8188988710137
+19	125	12	0.20876674107216
+19	246	13	1.0471574808867
+19	367	14	2.9896329565956
+20	246	13	0.35244634106432
+20	367	14	0.9939683634496
+21	246	13	1.1694159967189
+21	367	14	1.5247001235571
+22	246	13	-4.5
+22	367	14	-4.4171346950353
+23	246	13	0.973
+23	367	14	0.973
+24	246	13	2.0103145057755
+24	367	14	2.0105834834836
+25	246	13	3.6817831944995
+25	367	14	4.7723350888594
+26	246	13	0.83839073981454
+26	367	14	1.9424754757089
+27	246	13	1.3722013903756
+27	367	14	2.6562449316448
+

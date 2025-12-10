@@ -1,4 +1,4 @@
-out/clang-release//src/IntersectionApp.o: src/IntersectionApp.cc \
+out/clang-debug//src/IntersectionApp.o: src/IntersectionApp.cc \
   /mnt/c/Users/yashm/src/veins-veins-5.3.1/src/veins/modules/application/traci/TraCIDemo11p.h \
   /mnt/c/Users/yashm/src/veins-veins-5.3.1/src/veins/modules/application/ieee80211p/DemoBaseApplLayer.h \
   /mnt/c/Users/yashm/src/veins-veins-5.3.1/src/veins/base/modules/BaseApplLayer.h \
@@ -51,8 +51,7 @@ out/clang-release//src/IntersectionApp.o: src/IntersectionApp.cc \
   /mnt/c/Users/yashm/src/veins-veins-5.3.1/src/veins/base/utils/EnumBitset.h \
   /mnt/c/Users/yashm/src/veins-veins-5.3.1/src/veins/modules/mobility/traci/TraCIRegionOfInterest.h \
   /mnt/c/Users/yashm/src/veins-veins-5.3.1/src/veins/modules/mobility/traci/TraCICommandInterface.h \
-  /mnt/c/Users/yashm/src/veins-veins-5.3.1/src/veins/modules/world/traci/trafficLight/TraCITrafficLightProgram.h \
-  /home/yash/omnetpp/omnetpp-6.2.0/include/omnetpp/platdep/sockets.h
+  /mnt/c/Users/yashm/src/veins-veins-5.3.1/src/veins/modules/world/traci/trafficLight/TraCITrafficLightProgram.h
 /mnt/c/Users/yashm/src/veins-veins-5.3.1/src/veins/modules/application/traci/TraCIDemo11p.h:
 /mnt/c/Users/yashm/src/veins-veins-5.3.1/src/veins/modules/application/ieee80211p/DemoBaseApplLayer.h:
 /mnt/c/Users/yashm/src/veins-veins-5.3.1/src/veins/base/modules/BaseApplLayer.h:
@@ -106,4 +105,3 @@ out/clang-release//src/IntersectionApp.o: src/IntersectionApp.cc \
 /mnt/c/Users/yashm/src/veins-veins-5.3.1/src/veins/modules/mobility/traci/TraCIRegionOfInterest.h:
 /mnt/c/Users/yashm/src/veins-veins-5.3.1/src/veins/modules/mobility/traci/TraCICommandInterface.h:
 /mnt/c/Users/yashm/src/veins-veins-5.3.1/src/veins/modules/world/traci/trafficLight/TraCITrafficLightProgram.h:
-/home/yash/omnetpp/omnetpp-6.2.0/include/omnetpp/platdep/sockets.h:

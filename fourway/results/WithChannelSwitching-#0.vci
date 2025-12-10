@@ -1,0 +1,176 @@
+file 7468 1765326931                                            
+version 3
+run WithChannelSwitching-0-20251209-16:34:08-42623
+attr configname WithChannelSwitching
+attr datetime 20251209-16:34:08
+attr datetimef 20251209-163408
+attr experiment WithChannelSwitching
+attr inifile omnetpp.ini
+attr iterationvars ""
+attr iterationvarsd ""
+attr iterationvarsf ""
+attr measurement ""
+attr network fourWay
+attr processid 42623
+attr repetition 0
+attr replication #0
+attr resultdir results
+attr runnumber 0
+attr seedset 0
+config image-path ../../../../mnt/c/Users/yashm/src/veins-veins-5.3.1/images
+config *.**.nic.mac1609_4.useServiceChannel true
+config *.node[*].appl.dataOnSch true
+config *.rsu[*].appl.dataOnSch true
+config *.node[0].appl.gatewayHost "\"127.0.0.1\""
+config *.node[0].appl.gatewayPort 9001
+config *.node[0].appl.carId "\"CAR_1\""
+config *.node[0].appl.direction "\"straight\""
+config *.node[0].appl.stopDistance 50m
+config *.node[0].appl.intersectionX 1250m
+config *.node[0].appl.intersectionY 1250m
+config *.node[1].appl.gatewayHost "\"127.0.0.1\""
+config *.node[1].appl.gatewayPort 9002
+config *.node[1].appl.carId "\"CAR_2\""
+config *.node[1].appl.direction "\"right\""
+config *.node[1].appl.stopDistance 50m
+config *.node[1].appl.intersectionX 1250m
+config *.node[1].appl.intersectionY 1250m
+config *.node[2].appl.gatewayHost "\"127.0.0.1\""
+config *.node[2].appl.gatewayPort 9003
+config *.node[2].appl.carId "\"CAR_3\""
+config *.node[2].appl.direction "\"left\""
+config *.node[2].appl.stopDistance 50m
+config *.node[2].appl.intersectionX 1250m
+config *.node[2].appl.intersectionY 1250m
+config *.node[3].appl.gatewayHost "\"127.0.0.1\""
+config *.node[3].appl.gatewayPort 9004
+config *.node[3].appl.carId "\"CAR_4\""
+config *.node[3].appl.direction "\"right\""
+config *.node[3].appl.stopDistance 50m
+config *.node[3].appl.intersectionX 1250m
+config *.node[3].appl.intersectionY 1250m
+config cmdenv-express-mode true
+config cmdenv-autoflush true
+config cmdenv-status-frequency 1s
+config **.cmdenv-log-level info
+config image-path ../../images
+config network fourWay
+config debug-on-errors true
+config print-undisposed true
+config sim-time-limit 200s
+config **.scalar-recording true
+config **.vector-recording true
+config *.playgroundSizeX 2500m
+config *.playgroundSizeY 2500m
+config *.playgroundSizeZ 50m
+config *.annotations.draw true
+config *.obstacles.debug false
+config *.manager.updateInterval 1s
+config *.manager.host "\"localhost\""
+config *.manager.port 9999
+config *.manager.autoShutdown true
+config *.manager.launchConfig "xmldoc(\"osm.launchd.xml\")"
+config *.manager.trafficLightModuleType "\"org.car2x.veins.nodes.TrafficLight\""
+config *.tls[*].mobility.x 0
+config *.tls[*].mobility.y 0
+config *.tls[*].mobility.z 3
+config *.tls[*].applType "\"org.car2x.veins.modules.application.traci.TraCIDemoTrafficLightApp\""
+config *.tls[*].logicType "\"org.car2x.veins.modules.world.traci.trafficLight.logics.TraCITrafficLightSimpleLogic\""
+config *.rsu[0].mobility.x 2000
+config *.rsu[0].mobility.y 2000
+config *.rsu[0].mobility.z 3
+config *.rsu[*].applType "\"TraCIDemoRSU11p\""
+config *.rsu[*].appl.headerLength "80 bit"
+config *.rsu[*].appl.sendBeacons false
+config *.rsu[*].appl.dataOnSch false
+config *.rsu[*].appl.beaconInterval 1s
+config *.rsu[*].appl.beaconUserPriority 7
+config *.rsu[*].appl.dataUserPriority 5
+config *.rsu[*].nic.phy80211p.antennaOffsetZ "0 m"
+config *.connectionManager.sendDirect true
+config *.connectionManager.maxInterfDist 2600m
+config *.connectionManager.drawMaxIntfDist false
+config *.connectionManagerName "\"connectionManager\""
+config *.**.nic.mac1609_4.useServiceChannel false
+config *.**.nic.mac1609_4.txPower 20mW
+config *.**.nic.mac1609_4.bitrate 6Mbps
+config *.**.nic.phy80211p.minPowerLevel -110dBm
+config *.**.nic.phy80211p.useNoiseFloor true
+config *.**.nic.phy80211p.noiseFloor -98dBm
+config *.**.nic.phy80211p.decider "xmldoc(\"config.xml\")"
+config *.**.nic.phy80211p.analogueModels "xmldoc(\"config.xml\")"
+config *.**.nic.phy80211p.usePropagationDelay true
+config *.**.nic.phy80211p.antenna "xmldoc(\"antenna.xml\", \"/root/Antenna[@id='monopole']\")"
+config *.node[*].nic.phy80211p.antennaOffsetY "0 m"
+config *.node[*].nic.phy80211p.antennaOffsetZ "1.895 m"
+config *.node[*].applType "\"src.IntersectionApp\""
+config *.node[*].appl.headerLength "80 bit"
+config *.node[*].appl.sendBeacons false
+config *.node[*].appl.dataOnSch false
+config *.node[*].appl.beaconInterval 1s
+config *.node[*].nic.phy80211p.connectionManagerName "\"connectionManager\""
+config *.node[*].veinsmobility.x 0
+config *.node[*].veinsmobility.y 0
+config *.node[*].veinsmobility.z 0
+config *.node[*].veinsmobility.setHostSpeed false
+config *.node[0].veinsmobility.accidentCount 0
+config *.node[0].veinsmobility.accidentStart 73s
+config *.node[0].veinsmobility.accidentDuration 50s
+
+vector 0 fourWay.node[0].nic.phy80211p RadioState ETV
+vector 1 fourWay.node[0].nic.phy80211p RadioChannel ETV
+vector 2 fourWay.manager posx ETV
+vector 3 fourWay.manager posy ETV
+vector 4 fourWay.node[1].nic.phy80211p RadioState ETV
+vector 5 fourWay.node[1].nic.phy80211p RadioChannel ETV
+vector 6 fourWay.manager posx ETV
+vector 7 fourWay.manager posy ETV
+vector 8 fourWay.node[2].nic.phy80211p RadioState ETV
+vector 9 fourWay.node[2].nic.phy80211p RadioChannel ETV
+vector 10 fourWay.manager posx ETV
+vector 11 fourWay.manager posy ETV
+vector 12 fourWay.node[3].nic.phy80211p RadioState ETV
+vector 13 fourWay.node[3].nic.phy80211p RadioChannel ETV
+vector 14 fourWay.manager posx ETV
+vector 15 fourWay.manager posy ETV
+2	5474 24 12 12 11 11 1 138.62347301101 138.62347301101 138.62347301101 19216.467269634
+3	5498 24 12 12 11 11 1 92.610225476481 92.610225476481 92.610225476481 8576.6538628047
+6	5522 24 12 12 11 11 1 119.46167683391 119.46167683391 119.46167683391 14271.09223197
+7	5546 24 12 12 11 11 1 71.919578239986 71.919578239986 71.919578239986 5172.4257342175
+10	5570 25 12 12 11 11 1 132.66499171601 132.66499171601 132.66499171601 17600.000027008
+11	5595 25 12 12 11 11 1 106.51094422532 106.51094422532 106.51094422532 11344.581239768
+14	5620 24 12 12 11 11 1 117.9183309338 117.9183309338 117.9183309338 13904.732770213
+15	5644 24 12 12 11 11 1 101.6417550932 101.6417550932 101.6417550932 10331.046378425
+vector 16 fourWay.manager speed ETV
+vector 17 fourWay.manager speed ETV
+vector 18 fourWay.manager speed ETV
+vector 19 fourWay.manager speed ETV
+vector 20 fourWay.manager acceleration ETV
+vector 21 fourWay.manager co2emission ETV
+vector 22 fourWay.manager acceleration ETV
+vector 23 fourWay.manager co2emission ETV
+vector 24 fourWay.manager acceleration ETV
+vector 25 fourWay.manager co2emission ETV
+vector 26 fourWay.manager acceleration ETV
+vector 27 fourWay.manager co2emission ETV
+2	6152 75 125 367 12 14 3 137.33158037562 138.55828310594 414.15180643407 57174.725654736
+3	6227 75 125 367 12 14 3 92.627120286815 92.964120478243 278.29864927933 25816.774702354
+6	6302 75 125 367 12 14 3 121.84420391685 123.75776480937 368.87909303025 45359.243755414
+7	6377 74 125 367 12 14 3 80.47154927591 87.340187809169 253.42668797677 21433.898465592
+10	6451 78 125 367 12 14 3 129.27727149896 132.05841860279 392.27997108042 51298.443571105
+11	6529 77 125 367 12 14 3 94.86782388892 104.42623731402 299.89116340607 30024.52002065
+14	6606 78 125 367 12 14 3 118.05263798738 120.70405830635 357.40967882449 42584.425290848
+15	6684 78 125 367 12 14 3 100.86983121229 101.60216985635 303.90824623215 30787.035601187
+16	6762 81 125 367 12 14 3 0.093626566133991 1.4400412706479 1.9797407439802 2.2814658335917
+17	6843 79 125 367 12 14 3 0.52919481149532 9.4463295065307 14.921853824557 113.97936388164
+18	6922 78 125 367 12 14 3 2.7980008817546 6.8188988710137 14.425215140298 77.44608761337
+19	7000 79 125 367 12 14 3 0.20876674107216 2.9896329565956 4.2455571785544 10.078027557117
+20	7079 53 246 367 13 14 2 0.35244634106432 0.9939683634496 1.3464147045139 1.1121915308683
+21	7132 52 246 367 13 14 2 1.1694159967189 1.5247001235571 2.6941161202759 3.6922442401569
+22	7184 42 246 367 13 14 2 -4.5 -4.4171346950353 -8.9171346950353 39.761078914085
+23	7226 32 246 367 13 14 2 0.973 0.973 1.946 1.893458
+24	7258 52 246 367 13 14 2 2.0103145057755 2.0105834834836 4.0208979892591 8.0838103561884
+25	7310 52 246 367 13 14 2 3.6817831944995 4.7723350888594 8.4541182833589 36.330709691658
+26	7362 53 246 367 13 14 2 0.83839073981454 1.9424754757089 2.7808662155234 4.4761100063371
+27	7415 52 246 367 13 14 2 1.3722013903756 2.6562449316448 4.0284463220204 8.9385737926372
+

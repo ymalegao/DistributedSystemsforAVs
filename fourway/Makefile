@@ -2,7 +2,7 @@
 # OMNeT++/OMNEST Makefile for fourway
 #
 # This file was generated with the command:
-#  opp_makemake -f --deep -O out -KVEINS_PROJ=/mnt/c/Users/yashm/src/veins-veins-5.3.1 -DVEINS_IMPORT -I. -I$$\(VEINS_PROJ\)/src -Isrc -L$$\(VEINS_PROJ\)/src -lveins$$\(D\)
+#  opp_makemake -f --deep -O out -KVEINS_PROJ=/mnt/c/Users/yashm/src/veins-veins-5.3.1 -KFOURWAY_PROJ=. -DVEINS_IMPORT -I. -I$$\(VEINS_PROJ\)/src -Isrc -L$$\(VEINS_PROJ\)/src -lveins$$\(D\)
 #
 
 # Name of target to be created (-o option)
@@ -41,6 +41,7 @@ SMFILES =
 
 # Other makefile variables (-K)
 VEINS_PROJ=/mnt/c/Users/yashm/src/veins-veins-5.3.1
+FOURWAY_PROJ=.
 
 #------------------------------------------------------------------------------
 
