@@ -40,7 +40,13 @@ import java.util.Map;
  */
 public final class IntersectionServer extends DefaultRecoverable {
     
-    // Map of car_id -> arrival_time for cars currently waiting
+    // BATCH-OF-4 CONSENSUS MODE
+    // Buffer for incoming JOIN requests - we wait until we have 4 unique cars
+    private Map<String, Double> joinBuffer = new HashMap<>(); // carId -> arrivalTime
+    private String finalDecision = null; // The single decision for all 4 cars
+    private boolean batchProcessed = false;
+    
+    // Old fields (kept for compatibility)
     private Map<String, Integer> waitMap = new HashMap<>(); // carId -> wait
     private String lastLeaver = null;
     private long roundNumber = 0;
@@ -48,6 +54,9 @@ public final class IntersectionServer extends DefaultRecoverable {
     private int processId;
     private ServiceReplica replica;
     private int numCars;
+    
+    private static final int BATCH_SIZE = 4; // Wait for 4 cars
+    private static final int CROSSING_TIME_SECONDS = 5; // Time between cars
 
     
     public IntersectionServer(int id, int numCars) {
@@ -229,15 +238,10 @@ public byte[][] appExecuteBatch(byte[][] commands, MessageContext[] msgCtxs, boo
     iterations++;
     long appStartTime = System.nanoTime();
     byte[][] replies = new byte[commands.length][];
+    roundNumber++;
 
     try {
-        // 1. Tick
-        for (Map.Entry<String, Integer> entry : waitMap.entrySet()) {
-            entry.setValue(entry.getValue() + 1);
-        }
-        roundNumber++;
-
-        // 2. Decode commands
+        // Decode all commands
         Cmd[] decoded = new Cmd[commands.length];
         for (int i = 0; i < commands.length; i++) {
             String reqStr = new String(commands[i], StandardCharsets.UTF_8).trim();
@@ -247,60 +251,85 @@ public byte[][] appExecuteBatch(byte[][] commands, MessageContext[] msgCtxs, boo
             decoded[i] = parseCommand(reqStr);
         }
 
-        // 3. Apply JOINs
+        // === BATCH-OF-4 CONSENSUS MODE ===
+        
+        // Step 1: Collect JOIN requests (with timestamps from V2V)
         for (Cmd cmd : decoded) {
-            if (cmd.type == Cmd.Type.JOIN && cmd.carId != null) {
-                waitMap.putIfAbsent(cmd.carId, 1);
+            if (cmd.type == Cmd.Type.JOIN && cmd.carId != null && !batchProcessed) {
+                // Extract timestamp if present (format: "JOIN:CAR_1:10.5")
+                double arrivalTime = System.currentTimeMillis() / 1000.0; // Default to now
+                
+                if (!joinBuffer.containsKey(cmd.carId)) {
+                    joinBuffer.put(cmd.carId, arrivalTime);
+                    System.out.println("[BATCH] Buffered JOIN from " + cmd.carId + 
+                                     " (buffer size: " + joinBuffer.size() + "/" + BATCH_SIZE + ")");
+                }
             }
         }
 
-        // 4. Compute winner
-        String winner = null;
-        int bestWait = -1;
-        for (Map.Entry<String, Integer> entry : waitMap.entrySet()) {
-            String car = entry.getKey();
-            int w = entry.getValue();
-            if (w > bestWait || (w == bestWait && (winner == null || car.compareTo(winner) < 0))) {
-                bestWait = w;
-                winner = car;
+        // Step 2: Check if we have 4 unique cars - if so, RUN CONSENSUS
+        if (!batchProcessed && joinBuffer.size() >= BATCH_SIZE) {
+            System.out.println("\n[BATCH] ===== TRIGGERING CONSENSUS: We have " + BATCH_SIZE + " cars! =====");
+            
+            // Sort cars by arrival time (or alphabetically if tied)
+            java.util.List<java.util.Map.Entry<String, Double>> sortedCars = 
+                new java.util.ArrayList<>(joinBuffer.entrySet());
+            sortedCars.sort((a, b) -> {
+                int timeCompare = Double.compare(a.getValue(), b.getValue());
+                if (timeCompare != 0) return timeCompare;
+                return a.getKey().compareTo(b.getKey()); // Alphabetical tiebreaker
+            });
+            
+            // Build the SINGLE decision for all 4 cars
+            // Format: "CAR_0:GO:0;CAR_1:GO:5;CAR_2:GO:10;CAR_3:GO:15"
+            StringBuilder decisionBuilder = new StringBuilder();
+            for (int pos = 0; pos < sortedCars.size() && pos < BATCH_SIZE; pos++) {
+                String carId = sortedCars.get(pos).getKey();
+                int delaySeconds = pos * CROSSING_TIME_SECONDS;
+                
+                if (pos > 0) decisionBuilder.append(";");
+                decisionBuilder.append(carId).append(":GO:").append(delaySeconds);
             }
+            
+            finalDecision = decisionBuilder.toString();
+            batchProcessed = true;
+            
+            System.out.println("[BATCH] ===== CONSENSUS COMPLETE =====");
+            System.out.println("[BATCH] Final Decision: " + finalDecision);
+            System.out.println("[BATCH] All subsequent requests will receive this decision\n");
         }
 
-        // 5. Process commands + build replies
-        boolean winnerLeft = false;
+        // Step 3: Build replies for this batch
         for (int i = 0; i < commands.length; i++) {
             Cmd cmd = decoded[i];
             String carId = cmd.carId;
             String reply;
 
             switch (cmd.type) {
-                case LEAVE:
-                    if (carId == null || !waitMap.containsKey(carId)) {
-                        reply = (carId == null ? "UNKNOWN" : carId) + ":NOT_IN_QUEUE";
-                    } else if (!winnerLeft && carId.equals(winner)) {
-                        waitMap.remove(carId);
-                        lastLeaver = carId;
-                        winnerLeft = true;
-                        reply = carId + ":GO";
+                case JOIN:
+                    if (batchProcessed) {
+                        // Consensus already done - tell them to wait for LEAVE
+                        reply = carId + ":JOINED_BATCH_READY";
                     } else {
-                        reply = carId + ":WAIT";
+                        // Still buffering
+                        reply = carId + ":JOINED_BUFFERING=" + joinBuffer.size() + "/" + BATCH_SIZE;
                     }
                     break;
 
-                case JOIN:
-                    int wait = waitMap.getOrDefault(carId, -1);
-                    
-
-                    if (processId == 0 && carId.equals("CAR_E")){
-                        System.err.println("[BYZANTINE] Replica 0 lying: claiming CAR_E has wait=999");
-                        wait = 999;
+                case LEAVE:
+                    if (batchProcessed && finalDecision != null) {
+                        // Return the SINGLE decision to everyone
+                        reply = finalDecision;
+                    } else {
+                        // Consensus not ready yet
+                        reply = carId + ":WAIT_FOR_CONSENSUS";
                     }
-                    reply = carId + ":JOINED_WAIT=" + wait;
                     break;
 
                 case GET_STATE:
-                    //Should this be used for the new node to get the state?
-                    reply = "STATE:" + waitMap + ";WINNER=" + winner + ";ROUND=" + roundNumber;
+                    reply = "STATE:buffer=" + joinBuffer.size() + 
+                           ";batchProcessed=" + batchProcessed + 
+                           ";decision=" + (finalDecision != null ? finalDecision : "NONE");
                     break;
 
                 default:
@@ -313,8 +342,11 @@ public byte[][] appExecuteBatch(byte[][] commands, MessageContext[] msgCtxs, boo
         double appTimeMs = (System.nanoTime() - appStartTime) / 1_000_000.0;
         System.out.println("(" + iterations + ") Round " + roundNumber + " processed "
                 + commands.length + " cmd(s). App time: " + String.format("%.3f", appTimeMs) + " ms");
-        System.out.println("   waitMap = " + waitMap);
-        System.out.println("   winner  = " + winner + ", lastLeaver = " + lastLeaver);
+        System.out.println("   joinBuffer = " + joinBuffer);
+        System.out.println("   batchProcessed = " + batchProcessed);
+        if (finalDecision != null) {
+            System.out.println("   finalDecision = " + finalDecision);
+        }
 
         return replies;
 
@@ -322,7 +354,9 @@ public byte[][] appExecuteBatch(byte[][] commands, MessageContext[] msgCtxs, boo
         System.err.println("(" + iterations + ") Error processing batch: " + ex.getMessage());
         ex.printStackTrace();
         for (int i = 0; i < replies.length; i++) {
-            replies[i] = "ERROR: Processing failed".getBytes(StandardCharsets.UTF_8);
+            if (replies[i] == null) {
+                replies[i] = "ERROR: Processing failed".getBytes(StandardCharsets.UTF_8);
+            }
         }
         return replies;
     }
@@ -342,14 +376,17 @@ public byte[][] appExecuteBatch(byte[][] commands, MessageContext[] msgCtxs, boo
     @Override
     public void installSnapshot(byte[] state) {
         try (ObjectInput in = new ObjectInputStream(new ByteArrayInputStream(state))) {
-            waitMap = (Map<String, Integer>) in.readObject();
-            lastLeaver = (String) in.readObject();
+            joinBuffer = (Map<String, Double>) in.readObject();
+            finalDecision = (String) in.readObject();
+            batchProcessed = in.readBoolean();
             roundNumber = in.readLong();
-            System.out.println("[STATE] Snapshot installed. Waiting cars: " + waitMap.size());
+            System.out.println("[STATE] Snapshot installed. Buffer size: " + joinBuffer.size() + 
+                             ", Batch processed: " + batchProcessed);
         } catch (IOException | ClassNotFoundException e) {
             System.err.println("[ERROR] Error deserializing state: " + e.getMessage());
-            waitMap = new HashMap<>();
-            lastLeaver = null;
+            joinBuffer = new HashMap<>();
+            finalDecision = null;
+            batchProcessed = false;
             roundNumber = 0;
         }
     }
@@ -358,11 +395,13 @@ public byte[][] appExecuteBatch(byte[][] commands, MessageContext[] msgCtxs, boo
     public byte[] getSnapshot() {
         try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
             ObjectOutput out = new ObjectOutputStream(bos)) {
-            out.writeObject(waitMap);
-            out.writeObject(lastLeaver);
+            out.writeObject(joinBuffer);
+            out.writeObject(finalDecision);
+            out.writeBoolean(batchProcessed);
             out.writeLong(roundNumber);
             out.flush();
-            System.out.println("[STATE] Snapshot taken. Waiting cars: " + waitMap.size());
+            System.out.println("[STATE] Snapshot taken. Buffer size: " + joinBuffer.size() + 
+                             ", Batch processed: " + batchProcessed);
             return bos.toByteArray();
         } catch (IOException ioe) {
             System.err.println("[ERROR] Error serializing state: " + ioe.getMessage());

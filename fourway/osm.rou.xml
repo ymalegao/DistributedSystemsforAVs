@@ -16,7 +16,7 @@
           depart="10"
           from="-34813111#1"
           to="10553209#0"
-          departLane="best" departPos="last" departSpeed="max"
+          departLane="best" departPos="-10" departSpeed="max"
           arrivalPos="0"/>
 
     <trip id="vehE" type="vehE"

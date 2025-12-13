@@ -2,6 +2,7 @@
 #include "veins/modules/mobility/traci/TraCIMobility.h"
 #include "veins/modules/mobility/traci/TraCICommandInterface.h"
 #include "veins/base/utils/Coord.h"
+#include "veins/modules/application/traci/TraCIDemo11pMessage_m.h"
 #include <omnetpp/platdep/sockets.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -41,17 +42,20 @@ class IntersectionApp : public TraCIDemo11p {
     // Messages
     cMessage* checkSocketMsg = nullptr;
     cMessage* resumeEvt = nullptr;
+    cMessage* sendReqEvt = nullptr; // Add this
+    cMessage* resumeMsg = nullptr;
 
     char recvBuffer[4096];
     std::string recvLineBuffer;
 
-  public:
-    virtual ~IntersectionApp();
+public:
+virtual ~IntersectionApp();
 
-  protected:
+protected:
     virtual void initialize(int stage) override;
     virtual void handleMessage(cMessage* msg) override;
     virtual void handlePositionUpdate(cObject* obj) override;
+    virtual void onWSM(veins::BaseFrame1609_4* wsm) override;
     virtual void finish() override;
 
     void connectToGateway();
@@ -72,6 +76,7 @@ Define_Module(IntersectionApp);
 IntersectionApp::~IntersectionApp() {
     cancelAndDelete(checkSocketMsg);
     cancelAndDelete(resumeEvt);
+    cancelAndDelete(resumeMsg);
     disconnectFromGateway();
 }
 
@@ -90,9 +95,10 @@ void IntersectionApp::initialize(int stage) {
 
         checkSocketMsg = new cMessage("checkSocketMsg");
         resumeEvt = new cMessage("resumeAfterDecision");
-        
+        resumeMsg = new cMessage("resumeVehicle");
+        sendReqEvt = new cMessage("sendRequestEvent");
         EV_INFO << "IntersectionApp initialized: carId=" << carId 
-                << ", gateway=" << gatewayHost << ":" << gatewayPort << endl;
+        << ", gateway=" << gatewayHost << ":" << gatewayPort << endl;
     }
     // Don't schedule anything in stage 1 - wait for first position update
 }
@@ -103,9 +109,8 @@ void IntersectionApp::handleMessage(cMessage* msg) {
         if (!connectedToGateway) {
             connectToGateway();
             if (connectedToGateway) {
-                scheduleAt(simTime() + 0.1, checkSocketMsg); // Then check regularly
+                scheduleAt(simTime() + 0.1, checkSocketMsg);
             } else {
-                // Retry connection later if it failed
                 scheduleAt(simTime() + 1.0, checkSocketMsg);
             }
         } else {
@@ -114,14 +119,20 @@ void IntersectionApp::handleMessage(cMessage* msg) {
             scheduleAt(simTime() + 0.1, checkSocketMsg);
         }
     }
-    else if (msg == resumeEvt) {
+    else if (msg == resumeMsg) {  // CHANGED: handle resumeMsg for scheduled resume
+        EV_INFO << "Car " << carId << " resuming after scheduled delay\n";
+        resumeVehicle();
+    }
+    else if (msg == resumeEvt) {  // KEEP: for immediate processing
         processDecision();
+    }
+    else if (msg == sendReqEvt) {
+        sendRequestCross();
     }
     else {
         TraCIDemo11p::handleMessage(msg);
     }
 }
-
 void IntersectionApp::handlePositionUpdate(cObject* obj) {
     TraCIDemo11p::handlePositionUpdate(obj);
 
@@ -129,6 +140,7 @@ void IntersectionApp::handlePositionUpdate(cObject* obj) {
     if (!checkSocketMsg || !mobility) return;
 
     // First position update - connect to gateway
+    // Note: All cars connect to gateways to act as proxies/forwarders
     if (!connectedToGateway && !checkSocketMsg->isScheduled()) {
         EV_INFO << "First position update - connecting to gateway\n";
         connectToGateway();
@@ -139,14 +151,14 @@ void IntersectionApp::handlePositionUpdate(cObject* obj) {
             scheduleAt(simTime() + 1.0, checkSocketMsg);
         }
     }
-    
-    if (!connectedToGateway) return;
 
-    // Safely check distance
+    // Safely check distance - ANY car can broadcast a request when approaching
+    // No need to be connected to gateway for broadcasting
     if (isApproachingIntersection() && !hasRequested && !waitingForDecision) {
-        EV_INFO << "Car " << carId << " approaching intersection, sending REQUEST_CROSS\n";
+        EV_INFO << "Car " << carId << " approaching intersection, broadcasting REQUEST via V2V\n";
         stopVehicle();
-        sendRequestCross();
+        double randomDelay = uniform(0.01, 0.5);
+        scheduleAt(simTime() + randomDelay, sendReqEvt);
         hasRequested = true;
         waitingForDecision = true;
     }
@@ -235,27 +247,27 @@ void IntersectionApp::disconnectFromGateway(){
 }
 
 void IntersectionApp::sendRequestCross(){
-    if (!connectedToGateway || gatewaySocket < 0 ){
-        EV_ERROR << "Cannot send request: not connected to gateway\n";
-        return;
-    }
-
-    double arrivalTime = simTime().dbl();
+    // 1. Prepare the payload string
+    // Format: "REQ <carId> <direction> <timestamp>"
     std::ostringstream request;
-    request << "REQUEST_CROSS " << carId << " " << direction << " " << arrivalTime << "\n";
+    request << "REQ " << carId << " " << direction << " " << simTime().dbl();
     std::string requestStr = request.str();
+
+    // 2. Create the Radio Packet (V2V Message)
+    veins::TraCIDemo11pMessage* wsm = new veins::TraCIDemo11pMessage("RequestCross");
+    populateWSM(wsm);
+    wsm->setDemoData(requestStr.c_str());
     
-    ssize_t sent = ::send(gatewaySocket, requestStr.c_str(), requestStr.length(), 0);
-    if (sent < 0){
-        EV_ERROR << "Failed to send request: " << strerror(errno) << "\n";
-        return;
-    }
-    EV_INFO << "Request sent successfully\n";
+    
+    // 3. Broadcast it to the air!
+    sendDown(wsm);
+    
+    EV_INFO << "Broadcasting request via V2V: " << requestStr << endl;
 }
 
 void IntersectionApp::checkSocketData(){
     if (!connectedToGateway || gatewaySocket < 0 ) return;
-
+    
     ssize_t n = ::recv(gatewaySocket, recvBuffer, sizeof(recvBuffer) - 1, MSG_DONTWAIT);
 
     if (n > 0 ){
@@ -267,7 +279,27 @@ void IntersectionApp::checkSocketData(){
             std::string line = recvLineBuffer.substr(0, pos);
             recvLineBuffer.erase(0, pos + 1);
             if (!line.empty()){
-                parseDecision(line);
+                // Check if this is a DECISION message
+                if (line.find("DECISION ") == 0) {
+                    // 1. Process it locally (So I know if I can go)
+                    parseDecision(line);
+                    
+                    // 2. RE-BROADCAST it to the network (V2V)
+                    // This ensures the car that requested (Car 1) hears the answer
+                    // even if it's not connected to this specific Gateway.
+                    
+                    // Strip "DECISION " prefix and replace with "DEC " to save bytes/differentiate
+                    std::string v2vMsg = "DEC " + line.substr(9);
+                    
+                    veins::TraCIDemo11pMessage* wsm = new veins::TraCIDemo11pMessage("DecisionBroadcast");
+                    populateWSM(wsm);
+                    wsm->setDemoData(v2vMsg.c_str());
+                    sendDown(wsm);
+                    
+                    EV_INFO << "Re-broadcasting BFT Decision via V2V: " << v2vMsg << endl;
+                } else {
+                    parseDecision(line);
+                }
             }
         }
     }
@@ -285,32 +317,134 @@ void IntersectionApp::parseDecision(const std::string& line){
         std::istringstream iss(line);
         std::string command;
         iss >> command >> qcId >> orderPosition >> fullOrder;
+
+        // Only mark as received if this decision is for ME
+        if (!fullOrder.empty() && fullOrder.find(carId) != std::string::npos) {
+            decisionReceived = true;
+            waitingForDecision = false;
+            EV_INFO << "Received MY decision: " << fullOrder << "\n";
+        } else {
+            EV_INFO << "Received decision for another car: " << fullOrder << " (ignoring)\n";
+        }
         
-        decisionReceived = true;
-        waitingForDecision = false;
         processDecision();
     }
 }
 
 void IntersectionApp::processDecision(){
-    if (!decisionReceived) return;
+    EV_INFO << "Processing decision: " << fullOrder << "\n";  // CHANGED: decision -> fullOrder
+    
+    // Parse format: "CAR_ID:GO:DELAY" or "CAR_ID:WAIT"
+    size_t firstColon = fullOrder.find(':');  // CHANGED: decision -> fullOrder
+    size_t secondColon = fullOrder.find(':', firstColon + 1);  // CHANGED
+    
+    if (firstColon == std::string::npos) return;
+    
+    std::string carInDecision = fullOrder.substr(0, firstColon);  // CHANGED
+    std::string command = fullOrder.substr(firstColon + 1,  // CHANGED
+                                         (secondColon != std::string::npos) 
+                                         ? secondColon - firstColon - 1 
+                                         : std::string::npos);
+    
+    // Extract delay if present (format: CAR_ID:GO:DELAY)
+    double delaySeconds = 0.0;
+    if (secondColon != std::string::npos) {
+        std::string delayStr = fullOrder.substr(secondColon + 1);  // CHANGED
+        delaySeconds = std::stod(delayStr);
+    }
+    
+    if (carInDecision == carId && command == "GO") {
+        double safeDelay = (delaySeconds < 0.1) ? 0.1 : delaySeconds;
 
-    bool canGo = false; 
-    std::string searchPattern = carId + ":GO";
-    if (fullOrder.find(searchPattern) != std::string::npos){
-        canGo = true;
+        EV_INFO << "Car " << carId << " will resume in " << safeDelay << "s\n";
+        
+        // Ensure we don't schedule duplicates
+        if (resumeMsg->isScheduled()) {
+            cancelEvent(resumeMsg);
+        }
+        scheduleAt(simTime() + safeDelay, resumeMsg);
+    } else if (carInDecision == carId && command == "WAIT") {
+        EV_INFO << "Car " << carId << " must continue waiting\n";
+    }
+}
+
+void IntersectionApp::onWSM(veins::BaseFrame1609_4* frame) {
+    // Cast to TraCIDemo11pMessage
+    veins::TraCIDemo11pMessage* wsm = dynamic_cast<veins::TraCIDemo11pMessage*>(frame);
+    if (!wsm) {
+        // Not a TraCIDemo11pMessage, let parent handle it
+        TraCIDemo11p::onWSM(frame);
+        return;
     }
 
-    if (canGo){
-        EV_INFO << "Car " << carId << " can go\n";
-        resumeVehicle();
+    // 1. Get the data
+    std::string msg = wsm->getDemoData();
+    EV_INFO << "Received V2V Message: " << msg << endl;
+
+    // 2. Check Type
+    if (msg.find("REQ ") == 0) {
+        // --- PROXY LOGIC ---
+        // I heard a neighbor request crossing.
+        // I must forward this to my local BFT Gateway so it can process it.
+        
+        // Extract the carId from the message: "REQ <carId> ..."
+        std::istringstream iss(msg);
+        std::string reqPrefix, requestingCarId;
+        iss >> reqPrefix >> requestingCarId;
+        
+        // Don't forward my own requests (avoid double submission)
+        if (requestingCarId == carId) {
+            EV_INFO << "Ignoring my own V2V request (not forwarding to gateway)\n";
+            return;
+        }
+        
+        if (connectedToGateway && gatewaySocket >= 0) {
+            // Transform to the format Gateway expects: "REQUEST_CROSS ..."
+            // Note: My code sent "REQ", Gateway expects "REQUEST_CROSS"
+            // Let's just fix the string before sending.
+            std::string forwardedMsg = "REQUEST_CROSS" + msg.substr(3) + "\n"; // replace REQ with REQUEST_CROSS
+            
+            ::send(gatewaySocket, forwardedMsg.c_str(), forwardedMsg.length(), 0);
+            EV_INFO << "Forwarded neighbor request (" << requestingCarId << ") to Gateway via TCP: " << forwardedMsg;
+        } else {
+            EV_WARN << "Cannot forward request from " << requestingCarId << " - not connected to gateway yet\n";
+        }
     }
-    else{
-        EV_INFO << "Car " << carId << " must wait\n";
-        stopVehicle();
-        scheduleAt(simTime() + 1.0, resumeEvt); // Check again in 1s, or wait for next message
+    else if (msg.find("DEC ") == 0) {
+        // --- DECISION LOGIC ---
+        // Format: "DEC <qcId> <orderPosition> <full_order_string>"
+        // Example: "DEC 123 0 CAR_0:GO:0"
+        
+        // IMPORTANT: Only process if we're still waiting for a decision
+        // With V2V multi-proxy, we might receive multiple conflicting decisions
+        // We accept the FIRST decision and ignore subsequent ones
+        if (!waitingForDecision || decisionReceived) {
+            EV_INFO << "Ignoring duplicate V2V decision (already processed)\n";
+            return;
+        }
+        
+        std::string payload = msg.substr(4); // Remove "DEC "
+        
+        // Parse the decision (format: <qcId> <orderPosition> <carId>:GO:<delay>)
+        std::istringstream iss(payload);
+        std::string receivedQcId, receivedOrderPosition, receivedFullOrder;
+        iss >> receivedQcId >> receivedOrderPosition >> receivedFullOrder;
+        
+        // Check if this decision is for me
+        if (!receivedFullOrder.empty() && receivedFullOrder.find(carId) != std::string::npos) {
+            qcId = receivedQcId;
+            orderPosition = receivedOrderPosition;
+            fullOrder = receivedFullOrder;
+            
+            decisionReceived = true;
+            waitingForDecision = false;
+            
+            EV_INFO << "Received V2V Decision (FIRST): " << fullOrder << endl;
+            processDecision();
+        } else {
+            EV_INFO << "Received V2V Decision for another car: " << receivedFullOrder << endl;
+        }
     }
-    decisionReceived = false;
 }
 
 void IntersectionApp::finish(){
