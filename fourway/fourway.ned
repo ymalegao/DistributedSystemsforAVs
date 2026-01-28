@@ -5,6 +5,8 @@ import org.car2x.veins.modules.mobility.traci.TraCIScenarioManagerLaunchd;
 import org.car2x.veins.modules.obstacle.ObstacleControl;
 import org.car2x.veins.nodes.Car; // Veins 5.3 uses 'Car' not 'TraCINode'
 import org.car2x.veins.nodes.RSU;
+import org.car2x.veins.nodes.TrafficLight;  // Add this import
+
 
 network fourWay
 {
@@ -41,4 +43,6 @@ network fourWay
 
         node[numNodes]: Car;
         rsu[numRsu]: RSU;
+        tls[numTls]: TrafficLight;  // Add this line
+
 }

@@ -1,0 +1,9 @@
+# JNI configuration for BFTSmart integration
+JAVA_HOME=${JAVA_HOME:-/usr/lib/jvm/java-11-openjdk-amd64}
+
+# Add JNI includes
+CFLAGS_DEBUG="$CFLAGS_DEBUG -I$JAVA_HOME/include -I$JAVA_HOME/include/linux"
+CFLAGS_RELEASE="$CFLAGS_RELEASE -I$JAVA_HOME/include -I$JAVA_HOME/include/linux"
+
+# Link against JVM
+LDFLAGS="$LDFLAGS -L$JAVA_HOME/lib/server -ljvm"

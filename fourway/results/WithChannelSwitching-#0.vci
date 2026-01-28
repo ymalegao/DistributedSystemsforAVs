@@ -1,9 +1,9 @@
-file 92269 1765609568                                           
+                                                                
 version 3
-run WithChannelSwitching-0-20251212-23:06:04-209192
+run WithChannelSwitching-0-20260112-18:34:00-217617
 attr configname WithChannelSwitching
-attr datetime 20251212-23:06:04
-attr datetimef 20251212-230604
+attr datetime 20260112-18:34:00
+attr datetimef 20260112-183400
 attr experiment WithChannelSwitching
 attr inifile omnetpp.ini
 attr iterationvars ""
@@ -11,13 +11,12 @@ attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network fourWay
-attr processid 209192
+attr processid 217617
 attr repetition 0
 attr replication #0
 attr resultdir results
 attr runnumber 0
 attr seedset 0
-config image-path ../../../../mnt/c/Users/yashm/src/veins-veins-5.3.1/images
 config *.**.nic.mac1609_4.useServiceChannel true
 config *.node[*].appl.dataOnSch true
 config *.rsu[*].appl.dataOnSch true
@@ -102,67 +101,4 @@ config *.**.nic.phy80211p.analogueModels "xmldoc(\"config.xml\")"
 config *.**.nic.phy80211p.usePropagationDelay true
 config *.**.nic.phy80211p.antenna "xmldoc(\"antenna.xml\", \"/root/Antenna[@id='monopole']\")"
 config *.node[*].nic.phy80211p.antennaOffsetY "0 m"
-config *.node[*].nic.phy80211p.antennaOffsetZ "1.895 m"
-config *.node[*].applType "\"src.IntersectionApp\""
-config *.node[*].appl.headerLength "80 bit"
-config *.node[*].appl.sendBeacons false
-config *.node[*].appl.dataOnSch false
-config *.node[*].appl.beaconInterval 1s
-config *.node[*].nic.phy80211p.connectionManagerName "\"connectionManager\""
-config *.node[*].veinsmobility.x 0
-config *.node[*].veinsmobility.y 0
-config *.node[*].veinsmobility.z 0
-config *.node[*].veinsmobility.setHostSpeed false
-config *.node[0].veinsmobility.accidentCount 0
-config *.node[0].veinsmobility.accidentStart 73s
-config *.node[0].veinsmobility.accidentDuration 50s
-
-vector 0 fourWay.node[0].nic.phy80211p RadioState ETV
-vector 1 fourWay.node[0].nic.phy80211p RadioChannel ETV
-vector 2 fourWay.manager posx ETV
-vector 3 fourWay.manager posy ETV
-vector 4 fourWay.node[1].nic.phy80211p RadioState ETV
-vector 5 fourWay.node[1].nic.phy80211p RadioChannel ETV
-vector 6 fourWay.manager posx ETV
-vector 7 fourWay.manager posy ETV
-vector 8 fourWay.node[2].nic.phy80211p RadioState ETV
-vector 9 fourWay.node[2].nic.phy80211p RadioChannel ETV
-vector 10 fourWay.manager posx ETV
-vector 11 fourWay.manager posy ETV
-vector 12 fourWay.node[3].nic.phy80211p RadioState ETV
-vector 13 fourWay.node[3].nic.phy80211p RadioChannel ETV
-vector 14 fourWay.manager posx ETV
-vector 15 fourWay.manager posy ETV
-vector 16 fourWay.manager speed ETV
-vector 17 fourWay.manager speed ETV
-vector 18 fourWay.manager speed ETV
-vector 19 fourWay.manager speed ETV
-vector 20 fourWay.manager acceleration ETV
-vector 21 fourWay.manager co2emission ETV
-vector 22 fourWay.manager acceleration ETV
-vector 23 fourWay.manager co2emission ETV
-vector 24 fourWay.manager acceleration ETV
-vector 25 fourWay.manager co2emission ETV
-vector 26 fourWay.manager acceleration ETV
-vector 27 fourWay.manager co2emission ETV
-23	5950 3264 151 2734 10.3 23.6 134 0.973 13.576174805069 316.68637605551 1736.5603621863
-22	9214 2455 151 2734 10.3 23.6 134 -9 5.2 -52.939752333352 1883.1611193207
-17	11669 3072 138 2734 10.2 23.6 135 0 10.904707272565 563.06451327189 3994.5896061642
-7	14741 3354 102 2734 10.1 23.6 136 79.796 127.94104057805 13296.946924864 1334103.2523076
-6	18095 3420 102 2734 10.1 23.6 136 121.656 138.06188732659 17261.881430639 2194175.5585172
-21	21515 3939 151 2878 10.3 24.8 146 0.973 17.898203268972 577.78527926624 5008.0512932434
-20	25454 3028 151 2878 10.3 24.8 146 -9 5.2 76.234409306413 1865.6807866771
-16	28482 4109 138 2878 10.2 24.8 147 0 15.501116554783 1065.3985129875 10244.6590917
-3	32591 4024 102 2878 10.1 24.8 148 92.61012 126.46201388911 16232.494627094 1805846.0838088
-2	36615 4028 102 2878 10.1 24.8 148 30.284341280602 138.62388 12107.193913163 1258145.5942842
-25	40643 4811 151 3330 10.3 31.2 210 0.973 17.875288660024 497.00901177142 3398.6288902827
-24	45454 3680 151 3330 10.3 31.2 210 -9 5.2 33.659754275241 1524.8926695033
-18	49134 4503 138 3330 10.2 31.2 211 0 13.723334976676 754.00686514655 6747.1989848522
-11	53637 5306 102 3330 10.1 31.2 212 47.411263101248 106.7386 19564.464764586 1897207.2998966
-10	58943 5424 102 3330 10.1 31.2 212 113.28132390595 132.73086 27246.191689306 3509582.0346497
-27	64367 5716 151 3525 10.3 36 258 0.973 15.796974605774 541.64893474379 3204.8695578862
-26	70083 4386 151 3525 10.3 36 258 -9 5.2 29.82408616218 1510.8586773737
-19	74469 5267 138 3525 10.2 36 259 0 13.805360590544 764.51279536923 6953.3029178577
-15	79736 6184 102 3525 10.1 36 260 72.83595429799 101.642 25138.626563927 2450526.2717297
-14	85920 6348 102 3525 10.1 36 260 117.9175 217.32332374466 35437.875007957 5104118.9132119
-
+config *.no

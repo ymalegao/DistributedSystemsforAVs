@@ -1,0 +1,613 @@
+4:
+========================================
+Collision & Packet Loss Analysis
+========================================
+
+--- Node[0] ---
+  Sent: 7 packets
+  Received: Unicast=0, Broadcast=6
+  PHY Collisions: 2
+  MAC Collisions: 2
+  SNIR Lost (bad signal): 4
+  RXTX Lost (simultaneous RX/TX): 0
+  Total Lost: 4
+  Dropped in MAC: 0
+
+--- Node[1] ---
+  Sent: 4 packets
+  Received: Unicast=0, Broadcast=10
+  PHY Collisions: 1
+  MAC Collisions: 1
+  SNIR Lost (bad signal): 2
+  RXTX Lost (simultaneous RX/TX): 1
+  Total Lost: 3
+  Dropped in MAC: 0
+
+--- Node[2] ---
+  Sent: 4 packets
+  Received: Unicast=0, Broadcast=12
+  PHY Collisions: 0
+  MAC Collisions: 0
+  SNIR Lost (bad signal): 1
+  RXTX Lost (simultaneous RX/TX): 1
+  Total Lost: 2
+  Dropped in MAC: 0
+
+--- Node[3] ---
+  Sent: 3 packets
+  Received: Unicast=0, Broadcast=12
+  PHY Collisions: 0
+  MAC Collisions: 0
+  SNIR Lost (bad signal): 0
+  RXTX Lost (simultaneous RX/TX): 2
+  Total Lost: 2
+  Dropped in MAC: 0
+
+
+8:
+========================================
+Collision & Packet Loss Analysis
+========================================
+
+--- Node[0] ---
+  Sent: 28 packets
+  Received: Unicast=0, Broadcast=25
+  PHY Collisions: 29
+  MAC Collisions: 29
+  SNIR Lost (bad signal): 78
+  RXTX Lost (simultaneous RX/TX): 42
+  Total Lost: 120
+  Dropped in MAC: 0
+
+--- Node[1] ---
+  Sent: 24 packets
+  Received: Unicast=0, Broadcast=33
+  PHY Collisions: 25
+  MAC Collisions: 25
+  SNIR Lost (bad signal): 73
+  RXTX Lost (simultaneous RX/TX): 43
+  Total Lost: 116
+  Dropped in MAC: 0
+
+--- Node[2] ---
+  Sent: 24 packets
+  Received: Unicast=0, Broadcast=31
+  PHY Collisions: 27
+  MAC Collisions: 27
+  SNIR Lost (bad signal): 84
+  RXTX Lost (simultaneous RX/TX): 34
+  Total Lost: 118
+  Dropped in MAC: 0
+
+--- Node[3] ---
+  Sent: 16 packets
+  Received: Unicast=0, Broadcast=35
+  PHY Collisions: 31
+  MAC Collisions: 31
+  SNIR Lost (bad signal): 92
+  RXTX Lost (simultaneous RX/TX): 30
+  Total Lost: 122
+  Dropped in MAC: 0
+
+--- Node[4] ---
+  Sent: 17 packets
+  Received: Unicast=0, Broadcast=40
+  PHY Collisions: 25
+  MAC Collisions: 25
+  SNIR Lost (bad signal): 81
+  RXTX Lost (simultaneous RX/TX): 35
+  Total Lost: 116
+  Dropped in MAC: 0
+
+--- Node[5] ---
+  Sent: 24 packets
+  Received: Unicast=0, Broadcast=34
+  PHY Collisions: 24
+  MAC Collisions: 24
+  SNIR Lost (bad signal): 72
+  RXTX Lost (simultaneous RX/TX): 43
+  Total Lost: 115
+  Dropped in MAC: 0
+
+--- Node[6] ---
+  Sent: 16 packets
+  Received: Unicast=0, Broadcast=37
+  PHY Collisions: 29
+  MAC Collisions: 29
+  SNIR Lost (bad signal): 82
+  RXTX Lost (simultaneous RX/TX): 38
+  Total Lost: 120
+  Dropped in MAC: 0
+
+--- Node[7] ---
+  Sent: 24 packets
+  Received: Unicast=0, Broadcast=31
+  PHY Collisions: 27
+  MAC Collisions: 27
+  SNIR Lost (bad signal): 75
+  RXTX Lost (simultaneous RX/TX): 43
+  Total Lost: 118
+  Dropped in MAC: 0
+
+16:
+--- Node[0] ---
+  Sent: 69 packets
+  Received: Unicast=0, Broadcast=94
+  PHY Collisions: 85
+  MAC Collisions: 85
+  SNIR Lost (bad signal): 369
+  RXTX Lost (simultaneous RX/TX): 149
+  Total Lost: 518
+  Dropped in MAC: 0
+
+--- Node[1] ---
+  Sent: 49 packets
+  Received: Unicast=0, Broadcast=90
+  PHY Collisions: 109
+  MAC Collisions: 109
+  SNIR Lost (bad signal): 419
+  RXTX Lost (simultaneous RX/TX): 123
+  Total Lost: 542
+  Dropped in MAC: 0
+
+--- Node[2] ---
+  Sent: 22 packets
+  Received: Unicast=0, Broadcast=99
+  PHY Collisions: 127
+  MAC Collisions: 127
+  SNIR Lost (bad signal): 483
+  RXTX Lost (simultaneous RX/TX): 77
+  Total Lost: 560
+  Dropped in MAC: 0
+
+--- Node[3] ---
+  Sent: 23 packets
+  Received: Unicast=0, Broadcast=95
+  PHY Collisions: 130
+  MAC Collisions: 130
+  SNIR Lost (bad signal): 486
+  RXTX Lost (simultaneous RX/TX): 77
+  Total Lost: 563
+  Dropped in MAC: 0
+
+--- Node[4] ---
+  Sent: 47 packets
+  Received: Unicast=0, Broadcast=111
+  PHY Collisions: 90
+  MAC Collisions: 90
+  SNIR Lost (bad signal): 364
+  RXTX Lost (simultaneous RX/TX): 159
+  Total Lost: 523
+  Dropped in MAC: 0
+
+--- Node[5] ---
+  Sent: 46 packets
+  Received: Unicast=0, Broadcast=105
+  PHY Collisions: 97
+  MAC Collisions: 97
+  SNIR Lost (bad signal): 382
+  RXTX Lost (simultaneous RX/TX): 148
+  Total Lost: 530
+  Dropped in MAC: 0
+
+--- Node[6] ---
+  Sent: 46 packets
+  Received: Unicast=0, Broadcast=102
+  PHY Collisions: 100
+  MAC Collisions: 100
+  SNIR Lost (bad signal): 388
+  RXTX Lost (simultaneous RX/TX): 145
+  Total Lost: 533
+  Dropped in MAC: 0
+
+--- Node[7] ---
+  Sent: 46 packets
+  Received: Unicast=0, Broadcast=109
+  PHY Collisions: 93
+  MAC Collisions: 93
+  SNIR Lost (bad signal): 365
+  RXTX Lost (simultaneous RX/TX): 161
+  Total Lost: 526
+  Dropped in MAC: 0
+
+--- Node[8] ---
+  Sent: 49 packets
+  Received: Unicast=0, Broadcast=89
+  PHY Collisions: 110
+  MAC Collisions: 110
+  SNIR Lost (bad signal): 413
+  RXTX Lost (simultaneous RX/TX): 130
+  Total Lost: 543
+  Dropped in MAC: 0
+
+--- Node[9] ---
+  Sent: 22 packets
+  Received: Unicast=0, Broadcast=104
+  PHY Collisions: 122
+  MAC Collisions: 122
+  SNIR Lost (bad signal): 473
+  RXTX Lost (simultaneous RX/TX): 82
+  Total Lost: 555
+  Dropped in MAC: 0
+
+--- Node[10] ---
+  Sent: 48 packets
+  Received: Unicast=0, Broadcast=108
+  PHY Collisions: 92
+  MAC Collisions: 92
+  SNIR Lost (bad signal): 370
+  RXTX Lost (simultaneous RX/TX): 155
+  Total Lost: 525
+  Dropped in MAC: 0
+
+--- Node[11] ---
+  Sent: 48 packets
+  Received: Unicast=0, Broadcast=97
+  PHY Collisions: 103
+  MAC Collisions: 103
+  SNIR Lost (bad signal): 382
+  RXTX Lost (simultaneous RX/TX): 154
+  Total Lost: 536
+  Dropped in MAC: 0
+
+--- Node[12] ---
+  Sent: 48 packets
+  Received: Unicast=0, Broadcast=104
+  PHY Collisions: 96
+  MAC Collisions: 96
+  SNIR Lost (bad signal): 371
+  RXTX Lost (simultaneous RX/TX): 158
+  Total Lost: 529
+  Dropped in MAC: 0
+
+--- Node[13] ---
+  Sent: 48 packets
+  Received: Unicast=0, Broadcast=108
+  PHY Collisions: 92
+  MAC Collisions: 92
+  SNIR Lost (bad signal): 369
+  RXTX Lost (simultaneous RX/TX): 156
+  Total Lost: 525
+  Dropped in MAC: 0
+
+--- Node[14] ---
+  Sent: 48 packets
+  Received: Unicast=0, Broadcast=110
+  PHY Collisions: 90
+  MAC Collisions: 90
+  SNIR Lost (bad signal): 382
+  RXTX Lost (simultaneous RX/TX): 141
+  Total Lost: 523
+  Dropped in MAC: 0
+
+--- Node[15] ---
+  Sent: 22 packets
+  Received: Unicast=0, Broadcast=99
+  PHY Collisions: 127
+  MAC Collisions: 127
+  SNIR Lost (bad signal): 489
+  RXTX Lost (simultaneous RX/TX): 71
+  Total Lost: 560
+  Dropped in MAC: 0
+
+32:
+
+--- Node[0] ---
+  Sent: 98 packets
+  Received: Unicast=0, Broadcast=154
+  PHY Collisions: 283
+  MAC Collisions: 283
+  SNIR Lost (bad signal): 1989
+  RXTX Lost (simultaneous RX/TX): 687
+  Total Lost: 2676
+  Dropped in MAC: 0
+
+--- Node[1] ---
+  Sent: 91 packets
+  Received: Unicast=0, Broadcast=131
+  PHY Collisions: 313
+  MAC Collisions: 313
+  SNIR Lost (bad signal): 2054
+  RXTX Lost (simultaneous RX/TX): 652
+  Total Lost: 2706
+  Dropped in MAC: 0
+
+--- Node[2] ---
+  Sent: 90 packets
+  Received: Unicast=0, Broadcast=123
+  PHY Collisions: 322
+  MAC Collisions: 322
+  SNIR Lost (bad signal): 2102
+  RXTX Lost (simultaneous RX/TX): 613
+  Total Lost: 2715
+  Dropped in MAC: 0
+
+--- Node[3] ---
+  Sent: 91 packets
+  Received: Unicast=0, Broadcast=143
+  PHY Collisions: 301
+  MAC Collisions: 301
+  SNIR Lost (bad signal): 2030
+  RXTX Lost (simultaneous RX/TX): 664
+  Total Lost: 2694
+  Dropped in MAC: 0
+
+--- Node[4] ---
+  Sent: 92 packets
+  Received: Unicast=0, Broadcast=164
+  PHY Collisions: 279
+  MAC Collisions: 279
+  SNIR Lost (bad signal): 2026
+  RXTX Lost (simultaneous RX/TX): 646
+  Total Lost: 2672
+  Dropped in MAC: 0
+
+--- Node[5] ---
+  Sent: 92 packets
+  Received: Unicast=0, Broadcast=175
+  PHY Collisions: 268
+  MAC Collisions: 268
+  SNIR Lost (bad signal): 2002
+  RXTX Lost (simultaneous RX/TX): 659
+  Total Lost: 2661
+  Dropped in MAC: 0
+
+--- Node[6] ---
+  Sent: 91 packets
+  Received: Unicast=0, Broadcast=180
+  PHY Collisions: 264
+  MAC Collisions: 264
+  SNIR Lost (bad signal): 1980
+  RXTX Lost (simultaneous RX/TX): 677
+  Total Lost: 2657
+  Dropped in MAC: 0
+
+--- Node[7] ---
+  Sent: 92 packets
+  Received: Unicast=0, Broadcast=181
+  PHY Collisions: 262
+  MAC Collisions: 262
+  SNIR Lost (bad signal): 1999
+  RXTX Lost (simultaneous RX/TX): 656
+  Total Lost: 2655
+  Dropped in MAC: 0
+
+--- Node[8] ---
+  Sent: 93 packets
+  Received: Unicast=0, Broadcast=156
+  PHY Collisions: 286
+  MAC Collisions: 286
+  SNIR Lost (bad signal): 2004
+  RXTX Lost (simultaneous RX/TX): 675
+  Total Lost: 2679
+  Dropped in MAC: 0
+
+--- Node[9] ---
+  Sent: 91 packets
+  Received: Unicast=0, Broadcast=145
+  PHY Collisions: 300
+  MAC Collisions: 300
+  SNIR Lost (bad signal): 2054
+  RXTX Lost (simultaneous RX/TX): 639
+  Total Lost: 2693
+  Dropped in MAC: 0
+
+--- Node[10] ---
+  Sent: 91 packets
+  Received: Unicast=0, Broadcast=146
+  PHY Collisions: 299
+  MAC Collisions: 299
+  SNIR Lost (bad signal): 2068
+  RXTX Lost (simultaneous RX/TX): 624
+  Total Lost: 2692
+  Dropped in MAC: 0
+
+--- Node[11] ---
+  Sent: 91 packets
+  Received: Unicast=0, Broadcast=159
+  PHY Collisions: 285
+  MAC Collisions: 285
+  SNIR Lost (bad signal): 2046
+  RXTX Lost (simultaneous RX/TX): 632
+  Total Lost: 2678
+  Dropped in MAC: 0
+
+--- Node[12] ---
+  Sent: 91 packets
+  Received: Unicast=0, Broadcast=128
+  PHY Collisions: 317
+  MAC Collisions: 317
+  SNIR Lost (bad signal): 2066
+  RXTX Lost (simultaneous RX/TX): 644
+  Total Lost: 2710
+  Dropped in MAC: 0
+
+--- Node[13] ---
+  Sent: 92 packets
+  Received: Unicast=0, Broadcast=156
+  PHY Collisions: 287
+  MAC Collisions: 287
+  SNIR Lost (bad signal): 2073
+  RXTX Lost (simultaneous RX/TX): 607
+  Total Lost: 2680
+  Dropped in MAC: 0
+
+--- Node[14] ---
+  Sent: 90 packets
+  Received: Unicast=0, Broadcast=165
+  PHY Collisions: 280
+  MAC Collisions: 280
+  SNIR Lost (bad signal): 2059
+  RXTX Lost (simultaneous RX/TX): 614
+  Total Lost: 2673
+  Dropped in MAC: 0
+
+--- Node[15] ---
+  Sent: 91 packets
+  Received: Unicast=0, Broadcast=179
+  PHY Collisions: 265
+  MAC Collisions: 265
+  SNIR Lost (bad signal): 2008
+  RXTX Lost (simultaneous RX/TX): 650
+  Total Lost: 2658
+  Dropped in MAC: 0
+
+--- Node[16] ---
+  Sent: 91 packets
+  Received: Unicast=0, Broadcast=182
+  PHY Collisions: 262
+  MAC Collisions: 262
+  SNIR Lost (bad signal): 1999
+  RXTX Lost (simultaneous RX/TX): 656
+  Total Lost: 2655
+  Dropped in MAC: 0
+
+--- Node[17] ---
+  Sent: 93 packets
+  Received: Unicast=0, Broadcast=157
+  PHY Collisions: 286
+  MAC Collisions: 286
+  SNIR Lost (bad signal): 2078
+  RXTX Lost (simultaneous RX/TX): 601
+  Total Lost: 2679
+  Dropped in MAC: 0
+
+--- Node[18] ---
+  Sent: 91 packets
+  Received: Unicast=0, Broadcast=133
+  PHY Collisions: 311
+  MAC Collisions: 311
+  SNIR Lost (bad signal): 2112
+  RXTX Lost (simultaneous RX/TX): 592
+  Total Lost: 2704
+  Dropped in MAC: 0
+
+--- Node[19] ---
+  Sent: 92 packets
+  Received: Unicast=0, Broadcast=133
+  PHY Collisions: 311
+  MAC Collisions: 311
+  SNIR Lost (bad signal): 2088
+  RXTX Lost (simultaneous RX/TX): 616
+  Total Lost: 2704
+  Dropped in MAC: 0
+
+--- Node[20] ---
+  Sent: 90 packets
+  Received: Unicast=0, Broadcast=153
+  PHY Collisions: 292
+  MAC Collisions: 292
+  SNIR Lost (bad signal): 2053
+  RXTX Lost (simultaneous RX/TX): 632
+  Total Lost: 2685
+  Dropped in MAC: 0
+
+--- Node[21] ---
+  Sent: 91 packets
+  Received: Unicast=0, Broadcast=160
+  PHY Collisions: 284
+  MAC Collisions: 284
+  SNIR Lost (bad signal): 2082
+  RXTX Lost (simultaneous RX/TX): 595
+  Total Lost: 2677
+  Dropped in MAC: 0
+
+--- Node[22] ---
+  Sent: 92 packets
+  Received: Unicast=0, Broadcast=178
+  PHY Collisions: 265
+  MAC Collisions: 265
+  SNIR Lost (bad signal): 2014
+  RXTX Lost (simultaneous RX/TX): 644
+  Total Lost: 2658
+  Dropped in MAC: 0
+
+--- Node[23] ---
+  Sent: 93 packets
+  Received: Unicast=0, Broadcast=131
+  PHY Collisions: 311
+  MAC Collisions: 311
+  SNIR Lost (bad signal): 2063
+  RXTX Lost (simultaneous RX/TX): 641
+  Total Lost: 2704
+  Dropped in MAC: 0
+
+--- Node[24] ---
+  Sent: 93 packets
+  Received: Unicast=0, Broadcast=176
+  PHY Collisions: 267
+  MAC Collisions: 267
+  SNIR Lost (bad signal): 2045
+  RXTX Lost (simultaneous RX/TX): 615
+  Total Lost: 2660
+  Dropped in MAC: 0
+
+--- Node[25] ---
+  Sent: 92 packets
+  Received: Unicast=0, Broadcast=168
+  PHY Collisions: 275
+  MAC Collisions: 275
+  SNIR Lost (bad signal): 2052
+  RXTX Lost (simultaneous RX/TX): 616
+  Total Lost: 2668
+  Dropped in MAC: 0
+
+--- Node[26] ---
+  Sent: 90 packets
+  Received: Unicast=0, Broadcast=156
+  PHY Collisions: 289
+  MAC Collisions: 289
+  SNIR Lost (bad signal): 2059
+  RXTX Lost (simultaneous RX/TX): 623
+  Total Lost: 2682
+  Dropped in MAC: 0
+
+--- Node[27] ---
+  Sent: 93 packets
+  Received: Unicast=0, Broadcast=158
+  PHY Collisions: 284
+  MAC Collisions: 284
+  SNIR Lost (bad signal): 2046
+  RXTX Lost (simultaneous RX/TX): 631
+  Total Lost: 2677
+  Dropped in MAC: 0
+
+--- Node[28] ---
+  Sent: 93 packets
+  Received: Unicast=0, Broadcast=161
+  PHY Collisions: 281
+  MAC Collisions: 281
+  SNIR Lost (bad signal): 2022
+  RXTX Lost (simultaneous RX/TX): 652
+  Total Lost: 2674
+  Dropped in MAC: 0
+
+--- Node[29] ---
+  Sent: 93 packets
+  Received: Unicast=0, Broadcast=174
+  PHY Collisions: 268
+  MAC Collisions: 268
+  SNIR Lost (bad signal): 2029
+  RXTX Lost (simultaneous RX/TX): 632
+  Total Lost: 2661
+  Dropped in MAC: 0
+
+--- Node[30] ---
+  Sent: 90 packets
+  Received: Unicast=0, Broadcast=154
+  PHY Collisions: 291
+  MAC Collisions: 291
+  SNIR Lost (bad signal): 2047
+  RXTX Lost (simultaneous RX/TX): 637
+  Total Lost: 2684
+  Dropped in MAC: 0
+
+--- Node[31] ---
+  Sent: 91 packets
+  Received: Unicast=0, Broadcast=135
+  PHY Collisions: 310
+  MAC Collisions: 310
+  SNIR Lost (bad signal): 2063
+  RXTX Lost (simultaneous RX/TX): 640
+  Total Lost: 2703
+  Dropped in MAC: 0

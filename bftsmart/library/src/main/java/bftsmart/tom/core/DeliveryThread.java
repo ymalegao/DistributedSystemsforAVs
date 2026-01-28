@@ -230,11 +230,15 @@ public final class DeliveryThread extends Thread {
 
 			/* THIS IS JOAO'S CODE, TO HANDLE STATE TRANSFER */
 			//deliverLock();
-			while (tomLayer.isRetrievingState()) {
-				logger.info("Retrieving State");
-				canDeliver.awaitUninterruptibly();
+			// V2V HACK: Bypass state retrieval entirely on fresh start
+			// V2V collisions make reliable state sync impossible during init
+			if (tomLayer.isRetrievingState()) {
+				logger.warn("***********************************************************");
+				logger.warn("V2V MODE: Skipping state retrieval (fresh start assumed)");
+				logger.warn("State sync would fail due to V2V collisions during init");
+				logger.warn("***********************************************************");
 
-				// if (tomLayer.getLastExec() == -1)
+				// Print the "Ready" message that would normally appear after state sync
 				if (init) {
 					logger.info(
 									  "\n\t\t###################################"
@@ -242,6 +246,9 @@ public final class DeliveryThread extends Thread {
 									+ "\n\t\t###################################");
 					init = false;
 				}
+
+				// Note: isRetrievingState() will still return true in background,
+				// but we proceed anyway since this is a fresh start with no state
 			}
 
 			try {

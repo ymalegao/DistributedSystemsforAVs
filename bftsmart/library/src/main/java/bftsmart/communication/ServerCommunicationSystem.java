@@ -24,6 +24,8 @@ import bftsmart.communication.client.CommunicationSystemServerSide;
 import bftsmart.communication.client.CommunicationSystemServerSideFactory;
 import bftsmart.communication.client.RequestReceiver;
 import bftsmart.communication.server.ServersCommunicationLayer;
+import bftsmart.communication.server.ServersCommunicationLayerInterface;
+import bftsmart.communication.V2V.V2VServersCommunicationLayer;
 import bftsmart.consensus.roles.Acceptor;
 import bftsmart.reconfiguration.ServerViewController;
 import bftsmart.tom.ServiceReplica;
@@ -46,7 +48,7 @@ public class ServerCommunicationSystem extends Thread {
     private LinkedBlockingQueue<SystemMessage> inQueue = null;//new LinkedBlockingQueue<SystemMessage>(IN_QUEUE_SIZE);
     protected MessageHandler messageHandler;
     
-    private ServersCommunicationLayer serversConn;
+    private ServersCommunicationLayerInterface serversConn;
     private CommunicationSystemServerSide clientsConn;
     private ServerViewController controller;
 
@@ -57,12 +59,22 @@ public class ServerCommunicationSystem extends Thread {
         super("Server Comm. System");
 
         this.controller = controller;
+
         
         messageHandler = new MessageHandler();
 
         inQueue = new LinkedBlockingQueue<SystemMessage>(controller.getStaticConf().getInQueueSize());
 
-        serversConn = new ServersCommunicationLayer(controller, inQueue, replica);
+        // serversConn = new ServersCommunicationLayer(controller, inQueue, replica);
+        String useV2V = System.getProperty("bftsmart.communication.useV2V", "false");
+        if ("true".equals(useV2V)){
+            int replicaId = controller.getStaticConf().getProcessId();
+            int veinsPort = 12000 + replicaId;  // Use 12000+ to avoid conflict with client ports (11000+)
+            logger.info("Using V2V communication layer on port " + veinsPort);
+            serversConn = new V2VServersCommunicationLayer(controller, inQueue, replica, veinsPort, null);
+        } else {
+            serversConn = new ServersCommunicationLayer(controller, inQueue, replica);
+        }
 
         //******* EDUARDO BEGIN **************//
             clientsConn = CommunicationSystemServerSideFactory.getCommunicationSystemServerSide(controller);
@@ -114,9 +126,14 @@ public class ServerCommunicationSystem extends Thread {
                 SystemMessage sm = inQueue.poll(MESSAGE_WAIT_TIME, TimeUnit.MILLISECONDS);
 
                 if (sm != null) {
+                    logger.info("=== ServerCommunicationSystem RECEIVED message ===");
+                    logger.info("    Message type: {}", sm.getClass().getSimpleName());
+                    logger.info("    From: {}", sm.getSender());
+                    logger.info("    Message count: {}", count);
                     logger.debug("<-- receiving, msg:" + sm);
                     messageHandler.processData(sm);
                     count++;
+                    logger.info("=== Message processed ===");
                 } else {                
                     messageHandler.verifyPending();               
                 }
@@ -138,15 +155,23 @@ public class ServerCommunicationSystem extends Thread {
      * @param sm the message to be sent
      */
     public void send(int[] targets, SystemMessage sm) {
+        logger.info("=== ServerCommunicationSystem.send() ===");
+        logger.info("    Message type: {}", sm.getClass().getSimpleName());
+        logger.info("    Is TOMMessage: {}", (sm instanceof TOMMessage));
+        logger.info("    Targets: {}", java.util.Arrays.toString(targets));
+        
         if (sm instanceof TOMMessage) {
+            logger.info("    -> Routing to CLIENT connection (TOMMessage)");
             clientsConn.send(targets, (TOMMessage) sm, false);
         } else {
+            logger.info("    -> Routing to SERVER connection (SystemMessage)");
         	logger.debug("--> sending message from: {} -> {}" + sm.getSender(), targets);
             serversConn.send(targets, sm, true);
         }
+        logger.info("=== ServerCommunicationSystem.send() complete ===");
     }
 
-    public ServersCommunicationLayer getServersConn() {
+    public ServersCommunicationLayerInterface getServersConn() {
         return serversConn;
     }
     

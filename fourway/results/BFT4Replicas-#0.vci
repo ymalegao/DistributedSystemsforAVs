@@ -1,0 +1,183 @@
+file 182780 1769012549                                          
+version 3
+run BFT4Replicas-0-20260121-08:21:41-130722
+attr configname BFT4Replicas
+attr datetime 20260121-08:21:41
+attr datetimef 20260121-082141
+attr experiment BFT4Replicas
+attr inifile omnetpp.ini
+attr iterationvars ""
+attr iterationvarsd ""
+attr iterationvarsf ""
+attr measurement ""
+attr network fourWay
+attr processid 130722
+attr repetition 0
+attr replication #0
+attr resultdir results
+attr runnumber 0
+attr seedset 0
+config cmdenv-express-mode true
+config cmdenv-interactive false
+config *.manager.launchConfig "xmldoc(\"osm.launchd.xml\")"
+config *.node[*].applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
+config *.node[0].appl.replicaId 0
+config *.node[1].appl.replicaId 1
+config *.node[2].appl.replicaId 2
+config *.node[3].appl.replicaId 3
+config *.node[*].appl.intersectionX 104m
+config *.node[*].appl.intersectionY 82m
+config *.node[*].appl.stopDistance 50m
+config *.**.nic.mac1609_4.useServiceChannel true
+config *.node[*].appl.dataOnSch true
+config scheduler-class omnetpp::cRealTimeScheduler
+config realtimescheduler-scaling 1
+config cmdenv-express-mode true
+config cmdenv-autoflush true
+config cmdenv-status-frequency 1s
+config **.cmdenv-log-level info
+config image-path ../../images
+config network fourWay
+config debug-on-errors true
+config print-undisposed true
+config sim-time-limit 200s
+config **.scalar-recording true
+config **.vector-recording true
+config *.playgroundSizeX 2500m
+config *.playgroundSizeY 2500m
+config *.playgroundSizeZ 50m
+config *.annotations.draw true
+config *.obstacles.debug false
+config *.manager.updateInterval 0.1s
+config *.manager.host "\"localhost\""
+config *.manager.port 9999
+config *.manager.autoShutdown true
+config *.manager.launchConfig "xmldoc(\"osm.launchd.xml\")"
+config *.manager.trafficLightModuleType "\"org.car2x.veins.nodes.TrafficLight\""
+config *.tls[*].mobility.x 0
+config *.tls[*].mobility.y 0
+config *.tls[*].mobility.z 3
+config *.tls[*].applType "\"org.car2x.veins.modules.application.traci.TraCIDemoTrafficLightApp\""
+config *.tls[*].logicType "\"org.car2x.veins.modules.world.traci.trafficLight.logics.TraCITrafficLightSimpleLogic\""
+config *.rsu[0].mobility.x 2000
+config *.rsu[0].mobility.y 2000
+config *.rsu[0].mobility.z 3
+config *.rsu[*].applType "\"TraCIDemoRSU11p\""
+config *.rsu[*].appl.headerLength "80 bit"
+config *.rsu[*].appl.sendBeacons false
+config *.rsu[*].appl.dataOnSch false
+config *.rsu[*].appl.beaconInterval 1s
+config *.rsu[*].appl.beaconUserPriority 7
+config *.rsu[*].appl.dataUserPriority 5
+config *.rsu[*].nic.phy80211p.antennaOffsetZ "0 m"
+config *.connectionManager.sendDirect true
+config *.connectionManager.maxInterfDist 2600m
+config *.connectionManager.drawMaxIntfDist false
+config *.connectionManagerName "\"connectionManager\""
+config *.**.nic.mac1609_4.useServiceChannel false
+config *.**.nic.mac1609_4.txPower 20mW
+config *.**.nic.mac1609_4.bitrate 6Mbps
+config *.**.nic.phy80211p.minPowerLevel -110dBm
+config *.**.nic.phy80211p.useNoiseFloor true
+config *.**.nic.phy80211p.noiseFloor -98dBm
+config *.**.nic.phy80211p.decider "xmldoc(\"config.xml\")"
+config *.**.nic.phy80211p.analogueModels "xmldoc(\"config.xml\")"
+config *.**.nic.phy80211p.usePropagationDelay true
+config *.**.nic.phy80211p.antenna "xmldoc(\"antenna.xml\", \"/root/Antenna[@id='monopole']\")"
+config *.node[*].nic.phy80211p.antennaOffsetY "1.895 m"
+config *.node[*].nic.phy80211p.antennaOffsetZ "1.895 m"
+config *.node[*].applType "\"src.IntersectionApp\""
+config *.node[*].appl.headerLength "80 bit"
+config *.node[*].appl.sendBeacons false
+config *.node[*].appl.dataOnSch false
+config *.node[*].appl.beaconInterval 1s
+config *.node[*].nic.phy80211p.connectionManagerName "\"connectionManager\""
+config *.node[*].veinsmobility.x 0
+config *.node[*].veinsmobility.y 0
+config *.node[*].veinsmobility.z 0
+config *.node[*].veinsmobility.setHostSpeed false
+config *.node[0].veinsmobility.accidentCount 0
+config *.node[0].veinsmobility.accidentStart 73s
+config *.node[0].veinsmobility.accidentDuration 50s
+
+vector 0 fourWay.node[0].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 1 fourWay.node[0].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 2 fourWay.node[0].nic.phy80211p RadioState ETV
+vector 3 fourWay.node[0].nic.phy80211p RadioChannel ETV
+vector 4 fourWay.manager posx ETV
+vector 5 fourWay.manager posy ETV
+vector 6 fourWay.manager speed ETV
+vector 7 fourWay.node[1].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 8 fourWay.node[1].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 9 fourWay.node[1].nic.phy80211p RadioState ETV
+vector 10 fourWay.node[1].nic.phy80211p RadioChannel ETV
+vector 11 fourWay.manager posx ETV
+vector 12 fourWay.manager posy ETV
+vector 13 fourWay.node[2].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 14 fourWay.node[2].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 15 fourWay.node[2].nic.phy80211p RadioState ETV
+vector 16 fourWay.node[2].nic.phy80211p RadioChannel ETV
+vector 17 fourWay.manager posx ETV
+vector 18 fourWay.manager posy ETV
+vector 19 fourWay.node[3].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 20 fourWay.node[3].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 21 fourWay.node[3].nic.phy80211p RadioState ETV
+vector 22 fourWay.node[3].nic.phy80211p RadioChannel ETV
+vector 23 fourWay.manager posx ETV
+vector 24 fourWay.manager posy ETV
+vector 25 fourWay.manager acceleration ETV
+vector 26 fourWay.manager co2emission ETV
+vector 27 fourWay.manager speed ETV
+vector 28 fourWay.manager speed ETV
+vector 29 fourWay.manager speed ETV
+vector 30 fourWay.manager acceleration ETV
+vector 31 fourWay.manager co2emission ETV
+vector 32 fourWay.manager acceleration ETV
+vector 33 fourWay.manager co2emission ETV
+vector 34 fourWay.manager acceleration ETV
+vector 35 fourWay.manager co2emission ETV
+4	6301 11718 52 8901 5.1 47.6 426 132.71888221268 132.73086 56538.291733753 7503705.2404064
+5	18019 11714 52 8901 5.1 47.6 426 106.69615832141 106.7386 45452.733211636 4849650.1395509
+6	29733 5788 55 8901 5.2 47.6 425 0 0.52 1.535 0.78582500000001
+11	35521 12092 59 8901 5.3 47.6 424 138.62347301101 138.62388 58776.354184624 8147782.5736713
+12	47613 12088 59 8901 5.3 47.6 424 92.61012 92.610225476481 39266.735180122 3636501.1596836
+17	59701 12100 59 8901 5.3 47.6 424 121.656 124.12487264341 52452.115471215 6488759.7392145
+18	71801 12096 59 8901 5.3 47.6 424 79.796 88.60586753665 36956.012312761 3221395.6816216
+23	83897 11668 59 8901 5.3 47.6 424 117.9175 117.9183309338 49997.368992195 5895605.9107143
+24	95565 11664 59 8901 5.3 47.6 424 101.6417550932 101.642 43096.105139142 4380363.8635946
+25	107229 6200 59 8901 5.3 47.6 424 -5.2 5.2 -4.9500000000001 78.582500000001
+26	113429 7896 59 8901 5.3 47.6 424 0.973 1.7867617892096 413.52785957842 404.00060268245
+27	121325 6217 70 8901 5.4 47.6 423 0 0.49500000000001 0.49764484657286 0.2450284976067
+28	127542 6574 70 8901 5.4 47.6 423 0 9.045 121.39214685802 718.88382470347
+29	134116 6217 70 8901 5.4 47.6 423 0 0.49500000000001 0.50083111437002 0.24504200094741
+30	140333 6204 84 8901 5.5 47.6 422 -4.9500000000001 0.013224232864281 -4.9500000000001 24.50284976067
+31	146537 7864 84 8901 5.5 47.6 422 0.973 1.1100680083156 410.88013180202 400.09067260917
+32	154401 6266 84 8901 5.5 47.6 422 -9 5.2 -67.257745374195 890.60381773766
+33	160667 8044 84 8901 5.5 47.6 422 0.973 3.9922000861051 424.38716187475 446.74175318752
+34	168711 6204 84 8901 5.5 47.6 422 -4.9500000000001 0.029155571850067 -4.9500000000001 24.504200094741
+35	174915 7864 84 8901 5.5 47.6 422 0.973 1.1101611326225 410.88030177911 400.09104999536
+

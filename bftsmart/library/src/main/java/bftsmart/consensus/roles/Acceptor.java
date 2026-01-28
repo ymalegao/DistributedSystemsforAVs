@@ -302,6 +302,7 @@ public final class Acceptor {
 		int writeAccepted = epoch.countWrite(value);
 
 		logger.debug("I have {}, WRITE's for cId:{}, Epoch timestamp:{},", writeAccepted, cid, epoch.getTimestamp());
+		System.out.println("[Acceptor " + me + "] computeWrite: cId=" + cid + ", writeAccepted=" + writeAccepted + ", quorum=" + controller.getQuorum());
 
 		if (writeAccepted > controller.getQuorum() 
 				&& Arrays.equals(value, epoch.propValueHash)) {
@@ -333,11 +334,14 @@ public final class Acceptor {
 							"Speculative ACCEPT message for consensus {} matches the written value, sending it to the other replicas",
 							cid);
 
+					System.out.println("[Acceptor " + me + "] ABOUT TO SEND speculative ACCEPT for cId=" + cid + " to targets=" + java.util.Arrays.toString(targets));
 					communication.getServersConn().send(targets, cm, true);
+					System.out.println("[Acceptor " + me + "] SENT speculative ACCEPT for cId=" + cid);
 
 				} else { // ... and if not, create the ACCEPT message again (with the correct value), and
 							// send it
 
+					System.out.println("[Acceptor " + me + "] Speculative ACCEPT value MISMATCH for cId=" + cid + ", creating new ACCEPT");
 					ConsensusMessage correctAccept = factory.createAccept(cid, epoch.getTimestamp(), value);
 
 					proofExecutor.submit(() -> {
@@ -347,7 +351,9 @@ public final class Acceptor {
 								"Creating cryptographic proof for the correct ACCEPT message from consensus " + cid);
 						insertProof(correctAccept, epoch.deserializedPropValue);
 
+						System.out.println("[Acceptor " + me + "] ABOUT TO SEND corrected ACCEPT for cId=" + cid + " to targets=" + java.util.Arrays.toString(targets));
 						communication.getServersConn().send(targets, correctAccept, true);
+						System.out.println("[Acceptor " + me + "] SENT corrected ACCEPT for cId=" + cid);
 
 					});
 				}

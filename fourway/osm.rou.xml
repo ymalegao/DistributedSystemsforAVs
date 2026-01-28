@@ -6,28 +6,28 @@
     <vType id="vehW" color="0.5,0.5,0.5"/>
 
     <trip id="vehS" type="vehS"
-          depart="10"
+          depart="5"
           from="10553209#0"
           to="-34813111#1"
           departLane="best" departPos="last" departSpeed="max"
           arrivalPos="0"/>
 
     <trip id="vehN" type="vehN"
-          depart="10"
+          depart="5.01"
           from="-34813111#1"
           to="10553209#0"
           departLane="best" departPos="-10" departSpeed="max"
           arrivalPos="0"/>
 
     <trip id="vehE" type="vehE"
-          depart="10"
+          depart="5.02"
           from="10555868#0"
           to="-34813110#1"
           departLane="best" departPos="last" departSpeed="max"
           arrivalPos="0"/>
 
     <trip id="vehW" type="vehW"
-          depart="10"
+          depart="5.03"
           from="-34813110#1"
           to="10555868#0"
           departLane="best" departPos="last" departSpeed="max"

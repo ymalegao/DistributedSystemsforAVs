@@ -29,7 +29,9 @@ import java.io.ObjectOutput;
 import java.io.ObjectOutputStream;
 import java.util.HashMap;
 import java.util.Map;
-
+import java.util.concurrent.ConcurrentHashMap;
+import java.security.Security;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 /**
  * BFT replicated service for managing an intersection.
  * Cars send requests in the format: "CAR_ID:direction:arrival_time"
@@ -39,6 +41,7 @@ import java.util.Map;
  * @author Intersection Demo
  */
 public final class IntersectionServer extends DefaultRecoverable {
+    private static final Map<Integer, IntersectionServer> readyServers = new ConcurrentHashMap<>();
     
     // BATCH-OF-4 CONSENSUS MODE
     // Buffer for incoming JOIN requests - we wait until we have 4 unique cars
@@ -55,33 +58,102 @@ public final class IntersectionServer extends DefaultRecoverable {
     private ServiceReplica replica;
     private int numCars;
     
-    private static final int BATCH_SIZE = 4; // Wait for 4 cars
-    private static final int CROSSING_TIME_SECONDS = 5; // Time between cars
+    private static final int BATCH_SIZE =8; // Wait for 8 cars
+
+    // Intersection physics parameters for delay calculation
+    // These can be configured via system properties or hardcoded
+    private double intersectionWidth;   // meters - distance to cross the intersection
+    private double avgSpeed;            // m/s - average vehicle speed
+    private double safetyGap;           // seconds - buffer time between cars
+
+    // TODO: V2V communication will be integrated later
+    // System.out.println("[IntersectionServer " + processId + "] Initializing V2V communication");
+    // V2VNativeBridge.MessageReceiverCallback callback = (fromReplicaId, messageData) -> {
+    //     System.out.println("[IntersectionServer " + id + "] Received V2V message from replica " + fromReplicaId);
+    //     // Deserialize and process...
+    // };
 
     
     public IntersectionServer(int id, int numCars) {
+        System.out.println("[Server " + id + "] DEBUG: Constructor started.");
+        if (Security.getProvider("BC") == null) {
+            Security.addProvider(new BouncyCastleProvider());
+            System.out.println("[Server " + id + "] DEBUG: Bouncy Castle Provider registered.");
+        }
+
+        String workingDir = System.getProperty("user.dir");
+        System.out.println("==================================================");
+        System.out.println("[DEBUG] JVM Working Directory: " + workingDir);
+        System.out.println("[DEBUG] LOOK HERE FOR CONFIG: " + workingDir + "/config");
+        System.out.println("==================================================");
         this.waitMap = new HashMap<>();
-        this.replica = new ServiceReplica(id, this, this);
         this.processId = id;
         this.numCars = numCars;
-        if (numCars > 0) {
-            new Thread(() -> {
-                try{
-                    // Replica 4 (CAR_E) doesn't auto-send - waits for manual JOIN command
-                    if (processId == 4) {
-                        System.out.println("[CAR_E/Replica 4] Waiting for manual JOIN command...");
-                        return;
-                    }
-                    
-                    Thread.sleep(6000);
-                    Thread.sleep((long)(Math.random() * 50));
 
-                    sendCarRequest();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            }).start();
+        // Initialize intersection physics parameters from system properties or defaults
+        this.intersectionWidth = Double.parseDouble(System.getProperty("intersection.width", "25.0"));
+        this.avgSpeed = Double.parseDouble(System.getProperty("intersection.avgSpeed", "10.0"));
+        this.safetyGap = Double.parseDouble(System.getProperty("intersection.safetyGap", "2.0"));
+
+        System.out.println("[Server " + id + "] Intersection Physics: width=" + intersectionWidth +
+                         "m, avgSpeed=" + avgSpeed + "m/s, safetyGap=" + safetyGap + "s");
+
+        System.out.println("[Server " + id + "] DEBUG: About to create ServiceReplica (This might block)...");
+        System.out.println("[Server " + id + "] DEBUG: Thread = " + Thread.currentThread().getName());
+        System.out.println("[Server " + id + "] DEBUG: Current time = " + System.currentTimeMillis());
+
+        try {
+            System.out.println("[Server " + id + "] DEBUG: Calling new ServiceReplica(" + id + ", ...)");
+            this.replica = new ServiceReplica(id, this, this);
+            System.out.println("[Server " + id + "] DEBUG: *** ServiceReplica constructor returned! ***");
+            System.out.println("[Server " + id + "] DEBUG: Replica object = " + this.replica);
+        } catch (Exception e) {
+            System.err.println("[Server " + id + "] CRITICAL ERROR creating ServiceReplica:");
+            e.printStackTrace();
+            throw e; // Rethrow so ServerRunner sees the error
         }
+
+        System.out.println("[Server " + id + "] DEBUG: *** ServiceReplica constructor RETURNED! ***");
+        System.out.println("[Server " + id + "] DEBUG: About to register in readyServers map...");
+
+        readyServers.put(id, this);
+        System.out.println("[IntersectionServer " + id + "] ========================================");
+        System.out.println("[IntersectionServer " + id + "] *** REGISTERED as Ready! ***");
+        System.out.println("[IntersectionServer " + id + "] *** Waiting for OMNeT++ trigger. ***");
+        System.out.println("[IntersectionServer " + id + "] ========================================");
+        
+        // NOTE: We no longer auto-trigger sendCarRequest() via Thread.sleep!
+        // Instead, OMNeT++ will call triggerJoin() when the car reaches the intersection.
+        // This keeps BFT in sync with simulation time.
+    }
+
+    public static boolean isServerReady(int id) {
+        return readyServers.containsKey(id);
+    }
+
+   
+    /**
+     * Native method to notify C++ OMNeT++ that consensus has completed
+     * and the vehicle can resume movement.
+     */
+    private native void notifyVehicleCanGo(int replicaId, double delaySeconds);
+
+    /**
+     * Called by OMNeT++ via JNI when a car reaches the intersection.
+     * This triggers the JOIN request through BFT consensus.
+     */
+    public void triggerJoin() {
+        System.out.println("[IntersectionServer " + processId + "] triggerJoin() called by OMNeT++");
+
+        // Run in a separate thread to not block the JNI call
+        new Thread(() -> {
+            try {
+                sendCarRequest();
+            } catch (Exception e) {
+                System.err.println("[IntersectionServer " + processId + "] Error in triggerJoin: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }).start();
     }
 
     private void sendCarRequest() {
@@ -91,7 +163,45 @@ public final class IntersectionServer extends DefaultRecoverable {
     try (ServiceProxy proxy = new ServiceProxy(clientId)) {
         String joinReq = "JOIN:" + carId;
         byte[] joinReply = proxy.invokeOrdered(joinReq.getBytes(StandardCharsets.UTF_8));
-        System.out.println("[SERVER " + processId + "] JOIN reply: " + new String(joinReply, StandardCharsets.UTF_8));
+        String joinReplyStr = new String(joinReply, StandardCharsets.UTF_8);
+        System.out.println("[SERVER " + processId + "] JOIN reply: " + joinReplyStr);
+
+        // Parse the full decision string to extract THIS car's position
+        // Format: "CAR_0:POS:0;CAR_1:POS:1;CAR_2:POS:2;CAR_3:POS:3"
+        if (joinReplyStr.contains(carId + ":POS:")) {
+            // Find this car's decision in the full string
+            String myDecision = null;
+            for (String entry : joinReplyStr.split(";")) {
+                if (entry.startsWith(carId + ":")) {
+                    myDecision = entry;
+                    break;
+                }
+            }
+
+            if (myDecision != null) {
+                String[] parts = myDecision.split(":");
+                int position = parts.length >= 3 ? Integer.parseInt(parts[2]) : 0;
+
+                // Calculate delay based on position and intersection physics
+                double delaySeconds = calculateDelayFromPosition(position);
+
+                System.out.println("[SERVER " + processId + "] Consensus reached! Position: " + position +
+                                 " - Calculated delay: " + delaySeconds + "s");
+
+                // Notify C++ OMNeT++ that the vehicle can go
+                try {
+                    notifyVehicleCanGo(processId, delaySeconds);
+                } catch (UnsatisfiedLinkError e) {
+                    System.err.println("[SERVER " + processId + "] Warning: Could not call native method (JNI not available): " + e.getMessage());
+                }
+            } else {
+                System.err.println("[SERVER " + processId + "] ERROR: Could not find my decision in: " + joinReplyStr);
+            }
+        } else if (joinReplyStr.contains(":WAIT")) {
+            System.out.println("[SERVER " + processId + "] Consensus says WAIT, vehicle remains stopped");
+        } else if (joinReplyStr.contains(":JOINED_BUFFERING")) {
+            System.out.println("[SERVER " + processId + "] Still buffering, waiting for consensus...");
+        }
 
         Thread.sleep(2000); // just to stagger the demo
 
@@ -115,7 +225,36 @@ public final class IntersectionServer extends DefaultRecoverable {
         e.printStackTrace();
     }
 }
-    
+
+    /**
+     * Calculate delay based on position in queue using intersection physics.
+     *
+     * Position 0 goes immediately.
+     * Each subsequent position waits for:
+     *   - Time for previous car to clear intersection (intersectionWidth / avgSpeed)
+     *   - Safety gap (buffer between cars)
+     *
+     * @param position Queue position (0 = first car)
+     * @return Delay in seconds before this vehicle can enter intersection
+     */
+    private double calculateDelayFromPosition(int position) {
+        if (position <= 0) {
+            return 0.0;  // First car goes immediately
+        }
+
+        // Time for one car to cross + safety buffer
+        double slotDuration = (intersectionWidth / avgSpeed) + safetyGap;
+
+        // Delay = position * slotDuration
+        double delay = position * slotDuration;
+
+        System.out.println("[SERVER " + processId + "] Position " + position +
+                         " -> delay=" + String.format("%.2f", delay) + "s " +
+                         "(slot=" + String.format("%.2f", slotDuration) + "s)");
+
+        return delay;
+    }
+
     /**
      * Parse a single car entry in the format "CAR_ID:direction:arrival_time"
      * @param carEntry The car entry string
@@ -232,7 +371,61 @@ public final class IntersectionServer extends DefaultRecoverable {
         // Return error message
         return "ERROR: Unordered requests not supported".getBytes();
     }
-  
+
+private String makeHonestDecision(java.util.Map<String, Double> buffer) {
+    // 1. Convert Map to List
+    java.util.List<java.util.Map.Entry<String, Double>> sortedCars = 
+        new java.util.ArrayList<>(buffer.entrySet());
+    
+    // 2. Sort Honestly (Arrival Time)
+    sortedCars.sort((a, b) -> {
+        int timeCompare = Double.compare(a.getValue(), b.getValue());
+        if (timeCompare != 0) return timeCompare;
+        return a.getKey().compareTo(b.getKey());
+    });
+
+    // 3. Build String: "CAR_0:POS:0;CAR_1:POS:1..."
+    StringBuilder sb = new StringBuilder();
+    for (int pos = 0; pos < sortedCars.size(); pos++) {
+        if (pos > 0) sb.append(";");
+        String carId = sortedCars.get(pos).getKey();
+        sb.append(carId).append(":POS:").append(pos);
+    }
+    return sb.toString();
+}
+
+private String makeByzantineDecision(java.util.Map<String, Double> buffer) {
+    System.err.println("[BYZANTINE] Generating MALICIOUS decision...");
+
+    // 1. Get the list (same as honest)
+    java.util.List<java.util.Map.Entry<String, Double>> maliciousList = 
+        new java.util.ArrayList<>(buffer.entrySet());
+    
+    // 2. Sort Honestly first...
+    maliciousList.sort((a, b) -> {
+        int timeCompare = Double.compare(a.getValue(), b.getValue());
+        if (timeCompare != 0) return timeCompare;
+        return a.getKey().compareTo(b.getKey());
+    });
+    
+    // 3. ...THEN REVERSE IT (The Lie)
+    // The last car (Car 3) becomes First (Pos 0)
+    java.util.Collections.reverse(maliciousList);
+
+    // 4. Build the Lying String
+    StringBuilder sb = new StringBuilder();
+    for (int pos = 0; pos < maliciousList.size(); pos++) {
+        if (pos > 0) sb.append(";");
+        String carId = maliciousList.get(pos).getKey();
+        // We assign them the position in the REVERSED list
+        sb.append(carId).append(":POS:").append(pos);
+    }
+    
+    String lie = sb.toString();
+    System.err.println("[BYZANTINE] The Lie is: " + lie);
+    return lie;
+}
+
     @Override
 public byte[][] appExecuteBatch(byte[][] commands, MessageContext[] msgCtxs, boolean fromConsensus) {
     iterations++;
@@ -271,27 +464,19 @@ public byte[][] appExecuteBatch(byte[][] commands, MessageContext[] msgCtxs, boo
         if (!batchProcessed && joinBuffer.size() >= BATCH_SIZE) {
             System.out.println("\n[BATCH] ===== TRIGGERING CONSENSUS: We have " + BATCH_SIZE + " cars! =====");
             
-            // Sort cars by arrival time (or alphabetically if tied)
-            java.util.List<java.util.Map.Entry<String, Double>> sortedCars = 
-                new java.util.ArrayList<>(joinBuffer.entrySet());
-            sortedCars.sort((a, b) -> {
-                int timeCompare = Double.compare(a.getValue(), b.getValue());
-                if (timeCompare != 0) return timeCompare;
-                return a.getKey().compareTo(b.getKey()); // Alphabetical tiebreaker
-            });
-            
-            // Build the SINGLE decision for all 4 cars
-            // Format: "CAR_0:GO:0;CAR_1:GO:5;CAR_2:GO:10;CAR_3:GO:15"
-            StringBuilder decisionBuilder = new StringBuilder();
-            for (int pos = 0; pos < sortedCars.size() && pos < BATCH_SIZE; pos++) {
-                String carId = sortedCars.get(pos).getKey();
-                int delaySeconds = pos * CROSSING_TIME_SECONDS;
-                
-                if (pos > 0) decisionBuilder.append(";");
-                decisionBuilder.append(carId).append(":GO:").append(delaySeconds);
+         
+
+         //   || this.processId == 6 || this.processId == 9 || this.processId == 12 
+            // || this.processId == 15 || this.processId == 18 || this.processId == 21 || this.processId == 24 || this.processId == 27
+            if (this.processId == 3  || this.processId == 6){
+                finalDecision = makeByzantineDecision(joinBuffer);
+            }else{
+                finalDecision = makeHonestDecision(joinBuffer);
             }
+
             
-            finalDecision = decisionBuilder.toString();
+            
+            // finalDecision = makeHonestDecision(joinBuffer);
             batchProcessed = true;
             
             System.out.println("[BATCH] ===== CONSENSUS COMPLETE =====");
@@ -307,9 +492,10 @@ public byte[][] appExecuteBatch(byte[][] commands, MessageContext[] msgCtxs, boo
 
             switch (cmd.type) {
                 case JOIN:
-                    if (batchProcessed) {
-                        // Consensus already done - tell them to wait for LEAVE
-                        reply = carId + ":JOINED_BATCH_READY";
+                    if (batchProcessed && finalDecision != null) {
+                        // Consensus already done - return the full decision immediately
+                        System.out.println("[BATCH] JOIN request after consensus complete - returning decision: " + finalDecision);
+                        reply = finalDecision;
                     } else {
                         // Still buffering
                         reply = carId + ":JOINED_BUFFERING=" + joinBuffer.size() + "/" + BATCH_SIZE;

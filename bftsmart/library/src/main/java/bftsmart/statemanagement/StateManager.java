@@ -216,7 +216,7 @@ public abstract class StateManager {
     }
 
     public void askCurrentConsensusId() {
-        
+
         if (SVController.getCurrentViewN() == 1) {
             logger.info("Replica state is up to date");
             dt.pauseDecisionDelivery();
@@ -226,11 +226,27 @@ public abstract class StateManager {
             dt.resumeDecisionDelivery();
             return;
         }
-        
+
+        // V2V MODE: Skip initial state sync on fresh start
+        // V2V's lossy broadcast makes CID query quorum impossible during init
+        String useV2V = System.getProperty("bftsmart.communication.useV2V");
+        if ("true".equals(useV2V)) {
+            logger.warn("***********************************************************");
+            logger.warn("V2V MODE: Skipping initial CID sync (fresh start assumed)");
+            logger.warn("V2V collisions prevent reliable quorum during init");
+            logger.warn("***********************************************************");
+            dt.pauseDecisionDelivery();
+            isInitializing = false;
+            tomLayer.setLastExec(-1);
+            dt.canDeliver();
+            dt.resumeDecisionDelivery();
+            return;
+        }
+
         int me = SVController.getStaticConf().getProcessId();
         int[] target = SVController.getCurrentViewOtherAcceptors();
         SMMessage currentCID;
-        
+
         while (isInitializing) {
             
            logger.debug("Sending CID query with ID {} to replicas {}", queryID, target);

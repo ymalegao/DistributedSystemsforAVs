@@ -59,7 +59,8 @@ public class MessageHandler {
 			if (consMsg.authenticated || consMsg.getSender() == myId)
 				acceptor.deliver(consMsg);
 			else {
-				logger.warn("Discarding unauthenticated message from " + sm.getSender());
+				logger.warn("Discarding unauthenticated message from " + sm.getSender() +
+				           " (authenticated=" + consMsg.authenticated + ", myId=" + myId + ")");
 			}
 
 		} else {
@@ -126,7 +127,8 @@ public class MessageHandler {
 					logger.warn("UNKNOWN MESSAGE TYPE: " + sm);
 				}
 			} else {
-				logger.warn("Discarding unauthenticated message from " + sm.getSender());
+				logger.warn("Discarding unauthenticated message from " + sm.getSender() +
+				           " (authenticated=" + sm.authenticated + ", type=" + sm.getClass().getSimpleName() + ")");
 			}
 		}
 	}

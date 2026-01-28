@@ -1,0 +1,338 @@
+file 58626 1769572882                                           
+version 3
+run EightVehiclesBFTOverV2V-0-20260127-20:01:15-688900
+attr configname EightVehiclesBFTOverV2V
+attr datetime 20260127-20:01:15
+attr datetimef 20260127-200115
+attr experiment EightVehiclesBFTOverV2V
+attr inifile omnetpp.ini
+attr iterationvars ""
+attr iterationvarsd ""
+attr iterationvarsf ""
+attr measurement ""
+attr network fourWay
+attr processid 688900
+attr repetition 0
+attr replication #0
+attr resultdir results
+attr runnumber 0
+attr seedset 0
+config extends BFTOverV2V
+config description "BFT test on 8-vehicle routes"
+config *.manager.launchConfig "xmldoc(\"bft_8veh.launchd.xml\")"
+config *.node[*].appl.intersectionX 300m
+config *.node[*].appl.intersectionY 300m
+config *.node[*].appl.stopDistance 50m
+config *.node[0].appl.replicaId 0
+config *.node[1].appl.replicaId 1
+config *.node[2].appl.replicaId 2
+config *.node[3].appl.replicaId 3
+config *.node[4].appl.replicaId 4
+config *.node[5].appl.replicaId 5
+config *.node[6].appl.replicaId 6
+config *.node[7].appl.replicaId 7
+config extends WithChannelSwitching
+config *.node[*].applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
+config *.node[0].appl.replicaId 0
+config *.node[1].appl.replicaId 1
+config *.node[2].appl.replicaId 2
+config *.node[3].appl.replicaId 3
+config *.node[*].appl.intersectionX 104m
+config *.node[*].appl.intersectionY 82m
+config *.node[*].appl.stopDistance 50m
+config *.node[*].appl.intersectionWidth 15m
+config *.node[*].appl.avgSpeed 14mps
+config *.node[*].appl.safetyGap 1.5s
+config *.node[*].appl.gatewayHost "\"\""
+config *.node[*].appl.gatewayPort 0
+config *.node[*].appl.carId "\"\""
+config *.node[*].appl.direction "\"\""
+config *.connectionManager.pMax 20mW
+config *.connectionManager.sat -89dBm
+config *.connectionManager.alpha 2.0
+config *.connectionManager.carrierFrequency "5.890e9 Hz"
+config *.node[*].nic.phy80211p.collectCollisionStatistics true
+config *.node[*].nic.phy80211p.ccaThreshold -90dBm
+config *.node[*].nic.mac1609_4.cwMin 15
+config *.node[*].nic.mac1609_4.cwMax 1023
+config *.**.nic.mac1609_4.useServiceChannel false
+config *.node[*].appl.dataOnSch false
+config *.rsu[*].appl.dataOnSch false
+config *.node[*].nic.mac1609_4.useServiceChannel false
+config *.node[0].appl.gatewayHost "\"127.0.0.1\""
+config *.node[0].appl.gatewayPort 9001
+config *.node[0].appl.carId "\"CAR_0\""
+config *.node[0].appl.direction "\"straight\""
+config *.node[0].appl.stopDistance 50m
+config *.node[0].appl.intersectionX 104m
+config *.node[0].appl.intersectionY 82m
+config *.node[1].appl.gatewayHost "\"127.0.0.1\""
+config *.node[1].appl.gatewayPort 9002
+config *.node[1].appl.carId "\"CAR_1\""
+config *.node[1].appl.direction "\"right\""
+config *.node[1].appl.stopDistance 50m
+config *.node[1].appl.intersectionX 104m
+config *.node[1].appl.intersectionY 82m
+config *.node[2].appl.gatewayHost "\"127.0.0.1\""
+config *.node[2].appl.gatewayPort 9003
+config *.node[2].appl.carId "\"CAR_2\""
+config *.node[2].appl.direction "\"left\""
+config *.node[2].appl.stopDistance 50m
+config *.node[2].appl.intersectionX 104m
+config *.node[2].appl.intersectionY 82m
+config *.node[3].appl.gatewayHost "\"127.0.0.1\""
+config *.node[3].appl.gatewayPort 9004
+config *.node[3].appl.carId "\"CAR_3\""
+config *.node[3].appl.direction "\"right\""
+config *.node[3].appl.stopDistance 50m
+config *.node[3].appl.intersectionX 104m
+config *.node[3].appl.intersectionY 82m
+config scheduler-class omnetpp::cRealTimeScheduler
+config realtimescheduler-scaling 1
+config cmdenv-express-mode true
+config cmdenv-autoflush true
+config cmdenv-status-frequency 1s
+config **.cmdenv-log-level info
+config image-path ../../images
+config network fourWay
+config debug-on-errors true
+config print-undisposed true
+config sim-time-limit 200s
+config **.scalar-recording true
+config **.vector-recording true
+config *.playgroundSizeX 2500m
+config *.playgroundSizeY 2500m
+config *.playgroundSizeZ 50m
+config *.annotations.draw true
+config *.obstacles.debug false
+config *.manager.updateInterval 0.1s
+config *.manager.host "\"localhost\""
+config *.manager.port 9999
+config *.manager.autoShutdown true
+config *.manager.launchConfig "xmldoc(\"osm.launchd.xml\")"
+config *.manager.trafficLightModuleType "\"org.car2x.veins.nodes.TrafficLight\""
+config *.tls[*].mobility.x 0
+config *.tls[*].mobility.y 0
+config *.tls[*].mobility.z 3
+config *.tls[*].applType "\"org.car2x.veins.modules.application.traci.TraCIDemoTrafficLightApp\""
+config *.tls[*].logicType "\"org.car2x.veins.modules.world.traci.trafficLight.logics.TraCITrafficLightSimpleLogic\""
+config *.rsu[0].mobility.x 2000
+config *.rsu[0].mobility.y 2000
+config *.rsu[0].mobility.z 3
+config *.rsu[*].applType "\"TraCIDemoRSU11p\""
+config *.rsu[*].appl.headerLength "80 bit"
+config *.rsu[*].appl.sendBeacons false
+config *.rsu[*].appl.dataOnSch false
+config *.rsu[*].appl.beaconInterval 1s
+config *.rsu[*].appl.beaconUserPriority 7
+config *.rsu[*].appl.dataUserPriority 5
+config *.rsu[*].nic.phy80211p.antennaOffsetZ "0 m"
+config *.connectionManager.sendDirect true
+config *.connectionManager.maxInterfDist 2600m
+config *.connectionManager.drawMaxIntfDist false
+config *.connectionManagerName "\"connectionManager\""
+config *.**.nic.mac1609_4.useServiceChannel false
+config *.**.nic.mac1609_4.txPower 20mW
+config *.**.nic.mac1609_4.bitrate 6Mbps
+config *.**.nic.phy80211p.minPowerLevel -110dBm
+config *.**.nic.phy80211p.useNoiseFloor true
+config *.**.nic.phy80211p.noiseFloor -98dBm
+config *.**.nic.phy80211p.decider "xmldoc(\"config.xml\")"
+config *.**.nic.phy80211p.analogueModels "xmldoc(\"config.xml\")"
+config *.**.nic.phy80211p.usePropagationDelay true
+config *.**.nic.phy80211p.antenna "xmldoc(\"antenna.xml\", \"/root/Antenna[@id='monopole']\")"
+config *.node[*].nic.phy80211p.antennaOffsetY "1.895 m"
+config *.node[*].nic.phy80211p.antennaOffsetZ "1.895 m"
+config *.node[*].applType "\"src.IntersectionApp\""
+config *.node[*].appl.headerLength "80 bit"
+config *.node[*].appl.sendBeacons false
+config *.node[*].appl.dataOnSch false
+config *.node[*].appl.beaconInterval 1s
+config *.node[*].nic.phy80211p.connectionManagerName "\"connectionManager\""
+config *.node[*].veinsmobility.x 0
+config *.node[*].veinsmobility.y 0
+config *.node[*].veinsmobility.z 0
+config *.node[*].veinsmobility.setHostSpeed false
+config *.node[0].veinsmobility.accidentCount 0
+config *.node[0].veinsmobility.accidentStart 73s
+config *.node[0].veinsmobility.accidentDuration 50s
+
+vector 0 fourWay.tls[0].nic.phy80211p RadioState ETV
+vector 1 fourWay.tls[0].nic.phy80211p RadioChannel ETV
+vector 2 fourWay.node[0].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 3 fourWay.node[0].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 4 fourWay.node[0].nic.phy80211p RadioState ETV
+vector 5 fourWay.node[0].nic.phy80211p RadioChannel ETV
+vector 6 fourWay.manager posx ETV
+vector 7 fourWay.manager posy ETV
+vector 8 fourWay.node[1].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 9 fourWay.node[1].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 10 fourWay.node[1].nic.phy80211p RadioState ETV
+vector 11 fourWay.node[1].nic.phy80211p RadioChannel ETV
+vector 12 fourWay.manager posx ETV
+vector 13 fourWay.manager posy ETV
+vector 14 fourWay.node[2].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 15 fourWay.node[2].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 16 fourWay.node[2].nic.phy80211p RadioState ETV
+vector 17 fourWay.node[2].nic.phy80211p RadioChannel ETV
+vector 18 fourWay.manager posx ETV
+vector 19 fourWay.manager posy ETV
+vector 20 fourWay.node[3].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 21 fourWay.node[3].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 22 fourWay.node[3].nic.phy80211p RadioState ETV
+vector 23 fourWay.node[3].nic.phy80211p RadioChannel ETV
+vector 24 fourWay.manager posx ETV
+vector 25 fourWay.manager posy ETV
+vector 26 fourWay.node[4].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 27 fourWay.node[4].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 28 fourWay.node[4].nic.phy80211p RadioState ETV
+vector 29 fourWay.node[4].nic.phy80211p RadioChannel ETV
+vector 30 fourWay.manager posx ETV
+vector 31 fourWay.manager posy ETV
+vector 32 fourWay.node[5].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 33 fourWay.node[5].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 34 fourWay.node[5].nic.phy80211p RadioState ETV
+vector 35 fourWay.node[5].nic.phy80211p RadioChannel ETV
+vector 36 fourWay.manager posx ETV
+vector 37 fourWay.manager posy ETV
+vector 38 fourWay.node[6].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 39 fourWay.node[6].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 40 fourWay.node[6].nic.phy80211p RadioState ETV
+vector 41 fourWay.node[6].nic.phy80211p RadioChannel ETV
+vector 42 fourWay.manager posx ETV
+vector 43 fourWay.manager posy ETV
+vector 44 fourWay.node[7].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 45 fourWay.node[7].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 46 fourWay.node[7].nic.phy80211p RadioState ETV
+vector 47 fourWay.node[7].nic.phy80211p RadioChannel ETV
+vector 48 fourWay.manager posx ETV
+vector 49 fourWay.manager posy ETV
+vector 50 fourWay.manager speed ETV
+vector 51 fourWay.manager speed ETV
+vector 52 fourWay.manager speed ETV
+vector 53 fourWay.manager speed ETV
+vector 54 fourWay.manager speed ETV
+vector 55 fourWay.manager speed ETV
+vector 56 fourWay.manager speed ETV
+vector 57 fourWay.manager speed ETV
+vector 58 fourWay.manager acceleration ETV
+vector 59 fourWay.manager co2emission ETV
+vector 60 fourWay.manager acceleration ETV
+vector 61 fourWay.manager co2emission ETV
+vector 62 fourWay.manager acceleration ETV
+vector 63 fourWay.manager co2emission ETV
+vector 64 fourWay.manager acceleration ETV
+vector 65 fourWay.manager co2emission ETV
+vector 66 fourWay.manager acceleration ETV
+vector 67 fourWay.manager co2emission ETV
+vector 68 fourWay.manager acceleration ETV
+vector 69 fourWay.manager co2emission ETV
+vector 70 fourWay.manager acceleration ETV
+vector 71 fourWay.manager co2emission ETV
+vector 72 fourWay.manager acceleration ETV
+vector 73 fourWay.manager co2emission ETV
+2	11116 390 787 7254 3.3 4.95 28 1 28 406 7714
+3	11506 613 1245 8924 3.352606099608 4.977256878735 25 1 25 325 5525
+6	12119 785 2 5367 0.1 4.9 49 323.4 323.4 15846.6 5124790.44
+7	12904 1249 2 5367 0.1 4.9 49 305 330.61269792258 15883.161254725 5151590.2217104
+8	14153 337 1190 7255 3.35 4.95 24 1 24 300 4900
+9	14490 809 847 8948 3.303964063063 4.977256930517 33 1 33 561 12529
+12	15299 834 2 5367 0.1 4.9 49 323.4 323.4 15846.6 5124790.44
+13	16133 1292 2 5367 0.1 4.9 49 295 311.63020341741 15099.646741507 4654289.7606759
+14	17425 361 1191 7256 3.35 4.95 24 1 24 300 4900
+15	17786 789 835 8940 3.303964042984 4.977256900163 31 1 31 496 10416
+18	18575 834 2 5367 0.1 4.9 49 326.6 326.6 16003.4 5226710.44
+19	19409 1294 2 5367 0.1 4.9 49 319.65104878981 345 15974.565552219 5210945.1599305
+20	20703 245 1192 7257 3.35 4.95 16 1 16 136 1496
+21	20948 897 831 8881 3.303964025631 4.975568853209 35 1 35 630 14910
+24	21845 834 2 5367 0.1 4.9 49 326.6 326.6 16003.4 5226710.44
+25	22679 1294 2 5367 0.1 4.9 49 333.72744124203 355 16610.0005168 5632663.0377537
+26	23973 260 1193 7258 3.35 4.95 17 1 17 153 1785
+27	24233 1025 839 8936 3.303964049804 4.977256897133 40 1 40 820 22140
+30	25258 1300 2 5367 0.1 4.9 49 333.39480979956 345 16436.305437448 5513862.0250845
+31	26558 834 2 5367 0.1 4.9 49 323.4 323.4 15846.6 5124790.44
+32	27392 361 1194 7259 3.35 4.95 24 1 24 300 4900
+33	27753 867 851 8944 3.303964078623 4.977256917188 34 1 34 595 13685
+36	28620 1298 2 5367 0.1 4.9 49 343.27683369842 355 16942.449371654 5858721.2594276
+37	29918 834 2 5367 0.1 4.9 49 323.4 323.4 15846.6 5124790.44
+38	30752 245 1195 7260 3.35 4.95 16 1 16 136 1496
+39	30997 945 823 8932 3.303964017602 4.977256896438 37 1 37 703 17575
+42	31942 1298 2 5367 0.1 4.9 49 305 316.63865820555 15415.12868797 4850069.4732683
+43	33240 834 2 5367 0.1 4.9 49 326.6 326.6 16003.4 5226710.44
+44	34074 361 1196 7261 3.35 4.95 24 1 24 300 4900
+45	34435 794 843 8952 3.303964061357 4.977256939291 31 1 31 496 10416
+48	35229 1300 2 5367 0.1 4.9 49 295 303.22433704376 14796.22151308 4468181.7573166
+49	36529 834 2 5367 0.1 4.9 49 326.6 326.6 16003.4 5226710.44
+50	37363 1096 12 5367 0.2 4.9 48 0 14 270.12697922584 2763.3430074183
+51	38459 1035 12 5367 0.2 4.9 48 0 11.011470588235 177.31350476236 1455.3817339187
+52	39494 1104 12 5367 0.2 4.9 48 0 14 267.48951210189 2727.4438534413
+53	40598 1089 12 5367 0.2 4.9 48 0 11.070746553008 223.73705816798 1944.023096243
+54	41687 951 12 5367 0.2 4.9 48 0 10.282916666667 126.33481867105 893.4851410229
+55	42638 1000 12 5367 0.2 4.9 48 0 7.777467948718 125.00913096453 713.1921362533
+56	43638 951 12 5367 0.2 4.9 48 0 10.282916666667 126.66949872213 898.74792270976
+57	44589 922 12 5367 0.2 4.9 48 0 7.777467948718 90.020838386326 523.86717772558
+58	45511 676 22 5367 0.3 4.9 47 -9 0 -140 1230.3612454121
+59	46187 972 22 5367 0.3 4.9 47 0.973 2.0322372267253 55.568619256158 70.76385827436
+60	47159 671 22 5367 0.3 4.9 47 -9 1.3083641720859 -110.11470588235 979.58385117606
+61	47830 952 22 5367 0.3 4.9 47 0.973 5.2173774213634 56.456022091764 86.998980193818
+62	48782 676 22 5367 0.3 4.9 47 -9 0 -140 1227.5584708583
+63	49458 982 22 5367 0.3 4.9 47 0.973 2.0378197785335 56.209052743465 72.43743438696
+64	50440 744 22 5367 0.3 4.9 47 -9 1.1017456701468 -110.11470588235 918.10526786034
+65	51184 983 22 5367 0.3 4.9 47 0.973 4.7089092218913 58.154110548141 87.827194396342
+66	52167 668 22 5367 0.3 4.9 47 -9 0 -102.82916666667 888.98063202304
+67	52835 913 22 5367 0.3 4.9 47 0.973 1.6577808457603 50.314183464348 55.61270634134
+68	53748 784 22 5367 0.3 4.9 47 -9 0 -77.77467948718 505.53142216397
+69	54532 943 22 5367 0.3 4.9 47 0.973 1.5276370852233 50.788404561811 56.356635155284
+70	55475 669 22 5367 0.3 4.9 47 -9 0 -102.82916666667 893.3320102223
+71	56144 910 22 5367 0.3 4.9 47 0.973 1.6655213422057 50.32549602084 55.648295955386
+72	57054 668 22 5367 0.3 4.9 47 -9 0 -77.77467948718 662.49630570456
+73	57722 903 22 5367 0.3 4.9 47 0.973 1.5210721789144 49.219042455356 52.681257666365
+

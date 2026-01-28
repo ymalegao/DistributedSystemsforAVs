@@ -145,6 +145,8 @@ public class ServiceReplica {
     // this method initializes the object
     private void init() {
         try {
+            // ServerCommunicationSystem internally selects V2V or TCP based on
+            // system property "bftsmart.communication.useV2V"
             cs = new ServerCommunicationSystem(this.SVController, this);
         } catch (Exception ex) {
             logger.error("Failed to initialize replica-to-replica communication system", ex);

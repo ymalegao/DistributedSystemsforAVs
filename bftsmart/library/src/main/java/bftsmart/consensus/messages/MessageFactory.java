@@ -64,7 +64,7 @@ public class MessageFactory{
      * @return A consensus message of the WRITE type, with the specified id, epoch, and value
      */
     public ConsensusMessage createWrite(int id, int epoch, byte[] value) {
-
+        System.out.println("[MessageFactory] Creating WRITE message: from=" + from + ", id=" + id + ", epoch=" + epoch);
         return new ConsensusMessage(WRITE,id,epoch, from, value);
 
     }
@@ -77,7 +77,7 @@ public class MessageFactory{
      * @return A consensus message of the ACCEPT type, with the specified id, epoch, and value
      */
     public ConsensusMessage createAccept(int id, int epoch, byte[] value) {
-
+        System.out.println("[MessageFactory] Creating ACCEPT message: from=" + from + ", id=" + id + ", epoch=" + epoch);
         return new ConsensusMessage(ACCEPT,id,epoch, from, value);
 
     }
