@@ -14,7 +14,7 @@ public class ServerRunner implements Runnable {
     private final int numCars;
     private IntersectionServer server;
     private volatile String initStatus = "Pending";
-    private static final int BATCH_SIZE = 8;
+    private static final int BATCH_SIZE = 12;
 
     // Static registry so OMNeT++ can find servers by replica ID
     private static final ConcurrentHashMap<Integer, ServerRunner> registry = new ConcurrentHashMap<>();
@@ -138,26 +138,82 @@ public class ServerRunner implements Runnable {
     }
     
     /**
-     * Called by OMNeT++ via JNI to trigger a JOIN request.
+     * Called by OMNeT++ via JNI to trigger a consensus request (VIEW_PROPOSE or ORDER_PROPOSE).
      * This is the simulation-time-driven way to start consensus.
+     * @param request The request string (e.g., "VIEW_PROPOSE:veh0:lane:pos:..." or "ORDER_PROPOSE")
      */
-    public void triggerJoin() {
+    public void triggerConsensusRequest(String request) {
         if (server != null) {
-            server.triggerJoin();
+            server.triggerConsensusRequest(request);
         } else {
-            System.err.println("[ServerRunner " + replicaId + "] Cannot triggerJoin - server not ready yet!");
+            System.err.println("[ServerRunner " + replicaId + "] Cannot trigger consensus - server not ready yet!");
         }
     }
-    
+
     /**
-     * Static method for OMNeT++ to call triggerJoin on a specific replica.
+     * Static method for OMNeT++ to call consensus trigger on a specific replica.
+     * @param replicaId The replica ID
+     * @param request The request string (VIEW_PROPOSE or ORDER_PROPOSE with data)
      */
-    public static void triggerJoinForReplica(int replicaId) {
+    public static void triggerJoinForReplica(int replicaId, String request) {
         ServerRunner runner = registry.get(replicaId);
         if (runner != null) {
-            runner.triggerJoin();
+            runner.triggerConsensusRequest(request);
         } else {
             System.err.println("[ServerRunner] No runner found for replica " + replicaId);
+        }
+    }
+
+
+    
+
+
+
+    /**
+   * Called by C++ via JNI when a vehicle has departed (crossed intersection).
+   * Marks the replica as zombie so it stops participating in proposals.
+   * @param replicaId The replica ID that departed
+   */
+  public static void notifyVehicleDeparted(int replicaId) {
+    System.out.println("[ServerRunner] notifyVehicleDeparted called for replica " + replicaId);
+
+    ServerRunner runner = registry.get(replicaId);
+    if (runner != null && runner.server != null) {
+        runner.server.markReplicaDeparted(replicaId);
+        System.out.println("[ServerRunner] Replica " + replicaId + " departed (zombie mode activated)");
+    } else {
+        System.err.println("[ServerRunner] Cannot mark replica " + replicaId +
+                         " as departed - server not found");
+        System.err.println("[ServerRunner] Registry contains: " + registry.keySet());
+    }
+}
+
+
+
+ /**                                                                                                                                                                                
+  * Called by C++ via JNI to notify the actual batch size after collection phase.                                                                                                   
+  * @param replicaId The replica reporting the batch size                                                                                                                           
+  * @param batchSize The number of cars detected in the batch                                                                                                                       
+  */                                                                                                                                                                                
+ public static void notifyBatchSize(int replicaId, int batchSize) {                                                                                                                 
+     System.out.println("[ServerRunner] Replica " + replicaId + " detected batch size: " + batchSize);                                                                              
+                                                                                                                                                                                    
+     ServerRunner runner = registry.get(replicaId);                                                                                                                                 
+     if (runner != null && runner.server != null) {                                                                                                                                 
+         runner.server.updateBatchSize(batchSize);                                                                                                                                  
+     } else {                                                                                                                                                                       
+         System.err.println("[ServerRunner] Cannot update batch size - server " + replicaId + " not found");                                                                        
+     }                                                                                                                                                                              
+ }              
+
+    // Legacy method for backwards compatibility (will be removed)
+    @Deprecated
+    public static void triggerJoinForReplica(int replicaId) {
+        System.err.println("[ServerRunner] WARNING: Called deprecated triggerJoinForReplica without request string!");
+        ServerRunner runner = registry.get(replicaId);
+        if (runner != null && runner.server != null) {
+            // Call old triggerJoin for compatibility
+            runner.server.triggerJoin();
         }
     }
     

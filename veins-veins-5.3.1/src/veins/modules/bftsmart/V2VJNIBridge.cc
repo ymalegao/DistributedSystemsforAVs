@@ -7,8 +7,17 @@
 #include "veins/modules/bftsmart/V2VProxyModule.h"
 #include <iostream>
 #include <cstring>
+#include <set>
+#include <string>
+#include <sstream>
 
 using namespace veins;
+
+// Forward declaration for JNI_OnLoad (defined below notifyVehicleCanGo)
+extern "C" JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyOrderDecided
+    (JNIEnv*, jobject, jint, jstring);
+extern "C" JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyReconfigComplete
+    (JNIEnv*, jobject, jint);
 
 static std::vector<uint8_t> jbyteArrayToVector(JNIEnv* env, jbyteArray array) {
     int len = env->GetArrayLength(array);
@@ -113,30 +122,73 @@ JNIEXPORT void JNICALL Java_bftsmart_communication_V2V_V2VNativeBridge_nativeShu
     std::cout << "[JNI] V2V bridge shutdown complete for replica " << replicaId << std::endl;
 }
 
-/*
- * Class:     bftsmart_demo_intersection_IntersectionServer
- * Method:    notifyVehicleCanGo
- * Signature: (ID)V
+extern "C" {
+
+/**
+ * JNI callback: notifyViewAgreed (NEW for 3-phase consensus)
  *
- * Called by Java when consensus completes and the vehicle can resume movement
+ * Called by Java when VIEW consensus completes (Phase 1c → Phase 2 transition)
  */
-JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyVehicleCanGo
-  (JNIEnv* env, jobject javaObj, jint replicaId, jdouble delaySeconds)
+JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyViewAgreed
+  (JNIEnv* env, jobject javaObj, jint replicaId, jstring viewMembers)
 {
-    std::cout << "[JNI] notifyVehicleCanGo: replica " << replicaId
-              << " can go after " << delaySeconds << "s delay" << std::endl;
+    const char* viewStr = env->GetStringUTFChars(viewMembers, nullptr);
+    std::cout << "[JNI] notifyViewAgreed: replica " << replicaId
+              << ", view=" << viewStr << std::endl;
 
     // Find the proxy module for this replica
     V2VProxyModule* proxy = V2VProxyModule::getProxyForReplica(replicaId);
 
     if (!proxy) {
         std::cerr << "[JNI] ERROR: No V2VProxyModule found for replica " << replicaId << std::endl;
+        env->ReleaseStringUTFChars(viewMembers, viewStr);
         return;
     }
 
+    // Parse view members from comma-separated string
+    std::set<std::string> view;
+    std::string viewString(viewStr);
+    std::istringstream ss(viewString);
+    std::string carId;
+    while (std::getline(ss, carId, ',')) {
+        if (!carId.empty()) {
+            view.insert(carId);
+        }
+    }
+    
+    env->ReleaseStringUTFChars(viewMembers, viewStr);
+
+    // Notify the proxy that view consensus is complete
+    proxy->onViewAgreed(view);
+}
+
+/**
+ * JNI callback: notifyVehicleCanGo
+ *
+ * Called by Java when consensus completes and the vehicle can resume movement
+ */
+JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyVehicleCanGo
+  (JNIEnv* env, jobject javaObj, jint replicaId, jdouble delaySeconds)
+{
+    std::cout << "\n[JNI-NOTIFY] *** Java called notifyVehicleCanGo() ***" << std::endl;
+    std::cout << "[JNI-NOTIFY]   Replica ID: " << replicaId << std::endl;
+    std::cout << "[JNI-NOTIFY]   Delay: " << delaySeconds << "s" << std::endl;
+
+    // Find the proxy module for this replica
+    V2VProxyModule* proxy = V2VProxyModule::getProxyForReplica(replicaId);
+
+    if (!proxy) {
+        std::cerr << "[JNI-NOTIFY] *** ERROR: No V2VProxyModule found for replica " << replicaId << " ***" << std::endl;
+        return;
+    }
+
+    std::cout << "[JNI-NOTIFY]   Found proxy, calling resumeVehicle(" << delaySeconds << ")" << std::endl;
     // Tell the proxy to resume the vehicle after the assigned delay
     proxy->resumeVehicle(delaySeconds);
+    std::cout << "[JNI-NOTIFY]   resumeVehicle() returned" << std::endl;
 }
+
+}  // extern "C"
 
 
 extern "C" {
@@ -149,10 +201,33 @@ JNIEXPORT void JNICALL Java_bftsmart_communication_V2V_V2VNativeBridge_nativeWar
 }
 }
 
-// JNI Library initialization (optional but useful for debugging)
+// JNI Library initialization - register native methods when library loads
+// This ensures notifyOrderDecided etc. are registered even if createOrAttachJVM timing differs
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
 {
     std::cout << "[JNI] V2V JNI library loaded successfully" << std::endl;
+
+    JNIEnv* env = nullptr;
+    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_8) != JNI_OK) {
+        std::cerr << "[JNI] JNI_OnLoad: GetEnv failed" << std::endl;
+        return JNI_ERR;
+    }
+
+    // Register IntersectionServer native methods here as fallback (runs when Java loads library)
+    jclass intersectionServerClass = env->FindClass("bftsmart/demo/intersection/IntersectionServer");
+    if (intersectionServerClass) {
+        JNINativeMethod serverMethods[] = {
+            {const_cast<char*>("notifyVehicleCanGo"), const_cast<char*>("(ID)V"), (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyVehicleCanGo},
+            {const_cast<char*>("notifyViewAgreed"), const_cast<char*>("(ILjava/lang/String;)V"), (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyViewAgreed},
+            {const_cast<char*>("notifyOrderDecided"), const_cast<char*>("(ILjava/lang/String;)V"), (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyOrderDecided},
+            {const_cast<char*>("notifyReconfigComplete"), const_cast<char*>("(I)V"), (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyReconfigComplete}
+
+        };
+        if (env->RegisterNatives(intersectionServerClass, serverMethods, 4) == 0) {
+            std::cout << "[JNI] JNI_OnLoad: Registered 4 IntersectionServer native methods" << std::endl;
+        }
+    }
+
     return JNI_VERSION_1_8;
 }
 
@@ -162,10 +237,32 @@ JNIEXPORT void JNICALL JNI_OnUnload(JavaVM* vm, void* reserved)
     std::cout << "[JNI] V2V JNI library unloaded" << std::endl;
 }
 
+JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyOrderDecided
+    (JNIEnv* env, jobject obj, jint replicaId, jstring orderDecision)
+  {
+      const char* decisionStr = env->GetStringUTFChars(orderDecision, nullptr);
+      std::cout << "[JNI-CALLBACK] Replica " << replicaId
+                << " ORDER decision: " << decisionStr << std::endl;
+
+      // Find the V2VProxyModule for this replica
+      V2VProxyModule* proxy = V2VProxyModule::getProxyForReplica(replicaId);
+      if (proxy) {
+          proxy->handleOrderDecision(std::string(decisionStr));
+      }
+
+      env->ReleaseStringUTFChars(orderDecision, decisionStr);
+  }
 
 
+JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyReconfigComplete
+    (JNIEnv* env, jobject obj, jint replicaId)
+  {
+      std::cout << "[JNI-CALLBACK] Replica " << replicaId
+                << " RECONFIG COMPLETE" << std::endl;
 
-
-
-
-
+      // Find the V2VProxyModule for this replica
+      V2VProxyModule* proxy = V2VProxyModule::getProxyForReplica(replicaId);
+      if (proxy) {
+          proxy->scheduleReconfigFlush();
+      }
+  }

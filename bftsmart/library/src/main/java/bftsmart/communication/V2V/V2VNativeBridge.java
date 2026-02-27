@@ -91,7 +91,13 @@ public class V2VNativeBridge {
         ensureInitialized();
         
         System.out.println("V2VNativeBridge" + replicaId + ": Sending message to " + targetReplicaId  + " with length " + messageData.length);
-        return nativeSendMessage(replicaId, targetReplicaId, messageData);
+        System.out.flush();
+        System.out.println("V2VNativeBridge" + replicaId + ": Calling nativeSendMessage...");
+        System.out.flush();
+        boolean result = nativeSendMessage(replicaId, targetReplicaId, messageData);
+        System.out.println("V2VNativeBridge" + replicaId + ": nativeSendMessage returned: " + result);
+        System.out.flush();
+        return result;
     }
 
     //this is called by JNI when mesasge is recived from the simulation - c++ code

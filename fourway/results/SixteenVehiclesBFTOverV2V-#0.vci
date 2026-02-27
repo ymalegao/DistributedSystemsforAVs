@@ -1,9 +1,9 @@
-file 224874 1769481226                                          
+                                                                
 version 3
-run SixteenVehiclesBFTOverV2V-0-20260126-18:33:29-539346
+run SixteenVehiclesBFTOverV2V-0-20260225-12:58:27-1099923
 attr configname SixteenVehiclesBFTOverV2V
-attr datetime 20260126-18:33:29
-attr datetimef 20260126-183329
+attr datetime 20260225-12:58:27
+attr datetimef 20260225-125827
 attr experiment SixteenVehiclesBFTOverV2V
 attr inifile omnetpp.ini
 attr iterationvars ""
@@ -11,7 +11,7 @@ attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network fourWay
-attr processid 539346
+attr processid 1099923
 attr repetition 0
 attr replication #0
 attr resultdir results
@@ -22,7 +22,7 @@ config description "BFT test on 16-vehicle routes"
 config *.manager.launchConfig "xmldoc(\"bft_16veh.launchd.xml\")"
 config *.node[*].appl.intersectionX 300m
 config *.node[*].appl.intersectionY 300m
-config *.node[*].appl.stopDistance 100m
+config *.node[*].appl.stopDistance 200m
 config *.node[*].appl.consensusTimeoutSec 120s
 config *.node[0].appl.replicaId 0
 config *.node[1].appl.replicaId 1
@@ -97,8 +97,8 @@ config *.node[3].appl.stopDistance 50m
 config *.node[3].appl.intersectionX 104m
 config *.node[3].appl.intersectionY 82m
 config scheduler-class omnetpp::cRealTimeScheduler
-config realtimescheduler-scaling 1
-config cmdenv-express-mode true
+config realtimescheduler-scaling 0.1
+config cmdenv-express-mode false
 config cmdenv-autoflush true
 config cmdenv-status-frequency 1s
 config **.cmdenv-log-level info
@@ -106,7 +106,7 @@ config image-path ../../images
 config network fourWay
 config debug-on-errors true
 config print-undisposed true
-config sim-time-limit 200s
+config sim-time-limit 50000s
 config **.scalar-recording true
 config **.vector-recording true
 config *.playgroundSizeX 2500m
@@ -141,9 +141,11 @@ config *.connectionManager.maxInterfDist 2600m
 config *.connectionManager.drawMaxIntfDist false
 config *.connectionManagerName "\"connectionManager\""
 config *.**.nic.mac1609_4.useServiceChannel false
-config *.**.nic.mac1609_4.txPower 20mW
-config *.**.nic.mac1609_4.bitrate 6Mbps
+config *.**.nic.phy80211p.txPower 500mW
+config *.**.nic.mac1609_4.txPower 400mW
+config *.**.nic.mac1609_4.bitrate 27Mbps
 config *.**.nic.phy80211p.minPowerLevel -110dBm
+config *.**.nic.mac1609_4.queueSize 1024
 config *.**.nic.phy80211p.useNoiseFloor true
 config *.**.nic.phy80211p.noiseFloor -98dBm
 config *.**.nic.phy80211p.decider "xmldoc(\"config.xml\")"
@@ -180,189 +182,189 @@ vector 4 fourWay.node[0].nic.phy80211p RadioState ETV
 vector 5 fourWay.node[0].nic.phy80211p RadioChannel ETV
 vector 6 fourWay.manager posx ETV
 vector 7 fourWay.manager posy ETV
-vector 8 fourWay.node[1].appl bftMsgSent:vector ETV
+vector 8 fourWay.manager speed ETV
+vector 9 fourWay.node[1].appl bftMsgSent:vector ETV
 attr recordingmode vector
 attr source bftMsgSent
 attr title "BFT messages sent"
-vector 9 fourWay.node[1].appl bftMsgReceived:vector ETV
+vector 10 fourWay.node[1].appl bftMsgReceived:vector ETV
 attr recordingmode vector
 attr source bftMsgReceived
 attr title "BFT messages received"
-vector 10 fourWay.node[1].nic.phy80211p RadioState ETV
-vector 11 fourWay.node[1].nic.phy80211p RadioChannel ETV
-vector 12 fourWay.manager posx ETV
-vector 13 fourWay.manager posy ETV
-vector 14 fourWay.node[2].appl bftMsgSent:vector ETV
+vector 11 fourWay.node[1].nic.phy80211p RadioState ETV
+vector 12 fourWay.node[1].nic.phy80211p RadioChannel ETV
+vector 13 fourWay.manager posx ETV
+vector 14 fourWay.manager posy ETV
+vector 15 fourWay.node[2].appl bftMsgSent:vector ETV
 attr recordingmode vector
 attr source bftMsgSent
 attr title "BFT messages sent"
-vector 15 fourWay.node[2].appl bftMsgReceived:vector ETV
+vector 16 fourWay.node[2].appl bftMsgReceived:vector ETV
 attr recordingmode vector
 attr source bftMsgReceived
 attr title "BFT messages received"
-vector 16 fourWay.node[2].nic.phy80211p RadioState ETV
-vector 17 fourWay.node[2].nic.phy80211p RadioChannel ETV
-vector 18 fourWay.manager posx ETV
-vector 19 fourWay.manager posy ETV
-vector 20 fourWay.node[3].appl bftMsgSent:vector ETV
+vector 17 fourWay.node[2].nic.phy80211p RadioState ETV
+vector 18 fourWay.node[2].nic.phy80211p RadioChannel ETV
+vector 19 fourWay.manager posx ETV
+vector 20 fourWay.manager posy ETV
+vector 21 fourWay.node[3].appl bftMsgSent:vector ETV
 attr recordingmode vector
 attr source bftMsgSent
 attr title "BFT messages sent"
-vector 21 fourWay.node[3].appl bftMsgReceived:vector ETV
+vector 22 fourWay.node[3].appl bftMsgReceived:vector ETV
 attr recordingmode vector
 attr source bftMsgReceived
 attr title "BFT messages received"
-vector 22 fourWay.node[3].nic.phy80211p RadioState ETV
-vector 23 fourWay.node[3].nic.phy80211p RadioChannel ETV
-vector 24 fourWay.manager posx ETV
-vector 25 fourWay.manager posy ETV
-vector 26 fourWay.node[4].appl bftMsgSent:vector ETV
+vector 23 fourWay.node[3].nic.phy80211p RadioState ETV
+vector 24 fourWay.node[3].nic.phy80211p RadioChannel ETV
+vector 25 fourWay.manager posx ETV
+vector 26 fourWay.manager posy ETV
+vector 27 fourWay.node[4].appl bftMsgSent:vector ETV
 attr recordingmode vector
 attr source bftMsgSent
 attr title "BFT messages sent"
-vector 27 fourWay.node[4].appl bftMsgReceived:vector ETV
+vector 28 fourWay.node[4].appl bftMsgReceived:vector ETV
 attr recordingmode vector
 attr source bftMsgReceived
 attr title "BFT messages received"
-vector 28 fourWay.node[4].nic.phy80211p RadioState ETV
-vector 29 fourWay.node[4].nic.phy80211p RadioChannel ETV
-vector 30 fourWay.manager posx ETV
-vector 31 fourWay.manager posy ETV
-vector 32 fourWay.node[5].appl bftMsgSent:vector ETV
+vector 29 fourWay.node[4].nic.phy80211p RadioState ETV
+vector 30 fourWay.node[4].nic.phy80211p RadioChannel ETV
+vector 31 fourWay.manager posx ETV
+vector 32 fourWay.manager posy ETV
+vector 33 fourWay.node[5].appl bftMsgSent:vector ETV
 attr recordingmode vector
 attr source bftMsgSent
 attr title "BFT messages sent"
-vector 33 fourWay.node[5].appl bftMsgReceived:vector ETV
+vector 34 fourWay.node[5].appl bftMsgReceived:vector ETV
 attr recordingmode vector
 attr source bftMsgReceived
 attr title "BFT messages received"
-vector 34 fourWay.node[5].nic.phy80211p RadioState ETV
-vector 35 fourWay.node[5].nic.phy80211p RadioChannel ETV
-vector 36 fourWay.manager posx ETV
-vector 37 fourWay.manager posy ETV
-vector 38 fourWay.node[6].appl bftMsgSent:vector ETV
+vector 35 fourWay.node[5].nic.phy80211p RadioState ETV
+vector 36 fourWay.node[5].nic.phy80211p RadioChannel ETV
+vector 37 fourWay.manager posx ETV
+vector 38 fourWay.manager posy ETV
+vector 39 fourWay.node[6].appl bftMsgSent:vector ETV
 attr recordingmode vector
 attr source bftMsgSent
 attr title "BFT messages sent"
-vector 39 fourWay.node[6].appl bftMsgReceived:vector ETV
+vector 40 fourWay.node[6].appl bftMsgReceived:vector ETV
 attr recordingmode vector
 attr source bftMsgReceived
 attr title "BFT messages received"
-vector 40 fourWay.node[6].nic.phy80211p RadioState ETV
-vector 41 fourWay.node[6].nic.phy80211p RadioChannel ETV
-vector 42 fourWay.manager posx ETV
-vector 43 fourWay.manager posy ETV
-vector 44 fourWay.node[7].appl bftMsgSent:vector ETV
+vector 41 fourWay.node[6].nic.phy80211p RadioState ETV
+vector 42 fourWay.node[6].nic.phy80211p RadioChannel ETV
+vector 43 fourWay.manager posx ETV
+vector 44 fourWay.manager posy ETV
+vector 45 fourWay.node[7].appl bftMsgSent:vector ETV
 attr recordingmode vector
 attr source bftMsgSent
 attr title "BFT messages sent"
-vector 45 fourWay.node[7].appl bftMsgReceived:vector ETV
+vector 46 fourWay.node[7].appl bftMsgReceived:vector ETV
 attr recordingmode vector
 attr source bftMsgReceived
 attr title "BFT messages received"
-vector 46 fourWay.node[7].nic.phy80211p RadioState ETV
-vector 47 fourWay.node[7].nic.phy80211p RadioChannel ETV
-vector 48 fourWay.manager posx ETV
-vector 49 fourWay.manager posy ETV
-vector 50 fourWay.node[8].appl bftMsgSent:vector ETV
+vector 47 fourWay.node[7].nic.phy80211p RadioState ETV
+vector 48 fourWay.node[7].nic.phy80211p RadioChannel ETV
+vector 49 fourWay.manager posx ETV
+vector 50 fourWay.manager posy ETV
+vector 51 fourWay.node[8].appl bftMsgSent:vector ETV
 attr recordingmode vector
 attr source bftMsgSent
 attr title "BFT messages sent"
-vector 51 fourWay.node[8].appl bftMsgReceived:vector ETV
+vector 52 fourWay.node[8].appl bftMsgReceived:vector ETV
 attr recordingmode vector
 attr source bftMsgReceived
 attr title "BFT messages received"
-vector 52 fourWay.node[8].nic.phy80211p RadioState ETV
-vector 53 fourWay.node[8].nic.phy80211p RadioChannel ETV
-vector 54 fourWay.manager posx ETV
-vector 55 fourWay.manager posy ETV
-vector 56 fourWay.node[9].appl bftMsgSent:vector ETV
+vector 53 fourWay.node[8].nic.phy80211p RadioState ETV
+vector 54 fourWay.node[8].nic.phy80211p RadioChannel ETV
+vector 55 fourWay.manager posx ETV
+vector 56 fourWay.manager posy ETV
+vector 57 fourWay.node[9].appl bftMsgSent:vector ETV
 attr recordingmode vector
 attr source bftMsgSent
 attr title "BFT messages sent"
-vector 57 fourWay.node[9].appl bftMsgReceived:vector ETV
+vector 58 fourWay.node[9].appl bftMsgReceived:vector ETV
 attr recordingmode vector
 attr source bftMsgReceived
 attr title "BFT messages received"
-vector 58 fourWay.node[9].nic.phy80211p RadioState ETV
-vector 59 fourWay.node[9].nic.phy80211p RadioChannel ETV
-vector 60 fourWay.manager posx ETV
-vector 61 fourWay.manager posy ETV
-vector 62 fourWay.node[10].appl bftMsgSent:vector ETV
+vector 59 fourWay.node[9].nic.phy80211p RadioState ETV
+vector 60 fourWay.node[9].nic.phy80211p RadioChannel ETV
+vector 61 fourWay.manager posx ETV
+vector 62 fourWay.manager posy ETV
+vector 63 fourWay.node[10].appl bftMsgSent:vector ETV
 attr recordingmode vector
 attr source bftMsgSent
 attr title "BFT messages sent"
-vector 63 fourWay.node[10].appl bftMsgReceived:vector ETV
+vector 64 fourWay.node[10].appl bftMsgReceived:vector ETV
 attr recordingmode vector
 attr source bftMsgReceived
 attr title "BFT messages received"
-vector 64 fourWay.node[10].nic.phy80211p RadioState ETV
-vector 65 fourWay.node[10].nic.phy80211p RadioChannel ETV
-vector 66 fourWay.manager posx ETV
-vector 67 fourWay.manager posy ETV
-vector 68 fourWay.node[11].appl bftMsgSent:vector ETV
+vector 65 fourWay.node[10].nic.phy80211p RadioState ETV
+vector 66 fourWay.node[10].nic.phy80211p RadioChannel ETV
+vector 67 fourWay.manager posx ETV
+vector 68 fourWay.manager posy ETV
+vector 69 fourWay.node[11].appl bftMsgSent:vector ETV
 attr recordingmode vector
 attr source bftMsgSent
 attr title "BFT messages sent"
-vector 69 fourWay.node[11].appl bftMsgReceived:vector ETV
+vector 70 fourWay.node[11].appl bftMsgReceived:vector ETV
 attr recordingmode vector
 attr source bftMsgReceived
 attr title "BFT messages received"
-vector 70 fourWay.node[11].nic.phy80211p RadioState ETV
-vector 71 fourWay.node[11].nic.phy80211p RadioChannel ETV
-vector 72 fourWay.manager posx ETV
-vector 73 fourWay.manager posy ETV
-vector 74 fourWay.node[12].appl bftMsgSent:vector ETV
+vector 71 fourWay.node[11].nic.phy80211p RadioState ETV
+vector 72 fourWay.node[11].nic.phy80211p RadioChannel ETV
+vector 73 fourWay.manager posx ETV
+vector 74 fourWay.manager posy ETV
+vector 75 fourWay.node[12].appl bftMsgSent:vector ETV
 attr recordingmode vector
 attr source bftMsgSent
 attr title "BFT messages sent"
-vector 75 fourWay.node[12].appl bftMsgReceived:vector ETV
+vector 76 fourWay.node[12].appl bftMsgReceived:vector ETV
 attr recordingmode vector
 attr source bftMsgReceived
 attr title "BFT messages received"
-vector 76 fourWay.node[12].nic.phy80211p RadioState ETV
-vector 77 fourWay.node[12].nic.phy80211p RadioChannel ETV
-vector 78 fourWay.manager posx ETV
-vector 79 fourWay.manager posy ETV
-vector 80 fourWay.node[13].appl bftMsgSent:vector ETV
+vector 77 fourWay.node[12].nic.phy80211p RadioState ETV
+vector 78 fourWay.node[12].nic.phy80211p RadioChannel ETV
+vector 79 fourWay.manager posx ETV
+vector 80 fourWay.manager posy ETV
+vector 81 fourWay.node[13].appl bftMsgSent:vector ETV
 attr recordingmode vector
 attr source bftMsgSent
 attr title "BFT messages sent"
-vector 81 fourWay.node[13].appl bftMsgReceived:vector ETV
+vector 82 fourWay.node[13].appl bftMsgReceived:vector ETV
 attr recordingmode vector
 attr source bftMsgReceived
 attr title "BFT messages received"
-vector 82 fourWay.node[13].nic.phy80211p RadioState ETV
-vector 83 fourWay.node[13].nic.phy80211p RadioChannel ETV
-vector 84 fourWay.manager posx ETV
-vector 85 fourWay.manager posy ETV
-vector 86 fourWay.node[14].appl bftMsgSent:vector ETV
+vector 83 fourWay.node[13].nic.phy80211p RadioState ETV
+vector 84 fourWay.node[13].nic.phy80211p RadioChannel ETV
+vector 85 fourWay.manager posx ETV
+vector 86 fourWay.manager posy ETV
+vector 87 fourWay.node[14].appl bftMsgSent:vector ETV
 attr recordingmode vector
 attr source bftMsgSent
 attr title "BFT messages sent"
-vector 87 fourWay.node[14].appl bftMsgReceived:vector ETV
+vector 88 fourWay.node[14].appl bftMsgReceived:vector ETV
 attr recordingmode vector
 attr source bftMsgReceived
 attr title "BFT messages received"
-vector 88 fourWay.node[14].nic.phy80211p RadioState ETV
-vector 89 fourWay.node[14].nic.phy80211p RadioChannel ETV
-vector 90 fourWay.manager posx ETV
-vector 91 fourWay.manager posy ETV
-vector 92 fourWay.node[15].appl bftMsgSent:vector ETV
+vector 89 fourWay.node[14].nic.phy80211p RadioState ETV
+vector 90 fourWay.node[14].nic.phy80211p RadioChannel ETV
+vector 91 fourWay.manager posx ETV
+vector 92 fourWay.manager posy ETV
+vector 93 fourWay.node[15].appl bftMsgSent:vector ETV
 attr recordingmode vector
 attr source bftMsgSent
 attr title "BFT messages sent"
-vector 93 fourWay.node[15].appl bftMsgReceived:vector ETV
+vector 94 fourWay.node[15].appl bftMsgReceived:vector ETV
 attr recordingmode vector
 attr source bftMsgReceived
 attr title "BFT messages received"
-vector 94 fourWay.node[15].nic.phy80211p RadioState ETV
-vector 95 fourWay.node[15].nic.phy80211p RadioChannel ETV
-vector 96 fourWay.manager posx ETV
-vector 97 fourWay.manager posy ETV
-vector 98 fourWay.manager speed ETV
-vector 99 fourWay.manager speed ETV
-vector 100 fourWay.manager speed ETV
+vector 95 fourWay.node[15].nic.phy80211p RadioState ETV
+vector 96 fourWay.node[15].nic.phy80211p RadioChannel ETV
+vector 97 fourWay.manager posx ETV
+vector 98 fourWay.manager posy ETV
+vector 99 fourWay.manager acceleration ETV
+vector 100 fourWay.manager co2emission ETV
 vector 101 fourWay.manager speed ETV
 vector 102 fourWay.manager speed ETV
 vector 103 fourWay.manager speed ETV
@@ -376,8 +378,8 @@ vector 110 fourWay.manager speed ETV
 vector 111 fourWay.manager speed ETV
 vector 112 fourWay.manager speed ETV
 vector 113 fourWay.manager speed ETV
-vector 114 fourWay.manager acceleration ETV
-vector 115 fourWay.manager co2emission ETV
+vector 114 fourWay.manager speed ETV
+vector 115 fourWay.manager speed ETV
 vector 116 fourWay.manager acceleration ETV
 vector 117 fourWay.manager co2emission ETV
 vector 118 fourWay.manager acceleration ETV
@@ -408,116 +410,3 @@ vector 142 fourWay.manager acceleration ETV
 vector 143 fourWay.manager co2emission ETV
 vector 144 fourWay.manager acceleration ETV
 vector 145 fourWay.manager co2emission ETV
-2	16174 1061 1807 68252 3.9 10.35 69 1 69 2415 111895
-3	17235 1635 2233 66109 4.008260035248 10.306119691975 63 1 63 2016 85344
-6	18870 1770 2 65783 0.1 10.3 103 323.4 323.4 33310.2 10772518.68
-7	20640 2772 2 65783 0.1 10.3 103 305 330.64517472753 33738.97499416 11055847.086022
-8	23412 789 2662 65785 4.05 10.3 51 1 51 1326 45526
-9	24201 1709 1891 68215 3.907450063994 10.317318249509 66 1 66 2211 98021
-12	25910 1873 2 65783 0.1 10.3 103 323.4 323.4 33310.2 10772518.68
-13	27783 2877 2 65783 0.1 10.3 103 295 311.46025015052 31912.891791828 9889209.4233224
-14	30660 806 2663 65786 4.05 10.3 49 1 49 1225 40425
-15	31466 2183 1911 68235 3.907450130783 10.317318316298 81 1 81 3321 180441
-18	33649 2879 2 65783 0.1 10.3 103 359.63241016215 365 37076.621593852 13346482.357917
-19	36528 1873 2 65783 0.1 10.3 103 323.4 323.4 33310.2 10772518.68
-20	38401 806 2664 65787 4.05 10.3 49 1 49 1225 40425
-21	39207 2125 1927 68251 3.907450169917 10.317318355432 79 1 79 3160 167480
-24	41332 2877 2 65783 0.1 10.3 103 371.61798364832 375 38294.926677574 14237917.918063
-25	44209 1873 2 65783 0.1 10.3 103 323.4 323.4 33310.2 10772518.68
-26	46082 831 2071 65788 4 10.3 51 1 51 1326 45526
-27	46913 2093 1867 68191 3.907450017624 10.317318203139 78 1 78 3081 161239
-30	49006 2869 2 65783 0.1 10.3 103 305 316.67862673741 32517.213398938 10266388.400536
-31	51875 1873 2 65783 0.1 10.3 103 326.6 326.6 33639.8 10986758.68
-32	53748 823 2666 65789 4.05 10.3 50 1 50 1275 42925
-33	54571 1773 1887 68211 3.907450060731 10.317318246246 66 1 66 2211 98021
-36	56344 2796 2 65783 0.1 10.3 103 295 303.4257719993 31188.666294397 9444328.171663
-37	59140 1873 2 65783 0.1 10.3 103 326.6 326.6 33639.8 10986758.68
-38	61013 823 2667 65790 4.05 10.3 50 1 50 1275 42925
-39	61836 2119 1903 68227 3.907450103672 10.317318289187 79 1 79 3160 167480
-42	63955 2875 2 65783 0.1 10.3 103 285 290.49949294406 29885.672169429 8671513.9389496
-43	66830 1873 2 65783 0.1 10.3 103 326.6 326.6 33639.8 10986758.68
-44	68703 840 2668 65791 4.05 10.3 51 1 51 1326 45526
-45	69543 2233 1919 68243 3.907450143359 10.317318328874 83 1 83 3486 194054
-48	71776 2877 2 65783 0.1 10.3 103 275 278.58090793109 28673.857746005 7982474.7895674
-49	74653 1873 2 65783 0.1 10.3 103 326.6 326.6 33639.8 10986758.68
-50	76526 840 2669 65792 4.05 10.3 51 1 51 1326 45526
-51	77366 1851 1907 68231 3.907450118054 10.317318303569 69 1 69 2415 111895
-54	79217 1873 2 65783 0.1 10.3 103 323.4 323.4 33310.2 10772518.68
-55	81090 2875 2 65783 0.1 10.3 103 285 295.25341724215 30325.703867533 8929131.8640626
-56	83965 840 2670 65793 4.05 10.3 51 1 51 1326 45526
-57	84805 2014 1923 68247 3.907450164573 10.317318350088 75 1 75 2850 143450
-60	86819 1873 2 65783 0.1 10.3 103 323.4 323.4 33310.2 10772518.68
-61	88692 2879 2 65783 0.1 10.3 103 275 281.30756622209 28931.375355108 8126618.5134535
-62	91571 823 2671 65794 4.05 10.3 50 1 50 1275 42925
-63	92394 2173 1875 68199 3.907450030773 10.317318216288 81 1 81 3321 180441
-66	94567 1873 2 65783 0.1 10.3 103 326.6 326.6 33639.8 10986758.68
-67	96440 2877 2 65783 0.1 10.3 103 324.62422354269 345 33663.988032781 11005040.507922
-68	99317 806 2672 65795 4.05 10.3 49 1 49 1225 40425
-69	100123 1827 1879 68203 3.907450044491 10.317318230006 68 1 68 2346 107134
-72	101950 1873 2 65783 0.1 10.3 103 326.6 326.6 33639.8 10986758.68
-73	103823 2877 2 65783 0.1 10.3 103 342.00479049036 355 35346.201123087 12130527.782109
-74	106700 789 2673 62059 4.05 10.25 48 1 48 1176 38024
-75	107489 2072 1899 68223 3.907450091811 10.317318277326 77 1 77 3003 155155
-78	109561 1873 2 65783 0.1 10.3 103 326.6 326.6 33639.8 10986758.68
-79	111434 2879 2 65783 0.1 10.3 103 357.26709005291 365 36855.996004883 13188270.459258
-80	114313 806 2674 65797 4.05 10.3 49 1 49 1225 40425
-81	115119 2154 1915 68239 3.907450134591 10.317318320106 80 1 80 3240 173880
-84	117273 1873 2 65783 0.1 10.3 103 326.6 326.6 33639.8 10986758.68
-85	119146 2877 2 65783 0.1 10.3 103 370.38451192408 375 38177.556407538 14150817.339178
-86	122023 823 2675 65798 4.05 10.3 50 1 50 1275 42925
-87	122846 2072 1883 68207 3.907450050276 10.317318235791 77 1 77 3003 155155
-90	124918 2879 2 65783 0.1 10.3 103 333.48966696667 345 34448.162311664 11521771.882998
-91	127797 1873 2 65783 0.1 10.3 103 323.4 323.4 33310.2 10772518.68
-92	129670 806 2676 65799 4.05 10.3 49 1 49 1225 40425
-93	130476 1913 1895 68219 3.907450089608 10.317318275123 71 1 71 2556 121836
-96	132389 2879 2 65783 0.1 10.3 103 346.76615977599 355 35778.596625103 12428533.142705
-97	135268 1873 2 65783 0.1 10.3 103 323.4 323.4 33310.2 10772518.68
-98	137141 1929 20 65783 0.2 10.3 102 0 14 270.45174727526 2767.9794486335
-99	139070 1860 20 65783 0.2 10.3 102 0 11.011470588235 175.61397209348 1436.5838617545
-100	140930 1792 20 65783 0.2 10.3 102 0 5.7922494172494 59.468147795708 271.50111803019
-101	142722 1736 20 65783 0.2 10.3 102 0 4.4276107226107 38.247774239446 136.51920782402
-102	144458 1840 20 65783 0.2 10.3 102 0 10.282916666667 127.06918404081 902.6287971952
-103	146298 1847 20 65783 0.2 10.3 102 0 7.777467948718 92.035187941764 539.07092924503
-104	148145 1790 20 65783 0.2 10.3 102 0 5.8121980286086 60.787178857815 279.76670731929
-105	149935 1766 20 65783 0.2 10.3 102 0 4.5254708374403 40.236690033495 146.24110169899
-106	151701 1874 20 65783 0.2 10.3 102 0 8.3880462184874 110.92221863999 710.56172297946
-107	153575 1812 20 65783 0.2 10.3 102 0 6.331168980799 69.338154581499 343.31534741465
-108	155387 1979 20 65783 0.2 10.3 102 0 12.27509 216.03285457313 1967.3251989091
-109	157366 1897 20 65783 0.2 10.3 102 0 9.5498971045855 139.4301730964 1006.8095222409
-110	159263 1804 20 65783 0.2 10.3 102 0 7.1229816666667 84.452081137581 466.48061401277
-111	161067 1762 20 65783 0.2 10.3 102 0 5.3155871666667 51.470467925847 217.26876318519
-112	162829 1876 20 65783 0.2 10.3 102 0 10.282916666667 125.38624699997 884.35059740624
-113	164705 1847 20 65783 0.2 10.3 102 0 7.777467948718 90.115870188859 526.19473360047
-114	166552 1600 38 65783 0.3 10.3 101 -9 0 -140 1231.0529494255
-115	168152 2113 38 65783 0.3 10.3 101 0.973 2.0322372267253 108.12152024805 121.92189056089
-116	170265 1596 38 65783 0.3 10.3 101 -9 0.65469776097846 -110.11470588235 976.59712760335
-117	171861 2092 38 65783 0.3 10.3 101 0.973 3.474706887645 107.20448551853 122.82795217824
-118	173953 1591 38 65783 0.3 10.3 101 -9 0.25027578497027 -57.922494172494 497.26552191604
-119	175544 2031 38 65783 0.3 10.3 101 0.973 1.7482753806302 101.49280622986 103.31045665118
-120	177575 1590 38 65783 0.3 10.3 101 -9 0.0024733572911906 -44.276107226107 376.80652954738
-121	179165 2012 38 65783 0.3 10.3 101 0.973 1.3283325437778 100.2865438268 100.14998327137
-122	181177 1593 38 65783 0.3 10.3 101 -9 0 -102.82916666667 893.19506777266
-123	182770 2053 38 65783 0.3 10.3 101 0.973 1.6655213422057 102.87881193836 106.80293312341
-124	184823 1592 38 65783 0.3 10.3 101 -9 0 -77.77467948718 659.97168331295
-125	186415 2041 38 65783 0.3 10.3 101 0.973 1.5210721789144 101.8151114399 103.94671208058
-126	188456 1589 38 65783 0.3 10.3 101 -9 1.0011950858596 -57.922494172494 504.63585035505
-127	190045 2032 38 65783 0.3 10.3 101 0.973 2.8109323501172 102.58968126902 108.24242065528
-128	192077 1588 38 65783 0.3 10.3 101 -9 2.7375620663997 -44.276107226107 415.6530659348
-129	193665 2020 38 65783 0.3 10.3 101 0.973 4.3225610006381 103.4678454589 117.47886560173
-130	195685 1592 38 65783 0.3 10.3 101 -9 0.78550751331274 -83.880462184874 737.21595626466
-131	197277 2061 38 65783 0.3 10.3 101 0.973 3.1471995618703 104.63264863482 114.5613765444
-132	199338 1591 38 65783 0.3 10.3 101 -9 2.4268971673161 -62.624923605806 576.01503617294
-133	200929 2042 38 65783 0.3 10.3 101 0.973 5.1418473490499 105.27086621139 127.61835880584
-134	202971 1599 38 65783 0.3 10.3 101 -9 0 -122.7509 1083.3885381272
-135	204570 2112 38 65783 0.3 10.3 101 0.973 1.8721108532203 107.16414340481 118.44296789344
-136	206682 1593 38 65783 0.3 10.3 101 -9 1.2271770682713 -94.78078 842.00371289106
-137	208275 2072 38 65783 0.3 10.3 101 0.973 4.4755239006796 106.88692264262 127.17869043816
-138	210347 1590 38 65783 0.3 10.3 101 -9 1.9789372639399 -71.229816666667 641.9504975644
-139	211937 2040 38 65783 0.3 10.3 101 0.973 4.8814585943629 105.39383561501 126.01968172503
-140	213977 1589 38 65783 0.3 10.3 101 -9 0.23145625472318 -53.155871666667 459.35911269568
-141	215566 2018 38 65783 0.3 10.3 101 0.973 1.6670948441331 101.07873070475 102.24689278508
-142	217584 1592 38 65783 0.3 10.3 101 -9 0 -102.82916666667 889.0762775671
-143	219176 2053 38 65783 0.3 10.3 101 0.973 1.6577808457603 102.82937828394 106.66212637703
-144	221229 1592 38 65783 0.3 10.3 101 -9 0 -77.77467948718 669.53029148683
-145	222821 2052 38 65783 0.3 10.3 101 0.973 1.5276370852233 102.02920848483 104.40171837584
-

@@ -95,6 +95,7 @@ public final class DeliveryThread extends Thread {
 			// clean the ordered messages from the pending buffer
 			TOMMessage[] requests = extractMessagesFromDecision(dec);
 			tomLayer.clientsManager.requestsOrdered(requests);
+			logger.info("[DELIVERY] Consensus {} decided; queue size={} (will trigger receiveMessages -> executeBatch -> reply)", dec.getConsensusId(), decided.size());
 			logger.debug("Consensus " + dec.getConsensusId() + " finished. Decided size=" + decided.size());
 		} catch (Exception e) {
 			logger.error("Could not insert decision into decided queue and mark requests as delivered", e);

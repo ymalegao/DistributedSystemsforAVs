@@ -1,0 +1,100 @@
+#
+# A fatal error has been detected by the Java Runtime Environment:
+#
+#  SIGSEGV (0xb) at pc=0x00007ffff5088e11, pid=220026, tid=220026
+#
+# JRE version: OpenJDK Runtime Environment (11.0.30+7) (build 11.0.30+7-post-Ubuntu-1ubuntu122.04)
+# Java VM: OpenJDK 64-Bit Server VM (11.0.30+7-post-Ubuntu-1ubuntu122.04, mixed mode, sharing, tiered, compressed oops, g1 gc, linux-amd64)
+# Problematic frame:
+# C  [libQt6Gui.so.6+0x14ae11]  QFont::substitutes(QString const&) [clone .cold]+0xb
+#
+# Core dump will be written. Default location: Core dumps may be processed with "/wsl-capture-crash %t %E %p %s" (or dumping to /home/yash/omnetpp/fourway/core.220026)
+#
+# If you would like to submit a bug report, please visit:
+#   https://bugs.launchpad.net/ubuntu/+source/openjdk-lts
+# The crash happened outside the Java Virtual Machine in native code.
+# See problematic frame for where to report the bug.
+#
+
+---------------  S U M M A R Y ------------
+
+Command Line: -Djava.library.path=/home/yash/omnetpp/omnetpp-6.2.0/bftsmart/library/native/lib -Dbftsmart.communication.useV2V=true -Dbftsmart.jni.embedded=true -Dintersection.width=15.000000 -Dintersection.avgSpeed=14.000000 -Dintersection.safetyGap=1.500000 -Xms256m -Xmx1024m -Djava.security.egd=file:/dev/./urandom 
+
+Host: AMD Ryzen 9 3900X 12-Core Processor, 24 cores, 23G, Ubuntu 22.04.5 LTS
+Time: Fri Feb 20 16:06:46 2026 PST elapsed time: 73.286695 seconds (0d 0h 1m 13s)
+
+---------------  T H R E A D  ---------------
+
+Current thread (0x000055555942a000):  JavaThread "Thread-127" [_thread_in_native, id=220026, stack(0x00007fffffeff000,0x00007ffffffff000)]
+
+Stack: [0x00007fffffeff000,0x00007ffffffff000],  sp=0x00007ffffffccd30,  free space=823k
+Native frames: (J=compiled Java code, A=aot compiled Java code, j=interpreted, Vv=VM code, C=native code)
+C  [libQt6Gui.so.6+0x14ae11]  QFont::substitutes(QString const&) [clone .cold]+0xb
+
+
+siginfo: si_signo: 11 (SIGSEGV), si_code: 1 (SEGV_MAPERR), si_addr: 0x0000000000000000
+
+Register to memory mapping:
+
+RAX=0x00007ffffffccd30 is pointing into the stack for thread: 0x000055555942a000
+RBX=0x0 is NULL
+RCX=0x0 is NULL
+RDX=0x0 is NULL
+RSP=0x00007ffffffccd30 is pointing into the stack for thread: 0x000055555942a000
+RBP=0x00007ffffffcce70 is pointing into the stack for thread: 0x000055555942a000
+RSI=0x0 is NULL
+RDI=0x0 is NULL
+R8 =0x0 is NULL
+R9 =0x0 is NULL
+R10=0x0 is NULL
+R11=0x0 is NULL
+R12=0x0000555556d68e40 points into unknown readable memory: 0x0000555556392b20 | 20 2b 39 56 55 55 00 00
+R13=0x0 is NULL
+R14=0x00005555575367c0 points into unknown readable memory: 0x0000555000000003 | 03 00 00 00 50 55 00 00
+R15=0x0000000000000002 is an unknown value
+
+
+Registers:
+RAX=0x00007ffffffccd30, RBX=0x0000000000000000, RCX=0x0000000000000000, RDX=0x0000000000000000
+RSP=0x00007ffffffccd30, RBP=0x00007ffffffcce70, RSI=0x0000000000000000, RDI=0x0000000000000000
+R8 =0x0000000000000000, R9 =0x0000000000000000, R10=0x0000000000000000, R11=0x0000000000000000
+R12=0x0000555556d68e40, R13=0x0000000000000000, R14=0x00005555575367c0, R15=0x0000000000000002
+RIP=0x00007ffff5088e11, EFLAGS=0x0000000000010246, CSGSFS=0x002b000000000033, ERR=0x0000000000000004
+  TRAPNO=0x000000000000000e
+
+Top of Stack: (sp=0x00007ffffffccd30)
+0x00007ffffffccd30:   0000555556d044e0 0000555556d044f0
+0x00007ffffffccd40:   0000000000000009 a63df0b154504500
+0x00007ffffffccd50:   0000000000000000 00007ffffffcce70
+0x00007ffffffccd60:   0000000000000018 00007ffff542b5d0 
+
+Instructions: (pc=0x00007ffff5088e11)
+0x00007ffff5088d11:   90 48 8d 05 f0 ec 70 00 66 0f ef c0 48 8d 7c 24
+0x00007ffff5088d21:   10 89 f2 48 89 44 24 28 48 8d 35 48 f4 71 00 31
+0x00007ffff5088d31:   c0 48 c7 44 24 10 02 00 00 00 0f 11 44 24 18 e8
+0x00007ffff5088d41:   cb 23 ff ff e9 2f d0 37 00 4c 8d 74 24 08 66 0f
+0x00007ffff5088d51:   ef c0 48 8d 05 af ec 70 00 89 f5 4c 89 f7 48 8d
+0x00007ffff5088d61:   74 24 10 0f 11 44 24 18 48 89 44 24 28 48 c7 44
+0x00007ffff5088d71:   24 10 02 00 00 00 e8 64 51 ff ff 48 8d 35 25 f4
+0x00007ffff5088d81:   71 00 4c 89 f7 e8 85 51 03 00 89 ee 48 8b 38 49
+0x00007ffff5088d91:   89 c5 e8 78 60 ff ff 49 8b 7d 00 80 7f 30 00 74
+0x00007ffff5088da1:   0a be 20 00 00 00 e8 f4 30 ff ff 4c 89 f7 e8 bc
+0x00007ffff5088db1:   19 ff ff e9 94 d0 37 00 90 48 8d 05 48 ec 70 00
+0x00007ffff5088dc1:   66 0f ef c0 48 89 e7 89 ea 48 89 44 24 18 48 8d
+0x00007ffff5088dd1:   35 1a f4 71 00 31 c0 48 c7 04 24 02 00 00 00 0f
+0x00007ffff5088de1:   11 44 24 08 e8 26 23 ff ff e9 55 d2 37 00 90 48
+0x00007ffff5088df1:   89 e7 4c 89 e6 e8 95 23 ff ff 48 8b 04 25 00 00
+0x00007ffff5088e01:   00 00 0f 0b 90 48 89 e7 4c 89 e6 e8 7f 23 ff ff
+0x00007ffff5088e11:   48 8b 04 25 00 00 00 00 0f 0b 90 48 8d 7c 24 60
+0x00007ffff5088e21:   48 8d 15 1c ff 70 00 31 c0 48 8d 35 ef f3 71 00
+0x00007ffff5088e31:   e8 da 22 ff ff 31 db e9 40 66 38 00 90 48 8d 7c
+0x00007ffff5088e41:   24 10 48 89 de e8 45 23 ff ff 48 8b 04 25 00 00
+0x00007ffff5088e51:   00 00 0f 0b 90 31 f6 31 d2 e9 55 42 39 00 90 48
+0x00007ffff5088e61:   8b 40 08 4c 8d 74 24 08 66 0f ef c0 48 8d 74 24
+0x00007ffff5088e71:   10 4c 89 f7 0f 11 44 24 18 48 89 44 24 28 48 c7
+0x00007ffff5088e81:   44 24 10 02 00 00 00 e8 53 50 ff ff 4c 89 f7 48
+0x00007ffff5088e91:   8d 35 49 f6 71 00 e8 74 50 03 00 89 de 48 89 c7
+0x00007ffff5088ea1:   e8 1a f3 09 00 4c 89 f7 e8 c2 18 ff ff e9 66 74
+0x00007ffff5088eb1:   39 00 90 48 8d 05 4e eb 70 00 66 0f ef c0 48 8d
+0x00007ffff5088ec1:   7c 24 10 48 c7 44 24 10 02 00 00 00 48 89 44 24
+0x00007ffff5088ed1:   28 48 8d 35 47 f6 71 00 31 c0 

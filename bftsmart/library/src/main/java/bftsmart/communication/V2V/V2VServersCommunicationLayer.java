@@ -31,6 +31,7 @@ public class V2VServersCommunicationLayer extends Thread implements ServersCommu
 
     private final ReliableV2VMessaging reliabilityLayer;
     private RequestReceiver requestReceiver;  // Not final - can be set later via setRequestReceiver()
+    private bftsmart.demo.intersection.IntersectionServer intersectionServer;
     // private SimulationTimer simulationTimer;
     public V2VServersCommunicationLayer(
         ServerViewController controller,
@@ -99,7 +100,15 @@ public class V2VServersCommunicationLayer extends Thread implements ServersCommu
         System.out.println("==============================================");
     }
 
-   
+     /**
+   * Set the IntersectionServer reference for zombie filtering.
+   * @param server The IntersectionServer instance
+   */
+    public void setServer(bftsmart.demo.intersection.IntersectionServer server) {
+        this.intersectionServer = server;
+        System.out.println("[V2V Layer " + me + "] IntersectionServer reference set");
+    }
+
     private void startV2VListener(){
         new Thread(() -> {
             try (ServerSocket listener = new ServerSocket(veinsListenPort)){
@@ -207,6 +216,9 @@ public class V2VServersCommunicationLayer extends Thread implements ServersCommu
 
 
     public void deliverToBFTSmart(SystemMessage message){
+        // REMOVED: No zombie filtering - using BFT reconfiguration instead
+        // Reconfiguration consensus needs messages from all replicas!
+        
         System.out.println("=== [V2V Layer " + me + "] DELIVER to BFT-SMaRt ===");
         System.out.println("    Message type: " + message.getClass().getSimpleName());
         System.out.println("    From replica: " + message.getSender());
@@ -229,24 +241,75 @@ public class V2VServersCommunicationLayer extends Thread implements ServersCommu
         System.out.println("    Targets: " + Arrays.toString(targets));
         System.out.println("    Message type: " + sm.getClass().getSimpleName());
         System.out.println("    Sender: " + sm.getSender());
-        
+        System.out.flush();  // Force immediate output
+
+        boolean deliveredToSelf = false;
+        int remoteTargetCount = 0;
+
         for (int target: targets){
             if (target == me){
-                System.out.println("    -> Self-delivery to replica " + target);
+                // if (intersectionServer != null && intersectionServer.isReplicaDeparted(target)) {
+                //     System.out.println("    -> Skipping send to zombie replica " + target +
+                //                      " (message type: " + sm.getClass().getSimpleName() + ")");
+                //     continue;  // Skip this target
+                // }
+                
+                deliveredToSelf = true;
                 deliverToBFTSmart(sm);
-                continue;
+                
+            }else{
+                remoteTargetCount++;
+            }
+        }
+
+        if (remoteTargetCount > 1) {
+            System.out.println("    -> MULTICAST MODE: Broadcasting to " + remoteTargetCount + " targets");
+            System.out.flush();
+            V2VNativeReplicaConnection anyConn = replicaConnections.values().iterator().next();
+            if (anyConn != null){
+                System.out.println("    -> Calling reliabilityLayer.sendMulticast...");
+                System.out.flush();
+                reliabilityLayer.sendMulticast(targets, sm, anyConn);
+                System.out.println("    -> reliabilityLayer.sendMulticast returned");
+                System.out.flush();
+            } else {
+                System.err.println("    -> ERROR: No connection available for multicast!");
+                System.err.flush();
             }
 
-            V2VNativeReplicaConnection conn = replicaConnections.get(target);
-            if (conn != null){
-                System.out.println("    -> Sending to replica " + target + " via V2V");
-                reliabilityLayer.sendReliable(target, sm, conn);
-            }else{
-                System.err.println("    -> ERROR: No connection found for replica " + target);
+        }else{
+            for (int target: targets){
+                if (target == me) continue;
+
+                V2VNativeReplicaConnection conn = replicaConnections.get(target);
+                if (conn != null){
+                    System.out.println("    -> UNICAST to replica " + target);
+                    System.out.flush();
+                    reliabilityLayer.sendReliable(target, sm, conn);
+                }
             }
         }
         System.out.println("=== [V2V Layer " + me + "] SEND complete ===");
+        System.out.flush();
     }
+        
+    //     for (int target: targets){
+    //         if (target == me){
+    //             System.out.println("    -> Self-delivery to replica " + target);
+    //             deliverToBFTSmart(sm);
+    //             continue;
+    //         }
+
+    //         V2VNativeReplicaConnection conn = replicaConnections.get(target);
+    //         if (conn != null){
+    //             System.out.println("    -> Sending to replica " + target + " via V2V");
+    //             reliabilityLayer.sendReliable(target, sm, conn);
+    //         }else{
+    //             System.err.println("    -> ERROR: No connection found for replica " + target);
+    //         }
+    //     }
+    //     System.out.println("=== [V2V Layer " + me + "] SEND complete ===");
+    // }
 
     public void shutdown(){
         doWork = false;

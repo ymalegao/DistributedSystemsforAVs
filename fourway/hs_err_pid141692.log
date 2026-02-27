@@ -1,0 +1,88 @@
+#
+# A fatal error has been detected by the Java Runtime Environment:
+#
+#  SIGSEGV (0xb) at pc=0x00007ffff508d96c, pid=141692, tid=141692
+#
+# JRE version: OpenJDK Runtime Environment (11.0.30+7) (build 11.0.30+7-post-Ubuntu-1ubuntu122.04)
+# Java VM: OpenJDK 64-Bit Server VM (11.0.30+7-post-Ubuntu-1ubuntu122.04, mixed mode, sharing, tiered, compressed oops, g1 gc, linux-amd64)
+# Problematic frame:
+# C  [libQt6Gui.so.6+0x14f96c]  hb_qt_get_unicode_funcs() [clone .cold]+0x0
+#
+# Core dump will be written. Default location: Core dumps may be processed with "/wsl-capture-crash %t %E %p %s" (or dumping to /home/yash/omnetpp/fourway/core.141692)
+#
+# If you would like to submit a bug report, please visit:
+#   https://bugs.launchpad.net/ubuntu/+source/openjdk-lts
+# The crash happened outside the Java Virtual Machine in native code.
+# See problematic frame for where to report the bug.
+#
+
+---------------  S U M M A R Y ------------
+
+Command Line: -Djava.library.path=/home/yash/omnetpp/omnetpp-6.2.0/bftsmart/library/native/lib -Dbftsmart.communication.useV2V=true -Dbftsmart.jni.embedded=true -Dintersection.width=15.000000 -Dintersection.avgSpeed=14.000000 -Dintersection.safetyGap=1.500000 -Xms256m -Xmx1024m -Djava.security.egd=file:/dev/./urandom 
+
+Host: AMD Ryzen 9 3900X 12-Core Processor, 24 cores, 23G, Ubuntu 22.04.5 LTS
+Time: Fri Feb 20 00:03:18 2026 PST elapsed time: 1126.216225 seconds (0d 0h 18m 46s)
+
+---------------  T H R E A D  ---------------
+
+Current thread (0x0000555558b01800):  JavaThread "Thread-119" [_thread_in_native, id=141692, stack(0x00007fffffeff000,0x00007ffffffff000)]
+
+Stack: [0x00007fffffeff000,0x00007ffffffff000],  sp=0x00007ffffffd1c88,  free space=843k
+Native frames: (J=compiled Java code, A=aot compiled Java code, j=interpreted, Vv=VM code, C=native code)
+C  [libQt6Gui.so.6+0x14f96c]  hb_qt_get_unicode_funcs() [clone .cold]+0x0
+
+
+siginfo: si_signo: 11 (SIGSEGV), si_code: 1 (SEGV_MAPERR), si_addr: 0x0000000000000000
+
+Register to memory mapping:
+
+RAX=0x00000000000000fe is an unknown value
+RBX=0x0000000000000001 is an unknown value
+RCX=0x0 is NULL
+RDX=0x0 is NULL
+RSP=0x00007ffffffd1c88 is pointing into the stack for thread: 0x0000555558b01800
+RBP=0x0000000000000002 is an unknown value
+RSI=0x0 is NULL
+RDI=0x0 is NULL
+R8 =0x0 is NULL
+R9 =0x0 is NULL
+R10=0x0 is NULL
+R11=0x0 is NULL
+R12=0x00005555591e0570 points into unknown readable memory: 0x0075006d00690073 | 73 00 69 00 6d 00 75 00
+R13=0x0000555556313fa0 points into unknown readable memory: 0x000055555562d380 | 80 d3 62 55 55 55 00 00
+R14=0x0000000000000032 is an unknown value
+R15=0x000055555925dcc0 points into unknown readable memory: 0x0000000100000001 | 01 00 00 00 01 00 00 00
+
+
+Registers:
+RAX=0x00000000000000fe, RBX=0x0000000000000001, RCX=0x0000000000000000, RDX=0x0000000000000000
+RSP=0x00007ffffffd1c88, RBP=0x0000000000000002, RSI=0x0000000000000000, RDI=0x0000000000000000
+R8 =0x0000000000000000, R9 =0x0000000000000000, R10=0x0000000000000000, R11=0x0000000000000000
+R12=0x00005555591e0570, R13=0x0000555556313fa0, R14=0x0000000000000032, R15=0x000055555925dcc0
+RIP=0x00007ffff508d96c, EFLAGS=0x0000000000010297, CSGSFS=0x002b000000000033, ERR=0x0000000000000004
+  TRAPNO=0x000000000000000e
+
+Top of Stack: (sp=0x00007ffffffd1c88)
+0x00007ffffffd1c88:   00007ffff54c0ec0 fefefefefefefefe
+0x00007ffffffd1c98:   fefefefefefefefe fefefefefefefefe
+0x00007ffffffd1ca8:   fefefefefefefefe fefefefefefefefe
+0x00007ffffffd1cb8:   fefefefefefefefe fefefefefefefefe 
+
+Instructions: (pc=0x00007ffff508d96c)
+0x00007ffff508d86c:   00 00 48 89 44 24 18 48 8d 35 46 38 72 00 31 c0
+0x00007ffff508d87c:   0f 11 44 24 08 e8 8a d8 fe ff e9 9d 7f 55 00 90
+0x00007ffff508d88c:   48 8d 05 76 a1 70 00 66 0f ef c0 48 8d 7c 24 10
+0x00007ffff508d89c:   48 c7 44 24 10 02 00 00 00 48 89 44 24 28 48 8d
+0x00007ffff508d8ac:   35 57 38 72 00 31 c0 0f 11 44 24 18 e8 53 d8 fe
+0x00007ffff508d8bc:   ff e9 ab 80 55 00 48 8d 05 40 a1 70 00 66 0f ef
+0x00007ffff508d8cc:   c0 48 8d 7c 24 10 48 c7 44 24 10 02 00 00 00 48
+0x00007ffff508d8dc:   89 44 24 28 48 8d 35 69 38 72 00 31 c0 0f 11 44
+0x00007ffff508d8ec:   24 18 e8 1d d8 fe ff e9 c5 81 55 00 48 8b 40 08
+0x00007ffff508d8fc:   8b 54 24 40 66 0f ef c0 48 8d bc 24 a0 02 00 00
+0x00007ffff508d90c:   48 8d 35 ad 39 72 00 0f 11 84 24 a8 02 00 00 48
+0x00007ffff508d91c:   89 84 24 b8 02 00 00 31 c0 48 c7 84 24 a0 02 00
+0x00007ffff508d92c:   00 02 00 00 00 e8 da d7 fe ff e9 9f 5b 56 00 90
+0x00007ffff508d93c:   48 8b 40 08 66 0f ef c0 48 89 e7 48 8d 35 9a 39
+0x00007ffff508d94c:   72 00 48 c7 04 24 02 00 00 00 48 89 44 24 18 31
+0x00007ffff508d95c:   c0 0f 11 44 24 08 e8 a9 d7 fe ff e9 55 70 56 00
+0x00007ffff508d96c:   48 8b 04 25 00 00 00 00

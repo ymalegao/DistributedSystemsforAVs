@@ -165,8 +165,13 @@ public class ServerCommunicationSystem extends Thread {
             clientsConn.send(targets, (TOMMessage) sm, false);
         } else {
             logger.info("    -> Routing to SERVER connection (SystemMessage)");
+            logger.info("    -> serversConn class: {}", serversConn.getClass().getName());
         	logger.debug("--> sending message from: {} -> {}" + sm.getSender(), targets);
+            System.out.println("[ServerCommSystem] About to call serversConn.send() - class=" + serversConn.getClass().getSimpleName());
+            System.out.flush();
             serversConn.send(targets, sm, true);
+            System.out.println("[ServerCommSystem] serversConn.send() returned");
+            System.out.flush();
         }
         logger.info("=== ServerCommunicationSystem.send() complete ===");
     }

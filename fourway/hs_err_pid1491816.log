@@ -1,0 +1,55 @@
+#
+# A fatal error has been detected by the Java Runtime Environment:
+#
+#  SIGSEGV (0xb) at pc=0x00007ffff5077e11, pid=1491816, tid=1491816
+#
+# JRE version: OpenJDK Runtime Environment (11.0.30+7) (build 11.0.30+7-post-Ubuntu-1ubuntu122.04)
+# Java VM: OpenJDK 64-Bit Server VM (11.0.30+7-post-Ubuntu-1ubuntu122.04, mixed mode, sharing, tiered, compressed oops, g1 gc, linux-amd64)
+# Problematic frame:
+# C  [libQt6Gui.so.6+0x14ae11]  QFont::substitutes(QString const&) [clone .cold]+0xb
+#
+# Core dump will be written. Default location: Core dumps may be processed with "/wsl-capture-crash %t %E %p %s" (or dumping to /home/yash/omnetpp/fourway/core.1491816)
+#
+# If you would like to submit a bug report, please visit:
+#   https://bugs.launchpad.net/ubuntu/+source/openjdk-lts
+# The crash happened outside the Java Virtual Machine in native code.
+# See problematic frame for where to report the bug.
+#
+
+---------------  S U M M A R Y ------------
+
+Command Line: -Djava.library.path=/home/yash/omnetpp/omnetpp-6.2.0/bftsmart/library/native/lib -Dbftsmart.communication.useV2V=true -Dbftsmart.jni.embedded=true -Dintersection.width=15.000000 -Dintersection.avgSpeed=14.000000 -Dintersection.safetyGap=1.500000 -Xms256m -Xmx1024m -Djava.security.egd=file:/dev/./urandom 
+
+Host: AMD Ryzen 9 3900X 12-Core Processor, 24 cores, 23G, Ubuntu 22.04.5 LTS
+Time: Thu Feb 26 21:56:39 2026 PST elapsed time: 65.675777 seconds (0d 0h 1m 5s)
+
+---------------  T H R E A D  ---------------
+
+Current thread (0x0000555562224800):  JavaThread "Thread-258" [_thread_in_native, id=1491816, stack(0x00007fffffeff000,0x00007ffffffff000)]
+
+Stack: [0x00007fffffeff000,0x00007ffffffff000],  sp=0x00007ffffffcc420,  free space=821k
+Native frames: (J=compiled Java code, A=aot compiled Java code, j=interpreted, Vv=VM code, C=native code)
+C  [libQt6Gui.so.6+0x14ae11]  QFont::substitutes(QString const&) [clone .cold]+0xb
+C  0x00007ffffffcd0c0
+
+
+siginfo: si_signo: 11 (SIGSEGV), si_code: 1 (SEGV_MAPERR), si_addr: 0x0000000000000000
+
+Register to memory mapping:
+
+RAX=0x00007ffffffcc420 is pointing into the stack for thread: 0x0000555562224800
+RBX=0x0 is NULL
+RCX=0x0 is NULL
+RDX=0x0 is NULL
+RSP=0x00007ffffffcc420 is pointing into the stack for thread: 0x0000555562224800
+RBP=0x00007ffffffcc560 is pointing into the stack for thread: 0x0000555562224800
+RSI=0x0 is NULL
+RDI=0x0 is NULL
+R8 =0x0 is NULL
+R9 =0x0 is NULL
+R10=0x0 is NULL
+R11=0x0 is NULL
+R12=0x0000555562ade930 points into unknown readable memory: 0x000055555635b430 | 30 b4 35 56 55 55 00 00
+R13=0x0 is NULL
+R14=0x0000555562a99db0 points into unknown readable memory: 0x0000000500000003 | 03 00 00 00 05 00 00 00
+R15=

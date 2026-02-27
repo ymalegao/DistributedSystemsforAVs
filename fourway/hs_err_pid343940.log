@@ -1,0 +1,39 @@
+#
+# A fatal error has been detected by the Java Runtime Environment:
+#
+#  SIGSEGV (0xb) at pc=0x00007ffff508496c, pid=343940, tid=343940
+#
+# JRE version: OpenJDK Runtime Environment (11.0.30+7) (build 11.0.30+7-post-Ubuntu-1ubuntu122.04)
+# Java VM: OpenJDK 64-Bit Server VM (11.0.30+7-post-Ubuntu-1ubuntu122.04, mixed mode, sharing, tiered, compressed oops, g1 gc, linux-amd64)
+# Problematic frame:
+# C  [libQt6Gui.so.6+0x14f96c]  hb_qt_get_unicode_funcs() [clone .cold]+0x0
+#
+# Core dump will be written. Default location: Core dumps may be processed with "/wsl-capture-crash %t %E %p %s" (or dumping to /home/yash/omnetpp/fourway/core.343940)
+#
+# If you would like to submit a bug report, please visit:
+#   https://bugs.launchpad.net/ubuntu/+source/openjdk-lts
+# The crash happened outside the Java Virtual Machine in native code.
+# See problematic frame for where to report the bug.
+#
+
+---------------  S U M M A R Y ------------
+
+Command Line: -Djava.library.path=/home/yash/omnetpp/omnetpp-6.2.0/bftsmart/library/native/lib -Dbftsmart.communication.useV2V=true -Dbftsmart.jni.embedded=true -Dintersection.width=15.000000 -Dintersection.avgSpeed=14.000000 -Dintersection.safetyGap=1.500000 -Xms256m -Xmx1024m -Djava.security.egd=file:/dev/./urandom 
+
+Host: AMD Ryzen 9 3900X 12-Core Processor, 24 cores, 23G, Ubuntu 22.04.5 LTS
+Time: Sat Feb 21 16:59:21 2026 PST elapsed time: 106.605043 seconds (0d 0h 1m 46s)
+
+---------------  T H R E A D  ---------------
+
+Current thread (0x000055555e9d1000):  JavaThread "Thread-463" [_thread_in_native, id=343940, stack(0x00007fffffeff000,0x00007ffffffff000)]
+
+Stack: [0x00007fffffeff000,0x00007ffffffff000],  sp=0x00007ffffffd0318,  free space=836k
+Native frames: (J=compiled Java code, A=aot compiled Java code, j=interpreted, Vv=VM code, C=native code)
+C  [libQt6Gui.so.6+0x14f96c]  hb_qt_get_unicode_funcs() [clone .cold]+0x0
+
+
+siginfo: si_signo: 11 (SIGSEGV), si_code: 1 (SEGV_MAPERR), si_addr: 0x0000000000000000
+
+Register to memory mapping:
+
+RAX=

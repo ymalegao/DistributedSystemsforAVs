@@ -1,0 +1,145 @@
+version 3
+run General-0-20260224-22:48:43-993265
+attr configname General
+attr datetime 20260224-22:48:43
+attr datetimef 20260224-224843
+attr experiment General
+attr inifile omnetpp.ini
+attr iterationvars ""
+attr iterationvarsd ""
+attr iterationvarsf ""
+attr measurement ""
+attr network fourWay
+attr processid 993265
+attr repetition 0
+attr replication #0
+attr resultdir results
+attr runnumber 0
+attr seedset 0
+config scheduler-class omnetpp::cRealTimeScheduler
+config realtimescheduler-scaling 0.1
+config cmdenv-express-mode false
+config cmdenv-autoflush true
+config cmdenv-status-frequency 1s
+config **.cmdenv-log-level info
+config image-path ../../images
+config network fourWay
+config debug-on-errors true
+config print-undisposed true
+config sim-time-limit 50000s
+config **.scalar-recording true
+config **.vector-recording true
+config *.playgroundSizeX 2500m
+config *.playgroundSizeY 2500m
+config *.playgroundSizeZ 50m
+config *.annotations.draw true
+config *.obstacles.debug false
+config *.manager.updateInterval 0.1s
+config *.manager.host "\"localhost\""
+config *.manager.port 9999
+config *.manager.autoShutdown true
+config *.manager.launchConfig "xmldoc(\"osm.launchd.xml\")"
+config *.manager.trafficLightModuleType "\"org.car2x.veins.nodes.TrafficLight\""
+config *.tls[*].mobility.x 0
+config *.tls[*].mobility.y 0
+config *.tls[*].mobility.z 3
+config *.tls[*].applType "\"org.car2x.veins.modules.application.traci.TraCIDemoTrafficLightApp\""
+config *.tls[*].logicType "\"org.car2x.veins.modules.world.traci.trafficLight.logics.TraCITrafficLightSimpleLogic\""
+config *.rsu[0].mobility.x 2000
+config *.rsu[0].mobility.y 2000
+config *.rsu[0].mobility.z 3
+config *.rsu[*].applType "\"TraCIDemoRSU11p\""
+config *.rsu[*].appl.headerLength "80 bit"
+config *.rsu[*].appl.sendBeacons false
+config *.rsu[*].appl.dataOnSch false
+config *.rsu[*].appl.beaconInterval 1s
+config *.rsu[*].appl.beaconUserPriority 7
+config *.rsu[*].appl.dataUserPriority 5
+config *.rsu[*].nic.phy80211p.antennaOffsetZ "0 m"
+config *.connectionManager.sendDirect true
+config *.connectionManager.maxInterfDist 2600m
+config *.connectionManager.drawMaxIntfDist false
+config *.connectionManagerName "\"connectionManager\""
+config *.**.nic.mac1609_4.useServiceChannel false
+config *.**.nic.phy80211p.txPower 500mW
+config *.**.nic.mac1609_4.txPower 400mW
+config *.**.nic.mac1609_4.bitrate 27Mbps
+config *.**.nic.phy80211p.minPowerLevel -110dBm
+config *.**.nic.mac1609_4.queueSize 1024
+config *.**.nic.phy80211p.useNoiseFloor true
+config *.**.nic.phy80211p.noiseFloor -98dBm
+config *.**.nic.phy80211p.decider "xmldoc(\"config.xml\")"
+config *.**.nic.phy80211p.analogueModels "xmldoc(\"config.xml\")"
+config *.**.nic.phy80211p.usePropagationDelay true
+config *.**.nic.phy80211p.antenna "xmldoc(\"antenna.xml\", \"/root/Antenna[@id='monopole']\")"
+config *.node[*].nic.phy80211p.antennaOffsetY "1.895 m"
+config *.node[*].nic.phy80211p.antennaOffsetZ "1.895 m"
+config *.node[*].applType "\"src.IntersectionApp\""
+config *.node[*].appl.headerLength "80 bit"
+config *.node[*].appl.sendBeacons false
+config *.node[*].appl.dataOnSch false
+config *.node[*].appl.beaconInterval 1s
+config *.node[*].nic.phy80211p.connectionManagerName "\"connectionManager\""
+config *.node[*].veinsmobility.x 0
+config *.node[*].veinsmobility.y 0
+config *.node[*].veinsmobility.z 0
+config *.node[*].veinsmobility.setHostSpeed false
+config *.node[0].veinsmobility.accidentCount 0
+config *.node[0].veinsmobility.accidentStart 73s
+config *.node[0].veinsmobility.accidentDuration 50s
+
+par fourWay.world typename "\"org.car2x.veins.base.modules.BaseWorldUtility\""
+par fourWay.world playgroundSizeX 2500m
+attr unit m
+par fourWay.world playgroundSizeY 2500m
+attr unit m
+par fourWay.world playgroundSizeZ 50m
+attr unit m
+par fourWay.world useTorus false
+par fourWay.world use2D false
+par fourWay.connectionManager typename "\"org.car2x.veins.base.connectionManager.ConnectionManager\""
+par fourWay.connectionManager sendDirect true
+par fourWay.connectionManager maxInterfDist 2600m
+attr unit m
+par fourWay.connectionManager drawMaxIntfDist false
+par fourWay.manager typename "\"org.car2x.veins.modules.mobility.traci.TraCIScenarioManagerLaunchd\""
+par fourWay.manager connectAt 0s
+attr unit s
+par fourWay.manager firstStepAt -1s
+attr unit s
+par fourWay.manager updateInterval 0.1s
+attr unit s
+par fourWay.manager moduleType "\"org.car2x.veins.nodes.Car\""
+par fourWay.manager moduleName "\"node\""
+par fourWay.manager moduleDisplayString "\"*='i=veins/node/car;is=vs'\""
+par fourWay.manager trafficLightModuleType "\"org.car2x.veins.nodes.TrafficLight\""
+par fourWay.manager trafficLightModuleName "\"tls\""
+par fourWay.manager trafficLightFilter "\"\""
+par fourWay.manager trafficLightModuleDisplayString "\"i=veins/node/trafficlight;is=vs\""
+par fourWay.manager host "\"localhost\""
+par fourWay.manager port 9999
+par fourWay.manager seed -1
+par fourWay.manager autoShutdown true
+par fourWay.manager margin 25
+par fourWay.manager roiRoads "\"\""
+par fourWay.manager roiRects "\"\""
+par fourWay.manager penetrationRate 1
+par fourWay.manager ignoreGuiCommands false
+par fourWay.manager order -1
+par fourWay.manager ignoreUnknownSubscriptionResults false
+par fourWay.manager launchConfig "<launch>...</launch> at /home/yash/omnetpp/fourway//osm.launchd.xml:35"
+scalar fourWay.manager roiArea 0
+par fourWay.obstacles typename "\"org.car2x.veins.modules.obstacle.ObstacleControl\""
+par fourWay.obstacles obstacles "<obstacles/> at content:1"
+par fourWay.obstacles gridCellSize 250
+par fourWay typename "\"fourWay\""
+par fourWay playgroundSizeX 2500m
+attr unit m
+par fourWay playgroundSizeY 2500m
+attr unit m
+par fourWay playgroundSizeZ 50m
+attr unit m
+par fourWay numNodes 0
+par fourWay numTls 0
+par fourWay numRsu 0
+

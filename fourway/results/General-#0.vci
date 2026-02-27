@@ -1,9 +1,9 @@
-file 3478 1762333311                                            
+                                                                
 version 3
-run General-0-20251105-00:59:09-407774
+run General-0-20260217-14:01:58-835370
 attr configname General
-attr datetime 20251105-00:59:09
-attr datetimef 20251105-005909
+attr datetime 20260217-14:01:58
+attr datetimef 20260217-140158
 attr experiment General
 attr inifile omnetpp.ini
 attr iterationvars ""
@@ -11,13 +11,14 @@ attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network fourWay
-attr processid 407774
+attr processid 835370
 attr repetition 0
 attr replication #0
 attr resultdir results
 attr runnumber 0
 attr seedset 0
-config image-path ../../../../mnt/c/Users/yashm/src/veins-veins-5.3.1/images
+config scheduler-class omnetpp::cRealTimeScheduler
+config realtimescheduler-scaling 1
 config cmdenv-express-mode true
 config cmdenv-autoflush true
 config cmdenv-status-frequency 1s
@@ -26,7 +27,7 @@ config image-path ../../images
 config network fourWay
 config debug-on-errors true
 config print-undisposed true
-config sim-time-limit 200s
+config sim-time-limit 50000s
 config **.scalar-recording true
 config **.vector-recording true
 config *.playgroundSizeX 2500m
@@ -34,14 +35,12 @@ config *.playgroundSizeY 2500m
 config *.playgroundSizeZ 50m
 config *.annotations.draw true
 config *.obstacles.debug false
-config *.manager.updateInterval 1s
+config *.manager.updateInterval 0.1s
 config *.manager.host "\"localhost\""
 config *.manager.port 9999
 config *.manager.autoShutdown true
 config *.manager.launchConfig "xmldoc(\"osm.launchd.xml\")"
 config *.manager.trafficLightModuleType "\"org.car2x.veins.nodes.TrafficLight\""
-config *.manager.moduleType "\"fourway.IntersectionApp\""
-config *.manager.moduleName "\"veh\""
 config *.tls[*].mobility.x 0
 config *.tls[*].mobility.y 0
 config *.tls[*].mobility.z 3
@@ -61,6 +60,7 @@ config *.rsu[*].nic.phy80211p.antennaOffsetZ "0 m"
 config *.connectionManager.sendDirect true
 config *.connectionManager.maxInterfDist 2600m
 config *.connectionManager.drawMaxIntfDist false
+config *.connectionManagerName "\"connectionManager\""
 config *.**.nic.mac1609_4.useServiceChannel false
 config *.**.nic.mac1609_4.txPower 20mW
 config *.**.nic.mac1609_4.bitrate 6Mbps
@@ -71,21 +71,33 @@ config *.**.nic.phy80211p.decider "xmldoc(\"config.xml\")"
 config *.**.nic.phy80211p.analogueModels "xmldoc(\"config.xml\")"
 config *.**.nic.phy80211p.usePropagationDelay true
 config *.**.nic.phy80211p.antenna "xmldoc(\"antenna.xml\", \"/root/Antenna[@id='monopole']\")"
-config *.node[*].nic.phy80211p.antennaOffsetY "0 m"
+config *.node[*].nic.phy80211p.antennaOffsetY "1.895 m"
 config *.node[*].nic.phy80211p.antennaOffsetZ "1.895 m"
-config *.node[*].applType "\"MyVeinsApp\""
+config *.node[*].applType "\"src.IntersectionApp\""
 config *.node[*].appl.headerLength "80 bit"
 config *.node[*].appl.sendBeacons false
 config *.node[*].appl.dataOnSch false
 config *.node[*].appl.beaconInterval 1s
+config *.node[*].nic.phy80211p.connectionManagerName "\"connectionManager\""
 config *.node[*].veinsmobility.x 0
 config *.node[*].veinsmobility.y 0
 config *.node[*].veinsmobility.z 0
 config *.node[*].veinsmobility.setHostSpeed false
-config *.node[*0].veinsmobility.accidentCount 0
-config *.node[*0].veinsmobility.accidentStart 73s
-config *.node[*0].veinsmobility.accidentDuration 50s
+config *.node[0].veinsmobility.accidentCount 0
+config *.node[0].veinsmobility.accidentStart 73s
+config *.node[0].veinsmobility.accidentDuration 50s
 
-vector 0 fourWay.rsu[0].nic.phy80211p RadioState ETV
-vector 1 fourWay.rsu[0].nic.phy80211p RadioChannel ETV
-
+vector 0 fourWay.node[0].nic.phy80211p RadioState ETV
+vector 1 fourWay.node[0].nic.phy80211p RadioChannel ETV
+vector 2 fourWay.manager posx ETV
+vector 3 fourWay.manager posy ETV
+vector 4 fourWay.manager speed ETV
+vector 5 fourWay.node[1].nic.phy80211p RadioState ETV
+vector 6 fourWay.node[1].nic.phy80211p RadioChannel ETV
+vector 7 fourWay.manager posx ETV
+vector 8 fourWay.manager posy ETV
+vector 9 fourWay.node[2].nic.phy80211p RadioState ETV
+vector 10 fourWay.node[2].nic.phy80211p RadioChannel ETV
+vector 11 fourWay.manager posx ETV
+vector 12 fourWay.manager posy ETV
+vector 13 fourWay.node[3].nic.p

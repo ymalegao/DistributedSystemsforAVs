@@ -392,6 +392,9 @@ public final class Acceptor {
 	 * @param msgs tom messages
 	 */
 	private void insertProof(ConsensusMessage cm, TOMMessage[] msgs) {
+		int cid = cm.getNumber();
+		logger.info("[PROOF] Starting insertProof for consensus {}", cid);
+		
 		ByteArrayOutputStream bOut = new ByteArrayOutputStream(248);
 		try {
 			ObjectOutputStream obj = new ObjectOutputStream(bOut);
@@ -405,9 +408,14 @@ public final class Acceptor {
 		byte[] data = bOut.toByteArray();
 
 		// Always sign a consensus proof.
+		logger.info("[PROOF] About to call signMessage for consensus {} (data size={})", cid, data.length);
+		long startTime = System.nanoTime();
 		byte[] signature = TOMUtil.signMessage(privKey, data);
+		long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
+		logger.info("[PROOF] signMessage completed for consensus {} in {} ms", cid, elapsedMs);
 
 		cm.setProof(signature);
+		logger.info("[PROOF] insertProof DONE for consensus {}", cid);
 
 	}
 

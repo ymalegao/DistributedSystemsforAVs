@@ -268,6 +268,7 @@ public class ServiceReplica {
     }
 
     public void receiveMessages(int consId[], int regencies[], int leaders[], CertifiedDecision[] cDecs, TOMMessage[][] requests) {
+        logger.info("[DELIVERY] receiveMessages called with {} consensus instance(s)", requests != null ? requests.length : 0);
         int numRequests = 0;
         int consensusCount = 0;
         List<TOMMessage> toBatch = new ArrayList<>();
@@ -403,6 +404,7 @@ public class ServiceReplica {
         }
 
         if (executor instanceof BatchExecutable && numRequests > 0) {
+            logger.info("[DELIVERY] Executing batch with {} request(s) (BatchExecutable)", numRequests);
             //Make new batch to deliver
             byte[][] batch = new byte[numRequests][];
 			boolean[] isReplyHashes = new boolean[numRequests];
@@ -425,18 +427,22 @@ public class ServiceReplica {
 
             //Send the replies back to the client
             if (replies != null) {
-                
+                logger.info("[DELIVERY] Sending {} reply/replies to client(s)", replies.length);
                 for (TOMMessage reply : replies) {
 
                     if (SVController.getStaticConf().getNumRepliers() > 0) {
+                        logger.info("[DELIVERY] Sending reply to client {} via ReplyManager (seq={}, opId={})", reply.getSender(), reply.getSequence(), reply.getOperationId());
                         logger.debug("Sending reply to " + reply.getSender() + " with sequence number " + reply.getSequence() + " and operation ID " + reply.getOperationId() +" via ReplyManager");
                         repMan.send(reply);
                     } else {
+                        logger.info("[DELIVERY] Sending reply to client {} via replier (seq={}, opId={})", reply.getSender(), reply.getSequence(), reply.getOperationId());
                         logger.debug("Sending reply to " + reply.getSender() + " with sequence number " + reply.getSequence() + " and operation ID " + reply.getOperationId());
                         replier.manageReply(reply, null);
                         //cs.send(new int[]{request.getSender()}, request.reply);
                     }
                 }
+            } else {
+                logger.warn("[DELIVERY] executeBatch returned null replies!");
             }
             //DEBUG
             logger.debug("BATCHEXECUTOR END");
