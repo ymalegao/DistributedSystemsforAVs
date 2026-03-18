@@ -30,7 +30,8 @@ public:
     simtime_t viewConsensusEndTime;
     simtime_t orderConsensusStartTime;
     simtime_t orderConsensusEndTime;
-
+    simtime_t orderCollectionWindowStart;
+    simtime_t orderCollectionWindowEnd;
     // OMNeT++ lifecycle
     void initialize(int stage) override;
     void finish() override;
@@ -44,7 +45,7 @@ public:
     bool isDeparted = false;
     bool checkIfDeparted();
     void notifyJavaDeparted();
-    void zombieFilter();
+    bool zombieFilter();
 
     void resumeVehicle(double delaySeconds = 0.0);  // Resume vehicle movement after assigned delay
     bool alreadyAtStopLine = false;
@@ -57,6 +58,13 @@ public:
     void resetForNextRound();
     bool pendingReconfigFlush = false;
     void scheduleReconfigFlush();
+
+    // Pending ORDER decision queued by JNI thread for safe processing on main thread.
+    // cancelEvent() and parseAndNotifyDecision() must never be called from a JNI thread
+    // because OMNeT++'s FES (std::map) is not thread-safe; concurrent inserts/removes
+    // from multiple JNI threads cause the std::_Rb_tree_insert_and_rebalance SIGSEGV.
+    std::string pendingOrderDecision;
+    bool pendingCancelOrderTimer = false;
     
 
 protected:
@@ -70,6 +78,8 @@ protected:
     std::chrono::time_point<std::chrono::high_resolution_clock> realOrderConsensusStart;
     std::chrono::time_point<std::chrono::high_resolution_clock> realViewConsensusEnd;
     std::chrono::time_point<std::chrono::high_resolution_clock> realOrderConsensusEnd;
+    bool orderDecisionCallbackSeen = false;
+    double lastOrderBftRequestRttMs = -1.0;
 
 
     void handleSelfMsg(cMessage* msg) override;
@@ -143,13 +153,16 @@ protected:
 
     // ReadyQC Management (Phase 2 - after view is established)
     std::map<std::string, ReadyQC> verifiedPool;  // Completed ReadyQCs
+    std::map<std::string, ReadyQC> nextEpochPool; // Buffer for epoch+1 QCs received before local epoch increments
     std::map<std::string, ArrivalAnnouncement> pendingAnnouncements;
     std::map<std::string, std::vector<WitnessResponse>> collectedWitnesses;
     /** Track which cars' arrival announcements this replica has received (for debugging drop detection) */
     std::set<std::string> arrivalAnnouncementsReceived;
+    std::set<int> readyQCAcks;  // Track which replicas have ACKed our ReadyQC
     double readyQCTimeoutSec = 10.0;  // Longer timeout for testing
     int currentEpoch = 0;
     bool hasProposedOrder = false;
+
 
     // View consensus state
     ViewProposal myViewProposal;  // My proposed view
@@ -232,7 +245,7 @@ private:
     std::set<std::string> expectedToGo;      // Cars that should cross this round (from ORDER decision)
     std::set<std::string> confirmedDeparted; // Cars we've confirmed as departed
     simtime_t clearanceStartTime = 0;        // When we started waiting for clearance
-    double CLEARANCE_TIMEOUT = 100.0;          // Max wait for clearance (seconds) //just testing
+    double CLEARANCE_TIMEOUT = 10.0;           // Max wait for clearance after ORDER delivery (seconds)
     simtime_t viewSignatureCollectionStartTime = 0;  
     simtime_t viewSignatureCollectionEndTime = 0;  
     simtime_t orderSignatureCollectionStartTime = 0;  
@@ -243,12 +256,22 @@ private:
     bool orderBagProposed = false;           // I have sent at least one ORDER bag this round
     bool orderDecisionReceived = false;      // stop retries when Java notifies decision
     bool orderBagCloseFlag = false;          // close flag used when bag was first proposed
+    bool delayedOrderSubmitScheduled = false; // true while a delayed ORDER submit is pending
 
     simtime_t orderCollectionDeadline;       // e.g. simTime() + 0.300
     int orderBagRetransmitCount = 0;
+    double orderDelayGap = 0.0;              // Optional delay between VIEW complete and ORDER submit (seconds)
+    std::string pendingOrderPayload;         // Serialized ORDER payload awaiting delayed submit
+    int pendingOrderEpoch = -1;              // Epoch associated with pendingOrderPayload
+    int pendingOrderViewHash = 0;            // View hash associated with pendingOrderPayload
+    simtime_t firstOrderBagProposalTime = 0; // First ORDER_PROPOSE timestamp seen locally this epoch
+    int firstOrderBagProposerReplica = -1;   // Which replica produced the first local bag this epoch
+    simtime_t lastRoundResetTime = -1;       // When resetForNextRound advanced us into currentEpoch
+    int lastRoundResetEpoch = -1;            // Epoch index entered at last resetForNextRound
     cMessage* orderCollectDeadlineTimer;
     cMessage* orderGossipRetransmitTimer; //optional
     cMessage* orderBagRetransmitTimer;
+    cMessage* orderDelayTimer;
     void startOrderCollectionWindowIfNeeded();
     int countDistinctFrontLanesInPool();
     std::vector<ReadyQC> buildOrderBagQCs();
@@ -300,7 +323,7 @@ private:
     double intersectionWidth;
     double avgSpeed;
     double safetyGap;
-    const int MAX_MESSAGES_PER_TICK;
+    int MAX_MESSAGES_PER_TICK;
     bool waitingForConsensus;
     bool hasRequestedCrossing;
     bool isStopped;
@@ -313,6 +336,9 @@ private:
     double getDistanceToIntersection();
     bool isApproachingIntersection();
     void stopVehicle();
+
+    int getCurrentViewLeader(const std::set<std::string>& agreedView);
+    bool amITheLeader(const std::set<std::string>& agreedView);
 
     // TraCI-based verification for witness/ReadyQC (car present, lane, position)
     struct VerificationResult {
@@ -350,6 +376,7 @@ private:
     void handleArrivalAnnouncement(BFTMessage* bftMsg);  // Phase 2
     void handleWitnessResponse(BFTMessage* bftMsg);      // Phase 2
     void handleReadyQCComplete(BFTMessage* bftMsg);      // Phase 2
+    void handleReadyQCAck(BFTMessage* bftMsg);           // Phase 2
     void assembleAndBroadcastReadyQC();
     void handleBFTMessage(BFTMessage* bftMsg);
     void handlepreConsensusMessages(BFTMessage* bftMsg);
@@ -365,6 +392,7 @@ private:
     void triggerOrderConsensus();         // Phase 3: BFT on order
     
     bool triggerJoinViaJNI(const std::string& request);
+    bool triggerGlobalResetViaJNI(const std::vector<int>& departedReplicas);
     int extractReplicaIdFromCarId(const std::string& carId);
     
     // View detection (uses TraCI sensors)

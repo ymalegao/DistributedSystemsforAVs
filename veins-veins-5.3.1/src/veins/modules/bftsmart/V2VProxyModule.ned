@@ -38,6 +38,33 @@ simple V2VProxyModule extends DemoBaseApplLayer
         // After this timeout, vehicles resume without coordination
         double consensusTimeoutSec @unit(s) = default(40s);
 
+        // Optional delay between VIEW completion and ORDER submit (leader only).
+        // Useful for diagnostics to test residual channel-congestion effects.
+        double orderDelayGap @unit(s) = default(0s);
+
+        // V2V send-delay knobs (Relaxed for MAC Layer Stability)
+        double viewJitterMin @unit(s) = default(0.001s);   
+        double viewJitterMax @unit(s) = default(0.005s);
+        // Bump to 2ms. 16 replicas * 2ms = 32ms window. Safe for CSMA.
+        double viewAgreementSlotSec @unit(s) = default(0.025s); 
+
+        double ackJitterMin @unit(s) = default(0.001s);    
+        // Bump to 10ms. ACKs are low priority, spread them out to avoid choking the channel.
+        double ackJitterMax @unit(s) = default(0.010s);
+
+        // Bump to 2ms. This is the main culprit in your logs. 0.5ms is too fast.
+        double witnessSlotSec @unit(s) = default(0.002s); 
+
+        double broadcastSlotSec @unit(s) = default(0.005s);   
+        double arrivalSlotSec @unit(s) = default(0.025s);     
+        double broadcastJitterMin @unit(s) = default(0.0001s);
+        double broadcastJitterMax @unit(s) = default(0.001s); 
+
+        // ORDER collection window
+        double orderCollectMinSec @unit(s) = default(4.0s);
+        double orderCollectPerReplicaSec @unit(s) = default(0.08s);
+        double orderCollectMaxSec @unit(s) = default(5s);
+
         // Display
         @display("i=block/app2");
         

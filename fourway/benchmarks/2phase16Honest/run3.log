@@ -1,0 +1,473 @@
+[ROUND-METRICS] Epoch 0 Avg_View_Consensus_Latency_4Cars: 0.44438818493175 seconds (replicasCounted=4)
+[ROUND-METRICS] Epoch 0 Avg_Order_Consensus_Latency_4Cars: 0.541725742559 seconds (replicasCounted=4)
+[ROUND-METRICS] Epoch 0 Avg_Order_BFT_Request_RTT_Submitter: 7.783 seconds (submittersCounted=1)
+[ROUND-METRICS] Epoch 1 Avg_ResetToViewEnd_4Cars: 8.7707192974945 seconds (replicasCounted=4)
+[ROUND-METRICS] Epoch 1 Avg_Order_BFT_Request_RTT_Submitter: 6.263 seconds (submittersCounted=1)
+[ROUND-METRICS] Epoch 1 Avg_View_Consensus_Latency_4Cars: 0.429295827088 seconds (replicasCounted=4)
+[ROUND-METRICS] Epoch 1 Avg_Order_Consensus_Latency_4Cars: 0.49200428750775 seconds (replicasCounted=4)
+[ROUND-METRICS] Epoch 2 Avg_ResetToViewEnd_4Cars: 9.009209389675 seconds (replicasCounted=4)
+[ROUND-METRICS] Epoch 2 Avg_Order_BFT_Request_RTT_Submitter: 4.398 seconds (submittersCounted=1)
+[ROUND-METRICS] Epoch 2 Avg_View_Consensus_Latency_4Cars: 0.43321071727725 seconds (replicasCounted=4)
+[ROUND-METRICS] Epoch 2 Avg_Order_Consensus_Latency_4Cars: 0.61978843325075 seconds (replicasCounted=4)
+[JNI] notifyViewAgreed: replica [ROUND-METRICS] Epoch 3 Avg_ResetToViewEnd_4Cars: 3, view=veh11,veh15,veh3,veh79.02789406360775
+[ROUND-METRICS] Epoch 3 Avg_View_Consensus_Latency_4Cars: 0.35411927859375 seconds (replicasCounted=4)
+[ROUND-METRICS] Epoch 3 Avg_Order_Consensus_Latency_4Cars: 0.62256558376825 seconds (replicasCounted=4)
+[ROUND-METRICS] Epoch 3 Avg_Order_BFT_Request_RTT_Submitter: 4.562 seconds (submittersCounted=1)
+========== CONSENSUS METRICS (Replica 8) ==========
+[METRICS 8] === VIEW SIGNATURE COLLECTION ===
+[METRICS 8] View_Signature_Collection_Start: 0.8
+[METRICS 8] View_Signature_Collection_End: 0.729077375979
+02:36:15.701 [Delivery Thread] DEBUG bftsmart.tom.core.DeliveryThread - Current size of the decided queue: 1
+[METRICS 8] View_Signature_Collection_Duration: -0.070922624021 seconds
+[METRICS 8] === VIEW CONSENSUS ===
+[METRICS 8] View_Consensus_Start: 0.729077375979
+[METRICS 8] View_Consensus_End:   1.166061642744
+[METRICS 8] View_Consensus_Latency: 0.436984266765 seconds
+[METRICS 8] === ORDER SIGNATURE COLLECTION ===
+[METRICS 8] Order_Signature_Collection_Start: 1.2
+[METRICS 8] Order_Signature_Collection_End: 1.454078478862
+[METRICS 8] Order_Signature_Collection_Duration: 0.254078478862 seconds
+[METRICS 8] LaneLeader_Gossip_Duration: 0 seconds
+[METRICS 8] === ORDER CONSENSUS ===
+[METRICS 8] Order_Consensus_Start: 1.454078478862
+[METRICS 8] Order_Consensus_End:   1.95
+[METRICS 8] Order_Consensus_Latency: 0.495921521138 seconds
+[METRICS 8] Order_BFT_Request_RTT: N/A (no local ORDER submit)
+[METRICS 8] === OVERALL ===
+[METRICS 8] Total_Consensus_Start: 0.8
+[METRICS 8] Total_Consensus_End:   1.95
+[PHASE_TIMER] CID=1 replica=15 ACCEPT_QUORUM wall_ms=1773135375701[METRICS 8] Total_Consensus_Duration: 1.15 seconds
+
+[METRICS 8] Timing_Fallbacks: viewStart=1 orderStart=1 gossipWindow=1
+--
+========== CONSENSUS METRICS (Replica 12) ==========
+[METRICS 12] === VIEW SIGNATURE COLLECTION ===
+[METRICS 12] View_Signature_Collection_Start: 0.8
+[METRICS 12] View_Signature_Collection_End: 0.729077375944
+[METRICS 12] View_Signature_Collection_Duration: -0.070922624056 seconds
+[METRICS 12] === VIEW CONSENSUS ===
+[METRICS 12] View_Consensus_Start: 0.729077375944
+[METRICS 12] View_Consensus_End:   1.177264361564
+[METRICS 12] View_Consensus_Latency: 0.44818698562 seconds
+[METRICS 12] === ORDER SIGNATURE COLLECTION ===
+[METRICS 12] Order_Signature_Collection_Start: 1.2
+[METRICS 12] Order_Signature_Collection_End: 1.421198105981
+[METRICS 12] Order_Signature_Collection_Duration: 0.221198105981 seconds
+[METRICS 12] LaneLeader_Gossip_Duration: 0 seconds
+[METRICS 12] === ORDER CONSENSUS ===
+[METRICS 12] Order_Consensus_Start: 1.421198105981
+[METRICS 12] Order_Consensus_End:   2
+[METRICS 12] Order_Consensus_Latency: 0.578801894019 seconds
+[METRICS 12] Order_BFT_Request_RTT: N/A (no local ORDER submit)
+[METRICS 12] === OVERALL ===
+[METRICS 12] Total_Consensus_Start: 0.8
+[METRICS 12] Total_Consensus_End:   2
+[METRICS 12] Total_Consensus_Duration: 1.2 seconds
+[METRICS 12] Timing_Fallbacks: viewStart=1 orderStart=1 gossipWindow=1
+[METRICS 12] Stop_Time: 0.8
+[METRICS 12] Projected_Total_Wait: 3.771428571429 seconds
+--
+========== CONSENSUS METRICS (Replica 4) ==========
+[METRICS 4] === VIEW SIGNATURE COLLECTION ===
+[METRICS 4] View_Signature_Collection_Start: 0.8
+[METRICS 4] View_Signature_Collection_End: 0.738420454454
+[METRICS 4] View_Signature_Collection_Duration: -0.061579545546 seconds
+[METRICS 4] === VIEW CONSENSUS ===
+[METRICS 4] View_Consensus_Start: 0.738420454454
+[METRICS 4] View_Consensus_End:   1.182371770116
+[METRICS 4] View_Consensus_Latency: 0.443951315662 seconds
+[METRICS 4] === ORDER SIGNATURE COLLECTION ===
+[METRICS 4] Order_Signature_Collection_Start: 1.2
+[METRICS 4] Order_Signature_Collection_End: 1.355470062426
+[METRICS 4] Order_Signature_Collection_Duration: 0.155470062426 seconds
+[METRICS 4] LaneLeader_Gossip_Duration: 0 seconds
+[METRICS 4] === ORDER CONSENSUS ===
+[METRICS 4] Order_Consensus_Start: 1.355470062426
+[METRICS 4] Order_Consensus_End:   2
+[METRICS 4] Order_Consensus_Latency: 0.644529937574 seconds
+[METRICS 4] Order_BFT_Request_RTT: N/A (no local ORDER submit)
+[METRICS 4] === OVERALL ===
+[METRICS 4] Total_Consensus_Start: 0.8
+[METRICS 4] Total_Consensus_End:   2
+[METRICS 4] Total_Consensus_Duration: 1.2 seconds
+[METRICS 4] Timing_Fallbacks: viewStart=1 orderStart=1 gossipWindow=1
+[METRICS 4] Stop_Time: 0.8
+[METRICS 4] Projected_Total_Wait: 6.342857142857 seconds
+--
+========== CONSENSUS METRICS (Replica 0) ==========
+[METRICS 0] === VIEW SIGNATURE COLLECTION ===
+[METRICS 0] View_Signature_Collection_Start: 0.6
+[METRICS 0] View_Signature_Collection_End: 0.729077403178
+[METRICS 0] View_Signature_Collection_Duration: 0.129077403178 seconds
+[METRICS 0] === VIEW CONSENSUS ===
+[METRICS 0] View_Consensus_Start: 0.729077403178
+[METRICS 0] View_Consensus_End:   1.177507574858
+[METRICS 0] View_Consensus_Latency: 0.44843017168 seconds
+[ROUND-METRICS] Epoch 0 Avg_View_Consensus_Latency_4Cars: 0.44438818493175 seconds (replicasCounted=4)
+[METRICS 0] === ORDER SIGNATURE COLLECTION ===
+[METRICS 0] Order_Signature_Collection_Start: 1.2
+[METRICS 0] Order_Signature_Collection_End: 1.339712076462
+[METRICS 0] Order_Signature_Collection_Duration: 0.139712076462 seconds
+[METRICS 0] LaneLeader_Gossip_Duration: 0.212638306033 seconds
+[METRICS 0] === ORDER CONSENSUS ===
+[METRICS 0] Order_Consensus_Start: 1.552350382495
+[METRICS 0] Order_Consensus_End:   2
+[METRICS 0] Order_Consensus_Latency: 0.447649617505 seconds
+[METRICS 0] Order_BFT_Request_RTT: 7.783 seconds
+[METRICS 0] === OVERALL ===
+[METRICS 0] Total_Consensus_Start: 0.6
+[METRICS 0] Total_Consensus_End:   2
+[METRICS 0] Total_Consensus_Duration: 1.4 seconds
+[ROUND-METRICS] Epoch 0 Avg_Order_Consensus_Latency_4Cars: 0.541725742559 seconds (replicasCounted=4)
+[ROUND-METRICS] Epoch 0 Avg_Order_BFT_Request_RTT_Submitter: 7.783 seconds (submittersCounted=1)
+--
+========== CONSENSUS METRICS (Replica 1) ==========
+[METRICS 1] === VIEW SIGNATURE COLLECTION ===
+[METRICS 1] View_Signature_Collection_Start: 10.2
+[METRICS 1] View_Signature_Collection_End: 10.339036219252
+[METRICS 1] View_Signature_Collection_Duration: 0.139036219252 seconds
+[METRICS 1] === VIEW CONSENSUS ===
+[METRICS 1] View_Consensus_Start: 10.339036219252
+[METRICS 1] View_Consensus_End:   10.758219618354
+[METRICS 1] View_Consensus_Latency: 0.419183399102 seconds
+[METRICS 1] === ORDER SIGNATURE COLLECTION ===
+[METRICS 1] Order_Signature_Collection_Start: 10.8
+[METRICS 1] Order_Signature_Collection_End: 10.981445521195
+[METRICS 1] Order_Signature_Collection_Duration: 0.181445521195 seconds
+[METRICS 1] LaneLeader_Gossip_Duration: 0.257909582211 seconds
+[METRICS 1] === ORDER CONSENSUS ===
+[METRICS 1] Order_Consensus_Start: 11.239355103406
+[METRICS 1] Order_Consensus_End:   11.6
+[METRICS 1] Order_Consensus_Latency: 0.360644896594 seconds
+[METRICS 1] Order_BFT_Request_RTT: 6.263 seconds
+[METRICS 1] === OVERALL ===
+[METRICS 1] Total_Consensus_Start: 10.2
+[METRICS 1] Total_Consensus_End:   11.6
+[METRICS 1] Total_Consensus_Duration: 1.4 seconds
+[ROUND-METRICS] Epoch 1 Avg_Order_BFT_Request_RTT_Submitter: 6.263 seconds (submittersCounted=1)
+[METRICS 1] Stop_Time: 10.2
+[METRICS 1] Projected_Total_Wait: 1.4 seconds
+--
+========== CONSENSUS METRICS (Replica 13) ==========
+[METRICS 13] === VIEW SIGNATURE COLLECTION ===
+[METRICS 13] View_Signature_Collection_Start: 10.2
+[METRICS 13] View_Signature_Collection_End: 10.329659029899
+[METRICS 13] View_Signature_Collection_Duration: 0.129659029899 seconds
+[METRICS 13] === VIEW CONSENSUS ===
+[METRICS 13] View_Consensus_Start: 10.329659029899
+[METRICS 13] View_Consensus_End:   10.758218990046
+[METRICS 13] View_Consensus_Latency: 0.428559960147 seconds
+[METRICS 13] === ORDER SIGNATURE COLLECTION ===
+[METRICS 13] Order_Signature_Collection_Start: 10.8
+[METRICS 13] Order_Signature_Collection_End: 11.105357197302
+[METRICS 13] Order_Signature_Collection_Duration: 0.305357197302 seconds
+[METRICS 13] LaneLeader_Gossip_Duration: 0 seconds
+[METRICS 13] === ORDER CONSENSUS ===
+[METRICS 13] Order_Consensus_Start: 11.105357197302
+[METRICS 13] Order_Consensus_End:   11.6
+[METRICS 13] Order_Consensus_Latency: 0.494642802698 seconds
+[METRICS 13] Order_BFT_Request_RTT: N/A (no local ORDER submit)
+[METRICS 13] === OVERALL ===
+[METRICS 13] Total_Consensus_Start: 10.2
+[METRICS 13] Total_Consensus_End:   11.6
+[METRICS 13] Total_Consensus_Duration: 1.4 seconds
+[METRICS 13] Timing_Fallbacks: viewStart=1 orderStart=1 gossipWindow=1
+[METRICS 13] Stop_Time: 10.2
+[METRICS 13] Projected_Total_Wait: 3.971428571429 seconds
+--
+========== CONSENSUS METRICS (Replica 5) ==========
+[METRICS 5] === VIEW SIGNATURE COLLECTION ===
+[METRICS 5] View_Signature_Collection_Start: 10.2
+[METRICS 5] View_Signature_Collection_End: 10.329659005364
+[METRICS 5] View_Signature_Collection_Duration: 0.129659005364 seconds
+[METRICS 5] === VIEW CONSENSUS ===
+[METRICS 5] View_Consensus_Start: 10.329659005364
+[METRICS 5] View_Consensus_End:   10.764378981253
+[METRICS 5] View_Consensus_Latency: 0.434719975889 seconds
+[METRICS 5] === ORDER SIGNATURE COLLECTION ===
+[METRICS 5] Order_Signature_Collection_Start: 10.8
+[METRICS 5] Order_Signature_Collection_End: 11.036379024249
+[METRICS 5] Order_Signature_Collection_Duration: 0.236379024249 seconds
+[METRICS 5] LaneLeader_Gossip_Duration: 0 seconds
+[METRICS 5] === ORDER CONSENSUS ===
+[METRICS 5] Order_Consensus_Start: 11.036379024249
+[METRICS 5] Order_Consensus_End:   11.6
+[METRICS 5] Order_Consensus_Latency: 0.563620975751 seconds
+[METRICS 5] Order_BFT_Request_RTT: N/A (no local ORDER submit)
+[METRICS 5] === OVERALL ===
+[METRICS 5] Total_Consensus_Start: 10.2
+[METRICS 5] Total_Consensus_End:   11.6
+[METRICS 5] Total_Consensus_Duration: 1.4 seconds
+[METRICS 5] Timing_Fallbacks: viewStart=1 orderStart=1 gossipWindow=1
+[METRICS 5] Stop_Time: 10.2
+[METRICS 5] Projected_Total_Wait: 6.542857142857 seconds
+--
+========== CONSENSUS METRICS (Replica 9) ==========
+[METRICS 9] === VIEW SIGNATURE COLLECTION ===
+[METRICS 9] View_Signature_Collection_Start: 10.2
+[METRICS 9] View_Signature_Collection_End: 10.329659050776
+[METRICS 9] View_Signature_Collection_Duration: 0.129659050776 seconds
+[METRICS 9] === VIEW CONSENSUS ===
+[METRICS 9] View_Consensus_Start: 10.329659050776
+[METRICS 9] View_Consensus_End:   10.76437902399
+[METRICS 9] View_Consensus_Latency: 0.434719973214 seconds
+[ROUND-METRICS] Epoch 1 Avg_View_Consensus_Latency_4Cars: 0.429295827088 seconds (replicasCounted=4)
+[METRICS 9] === ORDER SIGNATURE COLLECTION ===
+[METRICS 9] Order_Signature_Collection_Start: 10.8
+[METRICS 9] Order_Signature_Collection_End: 11.050891525012
+[METRICS 9] Order_Signature_Collection_Duration: 0.250891525012 seconds
+[METRICS 9] LaneLeader_Gossip_Duration: 0 seconds
+[METRICS 9] === ORDER CONSENSUS ===
+[METRICS 9] Order_Consensus_Start: 11.050891525012
+[METRICS 9] Order_Consensus_End:   11.6
+[METRICS 9] Order_Consensus_Latency: 0.549108474988 seconds
+[METRICS 9] Order_BFT_Request_RTT: N/A (no local ORDER submit)
+[METRICS 9] === OVERALL ===
+[METRICS 9] Total_Consensus_Start: 10.2
+[METRICS 9] Total_Consensus_End:   11.6
+[METRICS 9] Total_Consensus_Duration: 1.4 seconds
+[METRICS 9] Timing_Fallbacks: viewStart=1 orderStart=1 gossipWindow=1
+[ROUND-METRICS] Epoch 1 Avg_Order_Consensus_Latency_4Cars: 0.49200428750775 seconds (replicasCounted=4)
+--
+========== CONSENSUS METRICS (Replica 10) ==========
+[METRICS 10] === VIEW SIGNATURE COLLECTION ===
+[METRICS 10] View_Signature_Collection_Start: 20
+[METRICS 10] View_Signature_Collection_End: 20.170109921516
+[METRICS 10] View_Signature_Collection_Duration: 0.170109921516 seconds
+[METRICS 10] === VIEW CONSENSUS ===
+[METRICS 10] View_Consensus_Start: 20.170109921516
+[METRICS 10] View_Consensus_End:   20.615434674077
+[METRICS 10] View_Consensus_Latency: 0.445324752561 seconds
+[METRICS 10] === ORDER SIGNATURE COLLECTION ===
+[METRICS 10] Order_Signature_Collection_Start: 20.65
+[METRICS 10] Order_Signature_Collection_End: 20.934187178935
+[METRICS 10] Order_Signature_Collection_Duration: 0.284187178935 seconds
+[METRICS 10] LaneLeader_Gossip_Duration: 0 seconds
+[METRICS 10] === ORDER CONSENSUS ===
+[METRICS 10] Order_Consensus_Start: 20.934187178935
+[METRICS 10] Order_Consensus_End:   21.6
+[METRICS 10] Order_Consensus_Latency: 0.665812821065 seconds
+[METRICS 10] Order_BFT_Request_RTT: N/A (no local ORDER submit)
+[METRICS 10] === OVERALL ===
+[METRICS 10] Total_Consensus_Start: 20
+[METRICS 10] Total_Consensus_End:   21.6
+[METRICS 10] Total_Consensus_Duration: 1.6 seconds
+[METRICS 10] Timing_Fallbacks: viewStart=1 orderStart=1 gossipWindow=1
+[METRICS 10] Stop_Time: 20
+[METRICS 10] Projected_Total_Wait: 1.6 seconds
+--
+========== CONSENSUS METRICS (Replica 14) ==========
+[METRICS 14] === VIEW SIGNATURE COLLECTION ===
+[METRICS 14] View_Signature_Collection_Start: 20
+[METRICS 14] View_Signature_Collection_End: 20.170109909676
+[METRICS 14] View_Signature_Collection_Duration: 0.170109909676 seconds
+[METRICS 14] === VIEW CONSENSUS ===
+[METRICS 14] View_Consensus_Start: 20.170109909676
+[METRICS 14] View_Consensus_End:   20.609209573051
+[METRICS 14] View_Consensus_Latency: 0.439099663375 seconds
+[METRICS 14] === ORDER SIGNATURE COLLECTION ===
+[METRICS 14] Order_Signature_Collection_Start: 20.65
+[METRICS 14] Order_Signature_Collection_End: 20.943187398324
+[METRICS 14] Order_Signature_Collection_Duration: 0.293187398324 seconds
+[METRICS 14] LaneLeader_Gossip_Duration: 0 seconds
+[METRICS 14] === ORDER CONSENSUS ===
+[METRICS 14] Order_Consensus_Start: 20.943187398324
+[METRICS 14] Order_Consensus_End:   21.6
+[METRICS 14] Order_Consensus_Latency: 0.656812601676 seconds
+[METRICS 14] Order_BFT_Request_RTT: N/A (no local ORDER submit)
+[METRICS 14] === OVERALL ===
+[METRICS 14] Total_Consensus_Start: 20
+[METRICS 14] Total_Consensus_End:   21.6
+[METRICS 14] Total_Consensus_Duration: 1.6 seconds
+[METRICS 14] Timing_Fallbacks: viewStart=1 orderStart=1 gossipWindow=1
+[METRICS 14] Stop_Time: 20
+[METRICS 14] Projected_Total_Wait: 4.171428571429 seconds
+--
+========== CONSENSUS METRICS (Replica 2) ==========
+[METRICS 2] === VIEW SIGNATURE COLLECTION ===
+[METRICS 2] View_Signature_Collection_Start: 20
+[METRICS 2] View_Signature_Collection_End: 20.184999984015
+[METRICS 2] View_Signature_Collection_Duration: 0.184999984015 seconds
+[METRICS 2] === VIEW CONSENSUS ===
+[METRICS 2] View_Consensus_Start: 20.184999984015
+[METRICS 2] View_Consensus_End:   20.609209573051
+[METRICS 2] View_Consensus_Latency: 0.424209589036 seconds
+[METRICS 2] === ORDER SIGNATURE COLLECTION ===
+[METRICS 2] Order_Signature_Collection_Start: 20.65
+[METRICS 2] Order_Signature_Collection_End: 20.809757651499
+[METRICS 2] Order_Signature_Collection_Duration: 0.159757651499 seconds
+[METRICS 2] LaneLeader_Gossip_Duration: 0.291081759604 seconds
+[METRICS 2] === ORDER CONSENSUS ===
+[METRICS 2] Order_Consensus_Start: 21.100839411103
+[METRICS 2] Order_Consensus_End:   21.6
+[METRICS 2] Order_Consensus_Latency: 0.499160588897 seconds
+[METRICS 2] Order_BFT_Request_RTT: 4.398 seconds
+[METRICS 2] === OVERALL ===
+[METRICS 2] Total_Consensus_Start: 20
+[METRICS 2] Total_Consensus_End:   21.6
+[METRICS 2] Total_Consensus_Duration: 1.6 seconds
+[ROUND-METRICS] Epoch 2 Avg_Order_BFT_Request_RTT_Submitter: 4.398 seconds (submittersCounted=1)
+[METRICS 2] Stop_Time: 20
+[METRICS 2] Projected_Total_Wait: 6.742857142857 seconds
+--
+========== CONSENSUS METRICS (Replica 6) ==========
+[METRICS 6] === VIEW SIGNATURE COLLECTION ===
+[METRICS 6] View_Signature_Collection_Start: 20
+[METRICS 6] View_Signature_Collection_End: 20.18499997541
+[METRICS 6] View_Signature_Collection_Duration: 0.18499997541 seconds
+[METRICS 6] === VIEW CONSENSUS ===
+[METRICS 6] View_Consensus_Start: 20.18499997541
+[METRICS 6] View_Consensus_End:   20.609208839547
+[METRICS 6] View_Consensus_Latency: 0.424208864137 seconds
+[ROUND-METRICS] Epoch 2 Avg_View_Consensus_Latency_4Cars: 0.43321071727725 seconds (replicasCounted=4)
+[METRICS 6] === ORDER SIGNATURE COLLECTION ===
+[METRICS 6] Order_Signature_Collection_Start: 20.65
+[METRICS 6] Order_Signature_Collection_End: 20.942632278635
+[METRICS 6] Order_Signature_Collection_Duration: 0.292632278635 seconds
+[METRICS 6] LaneLeader_Gossip_Duration: 0 seconds
+[METRICS 6] === ORDER CONSENSUS ===
+[METRICS 6] Order_Consensus_Start: 20.942632278635
+[METRICS 6] Order_Consensus_End:   21.6
+[METRICS 6] Order_Consensus_Latency: 0.657367721365 seconds
+[METRICS 6] Order_BFT_Request_RTT: N/A (no local ORDER submit)
+[METRICS 6] === OVERALL ===
+[METRICS 6] Total_Consensus_Start: 20
+[METRICS 6] Total_Consensus_End:   21.6
+[METRICS 6] Total_Consensus_Duration: 1.6 seconds
+[METRICS 6] Timing_Fallbacks: viewStart=1 orderStart=1 gossipWindow=1
+[ROUND-METRICS] Epoch 2 Avg_Order_Consensus_Latency_4Cars: 0.61978843325075 seconds (replicasCounted=4)
+--
+========== CONSENSUS METRICS (Replica 15) ==========
+[METRICS 15] === VIEW SIGNATURE COLLECTION ===
+[METRICS 15] View_Signature_Collection_Start: 30
+[METRICS 15] View_Signature_Collection_End: 30.256107222776
+[METRICS 15] View_Signature_Collection_Duration: 0.256107222776 seconds
+[METRICS 15] === VIEW CONSENSUS ===
+[METRICS 15] View_Consensus_Start: 30.256107222776
+[METRICS 15] View_Consensus_End:   30.62628580206
+[METRICS 15] View_Consensus_Latency: 0.370178579284 seconds
+[METRICS 15] === ORDER SIGNATURE COLLECTION ===
+[METRICS 15] Order_Signature_Collection_Start: 30.65
+[METRICS 15] Order_Signature_Collection_End: 30.945332857349
+[METRICS 15] Order_Signature_Collection_Duration: 0.295332857349 seconds
+[METRICS 15] LaneLeader_Gossip_Duration: 0 seconds
+[METRICS 15] === ORDER CONSENSUS ===
+[METRICS 15] Order_Consensus_Start: 30.945332857349
+[METRICS 15] Order_Consensus_End:   31.6
+[METRICS 15] Order_Consensus_Latency: 0.654667142651 seconds
+[METRICS 15] Order_BFT_Request_RTT: N/A (no local ORDER submit)
+[METRICS 15] === OVERALL ===
+[METRICS 15] Total_Consensus_Start: 30
+[METRICS 15] Total_Consensus_End:   31.6
+[METRICS 15] Total_Consensus_Duration: 1.6 seconds
+[METRICS 15] Timing_Fallbacks: viewStart=1 orderStart=1 gossipWindow=1
+[METRICS 15] Stop_Time: 30
+[METRICS 15] Projected_Total_Wait: 4.171428571429 seconds
+--
+========== CONSENSUS METRICS (Replica 3) ==========
+[METRICS 3] === VIEW SIGNATURE COLLECTION ===
+[METRICS 3] View_Signature_Collection_Start: 30
+[METRICS 3] View_Signature_Collection_End: 30.291442332687
+[METRICS 3] View_Signature_Collection_Duration: 0.291442332687 seconds
+[METRICS 3] === VIEW CONSENSUS ===
+[METRICS 3] View_Consensus_Start: 30.291442332687
+[METRICS 3] View_Consensus_End:   30.62628580206
+[METRICS 3] View_Consensus_Latency: 0.334843469373 seconds
+[METRICS 3] === ORDER SIGNATURE COLLECTION ===
+[METRICS 3] Order_Signature_Collection_Start: 30.65
+[METRICS 3] Order_Signature_Collection_End: 30.839560398664
+[METRICS 3] Order_Signature_Collection_Duration: 0.189560398664 seconds
+[METRICS 3] LaneLeader_Gossip_Duration: 0.330605028307 seconds
+[METRICS 3] === ORDER CONSENSUS ===
+[METRICS 3] Order_Consensus_Start: 31.170165426971
+[METRICS 3] Order_Consensus_End:   31.6
+[METRICS 3] Order_Consensus_Latency: 0.429834573029 seconds
+[METRICS 3] Order_BFT_Request_RTT: N/A (no local ORDER submit)
+[METRICS 3] === OVERALL ===
+[METRICS 3] Total_Consensus_Start: 30
+[METRICS 3] Total_Consensus_End:   31.6
+[METRICS 3] Total_Consensus_Duration: 1.6 seconds
+[METRICS 3] Stop_Time: 30
+[METRICS 3] Projected_Total_Wait: 6.742857142857 seconds
+[METRICS 3] Scheduled_Resume: 36.742857142857
+--
+========== CONSENSUS METRICS (Replica 7) ==========
+[METRICS 7] === VIEW SIGNATURE COLLECTION ===
+[METRICS 7] View_Signature_Collection_Start: 30
+[METRICS 7] View_Signature_Collection_End: 30.291442353193
+[METRICS 7] View_Signature_Collection_Duration: 0.291442353193 seconds
+[METRICS 7] === VIEW CONSENSUS ===
+[METRICS 7] View_Consensus_Start: 30.291442353193
+[METRICS 7] View_Consensus_End:   30.62628580206
+[METRICS 7] View_Consensus_Latency: 0.334843448867 seconds
+[METRICS 7] === ORDER SIGNATURE COLLECTION ===
+[METRICS 7] Order_Signature_Collection_Start: 30.65
+[METRICS 7] Order_Signature_Collection_End: 30.92332274822
+[METRICS 7] Order_Signature_Collection_Duration: 0.27332274822 seconds
+[METRICS 7] LaneLeader_Gossip_Duration: 0 seconds
+[METRICS 7] === ORDER CONSENSUS ===
+[METRICS 7] Order_Consensus_Start: 30.92332274822
+[METRICS 7] Order_Consensus_End:   31.6
+[METRICS 7] Order_Consensus_Latency: 0.67667725178 seconds
+[METRICS 7] Order_BFT_Request_RTT: N/A (no local ORDER submit)
+[METRICS 7] === OVERALL ===
+[METRICS 7] Total_Consensus_Start: 30
+[METRICS 7] Total_Consensus_End:   31.6
+[METRICS 7] Total_Consensus_Duration: 1.6 seconds
+[METRICS 7] Timing_Fallbacks: viewStart=1 orderStart=1 gossipWindow=1
+[METRICS 7] Stop_Time: 30
+[METRICS 7] Projected_Total_Wait: 9.314285714286 seconds
+--
+========== CONSENSUS METRICS (Replica 11) ==========
+[METRICS 11] === VIEW SIGNATURE COLLECTION ===
+[METRICS 11] View_Signature_Collection_Start: 30
+[METRICS 11] View_Signature_Collection_End: 30.2561072314
+[METRICS 11] View_Signature_Collection_Duration: 0.2561072314 seconds
+[METRICS 11] === VIEW CONSENSUS ===
+[METRICS 11] View_Consensus_Start: 30.2561072314
+[METRICS 11] View_Consensus_End:   30.632718848251
+[METRICS 11] View_Consensus_Latency: 0.376611616851 seconds
+[ROUND-METRICS] Epoch 3 Avg_View_Consensus_Latency_4Cars: 0.35411927859375 seconds (replicasCounted=4)
+[METRICS 11] === ORDER SIGNATURE COLLECTION ===
+[METRICS 11] Order_Signature_Collection_Start: 30.65
+[METRICS 11] Order_Signature_Collection_End: 30.920916632387
+[METRICS 11] Order_Signature_Collection_Duration: 0.270916632387 seconds
+[METRICS 11] LaneLeader_Gossip_Duration: 0 seconds
+[METRICS 11] === ORDER CONSENSUS ===
+[METRICS 11] Order_Consensus_Start: 30.920916632387
+[METRICS 11] Order_Consensus_End:   31.65
+[METRICS 11] Order_Consensus_Latency: 0.729083367613 seconds
+[METRICS 11] Order_BFT_Request_RTT: N/A (no local ORDER submit)
+[METRICS 11] === OVERALL ===
+[METRICS 11] Total_Consensus_Start: 30
+[METRICS 11] Total_Consensus_End:   31.65
+[METRICS 11] Total_Consensus_Duration: 1.65 seconds
+[METRICS 11] Timing_Fallbacks: viewStart=1 orderStart=1 gossipWindow=1
+[ROUND-METRICS] Epoch 3 Avg_Order_Consensus_Latency_4Cars: 0.62256558376825 seconds (replicasCounted=4)
+--
+========== CONSENSUS METRICS (Replica 3) ==========
+[METRICS 3] === VIEW SIGNATURE COLLECTION ===
+[METRICS 3] View_Signature_Collection_Start: 30
+[METRICS 3] View_Signature_Collection_End: 30.291442332687
+[METRICS 3] View_Signature_Collection_Duration: 0.291442332687 seconds
+[METRICS 3] === VIEW CONSENSUS ===
+[METRICS 3] View_Consensus_Start: 30.291442332687
+[METRICS 3] View_Consensus_End:   30.62628580206
+[METRICS 3] View_Consensus_Latency: 0.334843469373 seconds
+[METRICS 3] === ORDER SIGNATURE COLLECTION ===
+[METRICS 3] Order_Signature_Collection_Start: 30.65
+[METRICS 3] Order_Signature_Collection_End: 30.839560398664
+[METRICS 3] Order_Signature_Collection_Duration: 0.189560398664 seconds
+[METRICS 3] LaneLeader_Gossip_Duration: 0.330605028307 seconds
+[METRICS 3] === ORDER CONSENSUS ===
+[METRICS 3] Order_Consensus_Start: 31.170165426971
+[METRICS 3] Order_Consensus_End:   31.65
+[METRICS 3] Order_Consensus_Latency: 0.479834573029 seconds
+[METRICS 3] Order_BFT_Request_RTT: 4.562 seconds
+[METRICS 3] === OVERALL ===
+[METRICS 3] Total_Consensus_Start: 30
+[METRICS 3] Total_Consensus_End:   31.65
+[METRICS 3] Total_Consensus_Duration: 1.65 seconds
+[ROUND-METRICS] Epoch 3 Avg_Order_BFT_Request_RTT_Submitter: 4.562 seconds (submittersCounted=1)
+[METRICS 3] Stop_Time: 30
+[METRICS 3] Projected_Total_Wait: 6.792857142857 seconds

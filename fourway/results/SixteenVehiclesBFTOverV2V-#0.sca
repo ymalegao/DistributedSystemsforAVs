@@ -1,8 +1,8 @@
 version 3
-run SixteenVehiclesBFTOverV2V-0-20260126-18:33:29-539346
+run SixteenVehiclesBFTOverV2V-0-20260316-18:47:28-2213948
 attr configname SixteenVehiclesBFTOverV2V
-attr datetime 20260126-18:33:29
-attr datetimef 20260126-183329
+attr datetime 20260316-18:47:28
+attr datetimef 20260316-184728
 attr experiment SixteenVehiclesBFTOverV2V
 attr inifile omnetpp.ini
 attr iterationvars ""
@@ -10,7 +10,7 @@ attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network fourWay
-attr processid 539346
+attr processid 2213948
 attr repetition 0
 attr replication #0
 attr resultdir results
@@ -21,8 +21,9 @@ config description "BFT test on 16-vehicle routes"
 config *.manager.launchConfig "xmldoc(\"bft_16veh.launchd.xml\")"
 config *.node[*].appl.intersectionX 300m
 config *.node[*].appl.intersectionY 300m
-config *.node[*].appl.stopDistance 100m
+config *.node[*].appl.stopDistance 200m
 config *.node[*].appl.consensusTimeoutSec 120s
+config *.intersection[*].appl.orderDelayGap 0.0s
 config *.node[0].appl.replicaId 0
 config *.node[1].appl.replicaId 1
 config *.node[2].appl.replicaId 2
@@ -61,8 +62,8 @@ config *.connectionManager.alpha 2.0
 config *.connectionManager.carrierFrequency "5.890e9 Hz"
 config *.node[*].nic.phy80211p.collectCollisionStatistics true
 config *.node[*].nic.phy80211p.ccaThreshold -90dBm
-config *.node[*].nic.mac1609_4.cwMin 15
-config *.node[*].nic.mac1609_4.cwMax 1023
+config *.node[*].nic.mac1609_4.cwMin 3
+config *.node[*].nic.mac1609_4.cwMax 7
 config *.**.nic.mac1609_4.useServiceChannel false
 config *.node[*].appl.dataOnSch false
 config *.rsu[*].appl.dataOnSch false
@@ -96,8 +97,8 @@ config *.node[3].appl.stopDistance 50m
 config *.node[3].appl.intersectionX 104m
 config *.node[3].appl.intersectionY 82m
 config scheduler-class omnetpp::cRealTimeScheduler
-config realtimescheduler-scaling 1
-config cmdenv-express-mode true
+config realtimescheduler-scaling 0.1
+config cmdenv-express-mode false
 config cmdenv-autoflush true
 config cmdenv-status-frequency 1s
 config **.cmdenv-log-level info
@@ -105,7 +106,7 @@ config image-path ../../images
 config network fourWay
 config debug-on-errors true
 config print-undisposed true
-config sim-time-limit 200s
+config sim-time-limit 50000s
 config **.scalar-recording true
 config **.vector-recording true
 config *.playgroundSizeX 2500m
@@ -121,7 +122,7 @@ config *.manager.launchConfig "xmldoc(\"osm.launchd.xml\")"
 config *.manager.trafficLightModuleType "\"org.car2x.veins.nodes.TrafficLight\""
 config *.tls[*].mobility.x 0
 config *.tls[*].mobility.y 0
-config *.tls[*].mobility.z 3
+config *.tls[*].mobility.z 5
 config *.tls[*].applType "\"org.car2x.veins.modules.application.traci.TraCIDemoTrafficLightApp\""
 config *.tls[*].logicType "\"org.car2x.veins.modules.world.traci.trafficLight.logics.TraCITrafficLightSimpleLogic\""
 config *.rsu[0].mobility.x 2000
@@ -134,15 +135,17 @@ config *.rsu[*].appl.dataOnSch false
 config *.rsu[*].appl.beaconInterval 1s
 config *.rsu[*].appl.beaconUserPriority 7
 config *.rsu[*].appl.dataUserPriority 5
-config *.rsu[*].nic.phy80211p.antennaOffsetZ "0 m"
+config *.rsu[*].nic.phy80211p.antennaOffsetZ "1.5 m"
 config *.connectionManager.sendDirect true
 config *.connectionManager.maxInterfDist 2600m
 config *.connectionManager.drawMaxIntfDist false
 config *.connectionManagerName "\"connectionManager\""
 config *.**.nic.mac1609_4.useServiceChannel false
+config *.**.nic.phy80211p.txPower 20mW
 config *.**.nic.mac1609_4.txPower 20mW
 config *.**.nic.mac1609_4.bitrate 6Mbps
 config *.**.nic.phy80211p.minPowerLevel -110dBm
+config *.**.nic.mac1609_4.queueSize 1024
 config *.**.nic.phy80211p.useNoiseFloor true
 config *.**.nic.phy80211p.noiseFloor -98dBm
 config *.**.nic.phy80211p.decider "xmldoc(\"config.xml\")"
@@ -165,50 +168,618 @@ config *.node[0].veinsmobility.accidentCount 0
 config *.node[0].veinsmobility.accidentStart 73s
 config *.node[0].veinsmobility.accidentDuration 50s
 
-par fourWay.world typename "\"org.car2x.veins.base.modules.BaseWorldUtility\""
-par fourWay.world playgroundSizeX 2500m
-attr unit m
-par fourWay.world playgroundSizeY 2500m
-attr unit m
-par fourWay.world playgroundSizeZ 50m
-attr unit m
-par fourWay.world useTorus false
-par fourWay.world use2D false
-par fourWay.connectionManager typename "\"org.car2x.veins.base.connectionManager.ConnectionManager\""
-par fourWay.connectionManager sendDirect true
-par fourWay.connectionManager maxInterfDist 2600m
-attr unit m
-par fourWay.connectionManager drawMaxIntfDist false
-par fourWay.manager typename "\"org.car2x.veins.modules.mobility.traci.TraCIScenarioManagerLaunchd\""
-par fourWay.manager connectAt 0s
+par fourWay.node[4].appl typename "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
+par fourWay.node[4].appl headerLength 80bit
+attr unit bit
+par fourWay.node[4].appl sendBeacons false
+par fourWay.node[4].appl beaconLengthBits 256bit
+attr unit bit
+par fourWay.node[4].appl beaconUserPriority 7
+par fourWay.node[4].appl beaconInterval 1s
 attr unit s
-par fourWay.manager firstStepAt -1s
+par fourWay.node[4].appl dataLengthBits 1024bit
+attr unit bit
+par fourWay.node[4].appl dataOnSch false
+par fourWay.node[4].appl dataUserPriority 7
+par fourWay.node[4].appl avoidBeaconSynchronization true
+par fourWay.node[4].appl sendWSA false
+par fourWay.node[4].appl wsaLengthBits 250bit
+attr unit bit
+par fourWay.node[4].appl wsaInterval 1s
 attr unit s
-par fourWay.manager updateInterval 0.1s
+par fourWay.node[4].appl replicaId 4
+par fourWay.node[4].appl triggerJoinTime 1s
 attr unit s
-par fourWay.manager moduleType "\"org.car2x.veins.nodes.Car\""
-par fourWay.manager moduleName "\"node\""
-par fourWay.manager moduleDisplayString "\"*='i=veins/node/car;is=vs'\""
-par fourWay.manager trafficLightModuleType "\"org.car2x.veins.nodes.TrafficLight\""
-par fourWay.manager trafficLightModuleName "\"tls\""
-par fourWay.manager trafficLightFilter "\"\""
-par fourWay.manager trafficLightModuleDisplayString "\"i=veins/node/trafficlight;is=vs\""
-par fourWay.manager host "\"localhost\""
-par fourWay.manager port 9999
-par fourWay.manager seed -1
-par fourWay.manager autoShutdown true
-par fourWay.manager margin 25
-par fourWay.manager roiRoads "\"\""
-par fourWay.manager roiRects "\"\""
-par fourWay.manager penetrationRate 1
-par fourWay.manager ignoreGuiCommands false
-par fourWay.manager order -1
-par fourWay.manager ignoreUnknownSubscriptionResults false
-par fourWay.manager launchConfig "<launch>...</launch> at /home/yash/omnetpp/fourway//bft_16veh.launchd.xml:35"
-scalar fourWay.manager roiArea 0
-par fourWay.obstacles typename "\"org.car2x.veins.modules.obstacle.ObstacleControl\""
-par fourWay.obstacles obstacles "<obstacles/> at content:1"
-par fourWay.obstacles gridCellSize 250
+par fourWay.node[4].appl serviceChannel 2
+par fourWay.node[4].appl intersectionX 300m
+attr unit m
+par fourWay.node[4].appl intersectionY 300m
+attr unit m
+par fourWay.node[4].appl stopDistance 200m
+attr unit m
+par fourWay.node[4].appl intersectionWidth 15m
+attr unit m
+par fourWay.node[4].appl avgSpeed 14mps
+attr unit mps
+par fourWay.node[4].appl safetyGap 1.5s
+attr unit s
+par fourWay.node[4].appl consensusTimeoutSec 120s
+attr unit s
+par fourWay.node[4].appl orderDelayGap 0s
+attr unit s
+par fourWay.node[4].appl viewJitterMin 0.001s
+attr unit s
+par fourWay.node[4].appl viewJitterMax 0.005s
+attr unit s
+par fourWay.node[4].appl viewAgreementSlotSec 0.025s
+attr unit s
+par fourWay.node[4].appl ackJitterMin 0.001s
+attr unit s
+par fourWay.node[4].appl ackJitterMax 0.01s
+attr unit s
+par fourWay.node[4].appl witnessSlotSec 0.002s
+attr unit s
+par fourWay.node[4].appl broadcastSlotSec 0.005s
+attr unit s
+par fourWay.node[4].appl arrivalSlotSec 0.025s
+attr unit s
+par fourWay.node[4].appl broadcastJitterMin 0.0001s
+attr unit s
+par fourWay.node[4].appl broadcastJitterMax 0.001s
+attr unit s
+par fourWay.node[4].appl orderCollectMinSec 4s
+attr unit s
+par fourWay.node[4].appl orderCollectPerReplicaSec 0.08s
+attr unit s
+par fourWay.node[4].appl orderCollectMaxSec 5s
+attr unit s
+scalar fourWay.node[4].appl generatedWSMs 0
+scalar fourWay.node[4].appl receivedWSMs 0
+scalar fourWay.node[4].appl generatedBSMs 0
+scalar fourWay.node[4].appl receivedBSMs 0
+scalar fourWay.node[4].appl generatedWSAs 0
+scalar fourWay.node[4].appl receivedWSAs 0
+scalar fourWay.node[4].appl bftMsgReceived:count 203
+attr recordingmode count
+attr source bftMsgReceived
+attr title "BFT messages received, count"
+scalar fourWay.node[4].appl bftMsgSent:count 58
+attr recordingmode count
+attr source bftMsgSent
+attr title "BFT messages sent, count"
+par fourWay.node[4].nic.phy80211p typename "\"org.car2x.veins.modules.phy.PhyLayer80211p\""
+par fourWay.node[4].nic.phy80211p recordStats false
+par fourWay.node[4].nic.phy80211p usePropagationDelay true
+par fourWay.node[4].nic.phy80211p noiseFloor -98dBm
+attr unit dBm
+par fourWay.node[4].nic.phy80211p useNoiseFloor true
+par fourWay.node[4].nic.phy80211p antenna "<Antenna type=\"SampledAntenna1D\" id=\"monopole\">...</Antenna> at /home/yash/omnetpp/fourway//antenna.xml:35"
+par fourWay.node[4].nic.phy80211p antennaOffsetX 0m
+attr unit m
+par fourWay.node[4].nic.phy80211p antennaOffsetY 1.895m
+attr unit m
+par fourWay.node[4].nic.phy80211p antennaOffsetZ 1.895m
+attr unit m
+par fourWay.node[4].nic.phy80211p antennaOffsetYaw 0rad
+attr unit rad
+par fourWay.node[4].nic.phy80211p analogueModels "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
+par fourWay.node[4].nic.phy80211p decider "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
+par fourWay.node[4].nic.phy80211p minPowerLevel -110dBm
+attr unit dBm
+par fourWay.node[4].nic.phy80211p timeRXToTX 0s
+attr unit s
+par fourWay.node[4].nic.phy80211p timeRXToSleep 0s
+attr unit s
+par fourWay.node[4].nic.phy80211p timeTXToRX 0s
+attr unit s
+par fourWay.node[4].nic.phy80211p timeTXToSleep 0s
+attr unit s
+par fourWay.node[4].nic.phy80211p timeSleepToRX 0s
+attr unit s
+par fourWay.node[4].nic.phy80211p timeSleepToTX 0s
+attr unit s
+par fourWay.node[4].nic.phy80211p initialRadioState 0
+par fourWay.node[4].nic.phy80211p radioMinAtt 1
+par fourWay.node[4].nic.phy80211p radioMaxAtt 0
+par fourWay.node[4].nic.phy80211p nbRadioChannels 1
+par fourWay.node[4].nic.phy80211p initialRadioChannel 0
+par fourWay.node[4].nic.phy80211p ccaThreshold -90dBm
+attr unit dBm
+par fourWay.node[4].nic.phy80211p collectCollisionStatistics true
+par fourWay.node[4].nic.phy80211p allowTxDuringRx false
+scalar fourWay.node[4].nic.phy80211p busyTime 0.14370033898305
+scalar fourWay.node[4].nic.phy80211p ncollisions 158
+par fourWay.node[4].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
+par fourWay.node[4].nic.mac1609_4 notAffectedByHostState false
+par fourWay.node[4].nic.mac1609_4 headerLength 0bit
+attr unit bit
+par fourWay.node[4].nic.mac1609_4 address "\"auto\""
+par fourWay.node[4].nic.mac1609_4 useServiceChannel false
+par fourWay.node[4].nic.mac1609_4 serviceChannel 1
+par fourWay.node[4].nic.mac1609_4 bitrate 6000000bps
+attr unit bps
+par fourWay.node[4].nic.mac1609_4 syncOffset 0.0003s
+attr unit s
+par fourWay.node[4].nic.mac1609_4 txPower 20mW
+attr unit mW
+par fourWay.node[4].nic.mac1609_4 queueSize 1024
+par fourWay.node[4].nic.mac1609_4 dot11RTSThreshold 12000bit
+attr unit bit
+par fourWay.node[4].nic.mac1609_4 dot11ShortRetryLimit 7
+par fourWay.node[4].nic.mac1609_4 dot11LongRetryLimit 4
+par fourWay.node[4].nic.mac1609_4 ackLength 112bit
+attr unit bit
+par fourWay.node[4].nic.mac1609_4 useAcks false
+par fourWay.node[4].nic.mac1609_4 frameErrorRate 0
+par fourWay.node[4].nic.mac1609_4 ackErrorRate 0
+scalar fourWay.node[4].nic.mac1609_4 ReceivedUnicastPackets 0
+scalar fourWay.node[4].nic.mac1609_4 ReceivedBroadcasts 1840
+scalar fourWay.node[4].nic.mac1609_4 SentPackets 58
+scalar fourWay.node[4].nic.mac1609_4 SentAcknowledgements 0
+scalar fourWay.node[4].nic.mac1609_4 RetriesExceeded 0
+scalar fourWay.node[4].nic.mac1609_4 SNIRLostPackets 407
+scalar fourWay.node[4].nic.mac1609_4 RXTXLostPackets 36
+scalar fourWay.node[4].nic.mac1609_4 TotalLostPackets 443
+scalar fourWay.node[4].nic.mac1609_4 DroppedPacketsInMac 0
+scalar fourWay.node[4].nic.mac1609_4 TooLittleTime 0
+scalar fourWay.node[4].nic.mac1609_4 TimesIntoBackoff 77
+scalar fourWay.node[4].nic.mac1609_4 SlotsBackoff 119
+scalar fourWay.node[4].nic.mac1609_4 NumInternalContention 0
+scalar fourWay.node[4].nic.mac1609_4 totalBusyTime 1.533130411223
+scalar fourWay.node[4].nic.mac1609_4 retriesExceeded:count 0
+attr recordingmode count
+attr source org_car2x_veins_modules_mac_sigRetriesExceeded
+scalar fourWay.node[4].nic.mac1609_4 sentAcks:count 0
+attr recordingmode count
+attr source org_car2x_veins_modules_mac_sigSentAck
+scalar fourWay.node[4].nic.mac1609_4 sentPackets:count 58
+attr recordingmode count
+attr source org_car2x_veins_modules_mac_sigSentPacket
+scalar fourWay.node[4].nic.mac1609_4 collisions:count 158
+attr recordingmode count
+attr source org_car2x_veins_modules_mac_sigCollision
+scalar fourWay.node[4].nic.mac1609_4 channelBusy:timeavg 0.12992630603585
+attr recordingmode timeavg
+attr source org_car2x_veins_modules_mac_sigChannelBusy
+par fourWay.node[4].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
+par fourWay.node[4].nic connectionManagerName "\"connectionManager\""
+par fourWay.node[4].veinsmobility typename "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
+par fourWay.node[4].veinsmobility notAffectedByHostState true
+par fourWay.node[4].veinsmobility x 0
+par fourWay.node[4].veinsmobility y 0
+par fourWay.node[4].veinsmobility z 0
+par fourWay.node[4].veinsmobility xOrientation 1
+par fourWay.node[4].veinsmobility yOrientation 0
+par fourWay.node[4].veinsmobility zOrientation 0
+par fourWay.node[4].veinsmobility hostPositionOffset 0m
+attr unit m
+par fourWay.node[4].veinsmobility setHostSpeed false
+par fourWay.node[4].veinsmobility accidentCount 0
+par fourWay.node[4].veinsmobility accidentStart 36.4965s
+attr unit s
+par fourWay.node[4].veinsmobility accidentDuration "uniform(30s, 60s)"
+attr unit s
+par fourWay.node[4].veinsmobility accidentInterval "uniform(30s, 60s)"
+attr unit s
+scalar fourWay.node[4].veinsmobility startTime 0.3
+scalar fourWay.node[4].veinsmobility totalTime 11.7
+scalar fourWay.node[4].veinsmobility stopTime 12.1
+scalar fourWay.node[4].veinsmobility minSpeed 4.41490461551
+scalar fourWay.node[4].veinsmobility maxSpeed 30
+scalar fourWay.node[4].veinsmobility totalDistance 315.94670304501
+scalar fourWay.node[4].veinsmobility totalCO2Emission 238.23041245765
+par fourWay.node[4] typename "\"org.car2x.veins.nodes.Car\""
+par fourWay.node[4] applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
+par fourWay.node[4] nicType "\"Nic80211p\""
+par fourWay.node[4] veinsmobilityType "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
+par fourWay.node[10].appl typename "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
+par fourWay.node[10].appl headerLength 80bit
+attr unit bit
+par fourWay.node[10].appl sendBeacons false
+par fourWay.node[10].appl beaconLengthBits 256bit
+attr unit bit
+par fourWay.node[10].appl beaconUserPriority 7
+par fourWay.node[10].appl beaconInterval 1s
+attr unit s
+par fourWay.node[10].appl dataLengthBits 1024bit
+attr unit bit
+par fourWay.node[10].appl dataOnSch false
+par fourWay.node[10].appl dataUserPriority 7
+par fourWay.node[10].appl avoidBeaconSynchronization true
+par fourWay.node[10].appl sendWSA false
+par fourWay.node[10].appl wsaLengthBits 250bit
+attr unit bit
+par fourWay.node[10].appl wsaInterval 1s
+attr unit s
+par fourWay.node[10].appl replicaId 10
+par fourWay.node[10].appl triggerJoinTime 1s
+attr unit s
+par fourWay.node[10].appl serviceChannel 2
+par fourWay.node[10].appl intersectionX 300m
+attr unit m
+par fourWay.node[10].appl intersectionY 300m
+attr unit m
+par fourWay.node[10].appl stopDistance 200m
+attr unit m
+par fourWay.node[10].appl intersectionWidth 15m
+attr unit m
+par fourWay.node[10].appl avgSpeed 14mps
+attr unit mps
+par fourWay.node[10].appl safetyGap 1.5s
+attr unit s
+par fourWay.node[10].appl consensusTimeoutSec 120s
+attr unit s
+par fourWay.node[10].appl orderDelayGap 0s
+attr unit s
+par fourWay.node[10].appl viewJitterMin 0.001s
+attr unit s
+par fourWay.node[10].appl viewJitterMax 0.005s
+attr unit s
+par fourWay.node[10].appl viewAgreementSlotSec 0.025s
+attr unit s
+par fourWay.node[10].appl ackJitterMin 0.001s
+attr unit s
+par fourWay.node[10].appl ackJitterMax 0.01s
+attr unit s
+par fourWay.node[10].appl witnessSlotSec 0.002s
+attr unit s
+par fourWay.node[10].appl broadcastSlotSec 0.005s
+attr unit s
+par fourWay.node[10].appl arrivalSlotSec 0.025s
+attr unit s
+par fourWay.node[10].appl broadcastJitterMin 0.0001s
+attr unit s
+par fourWay.node[10].appl broadcastJitterMax 0.001s
+attr unit s
+par fourWay.node[10].appl orderCollectMinSec 4s
+attr unit s
+par fourWay.node[10].appl orderCollectPerReplicaSec 0.08s
+attr unit s
+par fourWay.node[10].appl orderCollectMaxSec 5s
+attr unit s
+scalar fourWay.node[10].appl generatedWSMs 0
+scalar fourWay.node[10].appl receivedWSMs 0
+scalar fourWay.node[10].appl generatedBSMs 0
+scalar fourWay.node[10].appl receivedBSMs 0
+scalar fourWay.node[10].appl generatedWSAs 0
+scalar fourWay.node[10].appl receivedWSAs 0
+scalar fourWay.node[10].appl bftMsgReceived:count 218
+attr recordingmode count
+attr source bftMsgReceived
+attr title "BFT messages received, count"
+scalar fourWay.node[10].appl bftMsgSent:count 61
+attr recordingmode count
+attr source bftMsgSent
+attr title "BFT messages sent, count"
+par fourWay.node[10].nic.phy80211p typename "\"org.car2x.veins.modules.phy.PhyLayer80211p\""
+par fourWay.node[10].nic.phy80211p recordStats false
+par fourWay.node[10].nic.phy80211p usePropagationDelay true
+par fourWay.node[10].nic.phy80211p noiseFloor -98dBm
+attr unit dBm
+par fourWay.node[10].nic.phy80211p useNoiseFloor true
+par fourWay.node[10].nic.phy80211p antenna "<Antenna type=\"SampledAntenna1D\" id=\"monopole\">...</Antenna> at /home/yash/omnetpp/fourway//antenna.xml:35"
+par fourWay.node[10].nic.phy80211p antennaOffsetX 0m
+attr unit m
+par fourWay.node[10].nic.phy80211p antennaOffsetY 1.895m
+attr unit m
+par fourWay.node[10].nic.phy80211p antennaOffsetZ 1.895m
+attr unit m
+par fourWay.node[10].nic.phy80211p antennaOffsetYaw 0rad
+attr unit rad
+par fourWay.node[10].nic.phy80211p analogueModels "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
+par fourWay.node[10].nic.phy80211p decider "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
+par fourWay.node[10].nic.phy80211p minPowerLevel -110dBm
+attr unit dBm
+par fourWay.node[10].nic.phy80211p timeRXToTX 0s
+attr unit s
+par fourWay.node[10].nic.phy80211p timeRXToSleep 0s
+attr unit s
+par fourWay.node[10].nic.phy80211p timeTXToRX 0s
+attr unit s
+par fourWay.node[10].nic.phy80211p timeTXToSleep 0s
+attr unit s
+par fourWay.node[10].nic.phy80211p timeSleepToRX 0s
+attr unit s
+par fourWay.node[10].nic.phy80211p timeSleepToTX 0s
+attr unit s
+par fourWay.node[10].nic.phy80211p initialRadioState 0
+par fourWay.node[10].nic.phy80211p radioMinAtt 1
+par fourWay.node[10].nic.phy80211p radioMaxAtt 0
+par fourWay.node[10].nic.phy80211p nbRadioChannels 1
+par fourWay.node[10].nic.phy80211p initialRadioChannel 0
+par fourWay.node[10].nic.phy80211p ccaThreshold -90dBm
+attr unit dBm
+par fourWay.node[10].nic.phy80211p collectCollisionStatistics true
+par fourWay.node[10].nic.phy80211p allowTxDuringRx false
+scalar fourWay.node[10].nic.phy80211p busyTime 0.13749290322581
+scalar fourWay.node[10].nic.phy80211p ncollisions 158
+par fourWay.node[10].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
+par fourWay.node[10].nic.mac1609_4 notAffectedByHostState false
+par fourWay.node[10].nic.mac1609_4 headerLength 0bit
+attr unit bit
+par fourWay.node[10].nic.mac1609_4 address "\"auto\""
+par fourWay.node[10].nic.mac1609_4 useServiceChannel false
+par fourWay.node[10].nic.mac1609_4 serviceChannel 1
+par fourWay.node[10].nic.mac1609_4 bitrate 6000000bps
+attr unit bps
+par fourWay.node[10].nic.mac1609_4 syncOffset 0.0003s
+attr unit s
+par fourWay.node[10].nic.mac1609_4 txPower 20mW
+attr unit mW
+par fourWay.node[10].nic.mac1609_4 queueSize 1024
+par fourWay.node[10].nic.mac1609_4 dot11RTSThreshold 12000bit
+attr unit bit
+par fourWay.node[10].nic.mac1609_4 dot11ShortRetryLimit 7
+par fourWay.node[10].nic.mac1609_4 dot11LongRetryLimit 4
+par fourWay.node[10].nic.mac1609_4 ackLength 112bit
+attr unit bit
+par fourWay.node[10].nic.mac1609_4 useAcks false
+par fourWay.node[10].nic.mac1609_4 frameErrorRate 0
+par fourWay.node[10].nic.mac1609_4 ackErrorRate 0
+scalar fourWay.node[10].nic.mac1609_4 ReceivedUnicastPackets 0
+scalar fourWay.node[10].nic.mac1609_4 ReceivedBroadcasts 1837
+scalar fourWay.node[10].nic.mac1609_4 SentPackets 61
+scalar fourWay.node[10].nic.mac1609_4 SentAcknowledgements 0
+scalar fourWay.node[10].nic.mac1609_4 RetriesExceeded 0
+scalar fourWay.node[10].nic.mac1609_4 SNIRLostPackets 411
+scalar fourWay.node[10].nic.mac1609_4 RXTXLostPackets 32
+scalar fourWay.node[10].nic.mac1609_4 TotalLostPackets 443
+scalar fourWay.node[10].nic.mac1609_4 DroppedPacketsInMac 0
+scalar fourWay.node[10].nic.mac1609_4 TooLittleTime 0
+scalar fourWay.node[10].nic.mac1609_4 TimesIntoBackoff 82
+scalar fourWay.node[10].nic.mac1609_4 SlotsBackoff 129
+scalar fourWay.node[10].nic.mac1609_4 NumInternalContention 0
+scalar fourWay.node[10].nic.mac1609_4 totalBusyTime 1.533133296299
+scalar fourWay.node[10].nic.mac1609_4 retriesExceeded:count 0
+attr recordingmode count
+attr source org_car2x_veins_modules_mac_sigRetriesExceeded
+scalar fourWay.node[10].nic.mac1609_4 sentAcks:count 0
+attr recordingmode count
+attr source org_car2x_veins_modules_mac_sigSentAck
+scalar fourWay.node[10].nic.mac1609_4 sentPackets:count 61
+attr recordingmode count
+attr source org_car2x_veins_modules_mac_sigSentPacket
+scalar fourWay.node[10].nic.mac1609_4 collisions:count 158
+attr recordingmode count
+attr source org_car2x_veins_modules_mac_sigCollision
+scalar fourWay.node[10].nic.mac1609_4 channelBusy:timeavg 0.1236397819596
+attr recordingmode timeavg
+attr source org_car2x_veins_modules_mac_sigChannelBusy
+par fourWay.node[10].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
+par fourWay.node[10].nic connectionManagerName "\"connectionManager\""
+par fourWay.node[10].veinsmobility typename "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
+par fourWay.node[10].veinsmobility notAffectedByHostState true
+par fourWay.node[10].veinsmobility x 0
+par fourWay.node[10].veinsmobility y 0
+par fourWay.node[10].veinsmobility z 0
+par fourWay.node[10].veinsmobility xOrientation 1
+par fourWay.node[10].veinsmobility yOrientation 0
+par fourWay.node[10].veinsmobility zOrientation 0
+par fourWay.node[10].veinsmobility hostPositionOffset 0m
+attr unit m
+par fourWay.node[10].veinsmobility setHostSpeed false
+par fourWay.node[10].veinsmobility accidentCount 0
+par fourWay.node[10].veinsmobility accidentStart 52.5206s
+attr unit s
+par fourWay.node[10].veinsmobility accidentDuration "uniform(30s, 60s)"
+attr unit s
+par fourWay.node[10].veinsmobility accidentInterval "uniform(30s, 60s)"
+attr unit s
+scalar fourWay.node[10].veinsmobility startTime 0.3
+scalar fourWay.node[10].veinsmobility totalTime 12.3
+scalar fourWay.node[10].veinsmobility stopTime 12.7
+scalar fourWay.node[10].veinsmobility minSpeed 1.7637262782585
+scalar fourWay.node[10].veinsmobility maxSpeed 30
+scalar fourWay.node[10].veinsmobility totalDistance 317.62206751425
+scalar fourWay.node[10].veinsmobility totalCO2Emission 258.06502585704
+par fourWay.node[10] typename "\"org.car2x.veins.nodes.Car\""
+par fourWay.node[10] applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
+par fourWay.node[10] nicType "\"Nic80211p\""
+par fourWay.node[10] veinsmobilityType "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
+par fourWay.node[14].appl typename "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
+par fourWay.node[14].appl headerLength 80bit
+attr unit bit
+par fourWay.node[14].appl sendBeacons false
+par fourWay.node[14].appl beaconLengthBits 256bit
+attr unit bit
+par fourWay.node[14].appl beaconUserPriority 7
+par fourWay.node[14].appl beaconInterval 1s
+attr unit s
+par fourWay.node[14].appl dataLengthBits 1024bit
+attr unit bit
+par fourWay.node[14].appl dataOnSch false
+par fourWay.node[14].appl dataUserPriority 7
+par fourWay.node[14].appl avoidBeaconSynchronization true
+par fourWay.node[14].appl sendWSA false
+par fourWay.node[14].appl wsaLengthBits 250bit
+attr unit bit
+par fourWay.node[14].appl wsaInterval 1s
+attr unit s
+par fourWay.node[14].appl replicaId 14
+par fourWay.node[14].appl triggerJoinTime 1s
+attr unit s
+par fourWay.node[14].appl serviceChannel 2
+par fourWay.node[14].appl intersectionX 300m
+attr unit m
+par fourWay.node[14].appl intersectionY 300m
+attr unit m
+par fourWay.node[14].appl stopDistance 200m
+attr unit m
+par fourWay.node[14].appl intersectionWidth 15m
+attr unit m
+par fourWay.node[14].appl avgSpeed 14mps
+attr unit mps
+par fourWay.node[14].appl safetyGap 1.5s
+attr unit s
+par fourWay.node[14].appl consensusTimeoutSec 120s
+attr unit s
+par fourWay.node[14].appl orderDelayGap 0s
+attr unit s
+par fourWay.node[14].appl viewJitterMin 0.001s
+attr unit s
+par fourWay.node[14].appl viewJitterMax 0.005s
+attr unit s
+par fourWay.node[14].appl viewAgreementSlotSec 0.025s
+attr unit s
+par fourWay.node[14].appl ackJitterMin 0.001s
+attr unit s
+par fourWay.node[14].appl ackJitterMax 0.01s
+attr unit s
+par fourWay.node[14].appl witnessSlotSec 0.002s
+attr unit s
+par fourWay.node[14].appl broadcastSlotSec 0.005s
+attr unit s
+par fourWay.node[14].appl arrivalSlotSec 0.025s
+attr unit s
+par fourWay.node[14].appl broadcastJitterMin 0.0001s
+attr unit s
+par fourWay.node[14].appl broadcastJitterMax 0.001s
+attr unit s
+par fourWay.node[14].appl orderCollectMinSec 4s
+attr unit s
+par fourWay.node[14].appl orderCollectPerReplicaSec 0.08s
+attr unit s
+par fourWay.node[14].appl orderCollectMaxSec 5s
+attr unit s
+scalar fourWay.node[14].appl generatedWSMs 0
+scalar fourWay.node[14].appl receivedWSMs 0
+scalar fourWay.node[14].appl generatedBSMs 0
+scalar fourWay.node[14].appl receivedBSMs 0
+scalar fourWay.node[14].appl generatedWSAs 0
+scalar fourWay.node[14].appl receivedWSAs 0
+scalar fourWay.node[14].appl bftMsgReceived:count 247
+attr recordingmode count
+attr source bftMsgReceived
+attr title "BFT messages received, count"
+scalar fourWay.node[14].appl bftMsgSent:count 60
+attr recordingmode count
+attr source bftMsgSent
+attr title "BFT messages sent, count"
+par fourWay.node[14].nic.phy80211p typename "\"org.car2x.veins.modules.phy.PhyLayer80211p\""
+par fourWay.node[14].nic.phy80211p recordStats false
+par fourWay.node[14].nic.phy80211p usePropagationDelay true
+par fourWay.node[14].nic.phy80211p noiseFloor -98dBm
+attr unit dBm
+par fourWay.node[14].nic.phy80211p useNoiseFloor true
+par fourWay.node[14].nic.phy80211p antenna "<Antenna type=\"SampledAntenna1D\" id=\"monopole\">...</Antenna> at /home/yash/omnetpp/fourway//antenna.xml:35"
+par fourWay.node[14].nic.phy80211p antennaOffsetX 0m
+attr unit m
+par fourWay.node[14].nic.phy80211p antennaOffsetY 1.895m
+attr unit m
+par fourWay.node[14].nic.phy80211p antennaOffsetZ 1.895m
+attr unit m
+par fourWay.node[14].nic.phy80211p antennaOffsetYaw 0rad
+attr unit rad
+par fourWay.node[14].nic.phy80211p analogueModels "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
+par fourWay.node[14].nic.phy80211p decider "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
+par fourWay.node[14].nic.phy80211p minPowerLevel -110dBm
+attr unit dBm
+par fourWay.node[14].nic.phy80211p timeRXToTX 0s
+attr unit s
+par fourWay.node[14].nic.phy80211p timeRXToSleep 0s
+attr unit s
+par fourWay.node[14].nic.phy80211p timeTXToRX 0s
+attr unit s
+par fourWay.node[14].nic.phy80211p timeTXToSleep 0s
+attr unit s
+par fourWay.node[14].nic.phy80211p timeSleepToRX 0s
+attr unit s
+par fourWay.node[14].nic.phy80211p timeSleepToTX 0s
+attr unit s
+par fourWay.node[14].nic.phy80211p initialRadioState 0
+par fourWay.node[14].nic.phy80211p radioMinAtt 1
+par fourWay.node[14].nic.phy80211p radioMaxAtt 0
+par fourWay.node[14].nic.phy80211p nbRadioChannels 1
+par fourWay.node[14].nic.phy80211p initialRadioChannel 0
+par fourWay.node[14].nic.phy80211p ccaThreshold -90dBm
+attr unit dBm
+par fourWay.node[14].nic.phy80211p collectCollisionStatistics true
+par fourWay.node[14].nic.phy80211p allowTxDuringRx false
+scalar fourWay.node[14].nic.phy80211p busyTime 0.133326875
+scalar fourWay.node[14].nic.phy80211p ncollisions 148
+par fourWay.node[14].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
+par fourWay.node[14].nic.mac1609_4 notAffectedByHostState false
+par fourWay.node[14].nic.mac1609_4 headerLength 0bit
+attr unit bit
+par fourWay.node[14].nic.mac1609_4 address "\"auto\""
+par fourWay.node[14].nic.mac1609_4 useServiceChannel false
+par fourWay.node[14].nic.mac1609_4 serviceChannel 1
+par fourWay.node[14].nic.mac1609_4 bitrate 6000000bps
+attr unit bps
+par fourWay.node[14].nic.mac1609_4 syncOffset 0.0003s
+attr unit s
+par fourWay.node[14].nic.mac1609_4 txPower 20mW
+attr unit mW
+par fourWay.node[14].nic.mac1609_4 queueSize 1024
+par fourWay.node[14].nic.mac1609_4 dot11RTSThreshold 12000bit
+attr unit bit
+par fourWay.node[14].nic.mac1609_4 dot11ShortRetryLimit 7
+par fourWay.node[14].nic.mac1609_4 dot11LongRetryLimit 4
+par fourWay.node[14].nic.mac1609_4 ackLength 112bit
+attr unit bit
+par fourWay.node[14].nic.mac1609_4 useAcks false
+par fourWay.node[14].nic.mac1609_4 frameErrorRate 0
+par fourWay.node[14].nic.mac1609_4 ackErrorRate 0
+scalar fourWay.node[14].nic.mac1609_4 ReceivedUnicastPackets 0
+scalar fourWay.node[14].nic.mac1609_4 ReceivedBroadcasts 1848
+scalar fourWay.node[14].nic.mac1609_4 SentPackets 60
+scalar fourWay.node[14].nic.mac1609_4 SentAcknowledgements 0
+scalar fourWay.node[14].nic.mac1609_4 RetriesExceeded 0
+scalar fourWay.node[14].nic.mac1609_4 SNIRLostPackets 408
+scalar fourWay.node[14].nic.mac1609_4 RXTXLostPackets 25
+scalar fourWay.node[14].nic.mac1609_4 TotalLostPackets 433
+scalar fourWay.node[14].nic.mac1609_4 DroppedPacketsInMac 0
+scalar fourWay.node[14].nic.mac1609_4 TooLittleTime 0
+scalar fourWay.node[14].nic.mac1609_4 TimesIntoBackoff 79
+scalar fourWay.node[14].nic.mac1609_4 SlotsBackoff 113
+scalar fourWay.node[14].nic.mac1609_4 NumInternalContention 0
+scalar fourWay.node[14].nic.mac1609_4 totalBusyTime 1.53313325331
+scalar fourWay.node[14].nic.mac1609_4 retriesExceeded:count 0
+attr recordingmode count
+attr source org_car2x_veins_modules_mac_sigRetriesExceeded
+scalar fourWay.node[14].nic.mac1609_4 sentAcks:count 0
+attr recordingmode count
+attr source org_car2x_veins_modules_mac_sigSentAck
+scalar fourWay.node[14].nic.mac1609_4 sentPackets:count 60
+attr recordingmode count
+attr source org_car2x_veins_modules_mac_sigSentPacket
+scalar fourWay.node[14].nic.mac1609_4 collisions:count 148
+attr recordingmode count
+attr source org_car2x_veins_modules_mac_sigCollision
+scalar fourWay.node[14].nic.mac1609_4 channelBusy:timeavg 0.11977603541484
+attr recordingmode timeavg
+attr source org_car2x_veins_modules_mac_sigChannelBusy
+par fourWay.node[14].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
+par fourWay.node[14].nic connectionManagerName "\"connectionManager\""
+par fourWay.node[14].veinsmobility typename "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
+par fourWay.node[14].veinsmobility notAffectedByHostState true
+par fourWay.node[14].veinsmobility x 0
+par fourWay.node[14].veinsmobility y 0
+par fourWay.node[14].veinsmobility z 0
+par fourWay.node[14].veinsmobility xOrientation 1
+par fourWay.node[14].veinsmobility yOrientation 0
+par fourWay.node[14].veinsmobility zOrientation 0
+par fourWay.node[14].veinsmobility hostPositionOffset 0m
+attr unit m
+par fourWay.node[14].veinsmobility setHostSpeed false
+par fourWay.node[14].veinsmobility accidentCount 0
+par fourWay.node[14].veinsmobility accidentStart 42.4311s
+attr unit s
+par fourWay.node[14].veinsmobility accidentDuration "uniform(30s, 60s)"
+attr unit s
+par fourWay.node[14].veinsmobility accidentInterval "uniform(30s, 60s)"
+attr unit s
+scalar fourWay.node[14].veinsmobility startTime 0.3
+scalar fourWay.node[14].veinsmobility totalTime 12.7
+scalar fourWay.node[14].veinsmobility stopTime 13.1
+scalar fourWay.node[14].veinsmobility minSpeed 0.15455638849167
+scalar fourWay.node[14].veinsmobility maxSpeed 30
+scalar fourWay.node[14].veinsmobility totalDistance 317.79593342622
+scalar fourWay.node[14].veinsmobility totalCO2Emission 270.11926021262
+par fourWay.node[14] typename "\"org.car2x.veins.nodes.Car\""
+par fourWay.node[14] applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
+par fourWay.node[14] nicType "\"Nic80211p\""
+par fourWay.node[14] veinsmobilityType "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
 par fourWay.node[0].appl typename "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
 par fourWay.node[0].appl headerLength 80bit
 attr unit bit
@@ -236,7 +807,7 @@ par fourWay.node[0].appl intersectionX 300m
 attr unit m
 par fourWay.node[0].appl intersectionY 300m
 attr unit m
-par fourWay.node[0].appl stopDistance 100m
+par fourWay.node[0].appl stopDistance 200m
 attr unit m
 par fourWay.node[0].appl intersectionWidth 15m
 attr unit m
@@ -246,13 +817,41 @@ par fourWay.node[0].appl safetyGap 1.5s
 attr unit s
 par fourWay.node[0].appl consensusTimeoutSec 120s
 attr unit s
+par fourWay.node[0].appl orderDelayGap 0s
+attr unit s
+par fourWay.node[0].appl viewJitterMin 0.001s
+attr unit s
+par fourWay.node[0].appl viewJitterMax 0.005s
+attr unit s
+par fourWay.node[0].appl viewAgreementSlotSec 0.025s
+attr unit s
+par fourWay.node[0].appl ackJitterMin 0.001s
+attr unit s
+par fourWay.node[0].appl ackJitterMax 0.01s
+attr unit s
+par fourWay.node[0].appl witnessSlotSec 0.002s
+attr unit s
+par fourWay.node[0].appl broadcastSlotSec 0.005s
+attr unit s
+par fourWay.node[0].appl arrivalSlotSec 0.025s
+attr unit s
+par fourWay.node[0].appl broadcastJitterMin 0.0001s
+attr unit s
+par fourWay.node[0].appl broadcastJitterMax 0.001s
+attr unit s
+par fourWay.node[0].appl orderCollectMinSec 4s
+attr unit s
+par fourWay.node[0].appl orderCollectPerReplicaSec 0.08s
+attr unit s
+par fourWay.node[0].appl orderCollectMaxSec 5s
+attr unit s
 scalar fourWay.node[0].appl generatedWSMs 0
 scalar fourWay.node[0].appl receivedWSMs 0
 scalar fourWay.node[0].appl generatedBSMs 0
 scalar fourWay.node[0].appl receivedBSMs 0
 scalar fourWay.node[0].appl generatedWSAs 0
 scalar fourWay.node[0].appl receivedWSAs 0
-scalar fourWay.node[0].appl bftMsgReceived:count 63
+scalar fourWay.node[0].appl bftMsgReceived:count 241
 attr recordingmode count
 attr source bftMsgReceived
 attr title "BFT messages received, count"
@@ -300,8 +899,8 @@ par fourWay.node[0].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[0].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[0].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[0].nic.phy80211p busyTime 0.07849443902439
-scalar fourWay.node[0].nic.phy80211p ncollisions 98
+scalar fourWay.node[0].nic.phy80211p busyTime 0.12349647058824
+scalar fourWay.node[0].nic.phy80211p ncollisions 143
 par fourWay.node[0].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[0].nic.mac1609_4 notAffectedByHostState false
 par fourWay.node[0].nic.mac1609_4 headerLength 0bit
@@ -315,7 +914,7 @@ par fourWay.node[0].nic.mac1609_4 syncOffset 0.0003s
 attr unit s
 par fourWay.node[0].nic.mac1609_4 txPower 20mW
 attr unit mW
-par fourWay.node[0].nic.mac1609_4 queueSize 0
+par fourWay.node[0].nic.mac1609_4 queueSize 1024
 par fourWay.node[0].nic.mac1609_4 dot11RTSThreshold 12000bit
 attr unit bit
 par fourWay.node[0].nic.mac1609_4 dot11ShortRetryLimit 7
@@ -326,32 +925,32 @@ par fourWay.node[0].nic.mac1609_4 useAcks false
 par fourWay.node[0].nic.mac1609_4 frameErrorRate 0
 par fourWay.node[0].nic.mac1609_4 ackErrorRate 0
 scalar fourWay.node[0].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[0].nic.mac1609_4 ReceivedBroadcasts 63
-scalar fourWay.node[0].nic.mac1609_4 SentPackets 66
+scalar fourWay.node[0].nic.mac1609_4 ReceivedBroadcasts 1844
+scalar fourWay.node[0].nic.mac1609_4 SentPackets 69
 scalar fourWay.node[0].nic.mac1609_4 SentAcknowledgements 0
 scalar fourWay.node[0].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[0].nic.mac1609_4 SNIRLostPackets 494
-scalar fourWay.node[0].nic.mac1609_4 RXTXLostPackets 191
-scalar fourWay.node[0].nic.mac1609_4 TotalLostPackets 685
+scalar fourWay.node[0].nic.mac1609_4 SNIRLostPackets 393
+scalar fourWay.node[0].nic.mac1609_4 RXTXLostPackets 35
+scalar fourWay.node[0].nic.mac1609_4 TotalLostPackets 428
 scalar fourWay.node[0].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.node[0].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[0].nic.mac1609_4 TimesIntoBackoff 86
-scalar fourWay.node[0].nic.mac1609_4 SlotsBackoff 127
+scalar fourWay.node[0].nic.mac1609_4 TimesIntoBackoff 91
+scalar fourWay.node[0].nic.mac1609_4 SlotsBackoff 135
 scalar fourWay.node[0].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[0].nic.mac1609_4 totalBusyTime 0.355595986257
+scalar fourWay.node[0].nic.mac1609_4 totalBusyTime 1.533142199869
 scalar fourWay.node[0].nic.mac1609_4 retriesExceeded:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigRetriesExceeded
 scalar fourWay.node[0].nic.mac1609_4 sentAcks:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentAck
-scalar fourWay.node[0].nic.mac1609_4 sentPackets:count 66
+scalar fourWay.node[0].nic.mac1609_4 sentPackets:count 69
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[0].nic.mac1609_4 collisions:count 98
+scalar fourWay.node[0].nic.mac1609_4 collisions:count 143
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[0].nic.mac1609_4 channelBusy:timeavg 0.034692291342146
+scalar fourWay.node[0].nic.mac1609_4 channelBusy:timeavg 0.11273104410802
 attr recordingmode timeavg
 attr source org_car2x_veins_modules_mac_sigChannelBusy
 par fourWay.node[0].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
@@ -375,12 +974,12 @@ attr unit s
 par fourWay.node[0].veinsmobility accidentInterval "uniform(30s, 60s)"
 attr unit s
 scalar fourWay.node[0].veinsmobility startTime 0.1
-scalar fourWay.node[0].veinsmobility totalTime 10.2
-scalar fourWay.node[0].veinsmobility stopTime 10.35
+scalar fourWay.node[0].veinsmobility totalTime 13.5
+scalar fourWay.node[0].veinsmobility stopTime 13.7
 scalar fourWay.node[0].veinsmobility minSpeed 0
-scalar fourWay.node[0].veinsmobility maxSpeed 14
-scalar fourWay.node[0].veinsmobility totalDistance 25.645174727526
-scalar fourWay.node[0].veinsmobility totalCO2Emission 10.812152024805
+scalar fourWay.node[0].veinsmobility maxSpeed 30
+scalar fourWay.node[0].veinsmobility totalDistance 317.79899874918
+scalar fourWay.node[0].veinsmobility totalCO2Emission 272.05669313849
 par fourWay.node[0] typename "\"org.car2x.veins.nodes.Car\""
 par fourWay.node[0] applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
 par fourWay.node[0] nicType "\"Nic80211p\""
@@ -412,7 +1011,7 @@ par fourWay.node[1].appl intersectionX 300m
 attr unit m
 par fourWay.node[1].appl intersectionY 300m
 attr unit m
-par fourWay.node[1].appl stopDistance 100m
+par fourWay.node[1].appl stopDistance 200m
 attr unit m
 par fourWay.node[1].appl intersectionWidth 15m
 attr unit m
@@ -422,17 +1021,45 @@ par fourWay.node[1].appl safetyGap 1.5s
 attr unit s
 par fourWay.node[1].appl consensusTimeoutSec 120s
 attr unit s
+par fourWay.node[1].appl orderDelayGap 0s
+attr unit s
+par fourWay.node[1].appl viewJitterMin 0.001s
+attr unit s
+par fourWay.node[1].appl viewJitterMax 0.005s
+attr unit s
+par fourWay.node[1].appl viewAgreementSlotSec 0.025s
+attr unit s
+par fourWay.node[1].appl ackJitterMin 0.001s
+attr unit s
+par fourWay.node[1].appl ackJitterMax 0.01s
+attr unit s
+par fourWay.node[1].appl witnessSlotSec 0.002s
+attr unit s
+par fourWay.node[1].appl broadcastSlotSec 0.005s
+attr unit s
+par fourWay.node[1].appl arrivalSlotSec 0.025s
+attr unit s
+par fourWay.node[1].appl broadcastJitterMin 0.0001s
+attr unit s
+par fourWay.node[1].appl broadcastJitterMax 0.001s
+attr unit s
+par fourWay.node[1].appl orderCollectMinSec 4s
+attr unit s
+par fourWay.node[1].appl orderCollectPerReplicaSec 0.08s
+attr unit s
+par fourWay.node[1].appl orderCollectMaxSec 5s
+attr unit s
 scalar fourWay.node[1].appl generatedWSMs 0
 scalar fourWay.node[1].appl receivedWSMs 0
 scalar fourWay.node[1].appl generatedBSMs 0
 scalar fourWay.node[1].appl receivedBSMs 0
 scalar fourWay.node[1].appl generatedWSAs 0
 scalar fourWay.node[1].appl receivedWSAs 0
-scalar fourWay.node[1].appl bftMsgReceived:count 66
+scalar fourWay.node[1].appl bftMsgReceived:count 445
 attr recordingmode count
 attr source bftMsgReceived
 attr title "BFT messages received, count"
-scalar fourWay.node[1].appl bftMsgSent:count 51
+scalar fourWay.node[1].appl bftMsgSent:count 129
 attr recordingmode count
 attr source bftMsgSent
 attr title "BFT messages sent, count"
@@ -476,8 +1103,8 @@ par fourWay.node[1].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[1].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[1].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[1].nic.phy80211p busyTime 0.079353756097561
-scalar fourWay.node[1].nic.phy80211p ncollisions 110
+scalar fourWay.node[1].nic.phy80211p busyTime 0.10730368421053
+scalar fourWay.node[1].nic.phy80211p ncollisions 133
 par fourWay.node[1].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[1].nic.mac1609_4 notAffectedByHostState false
 par fourWay.node[1].nic.mac1609_4 headerLength 0bit
@@ -491,7 +1118,7 @@ par fourWay.node[1].nic.mac1609_4 syncOffset 0.0003s
 attr unit s
 par fourWay.node[1].nic.mac1609_4 txPower 20mW
 attr unit mW
-par fourWay.node[1].nic.mac1609_4 queueSize 0
+par fourWay.node[1].nic.mac1609_4 queueSize 1024
 par fourWay.node[1].nic.mac1609_4 dot11RTSThreshold 12000bit
 attr unit bit
 par fourWay.node[1].nic.mac1609_4 dot11ShortRetryLimit 7
@@ -502,32 +1129,32 @@ par fourWay.node[1].nic.mac1609_4 useAcks false
 par fourWay.node[1].nic.mac1609_4 frameErrorRate 0
 par fourWay.node[1].nic.mac1609_4 ackErrorRate 0
 scalar fourWay.node[1].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[1].nic.mac1609_4 ReceivedBroadcasts 66
-scalar fourWay.node[1].nic.mac1609_4 SentPackets 51
+scalar fourWay.node[1].nic.mac1609_4 ReceivedBroadcasts 1794
+scalar fourWay.node[1].nic.mac1609_4 SentPackets 129
 scalar fourWay.node[1].nic.mac1609_4 SentAcknowledgements 0
 scalar fourWay.node[1].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[1].nic.mac1609_4 SNIRLostPackets 486
-scalar fourWay.node[1].nic.mac1609_4 RXTXLostPackets 211
-scalar fourWay.node[1].nic.mac1609_4 TotalLostPackets 697
+scalar fourWay.node[1].nic.mac1609_4 SNIRLostPackets 373
+scalar fourWay.node[1].nic.mac1609_4 RXTXLostPackets 45
+scalar fourWay.node[1].nic.mac1609_4 TotalLostPackets 418
 scalar fourWay.node[1].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.node[1].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[1].nic.mac1609_4 TimesIntoBackoff 66
-scalar fourWay.node[1].nic.mac1609_4 SlotsBackoff 102
+scalar fourWay.node[1].nic.mac1609_4 TimesIntoBackoff 164
+scalar fourWay.node[1].nic.mac1609_4 SlotsBackoff 252
 scalar fourWay.node[1].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[1].nic.mac1609_4 totalBusyTime 0.355580491062
+scalar fourWay.node[1].nic.mac1609_4 totalBusyTime 1.533201561697
 scalar fourWay.node[1].nic.mac1609_4 retriesExceeded:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigRetriesExceeded
 scalar fourWay.node[1].nic.mac1609_4 sentAcks:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentAck
-scalar fourWay.node[1].nic.mac1609_4 sentPackets:count 51
+scalar fourWay.node[1].nic.mac1609_4 sentPackets:count 129
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[1].nic.mac1609_4 collisions:count 110
+scalar fourWay.node[1].nic.mac1609_4 collisions:count 133
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[1].nic.mac1609_4 channelBusy:timeavg 0.034690779615805
+scalar fourWay.node[1].nic.mac1609_4 channelBusy:timeavg 0.10086852379586
 attr recordingmode timeavg
 attr source org_car2x_veins_modules_mac_sigChannelBusy
 par fourWay.node[1].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
@@ -544,551 +1171,23 @@ par fourWay.node[1].veinsmobility hostPositionOffset 0m
 attr unit m
 par fourWay.node[1].veinsmobility setHostSpeed false
 par fourWay.node[1].veinsmobility accidentCount 0
-par fourWay.node[1].veinsmobility accidentStart 55.4176s
+par fourWay.node[1].veinsmobility accidentStart 49.1976s
 attr unit s
 par fourWay.node[1].veinsmobility accidentDuration "uniform(30s, 60s)"
 attr unit s
 par fourWay.node[1].veinsmobility accidentInterval "uniform(30s, 60s)"
 attr unit s
-scalar fourWay.node[1].veinsmobility startTime 0.1
-scalar fourWay.node[1].veinsmobility totalTime 10.2
-scalar fourWay.node[1].veinsmobility stopTime 10.35
-scalar fourWay.node[1].veinsmobility minSpeed 0
-scalar fourWay.node[1].veinsmobility maxSpeed 11.011470588235
-scalar fourWay.node[1].veinsmobility totalDistance 16.460250150524
-scalar fourWay.node[1].veinsmobility totalCO2Emission 10.720448551853
+scalar fourWay.node[1].veinsmobility startTime 0.3
+scalar fourWay.node[1].veinsmobility totalTime 15.1
+scalar fourWay.node[1].veinsmobility stopTime 15.5
+scalar fourWay.node[1].veinsmobility minSpeed 1.2858399632779
+scalar fourWay.node[1].veinsmobility maxSpeed 30
+scalar fourWay.node[1].veinsmobility totalDistance 329.62645199468
+scalar fourWay.node[1].veinsmobility totalCO2Emission 247.56756840403
 par fourWay.node[1] typename "\"org.car2x.veins.nodes.Car\""
 par fourWay.node[1] applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
 par fourWay.node[1] nicType "\"Nic80211p\""
 par fourWay.node[1] veinsmobilityType "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[2].appl typename "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[2].appl headerLength 80bit
-attr unit bit
-par fourWay.node[2].appl sendBeacons false
-par fourWay.node[2].appl beaconLengthBits 256bit
-attr unit bit
-par fourWay.node[2].appl beaconUserPriority 7
-par fourWay.node[2].appl beaconInterval 1s
-attr unit s
-par fourWay.node[2].appl dataLengthBits 1024bit
-attr unit bit
-par fourWay.node[2].appl dataOnSch false
-par fourWay.node[2].appl dataUserPriority 7
-par fourWay.node[2].appl avoidBeaconSynchronization true
-par fourWay.node[2].appl sendWSA false
-par fourWay.node[2].appl wsaLengthBits 250bit
-attr unit bit
-par fourWay.node[2].appl wsaInterval 1s
-attr unit s
-par fourWay.node[2].appl replicaId 2
-par fourWay.node[2].appl triggerJoinTime 1s
-attr unit s
-par fourWay.node[2].appl serviceChannel 2
-par fourWay.node[2].appl intersectionX 300m
-attr unit m
-par fourWay.node[2].appl intersectionY 300m
-attr unit m
-par fourWay.node[2].appl stopDistance 100m
-attr unit m
-par fourWay.node[2].appl intersectionWidth 15m
-attr unit m
-par fourWay.node[2].appl avgSpeed 14mps
-attr unit mps
-par fourWay.node[2].appl safetyGap 1.5s
-attr unit s
-par fourWay.node[2].appl consensusTimeoutSec 120s
-attr unit s
-scalar fourWay.node[2].appl generatedWSMs 0
-scalar fourWay.node[2].appl receivedWSMs 0
-scalar fourWay.node[2].appl generatedBSMs 0
-scalar fourWay.node[2].appl receivedBSMs 0
-scalar fourWay.node[2].appl generatedWSAs 0
-scalar fourWay.node[2].appl receivedWSAs 0
-scalar fourWay.node[2].appl bftMsgReceived:count 81
-attr recordingmode count
-attr source bftMsgReceived
-attr title "BFT messages received, count"
-scalar fourWay.node[2].appl bftMsgSent:count 49
-attr recordingmode count
-attr source bftMsgSent
-attr title "BFT messages sent, count"
-par fourWay.node[2].nic.phy80211p typename "\"org.car2x.veins.modules.phy.PhyLayer80211p\""
-par fourWay.node[2].nic.phy80211p recordStats false
-par fourWay.node[2].nic.phy80211p usePropagationDelay true
-par fourWay.node[2].nic.phy80211p noiseFloor -98dBm
-attr unit dBm
-par fourWay.node[2].nic.phy80211p useNoiseFloor true
-par fourWay.node[2].nic.phy80211p antenna "<Antenna type=\"SampledAntenna1D\" id=\"monopole\">...</Antenna> at /home/yash/omnetpp/fourway//antenna.xml:35"
-par fourWay.node[2].nic.phy80211p antennaOffsetX 0m
-attr unit m
-par fourWay.node[2].nic.phy80211p antennaOffsetY 1.895m
-attr unit m
-par fourWay.node[2].nic.phy80211p antennaOffsetZ 1.895m
-attr unit m
-par fourWay.node[2].nic.phy80211p antennaOffsetYaw 0rad
-attr unit rad
-par fourWay.node[2].nic.phy80211p analogueModels "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[2].nic.phy80211p decider "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[2].nic.phy80211p minPowerLevel -110dBm
-attr unit dBm
-par fourWay.node[2].nic.phy80211p timeRXToTX 0s
-attr unit s
-par fourWay.node[2].nic.phy80211p timeRXToSleep 0s
-attr unit s
-par fourWay.node[2].nic.phy80211p timeTXToRX 0s
-attr unit s
-par fourWay.node[2].nic.phy80211p timeTXToSleep 0s
-attr unit s
-par fourWay.node[2].nic.phy80211p timeSleepToRX 0s
-attr unit s
-par fourWay.node[2].nic.phy80211p timeSleepToTX 0s
-attr unit s
-par fourWay.node[2].nic.phy80211p initialRadioState 0
-par fourWay.node[2].nic.phy80211p radioMinAtt 1
-par fourWay.node[2].nic.phy80211p radioMaxAtt 0
-par fourWay.node[2].nic.phy80211p nbRadioChannels 1
-par fourWay.node[2].nic.phy80211p initialRadioChannel 0
-par fourWay.node[2].nic.phy80211p ccaThreshold -90dBm
-attr unit dBm
-par fourWay.node[2].nic.phy80211p collectCollisionStatistics true
-par fourWay.node[2].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[2].nic.phy80211p busyTime 0.076359804878049
-scalar fourWay.node[2].nic.phy80211p ncollisions 97
-par fourWay.node[2].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
-par fourWay.node[2].nic.mac1609_4 notAffectedByHostState false
-par fourWay.node[2].nic.mac1609_4 headerLength 0bit
-attr unit bit
-par fourWay.node[2].nic.mac1609_4 address "\"auto\""
-par fourWay.node[2].nic.mac1609_4 useServiceChannel false
-par fourWay.node[2].nic.mac1609_4 serviceChannel 1
-par fourWay.node[2].nic.mac1609_4 bitrate 6000000bps
-attr unit bps
-par fourWay.node[2].nic.mac1609_4 syncOffset 0.0003s
-attr unit s
-par fourWay.node[2].nic.mac1609_4 txPower 20mW
-attr unit mW
-par fourWay.node[2].nic.mac1609_4 queueSize 0
-par fourWay.node[2].nic.mac1609_4 dot11RTSThreshold 12000bit
-attr unit bit
-par fourWay.node[2].nic.mac1609_4 dot11ShortRetryLimit 7
-par fourWay.node[2].nic.mac1609_4 dot11LongRetryLimit 4
-par fourWay.node[2].nic.mac1609_4 ackLength 112bit
-attr unit bit
-par fourWay.node[2].nic.mac1609_4 useAcks false
-par fourWay.node[2].nic.mac1609_4 frameErrorRate 0
-par fourWay.node[2].nic.mac1609_4 ackErrorRate 0
-scalar fourWay.node[2].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[2].nic.mac1609_4 ReceivedBroadcasts 81
-scalar fourWay.node[2].nic.mac1609_4 SentPackets 49
-scalar fourWay.node[2].nic.mac1609_4 SentAcknowledgements 0
-scalar fourWay.node[2].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[2].nic.mac1609_4 SNIRLostPackets 451
-scalar fourWay.node[2].nic.mac1609_4 RXTXLostPackets 233
-scalar fourWay.node[2].nic.mac1609_4 TotalLostPackets 684
-scalar fourWay.node[2].nic.mac1609_4 DroppedPacketsInMac 0
-scalar fourWay.node[2].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[2].nic.mac1609_4 TimesIntoBackoff 67
-scalar fourWay.node[2].nic.mac1609_4 SlotsBackoff 93
-scalar fourWay.node[2].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[2].nic.mac1609_4 totalBusyTime 0.355578448962
-scalar fourWay.node[2].nic.mac1609_4 retriesExceeded:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigRetriesExceeded
-scalar fourWay.node[2].nic.mac1609_4 sentAcks:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentAck
-scalar fourWay.node[2].nic.mac1609_4 sentPackets:count 49
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[2].nic.mac1609_4 collisions:count 97
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[2].nic.mac1609_4 channelBusy:timeavg 0.034690580386537
-attr recordingmode timeavg
-attr source org_car2x_veins_modules_mac_sigChannelBusy
-par fourWay.node[2].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
-par fourWay.node[2].nic connectionManagerName "\"connectionManager\""
-par fourWay.node[2].veinsmobility typename "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[2].veinsmobility notAffectedByHostState true
-par fourWay.node[2].veinsmobility x 0
-par fourWay.node[2].veinsmobility y 0
-par fourWay.node[2].veinsmobility z 0
-par fourWay.node[2].veinsmobility xOrientation 1
-par fourWay.node[2].veinsmobility yOrientation 0
-par fourWay.node[2].veinsmobility zOrientation 0
-par fourWay.node[2].veinsmobility hostPositionOffset 0m
-attr unit m
-par fourWay.node[2].veinsmobility setHostSpeed false
-par fourWay.node[2].veinsmobility accidentCount 0
-par fourWay.node[2].veinsmobility accidentStart 43.1276s
-attr unit s
-par fourWay.node[2].veinsmobility accidentDuration "uniform(30s, 60s)"
-attr unit s
-par fourWay.node[2].veinsmobility accidentInterval "uniform(30s, 60s)"
-attr unit s
-scalar fourWay.node[2].veinsmobility startTime 0.1
-scalar fourWay.node[2].veinsmobility totalTime 10.2
-scalar fourWay.node[2].veinsmobility stopTime 10.35
-scalar fourWay.node[2].veinsmobility minSpeed 0
-scalar fourWay.node[2].veinsmobility maxSpeed 5.7922494172494
-scalar fourWay.node[2].veinsmobility totalDistance 5.3675898378459
-scalar fourWay.node[2].veinsmobility totalCO2Emission 10.149280622986
-par fourWay.node[2] typename "\"org.car2x.veins.nodes.Car\""
-par fourWay.node[2] applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[2] nicType "\"Nic80211p\""
-par fourWay.node[2] veinsmobilityType "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[3].appl typename "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[3].appl headerLength 80bit
-attr unit bit
-par fourWay.node[3].appl sendBeacons false
-par fourWay.node[3].appl beaconLengthBits 256bit
-attr unit bit
-par fourWay.node[3].appl beaconUserPriority 7
-par fourWay.node[3].appl beaconInterval 1s
-attr unit s
-par fourWay.node[3].appl dataLengthBits 1024bit
-attr unit bit
-par fourWay.node[3].appl dataOnSch false
-par fourWay.node[3].appl dataUserPriority 7
-par fourWay.node[3].appl avoidBeaconSynchronization true
-par fourWay.node[3].appl sendWSA false
-par fourWay.node[3].appl wsaLengthBits 250bit
-attr unit bit
-par fourWay.node[3].appl wsaInterval 1s
-attr unit s
-par fourWay.node[3].appl replicaId 3
-par fourWay.node[3].appl triggerJoinTime 1s
-attr unit s
-par fourWay.node[3].appl serviceChannel 2
-par fourWay.node[3].appl intersectionX 300m
-attr unit m
-par fourWay.node[3].appl intersectionY 300m
-attr unit m
-par fourWay.node[3].appl stopDistance 100m
-attr unit m
-par fourWay.node[3].appl intersectionWidth 15m
-attr unit m
-par fourWay.node[3].appl avgSpeed 14mps
-attr unit mps
-par fourWay.node[3].appl safetyGap 1.5s
-attr unit s
-par fourWay.node[3].appl consensusTimeoutSec 120s
-attr unit s
-scalar fourWay.node[3].appl generatedWSMs 0
-scalar fourWay.node[3].appl receivedWSMs 0
-scalar fourWay.node[3].appl generatedBSMs 0
-scalar fourWay.node[3].appl receivedBSMs 0
-scalar fourWay.node[3].appl generatedWSAs 0
-scalar fourWay.node[3].appl receivedWSAs 0
-scalar fourWay.node[3].appl bftMsgReceived:count 79
-attr recordingmode count
-attr source bftMsgReceived
-attr title "BFT messages received, count"
-scalar fourWay.node[3].appl bftMsgSent:count 49
-attr recordingmode count
-attr source bftMsgSent
-attr title "BFT messages sent, count"
-par fourWay.node[3].nic.phy80211p typename "\"org.car2x.veins.modules.phy.PhyLayer80211p\""
-par fourWay.node[3].nic.phy80211p recordStats false
-par fourWay.node[3].nic.phy80211p usePropagationDelay true
-par fourWay.node[3].nic.phy80211p noiseFloor -98dBm
-attr unit dBm
-par fourWay.node[3].nic.phy80211p useNoiseFloor true
-par fourWay.node[3].nic.phy80211p antenna "<Antenna type=\"SampledAntenna1D\" id=\"monopole\">...</Antenna> at /home/yash/omnetpp/fourway//antenna.xml:35"
-par fourWay.node[3].nic.phy80211p antennaOffsetX 0m
-attr unit m
-par fourWay.node[3].nic.phy80211p antennaOffsetY 1.895m
-attr unit m
-par fourWay.node[3].nic.phy80211p antennaOffsetZ 1.895m
-attr unit m
-par fourWay.node[3].nic.phy80211p antennaOffsetYaw 0rad
-attr unit rad
-par fourWay.node[3].nic.phy80211p analogueModels "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[3].nic.phy80211p decider "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[3].nic.phy80211p minPowerLevel -110dBm
-attr unit dBm
-par fourWay.node[3].nic.phy80211p timeRXToTX 0s
-attr unit s
-par fourWay.node[3].nic.phy80211p timeRXToSleep 0s
-attr unit s
-par fourWay.node[3].nic.phy80211p timeTXToRX 0s
-attr unit s
-par fourWay.node[3].nic.phy80211p timeTXToSleep 0s
-attr unit s
-par fourWay.node[3].nic.phy80211p timeSleepToRX 0s
-attr unit s
-par fourWay.node[3].nic.phy80211p timeSleepToTX 0s
-attr unit s
-par fourWay.node[3].nic.phy80211p initialRadioState 0
-par fourWay.node[3].nic.phy80211p radioMinAtt 1
-par fourWay.node[3].nic.phy80211p radioMaxAtt 0
-par fourWay.node[3].nic.phy80211p nbRadioChannels 1
-par fourWay.node[3].nic.phy80211p initialRadioChannel 0
-par fourWay.node[3].nic.phy80211p ccaThreshold -90dBm
-attr unit dBm
-par fourWay.node[3].nic.phy80211p collectCollisionStatistics true
-par fourWay.node[3].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[3].nic.phy80211p busyTime 0.080310634146341
-scalar fourWay.node[3].nic.phy80211p ncollisions 99
-par fourWay.node[3].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
-par fourWay.node[3].nic.mac1609_4 notAffectedByHostState false
-par fourWay.node[3].nic.mac1609_4 headerLength 0bit
-attr unit bit
-par fourWay.node[3].nic.mac1609_4 address "\"auto\""
-par fourWay.node[3].nic.mac1609_4 useServiceChannel false
-par fourWay.node[3].nic.mac1609_4 serviceChannel 1
-par fourWay.node[3].nic.mac1609_4 bitrate 6000000bps
-attr unit bps
-par fourWay.node[3].nic.mac1609_4 syncOffset 0.0003s
-attr unit s
-par fourWay.node[3].nic.mac1609_4 txPower 20mW
-attr unit mW
-par fourWay.node[3].nic.mac1609_4 queueSize 0
-par fourWay.node[3].nic.mac1609_4 dot11RTSThreshold 12000bit
-attr unit bit
-par fourWay.node[3].nic.mac1609_4 dot11ShortRetryLimit 7
-par fourWay.node[3].nic.mac1609_4 dot11LongRetryLimit 4
-par fourWay.node[3].nic.mac1609_4 ackLength 112bit
-attr unit bit
-par fourWay.node[3].nic.mac1609_4 useAcks false
-par fourWay.node[3].nic.mac1609_4 frameErrorRate 0
-par fourWay.node[3].nic.mac1609_4 ackErrorRate 0
-scalar fourWay.node[3].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[3].nic.mac1609_4 ReceivedBroadcasts 79
-scalar fourWay.node[3].nic.mac1609_4 SentPackets 49
-scalar fourWay.node[3].nic.mac1609_4 SentAcknowledgements 0
-scalar fourWay.node[3].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[3].nic.mac1609_4 SNIRLostPackets 483
-scalar fourWay.node[3].nic.mac1609_4 RXTXLostPackets 203
-scalar fourWay.node[3].nic.mac1609_4 TotalLostPackets 686
-scalar fourWay.node[3].nic.mac1609_4 DroppedPacketsInMac 0
-scalar fourWay.node[3].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[3].nic.mac1609_4 TimesIntoBackoff 68
-scalar fourWay.node[3].nic.mac1609_4 SlotsBackoff 114
-scalar fourWay.node[3].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[3].nic.mac1609_4 totalBusyTime 0.355578484109
-scalar fourWay.node[3].nic.mac1609_4 retriesExceeded:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigRetriesExceeded
-scalar fourWay.node[3].nic.mac1609_4 sentAcks:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentAck
-scalar fourWay.node[3].nic.mac1609_4 sentPackets:count 49
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[3].nic.mac1609_4 collisions:count 99
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[3].nic.mac1609_4 channelBusy:timeavg 0.034690583815512
-attr recordingmode timeavg
-attr source org_car2x_veins_modules_mac_sigChannelBusy
-par fourWay.node[3].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
-par fourWay.node[3].nic connectionManagerName "\"connectionManager\""
-par fourWay.node[3].veinsmobility typename "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[3].veinsmobility notAffectedByHostState true
-par fourWay.node[3].veinsmobility x 0
-par fourWay.node[3].veinsmobility y 0
-par fourWay.node[3].veinsmobility z 0
-par fourWay.node[3].veinsmobility xOrientation 1
-par fourWay.node[3].veinsmobility yOrientation 0
-par fourWay.node[3].veinsmobility zOrientation 0
-par fourWay.node[3].veinsmobility hostPositionOffset 0m
-attr unit m
-par fourWay.node[3].veinsmobility setHostSpeed false
-par fourWay.node[3].veinsmobility accidentCount 0
-par fourWay.node[3].veinsmobility accidentStart 38.1797s
-attr unit s
-par fourWay.node[3].veinsmobility accidentDuration "uniform(30s, 60s)"
-attr unit s
-par fourWay.node[3].veinsmobility accidentInterval "uniform(30s, 60s)"
-attr unit s
-scalar fourWay.node[3].veinsmobility startTime 0.1
-scalar fourWay.node[3].veinsmobility totalTime 10.2
-scalar fourWay.node[3].veinsmobility stopTime 10.35
-scalar fourWay.node[3].veinsmobility minSpeed 0
-scalar fourWay.node[3].veinsmobility maxSpeed 4.4276107226107
-scalar fourWay.node[3].veinsmobility totalDistance 3.3820163516835
-scalar fourWay.node[3].veinsmobility totalCO2Emission 10.02865438268
-par fourWay.node[3] typename "\"org.car2x.veins.nodes.Car\""
-par fourWay.node[3] applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[3] nicType "\"Nic80211p\""
-par fourWay.node[3] veinsmobilityType "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[4].appl typename "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[4].appl headerLength 80bit
-attr unit bit
-par fourWay.node[4].appl sendBeacons false
-par fourWay.node[4].appl beaconLengthBits 256bit
-attr unit bit
-par fourWay.node[4].appl beaconUserPriority 7
-par fourWay.node[4].appl beaconInterval 1s
-attr unit s
-par fourWay.node[4].appl dataLengthBits 1024bit
-attr unit bit
-par fourWay.node[4].appl dataOnSch false
-par fourWay.node[4].appl dataUserPriority 7
-par fourWay.node[4].appl avoidBeaconSynchronization true
-par fourWay.node[4].appl sendWSA false
-par fourWay.node[4].appl wsaLengthBits 250bit
-attr unit bit
-par fourWay.node[4].appl wsaInterval 1s
-attr unit s
-par fourWay.node[4].appl replicaId 4
-par fourWay.node[4].appl triggerJoinTime 1s
-attr unit s
-par fourWay.node[4].appl serviceChannel 2
-par fourWay.node[4].appl intersectionX 300m
-attr unit m
-par fourWay.node[4].appl intersectionY 300m
-attr unit m
-par fourWay.node[4].appl stopDistance 100m
-attr unit m
-par fourWay.node[4].appl intersectionWidth 15m
-attr unit m
-par fourWay.node[4].appl avgSpeed 14mps
-attr unit mps
-par fourWay.node[4].appl safetyGap 1.5s
-attr unit s
-par fourWay.node[4].appl consensusTimeoutSec 120s
-attr unit s
-scalar fourWay.node[4].appl generatedWSMs 0
-scalar fourWay.node[4].appl receivedWSMs 0
-scalar fourWay.node[4].appl generatedBSMs 0
-scalar fourWay.node[4].appl receivedBSMs 0
-scalar fourWay.node[4].appl generatedWSAs 0
-scalar fourWay.node[4].appl receivedWSAs 0
-scalar fourWay.node[4].appl bftMsgReceived:count 78
-attr recordingmode count
-attr source bftMsgReceived
-attr title "BFT messages received, count"
-scalar fourWay.node[4].appl bftMsgSent:count 51
-attr recordingmode count
-attr source bftMsgSent
-attr title "BFT messages sent, count"
-par fourWay.node[4].nic.phy80211p typename "\"org.car2x.veins.modules.phy.PhyLayer80211p\""
-par fourWay.node[4].nic.phy80211p recordStats false
-par fourWay.node[4].nic.phy80211p usePropagationDelay true
-par fourWay.node[4].nic.phy80211p noiseFloor -98dBm
-attr unit dBm
-par fourWay.node[4].nic.phy80211p useNoiseFloor true
-par fourWay.node[4].nic.phy80211p antenna "<Antenna type=\"SampledAntenna1D\" id=\"monopole\">...</Antenna> at /home/yash/omnetpp/fourway//antenna.xml:35"
-par fourWay.node[4].nic.phy80211p antennaOffsetX 0m
-attr unit m
-par fourWay.node[4].nic.phy80211p antennaOffsetY 1.895m
-attr unit m
-par fourWay.node[4].nic.phy80211p antennaOffsetZ 1.895m
-attr unit m
-par fourWay.node[4].nic.phy80211p antennaOffsetYaw 0rad
-attr unit rad
-par fourWay.node[4].nic.phy80211p analogueModels "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[4].nic.phy80211p decider "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[4].nic.phy80211p minPowerLevel -110dBm
-attr unit dBm
-par fourWay.node[4].nic.phy80211p timeRXToTX 0s
-attr unit s
-par fourWay.node[4].nic.phy80211p timeRXToSleep 0s
-attr unit s
-par fourWay.node[4].nic.phy80211p timeTXToRX 0s
-attr unit s
-par fourWay.node[4].nic.phy80211p timeTXToSleep 0s
-attr unit s
-par fourWay.node[4].nic.phy80211p timeSleepToRX 0s
-attr unit s
-par fourWay.node[4].nic.phy80211p timeSleepToTX 0s
-attr unit s
-par fourWay.node[4].nic.phy80211p initialRadioState 0
-par fourWay.node[4].nic.phy80211p radioMinAtt 1
-par fourWay.node[4].nic.phy80211p radioMaxAtt 0
-par fourWay.node[4].nic.phy80211p nbRadioChannels 1
-par fourWay.node[4].nic.phy80211p initialRadioChannel 0
-par fourWay.node[4].nic.phy80211p ccaThreshold -90dBm
-attr unit dBm
-par fourWay.node[4].nic.phy80211p collectCollisionStatistics true
-par fourWay.node[4].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[4].nic.phy80211p busyTime 0.080845268292683
-scalar fourWay.node[4].nic.phy80211p ncollisions 98
-par fourWay.node[4].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
-par fourWay.node[4].nic.mac1609_4 notAffectedByHostState false
-par fourWay.node[4].nic.mac1609_4 headerLength 0bit
-attr unit bit
-par fourWay.node[4].nic.mac1609_4 address "\"auto\""
-par fourWay.node[4].nic.mac1609_4 useServiceChannel false
-par fourWay.node[4].nic.mac1609_4 serviceChannel 1
-par fourWay.node[4].nic.mac1609_4 bitrate 6000000bps
-attr unit bps
-par fourWay.node[4].nic.mac1609_4 syncOffset 0.0003s
-attr unit s
-par fourWay.node[4].nic.mac1609_4 txPower 20mW
-attr unit mW
-par fourWay.node[4].nic.mac1609_4 queueSize 0
-par fourWay.node[4].nic.mac1609_4 dot11RTSThreshold 12000bit
-attr unit bit
-par fourWay.node[4].nic.mac1609_4 dot11ShortRetryLimit 7
-par fourWay.node[4].nic.mac1609_4 dot11LongRetryLimit 4
-par fourWay.node[4].nic.mac1609_4 ackLength 112bit
-attr unit bit
-par fourWay.node[4].nic.mac1609_4 useAcks false
-par fourWay.node[4].nic.mac1609_4 frameErrorRate 0
-par fourWay.node[4].nic.mac1609_4 ackErrorRate 0
-scalar fourWay.node[4].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[4].nic.mac1609_4 ReceivedBroadcasts 78
-scalar fourWay.node[4].nic.mac1609_4 SentPackets 51
-scalar fourWay.node[4].nic.mac1609_4 SentAcknowledgements 0
-scalar fourWay.node[4].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[4].nic.mac1609_4 SNIRLostPackets 485
-scalar fourWay.node[4].nic.mac1609_4 RXTXLostPackets 200
-scalar fourWay.node[4].nic.mac1609_4 TotalLostPackets 685
-scalar fourWay.node[4].nic.mac1609_4 DroppedPacketsInMac 0
-scalar fourWay.node[4].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[4].nic.mac1609_4 TimesIntoBackoff 66
-scalar fourWay.node[4].nic.mac1609_4 SlotsBackoff 98
-scalar fourWay.node[4].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[4].nic.mac1609_4 totalBusyTime 0.35558086836
-scalar fourWay.node[4].nic.mac1609_4 retriesExceeded:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigRetriesExceeded
-scalar fourWay.node[4].nic.mac1609_4 sentAcks:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentAck
-scalar fourWay.node[4].nic.mac1609_4 sentPackets:count 51
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[4].nic.mac1609_4 collisions:count 98
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[4].nic.mac1609_4 channelBusy:timeavg 0.034690816425366
-attr recordingmode timeavg
-attr source org_car2x_veins_modules_mac_sigChannelBusy
-par fourWay.node[4].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
-par fourWay.node[4].nic connectionManagerName "\"connectionManager\""
-par fourWay.node[4].veinsmobility typename "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[4].veinsmobility notAffectedByHostState true
-par fourWay.node[4].veinsmobility x 0
-par fourWay.node[4].veinsmobility y 0
-par fourWay.node[4].veinsmobility z 0
-par fourWay.node[4].veinsmobility xOrientation 1
-par fourWay.node[4].veinsmobility yOrientation 0
-par fourWay.node[4].veinsmobility zOrientation 0
-par fourWay.node[4].veinsmobility hostPositionOffset 0m
-attr unit m
-par fourWay.node[4].veinsmobility setHostSpeed false
-par fourWay.node[4].veinsmobility accidentCount 0
-par fourWay.node[4].veinsmobility accidentStart 45.8668s
-attr unit s
-par fourWay.node[4].veinsmobility accidentDuration "uniform(30s, 60s)"
-attr unit s
-par fourWay.node[4].veinsmobility accidentInterval "uniform(30s, 60s)"
-attr unit s
-scalar fourWay.node[4].veinsmobility startTime 0.1
-scalar fourWay.node[4].veinsmobility totalTime 10.2
-scalar fourWay.node[4].veinsmobility stopTime 10.35
-scalar fourWay.node[4].veinsmobility minSpeed 0
-scalar fourWay.node[4].veinsmobility maxSpeed 10.282916666667
-scalar fourWay.node[4].veinsmobility totalDistance 11.678626737414
-scalar fourWay.node[4].veinsmobility totalCO2Emission 10.287881193836
-par fourWay.node[4] typename "\"org.car2x.veins.nodes.Car\""
-par fourWay.node[4] applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[4] nicType "\"Nic80211p\""
-par fourWay.node[4] veinsmobilityType "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
 par fourWay.node[5].appl typename "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
 par fourWay.node[5].appl headerLength 80bit
 attr unit bit
@@ -1116,7 +1215,7 @@ par fourWay.node[5].appl intersectionX 300m
 attr unit m
 par fourWay.node[5].appl intersectionY 300m
 attr unit m
-par fourWay.node[5].appl stopDistance 100m
+par fourWay.node[5].appl stopDistance 200m
 attr unit m
 par fourWay.node[5].appl intersectionWidth 15m
 attr unit m
@@ -1126,17 +1225,45 @@ par fourWay.node[5].appl safetyGap 1.5s
 attr unit s
 par fourWay.node[5].appl consensusTimeoutSec 120s
 attr unit s
+par fourWay.node[5].appl orderDelayGap 0s
+attr unit s
+par fourWay.node[5].appl viewJitterMin 0.001s
+attr unit s
+par fourWay.node[5].appl viewJitterMax 0.005s
+attr unit s
+par fourWay.node[5].appl viewAgreementSlotSec 0.025s
+attr unit s
+par fourWay.node[5].appl ackJitterMin 0.001s
+attr unit s
+par fourWay.node[5].appl ackJitterMax 0.01s
+attr unit s
+par fourWay.node[5].appl witnessSlotSec 0.002s
+attr unit s
+par fourWay.node[5].appl broadcastSlotSec 0.005s
+attr unit s
+par fourWay.node[5].appl arrivalSlotSec 0.025s
+attr unit s
+par fourWay.node[5].appl broadcastJitterMin 0.0001s
+attr unit s
+par fourWay.node[5].appl broadcastJitterMax 0.001s
+attr unit s
+par fourWay.node[5].appl orderCollectMinSec 4s
+attr unit s
+par fourWay.node[5].appl orderCollectPerReplicaSec 0.08s
+attr unit s
+par fourWay.node[5].appl orderCollectMaxSec 5s
+attr unit s
 scalar fourWay.node[5].appl generatedWSMs 0
 scalar fourWay.node[5].appl receivedWSMs 0
 scalar fourWay.node[5].appl generatedBSMs 0
 scalar fourWay.node[5].appl receivedBSMs 0
 scalar fourWay.node[5].appl generatedWSAs 0
 scalar fourWay.node[5].appl receivedWSAs 0
-scalar fourWay.node[5].appl bftMsgReceived:count 66
+scalar fourWay.node[5].appl bftMsgReceived:count 454
 attr recordingmode count
 attr source bftMsgReceived
 attr title "BFT messages received, count"
-scalar fourWay.node[5].appl bftMsgSent:count 50
+scalar fourWay.node[5].appl bftMsgSent:count 124
 attr recordingmode count
 attr source bftMsgSent
 attr title "BFT messages sent, count"
@@ -1180,8 +1307,8 @@ par fourWay.node[5].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[5].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[5].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[5].nic.phy80211p busyTime 0.076409756097561
-scalar fourWay.node[5].nic.phy80211p ncollisions 111
+scalar fourWay.node[5].nic.phy80211p busyTime 0.10456467532468
+scalar fourWay.node[5].nic.phy80211p ncollisions 130
 par fourWay.node[5].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[5].nic.mac1609_4 notAffectedByHostState false
 par fourWay.node[5].nic.mac1609_4 headerLength 0bit
@@ -1195,7 +1322,7 @@ par fourWay.node[5].nic.mac1609_4 syncOffset 0.0003s
 attr unit s
 par fourWay.node[5].nic.mac1609_4 txPower 20mW
 attr unit mW
-par fourWay.node[5].nic.mac1609_4 queueSize 0
+par fourWay.node[5].nic.mac1609_4 queueSize 1024
 par fourWay.node[5].nic.mac1609_4 dot11RTSThreshold 12000bit
 attr unit bit
 par fourWay.node[5].nic.mac1609_4 dot11ShortRetryLimit 7
@@ -1206,32 +1333,32 @@ par fourWay.node[5].nic.mac1609_4 useAcks false
 par fourWay.node[5].nic.mac1609_4 frameErrorRate 0
 par fourWay.node[5].nic.mac1609_4 ackErrorRate 0
 scalar fourWay.node[5].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[5].nic.mac1609_4 ReceivedBroadcasts 66
-scalar fourWay.node[5].nic.mac1609_4 SentPackets 50
+scalar fourWay.node[5].nic.mac1609_4 ReceivedBroadcasts 1802
+scalar fourWay.node[5].nic.mac1609_4 SentPackets 124
 scalar fourWay.node[5].nic.mac1609_4 SentAcknowledgements 0
 scalar fourWay.node[5].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[5].nic.mac1609_4 SNIRLostPackets 470
-scalar fourWay.node[5].nic.mac1609_4 RXTXLostPackets 228
-scalar fourWay.node[5].nic.mac1609_4 TotalLostPackets 698
+scalar fourWay.node[5].nic.mac1609_4 SNIRLostPackets 348
+scalar fourWay.node[5].nic.mac1609_4 RXTXLostPackets 67
+scalar fourWay.node[5].nic.mac1609_4 TotalLostPackets 415
 scalar fourWay.node[5].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.node[5].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[5].nic.mac1609_4 TimesIntoBackoff 69
-scalar fourWay.node[5].nic.mac1609_4 SlotsBackoff 92
+scalar fourWay.node[5].nic.mac1609_4 TimesIntoBackoff 165
+scalar fourWay.node[5].nic.mac1609_4 SlotsBackoff 220
 scalar fourWay.node[5].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[5].nic.mac1609_4 totalBusyTime 0.35558011937
+scalar fourWay.node[5].nic.mac1609_4 totalBusyTime 1.533197413294
 scalar fourWay.node[5].nic.mac1609_4 retriesExceeded:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigRetriesExceeded
 scalar fourWay.node[5].nic.mac1609_4 sentAcks:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentAck
-scalar fourWay.node[5].nic.mac1609_4 sentPackets:count 50
+scalar fourWay.node[5].nic.mac1609_4 sentPackets:count 124
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[5].nic.mac1609_4 collisions:count 111
+scalar fourWay.node[5].nic.mac1609_4 collisions:count 130
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[5].nic.mac1609_4 channelBusy:timeavg 0.034690743353171
+scalar fourWay.node[5].nic.mac1609_4 channelBusy:timeavg 0.09955827359052
 attr recordingmode timeavg
 attr source org_car2x_veins_modules_mac_sigChannelBusy
 par fourWay.node[5].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
@@ -1248,903 +1375,23 @@ par fourWay.node[5].veinsmobility hostPositionOffset 0m
 attr unit m
 par fourWay.node[5].veinsmobility setHostSpeed false
 par fourWay.node[5].veinsmobility accidentCount 0
-par fourWay.node[5].veinsmobility accidentStart 55.0824s
+par fourWay.node[5].veinsmobility accidentStart 48.5291s
 attr unit s
 par fourWay.node[5].veinsmobility accidentDuration "uniform(30s, 60s)"
 attr unit s
 par fourWay.node[5].veinsmobility accidentInterval "uniform(30s, 60s)"
 attr unit s
-scalar fourWay.node[5].veinsmobility startTime 0.1
-scalar fourWay.node[5].veinsmobility totalTime 10.2
-scalar fourWay.node[5].veinsmobility stopTime 10.35
+scalar fourWay.node[5].veinsmobility startTime 0.3
+scalar fourWay.node[5].veinsmobility totalTime 15.3
+scalar fourWay.node[5].veinsmobility stopTime 15.7
 scalar fourWay.node[5].veinsmobility minSpeed 0
-scalar fourWay.node[5].veinsmobility maxSpeed 7.777467948718
-scalar fourWay.node[5].veinsmobility totalDistance 8.4257719993046
-scalar fourWay.node[5].veinsmobility totalCO2Emission 10.18151114399
+scalar fourWay.node[5].veinsmobility maxSpeed 30
+scalar fourWay.node[5].veinsmobility totalDistance 327.79899574543
+scalar fourWay.node[5].veinsmobility totalCO2Emission 277.99196745166
 par fourWay.node[5] typename "\"org.car2x.veins.nodes.Car\""
 par fourWay.node[5] applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
 par fourWay.node[5] nicType "\"Nic80211p\""
 par fourWay.node[5] veinsmobilityType "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[6].appl typename "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[6].appl headerLength 80bit
-attr unit bit
-par fourWay.node[6].appl sendBeacons false
-par fourWay.node[6].appl beaconLengthBits 256bit
-attr unit bit
-par fourWay.node[6].appl beaconUserPriority 7
-par fourWay.node[6].appl beaconInterval 1s
-attr unit s
-par fourWay.node[6].appl dataLengthBits 1024bit
-attr unit bit
-par fourWay.node[6].appl dataOnSch false
-par fourWay.node[6].appl dataUserPriority 7
-par fourWay.node[6].appl avoidBeaconSynchronization true
-par fourWay.node[6].appl sendWSA false
-par fourWay.node[6].appl wsaLengthBits 250bit
-attr unit bit
-par fourWay.node[6].appl wsaInterval 1s
-attr unit s
-par fourWay.node[6].appl replicaId 6
-par fourWay.node[6].appl triggerJoinTime 1s
-attr unit s
-par fourWay.node[6].appl serviceChannel 2
-par fourWay.node[6].appl intersectionX 300m
-attr unit m
-par fourWay.node[6].appl intersectionY 300m
-attr unit m
-par fourWay.node[6].appl stopDistance 100m
-attr unit m
-par fourWay.node[6].appl intersectionWidth 15m
-attr unit m
-par fourWay.node[6].appl avgSpeed 14mps
-attr unit mps
-par fourWay.node[6].appl safetyGap 1.5s
-attr unit s
-par fourWay.node[6].appl consensusTimeoutSec 120s
-attr unit s
-scalar fourWay.node[6].appl generatedWSMs 0
-scalar fourWay.node[6].appl receivedWSMs 0
-scalar fourWay.node[6].appl generatedBSMs 0
-scalar fourWay.node[6].appl receivedBSMs 0
-scalar fourWay.node[6].appl generatedWSAs 0
-scalar fourWay.node[6].appl receivedWSAs 0
-scalar fourWay.node[6].appl bftMsgReceived:count 79
-attr recordingmode count
-attr source bftMsgReceived
-attr title "BFT messages received, count"
-scalar fourWay.node[6].appl bftMsgSent:count 50
-attr recordingmode count
-attr source bftMsgSent
-attr title "BFT messages sent, count"
-par fourWay.node[6].nic.phy80211p typename "\"org.car2x.veins.modules.phy.PhyLayer80211p\""
-par fourWay.node[6].nic.phy80211p recordStats false
-par fourWay.node[6].nic.phy80211p usePropagationDelay true
-par fourWay.node[6].nic.phy80211p noiseFloor -98dBm
-attr unit dBm
-par fourWay.node[6].nic.phy80211p useNoiseFloor true
-par fourWay.node[6].nic.phy80211p antenna "<Antenna type=\"SampledAntenna1D\" id=\"monopole\">...</Antenna> at /home/yash/omnetpp/fourway//antenna.xml:35"
-par fourWay.node[6].nic.phy80211p antennaOffsetX 0m
-attr unit m
-par fourWay.node[6].nic.phy80211p antennaOffsetY 1.895m
-attr unit m
-par fourWay.node[6].nic.phy80211p antennaOffsetZ 1.895m
-attr unit m
-par fourWay.node[6].nic.phy80211p antennaOffsetYaw 0rad
-attr unit rad
-par fourWay.node[6].nic.phy80211p analogueModels "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[6].nic.phy80211p decider "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[6].nic.phy80211p minPowerLevel -110dBm
-attr unit dBm
-par fourWay.node[6].nic.phy80211p timeRXToTX 0s
-attr unit s
-par fourWay.node[6].nic.phy80211p timeRXToSleep 0s
-attr unit s
-par fourWay.node[6].nic.phy80211p timeTXToRX 0s
-attr unit s
-par fourWay.node[6].nic.phy80211p timeTXToSleep 0s
-attr unit s
-par fourWay.node[6].nic.phy80211p timeSleepToRX 0s
-attr unit s
-par fourWay.node[6].nic.phy80211p timeSleepToTX 0s
-attr unit s
-par fourWay.node[6].nic.phy80211p initialRadioState 0
-par fourWay.node[6].nic.phy80211p radioMinAtt 1
-par fourWay.node[6].nic.phy80211p radioMaxAtt 0
-par fourWay.node[6].nic.phy80211p nbRadioChannels 1
-par fourWay.node[6].nic.phy80211p initialRadioChannel 0
-par fourWay.node[6].nic.phy80211p ccaThreshold -90dBm
-attr unit dBm
-par fourWay.node[6].nic.phy80211p collectCollisionStatistics true
-par fourWay.node[6].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[6].nic.phy80211p busyTime 0.081839609756097
-scalar fourWay.node[6].nic.phy80211p ncollisions 98
-par fourWay.node[6].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
-par fourWay.node[6].nic.mac1609_4 notAffectedByHostState false
-par fourWay.node[6].nic.mac1609_4 headerLength 0bit
-attr unit bit
-par fourWay.node[6].nic.mac1609_4 address "\"auto\""
-par fourWay.node[6].nic.mac1609_4 useServiceChannel false
-par fourWay.node[6].nic.mac1609_4 serviceChannel 1
-par fourWay.node[6].nic.mac1609_4 bitrate 6000000bps
-attr unit bps
-par fourWay.node[6].nic.mac1609_4 syncOffset 0.0003s
-attr unit s
-par fourWay.node[6].nic.mac1609_4 txPower 20mW
-attr unit mW
-par fourWay.node[6].nic.mac1609_4 queueSize 0
-par fourWay.node[6].nic.mac1609_4 dot11RTSThreshold 12000bit
-attr unit bit
-par fourWay.node[6].nic.mac1609_4 dot11ShortRetryLimit 7
-par fourWay.node[6].nic.mac1609_4 dot11LongRetryLimit 4
-par fourWay.node[6].nic.mac1609_4 ackLength 112bit
-attr unit bit
-par fourWay.node[6].nic.mac1609_4 useAcks false
-par fourWay.node[6].nic.mac1609_4 frameErrorRate 0
-par fourWay.node[6].nic.mac1609_4 ackErrorRate 0
-scalar fourWay.node[6].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[6].nic.mac1609_4 ReceivedBroadcasts 79
-scalar fourWay.node[6].nic.mac1609_4 SentPackets 50
-scalar fourWay.node[6].nic.mac1609_4 SentAcknowledgements 0
-scalar fourWay.node[6].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[6].nic.mac1609_4 SNIRLostPackets 492
-scalar fourWay.node[6].nic.mac1609_4 RXTXLostPackets 193
-scalar fourWay.node[6].nic.mac1609_4 TotalLostPackets 685
-scalar fourWay.node[6].nic.mac1609_4 DroppedPacketsInMac 0
-scalar fourWay.node[6].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[6].nic.mac1609_4 TimesIntoBackoff 71
-scalar fourWay.node[6].nic.mac1609_4 SlotsBackoff 97
-scalar fourWay.node[6].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[6].nic.mac1609_4 totalBusyTime 0.355580409642
-scalar fourWay.node[6].nic.mac1609_4 retriesExceeded:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigRetriesExceeded
-scalar fourWay.node[6].nic.mac1609_4 sentAcks:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentAck
-scalar fourWay.node[6].nic.mac1609_4 sentPackets:count 50
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[6].nic.mac1609_4 collisions:count 98
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[6].nic.mac1609_4 channelBusy:timeavg 0.03469077167239
-attr recordingmode timeavg
-attr source org_car2x_veins_modules_mac_sigChannelBusy
-par fourWay.node[6].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
-par fourWay.node[6].nic connectionManagerName "\"connectionManager\""
-par fourWay.node[6].veinsmobility typename "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[6].veinsmobility notAffectedByHostState true
-par fourWay.node[6].veinsmobility x 0
-par fourWay.node[6].veinsmobility y 0
-par fourWay.node[6].veinsmobility z 0
-par fourWay.node[6].veinsmobility xOrientation 1
-par fourWay.node[6].veinsmobility yOrientation 0
-par fourWay.node[6].veinsmobility zOrientation 0
-par fourWay.node[6].veinsmobility hostPositionOffset 0m
-attr unit m
-par fourWay.node[6].veinsmobility setHostSpeed false
-par fourWay.node[6].veinsmobility accidentCount 0
-par fourWay.node[6].veinsmobility accidentStart 30.6066s
-attr unit s
-par fourWay.node[6].veinsmobility accidentDuration "uniform(30s, 60s)"
-attr unit s
-par fourWay.node[6].veinsmobility accidentInterval "uniform(30s, 60s)"
-attr unit s
-scalar fourWay.node[6].veinsmobility startTime 0.1
-scalar fourWay.node[6].veinsmobility totalTime 10.2
-scalar fourWay.node[6].veinsmobility stopTime 10.35
-scalar fourWay.node[6].veinsmobility minSpeed 0
-scalar fourWay.node[6].veinsmobility maxSpeed 5.8121980286086
-scalar fourWay.node[6].veinsmobility totalDistance 5.4994929440566
-scalar fourWay.node[6].veinsmobility totalCO2Emission 10.258968126902
-par fourWay.node[6] typename "\"org.car2x.veins.nodes.Car\""
-par fourWay.node[6] applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[6] nicType "\"Nic80211p\""
-par fourWay.node[6] veinsmobilityType "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[7].appl typename "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[7].appl headerLength 80bit
-attr unit bit
-par fourWay.node[7].appl sendBeacons false
-par fourWay.node[7].appl beaconLengthBits 256bit
-attr unit bit
-par fourWay.node[7].appl beaconUserPriority 7
-par fourWay.node[7].appl beaconInterval 1s
-attr unit s
-par fourWay.node[7].appl dataLengthBits 1024bit
-attr unit bit
-par fourWay.node[7].appl dataOnSch false
-par fourWay.node[7].appl dataUserPriority 7
-par fourWay.node[7].appl avoidBeaconSynchronization true
-par fourWay.node[7].appl sendWSA false
-par fourWay.node[7].appl wsaLengthBits 250bit
-attr unit bit
-par fourWay.node[7].appl wsaInterval 1s
-attr unit s
-par fourWay.node[7].appl replicaId 7
-par fourWay.node[7].appl triggerJoinTime 1s
-attr unit s
-par fourWay.node[7].appl serviceChannel 2
-par fourWay.node[7].appl intersectionX 300m
-attr unit m
-par fourWay.node[7].appl intersectionY 300m
-attr unit m
-par fourWay.node[7].appl stopDistance 100m
-attr unit m
-par fourWay.node[7].appl intersectionWidth 15m
-attr unit m
-par fourWay.node[7].appl avgSpeed 14mps
-attr unit mps
-par fourWay.node[7].appl safetyGap 1.5s
-attr unit s
-par fourWay.node[7].appl consensusTimeoutSec 120s
-attr unit s
-scalar fourWay.node[7].appl generatedWSMs 0
-scalar fourWay.node[7].appl receivedWSMs 0
-scalar fourWay.node[7].appl generatedBSMs 0
-scalar fourWay.node[7].appl receivedBSMs 0
-scalar fourWay.node[7].appl generatedWSAs 0
-scalar fourWay.node[7].appl receivedWSAs 0
-scalar fourWay.node[7].appl bftMsgReceived:count 83
-attr recordingmode count
-attr source bftMsgReceived
-attr title "BFT messages received, count"
-scalar fourWay.node[7].appl bftMsgSent:count 51
-attr recordingmode count
-attr source bftMsgSent
-attr title "BFT messages sent, count"
-par fourWay.node[7].nic.phy80211p typename "\"org.car2x.veins.modules.phy.PhyLayer80211p\""
-par fourWay.node[7].nic.phy80211p recordStats false
-par fourWay.node[7].nic.phy80211p usePropagationDelay true
-par fourWay.node[7].nic.phy80211p noiseFloor -98dBm
-attr unit dBm
-par fourWay.node[7].nic.phy80211p useNoiseFloor true
-par fourWay.node[7].nic.phy80211p antenna "<Antenna type=\"SampledAntenna1D\" id=\"monopole\">...</Antenna> at /home/yash/omnetpp/fourway//antenna.xml:35"
-par fourWay.node[7].nic.phy80211p antennaOffsetX 0m
-attr unit m
-par fourWay.node[7].nic.phy80211p antennaOffsetY 1.895m
-attr unit m
-par fourWay.node[7].nic.phy80211p antennaOffsetZ 1.895m
-attr unit m
-par fourWay.node[7].nic.phy80211p antennaOffsetYaw 0rad
-attr unit rad
-par fourWay.node[7].nic.phy80211p analogueModels "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[7].nic.phy80211p decider "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[7].nic.phy80211p minPowerLevel -110dBm
-attr unit dBm
-par fourWay.node[7].nic.phy80211p timeRXToTX 0s
-attr unit s
-par fourWay.node[7].nic.phy80211p timeRXToSleep 0s
-attr unit s
-par fourWay.node[7].nic.phy80211p timeTXToRX 0s
-attr unit s
-par fourWay.node[7].nic.phy80211p timeTXToSleep 0s
-attr unit s
-par fourWay.node[7].nic.phy80211p timeSleepToRX 0s
-attr unit s
-par fourWay.node[7].nic.phy80211p timeSleepToTX 0s
-attr unit s
-par fourWay.node[7].nic.phy80211p initialRadioState 0
-par fourWay.node[7].nic.phy80211p radioMinAtt 1
-par fourWay.node[7].nic.phy80211p radioMaxAtt 0
-par fourWay.node[7].nic.phy80211p nbRadioChannels 1
-par fourWay.node[7].nic.phy80211p initialRadioChannel 0
-par fourWay.node[7].nic.phy80211p ccaThreshold -90dBm
-attr unit dBm
-par fourWay.node[7].nic.phy80211p collectCollisionStatistics true
-par fourWay.node[7].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[7].nic.phy80211p busyTime 0.082965853658536
-scalar fourWay.node[7].nic.phy80211p ncollisions 93
-par fourWay.node[7].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
-par fourWay.node[7].nic.mac1609_4 notAffectedByHostState false
-par fourWay.node[7].nic.mac1609_4 headerLength 0bit
-attr unit bit
-par fourWay.node[7].nic.mac1609_4 address "\"auto\""
-par fourWay.node[7].nic.mac1609_4 useServiceChannel false
-par fourWay.node[7].nic.mac1609_4 serviceChannel 1
-par fourWay.node[7].nic.mac1609_4 bitrate 6000000bps
-attr unit bps
-par fourWay.node[7].nic.mac1609_4 syncOffset 0.0003s
-attr unit s
-par fourWay.node[7].nic.mac1609_4 txPower 20mW
-attr unit mW
-par fourWay.node[7].nic.mac1609_4 queueSize 0
-par fourWay.node[7].nic.mac1609_4 dot11RTSThreshold 12000bit
-attr unit bit
-par fourWay.node[7].nic.mac1609_4 dot11ShortRetryLimit 7
-par fourWay.node[7].nic.mac1609_4 dot11LongRetryLimit 4
-par fourWay.node[7].nic.mac1609_4 ackLength 112bit
-attr unit bit
-par fourWay.node[7].nic.mac1609_4 useAcks false
-par fourWay.node[7].nic.mac1609_4 frameErrorRate 0
-par fourWay.node[7].nic.mac1609_4 ackErrorRate 0
-scalar fourWay.node[7].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[7].nic.mac1609_4 ReceivedBroadcasts 83
-scalar fourWay.node[7].nic.mac1609_4 SentPackets 51
-scalar fourWay.node[7].nic.mac1609_4 SentAcknowledgements 0
-scalar fourWay.node[7].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[7].nic.mac1609_4 SNIRLostPackets 496
-scalar fourWay.node[7].nic.mac1609_4 RXTXLostPackets 184
-scalar fourWay.node[7].nic.mac1609_4 TotalLostPackets 680
-scalar fourWay.node[7].nic.mac1609_4 DroppedPacketsInMac 0
-scalar fourWay.node[7].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[7].nic.mac1609_4 TimesIntoBackoff 69
-scalar fourWay.node[7].nic.mac1609_4 SlotsBackoff 100
-scalar fourWay.node[7].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[7].nic.mac1609_4 totalBusyTime 0.355582145774
-scalar fourWay.node[7].nic.mac1609_4 retriesExceeded:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigRetriesExceeded
-scalar fourWay.node[7].nic.mac1609_4 sentAcks:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentAck
-scalar fourWay.node[7].nic.mac1609_4 sentPackets:count 51
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[7].nic.mac1609_4 collisions:count 93
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[7].nic.mac1609_4 channelBusy:timeavg 0.034690941051122
-attr recordingmode timeavg
-attr source org_car2x_veins_modules_mac_sigChannelBusy
-par fourWay.node[7].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
-par fourWay.node[7].nic connectionManagerName "\"connectionManager\""
-par fourWay.node[7].veinsmobility typename "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[7].veinsmobility notAffectedByHostState true
-par fourWay.node[7].veinsmobility x 0
-par fourWay.node[7].veinsmobility y 0
-par fourWay.node[7].veinsmobility z 0
-par fourWay.node[7].veinsmobility xOrientation 1
-par fourWay.node[7].veinsmobility yOrientation 0
-par fourWay.node[7].veinsmobility zOrientation 0
-par fourWay.node[7].veinsmobility hostPositionOffset 0m
-attr unit m
-par fourWay.node[7].veinsmobility setHostSpeed false
-par fourWay.node[7].veinsmobility accidentCount 0
-par fourWay.node[7].veinsmobility accidentStart 34.2105s
-attr unit s
-par fourWay.node[7].veinsmobility accidentDuration "uniform(30s, 60s)"
-attr unit s
-par fourWay.node[7].veinsmobility accidentInterval "uniform(30s, 60s)"
-attr unit s
-scalar fourWay.node[7].veinsmobility startTime 0.1
-scalar fourWay.node[7].veinsmobility totalTime 10.2
-scalar fourWay.node[7].veinsmobility stopTime 10.35
-scalar fourWay.node[7].veinsmobility minSpeed 0
-scalar fourWay.node[7].veinsmobility maxSpeed 4.5254708374403
-scalar fourWay.node[7].veinsmobility totalDistance 3.5809079310884
-scalar fourWay.node[7].veinsmobility totalCO2Emission 10.34678454589
-par fourWay.node[7] typename "\"org.car2x.veins.nodes.Car\""
-par fourWay.node[7] applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[7] nicType "\"Nic80211p\""
-par fourWay.node[7] veinsmobilityType "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[8].appl typename "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[8].appl headerLength 80bit
-attr unit bit
-par fourWay.node[8].appl sendBeacons false
-par fourWay.node[8].appl beaconLengthBits 256bit
-attr unit bit
-par fourWay.node[8].appl beaconUserPriority 7
-par fourWay.node[8].appl beaconInterval 1s
-attr unit s
-par fourWay.node[8].appl dataLengthBits 1024bit
-attr unit bit
-par fourWay.node[8].appl dataOnSch false
-par fourWay.node[8].appl dataUserPriority 7
-par fourWay.node[8].appl avoidBeaconSynchronization true
-par fourWay.node[8].appl sendWSA false
-par fourWay.node[8].appl wsaLengthBits 250bit
-attr unit bit
-par fourWay.node[8].appl wsaInterval 1s
-attr unit s
-par fourWay.node[8].appl replicaId 8
-par fourWay.node[8].appl triggerJoinTime 1s
-attr unit s
-par fourWay.node[8].appl serviceChannel 2
-par fourWay.node[8].appl intersectionX 300m
-attr unit m
-par fourWay.node[8].appl intersectionY 300m
-attr unit m
-par fourWay.node[8].appl stopDistance 100m
-attr unit m
-par fourWay.node[8].appl intersectionWidth 15m
-attr unit m
-par fourWay.node[8].appl avgSpeed 14mps
-attr unit mps
-par fourWay.node[8].appl safetyGap 1.5s
-attr unit s
-par fourWay.node[8].appl consensusTimeoutSec 120s
-attr unit s
-scalar fourWay.node[8].appl generatedWSMs 0
-scalar fourWay.node[8].appl receivedWSMs 0
-scalar fourWay.node[8].appl generatedBSMs 0
-scalar fourWay.node[8].appl receivedBSMs 0
-scalar fourWay.node[8].appl generatedWSAs 0
-scalar fourWay.node[8].appl receivedWSAs 0
-scalar fourWay.node[8].appl bftMsgReceived:count 69
-attr recordingmode count
-attr source bftMsgReceived
-attr title "BFT messages received, count"
-scalar fourWay.node[8].appl bftMsgSent:count 51
-attr recordingmode count
-attr source bftMsgSent
-attr title "BFT messages sent, count"
-par fourWay.node[8].nic.phy80211p typename "\"org.car2x.veins.modules.phy.PhyLayer80211p\""
-par fourWay.node[8].nic.phy80211p recordStats false
-par fourWay.node[8].nic.phy80211p usePropagationDelay true
-par fourWay.node[8].nic.phy80211p noiseFloor -98dBm
-attr unit dBm
-par fourWay.node[8].nic.phy80211p useNoiseFloor true
-par fourWay.node[8].nic.phy80211p antenna "<Antenna type=\"SampledAntenna1D\" id=\"monopole\">...</Antenna> at /home/yash/omnetpp/fourway//antenna.xml:35"
-par fourWay.node[8].nic.phy80211p antennaOffsetX 0m
-attr unit m
-par fourWay.node[8].nic.phy80211p antennaOffsetY 1.895m
-attr unit m
-par fourWay.node[8].nic.phy80211p antennaOffsetZ 1.895m
-attr unit m
-par fourWay.node[8].nic.phy80211p antennaOffsetYaw 0rad
-attr unit rad
-par fourWay.node[8].nic.phy80211p analogueModels "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[8].nic.phy80211p decider "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[8].nic.phy80211p minPowerLevel -110dBm
-attr unit dBm
-par fourWay.node[8].nic.phy80211p timeRXToTX 0s
-attr unit s
-par fourWay.node[8].nic.phy80211p timeRXToSleep 0s
-attr unit s
-par fourWay.node[8].nic.phy80211p timeTXToRX 0s
-attr unit s
-par fourWay.node[8].nic.phy80211p timeTXToSleep 0s
-attr unit s
-par fourWay.node[8].nic.phy80211p timeSleepToRX 0s
-attr unit s
-par fourWay.node[8].nic.phy80211p timeSleepToTX 0s
-attr unit s
-par fourWay.node[8].nic.phy80211p initialRadioState 0
-par fourWay.node[8].nic.phy80211p radioMinAtt 1
-par fourWay.node[8].nic.phy80211p radioMaxAtt 0
-par fourWay.node[8].nic.phy80211p nbRadioChannels 1
-par fourWay.node[8].nic.phy80211p initialRadioChannel 0
-par fourWay.node[8].nic.phy80211p ccaThreshold -90dBm
-attr unit dBm
-par fourWay.node[8].nic.phy80211p collectCollisionStatistics true
-par fourWay.node[8].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[8].nic.phy80211p busyTime 0.079525463414634
-scalar fourWay.node[8].nic.phy80211p ncollisions 107
-par fourWay.node[8].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
-par fourWay.node[8].nic.mac1609_4 notAffectedByHostState false
-par fourWay.node[8].nic.mac1609_4 headerLength 0bit
-attr unit bit
-par fourWay.node[8].nic.mac1609_4 address "\"auto\""
-par fourWay.node[8].nic.mac1609_4 useServiceChannel false
-par fourWay.node[8].nic.mac1609_4 serviceChannel 1
-par fourWay.node[8].nic.mac1609_4 bitrate 6000000bps
-attr unit bps
-par fourWay.node[8].nic.mac1609_4 syncOffset 0.0003s
-attr unit s
-par fourWay.node[8].nic.mac1609_4 txPower 20mW
-attr unit mW
-par fourWay.node[8].nic.mac1609_4 queueSize 0
-par fourWay.node[8].nic.mac1609_4 dot11RTSThreshold 12000bit
-attr unit bit
-par fourWay.node[8].nic.mac1609_4 dot11ShortRetryLimit 7
-par fourWay.node[8].nic.mac1609_4 dot11LongRetryLimit 4
-par fourWay.node[8].nic.mac1609_4 ackLength 112bit
-attr unit bit
-par fourWay.node[8].nic.mac1609_4 useAcks false
-par fourWay.node[8].nic.mac1609_4 frameErrorRate 0
-par fourWay.node[8].nic.mac1609_4 ackErrorRate 0
-scalar fourWay.node[8].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[8].nic.mac1609_4 ReceivedBroadcasts 69
-scalar fourWay.node[8].nic.mac1609_4 SentPackets 51
-scalar fourWay.node[8].nic.mac1609_4 SentAcknowledgements 0
-scalar fourWay.node[8].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[8].nic.mac1609_4 SNIRLostPackets 485
-scalar fourWay.node[8].nic.mac1609_4 RXTXLostPackets 209
-scalar fourWay.node[8].nic.mac1609_4 TotalLostPackets 694
-scalar fourWay.node[8].nic.mac1609_4 DroppedPacketsInMac 0
-scalar fourWay.node[8].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[8].nic.mac1609_4 TimesIntoBackoff 72
-scalar fourWay.node[8].nic.mac1609_4 SlotsBackoff 84
-scalar fourWay.node[8].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[8].nic.mac1609_4 totalBusyTime 0.35558070059
-scalar fourWay.node[8].nic.mac1609_4 retriesExceeded:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigRetriesExceeded
-scalar fourWay.node[8].nic.mac1609_4 sentAcks:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentAck
-scalar fourWay.node[8].nic.mac1609_4 sentPackets:count 51
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[8].nic.mac1609_4 collisions:count 107
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[8].nic.mac1609_4 channelBusy:timeavg 0.034690800057561
-attr recordingmode timeavg
-attr source org_car2x_veins_modules_mac_sigChannelBusy
-par fourWay.node[8].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
-par fourWay.node[8].nic connectionManagerName "\"connectionManager\""
-par fourWay.node[8].veinsmobility typename "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[8].veinsmobility notAffectedByHostState true
-par fourWay.node[8].veinsmobility x 0
-par fourWay.node[8].veinsmobility y 0
-par fourWay.node[8].veinsmobility z 0
-par fourWay.node[8].veinsmobility xOrientation 1
-par fourWay.node[8].veinsmobility yOrientation 0
-par fourWay.node[8].veinsmobility zOrientation 0
-par fourWay.node[8].veinsmobility hostPositionOffset 0m
-attr unit m
-par fourWay.node[8].veinsmobility setHostSpeed false
-par fourWay.node[8].veinsmobility accidentCount 0
-par fourWay.node[8].veinsmobility accidentStart 53.9748s
-attr unit s
-par fourWay.node[8].veinsmobility accidentDuration "uniform(30s, 60s)"
-attr unit s
-par fourWay.node[8].veinsmobility accidentInterval "uniform(30s, 60s)"
-attr unit s
-scalar fourWay.node[8].veinsmobility startTime 0.1
-scalar fourWay.node[8].veinsmobility totalTime 10.2
-scalar fourWay.node[8].veinsmobility stopTime 10.35
-scalar fourWay.node[8].veinsmobility minSpeed 0
-scalar fourWay.node[8].veinsmobility maxSpeed 8.3880462184874
-scalar fourWay.node[8].veinsmobility totalDistance 10.25341724215
-scalar fourWay.node[8].veinsmobility totalCO2Emission 10.463264863482
-par fourWay.node[8] typename "\"org.car2x.veins.nodes.Car\""
-par fourWay.node[8] applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[8] nicType "\"Nic80211p\""
-par fourWay.node[8] veinsmobilityType "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[9].appl typename "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[9].appl headerLength 80bit
-attr unit bit
-par fourWay.node[9].appl sendBeacons false
-par fourWay.node[9].appl beaconLengthBits 256bit
-attr unit bit
-par fourWay.node[9].appl beaconUserPriority 7
-par fourWay.node[9].appl beaconInterval 1s
-attr unit s
-par fourWay.node[9].appl dataLengthBits 1024bit
-attr unit bit
-par fourWay.node[9].appl dataOnSch false
-par fourWay.node[9].appl dataUserPriority 7
-par fourWay.node[9].appl avoidBeaconSynchronization true
-par fourWay.node[9].appl sendWSA false
-par fourWay.node[9].appl wsaLengthBits 250bit
-attr unit bit
-par fourWay.node[9].appl wsaInterval 1s
-attr unit s
-par fourWay.node[9].appl replicaId 9
-par fourWay.node[9].appl triggerJoinTime 1s
-attr unit s
-par fourWay.node[9].appl serviceChannel 2
-par fourWay.node[9].appl intersectionX 300m
-attr unit m
-par fourWay.node[9].appl intersectionY 300m
-attr unit m
-par fourWay.node[9].appl stopDistance 100m
-attr unit m
-par fourWay.node[9].appl intersectionWidth 15m
-attr unit m
-par fourWay.node[9].appl avgSpeed 14mps
-attr unit mps
-par fourWay.node[9].appl safetyGap 1.5s
-attr unit s
-par fourWay.node[9].appl consensusTimeoutSec 120s
-attr unit s
-scalar fourWay.node[9].appl generatedWSMs 0
-scalar fourWay.node[9].appl receivedWSMs 0
-scalar fourWay.node[9].appl generatedBSMs 0
-scalar fourWay.node[9].appl receivedBSMs 0
-scalar fourWay.node[9].appl generatedWSAs 0
-scalar fourWay.node[9].appl receivedWSAs 0
-scalar fourWay.node[9].appl bftMsgReceived:count 75
-attr recordingmode count
-attr source bftMsgReceived
-attr title "BFT messages received, count"
-scalar fourWay.node[9].appl bftMsgSent:count 51
-attr recordingmode count
-attr source bftMsgSent
-attr title "BFT messages sent, count"
-par fourWay.node[9].nic.phy80211p typename "\"org.car2x.veins.modules.phy.PhyLayer80211p\""
-par fourWay.node[9].nic.phy80211p recordStats false
-par fourWay.node[9].nic.phy80211p usePropagationDelay true
-par fourWay.node[9].nic.phy80211p noiseFloor -98dBm
-attr unit dBm
-par fourWay.node[9].nic.phy80211p useNoiseFloor true
-par fourWay.node[9].nic.phy80211p antenna "<Antenna type=\"SampledAntenna1D\" id=\"monopole\">...</Antenna> at /home/yash/omnetpp/fourway//antenna.xml:35"
-par fourWay.node[9].nic.phy80211p antennaOffsetX 0m
-attr unit m
-par fourWay.node[9].nic.phy80211p antennaOffsetY 1.895m
-attr unit m
-par fourWay.node[9].nic.phy80211p antennaOffsetZ 1.895m
-attr unit m
-par fourWay.node[9].nic.phy80211p antennaOffsetYaw 0rad
-attr unit rad
-par fourWay.node[9].nic.phy80211p analogueModels "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[9].nic.phy80211p decider "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[9].nic.phy80211p minPowerLevel -110dBm
-attr unit dBm
-par fourWay.node[9].nic.phy80211p timeRXToTX 0s
-attr unit s
-par fourWay.node[9].nic.phy80211p timeRXToSleep 0s
-attr unit s
-par fourWay.node[9].nic.phy80211p timeTXToRX 0s
-attr unit s
-par fourWay.node[9].nic.phy80211p timeTXToSleep 0s
-attr unit s
-par fourWay.node[9].nic.phy80211p timeSleepToRX 0s
-attr unit s
-par fourWay.node[9].nic.phy80211p timeSleepToTX 0s
-attr unit s
-par fourWay.node[9].nic.phy80211p initialRadioState 0
-par fourWay.node[9].nic.phy80211p radioMinAtt 1
-par fourWay.node[9].nic.phy80211p radioMaxAtt 0
-par fourWay.node[9].nic.phy80211p nbRadioChannels 1
-par fourWay.node[9].nic.phy80211p initialRadioChannel 0
-par fourWay.node[9].nic.phy80211p ccaThreshold -90dBm
-attr unit dBm
-par fourWay.node[9].nic.phy80211p collectCollisionStatistics true
-par fourWay.node[9].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[9].nic.phy80211p busyTime 0.07747043902439
-scalar fourWay.node[9].nic.phy80211p ncollisions 101
-par fourWay.node[9].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
-par fourWay.node[9].nic.mac1609_4 notAffectedByHostState false
-par fourWay.node[9].nic.mac1609_4 headerLength 0bit
-attr unit bit
-par fourWay.node[9].nic.mac1609_4 address "\"auto\""
-par fourWay.node[9].nic.mac1609_4 useServiceChannel false
-par fourWay.node[9].nic.mac1609_4 serviceChannel 1
-par fourWay.node[9].nic.mac1609_4 bitrate 6000000bps
-attr unit bps
-par fourWay.node[9].nic.mac1609_4 syncOffset 0.0003s
-attr unit s
-par fourWay.node[9].nic.mac1609_4 txPower 20mW
-attr unit mW
-par fourWay.node[9].nic.mac1609_4 queueSize 0
-par fourWay.node[9].nic.mac1609_4 dot11RTSThreshold 12000bit
-attr unit bit
-par fourWay.node[9].nic.mac1609_4 dot11ShortRetryLimit 7
-par fourWay.node[9].nic.mac1609_4 dot11LongRetryLimit 4
-par fourWay.node[9].nic.mac1609_4 ackLength 112bit
-attr unit bit
-par fourWay.node[9].nic.mac1609_4 useAcks false
-par fourWay.node[9].nic.mac1609_4 frameErrorRate 0
-par fourWay.node[9].nic.mac1609_4 ackErrorRate 0
-scalar fourWay.node[9].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[9].nic.mac1609_4 ReceivedBroadcasts 75
-scalar fourWay.node[9].nic.mac1609_4 SentPackets 51
-scalar fourWay.node[9].nic.mac1609_4 SentAcknowledgements 0
-scalar fourWay.node[9].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[9].nic.mac1609_4 SNIRLostPackets 464
-scalar fourWay.node[9].nic.mac1609_4 RXTXLostPackets 224
-scalar fourWay.node[9].nic.mac1609_4 TotalLostPackets 688
-scalar fourWay.node[9].nic.mac1609_4 DroppedPacketsInMac 0
-scalar fourWay.node[9].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[9].nic.mac1609_4 TimesIntoBackoff 69
-scalar fourWay.node[9].nic.mac1609_4 SlotsBackoff 114
-scalar fourWay.node[9].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[9].nic.mac1609_4 totalBusyTime 0.355581067768
-scalar fourWay.node[9].nic.mac1609_4 retriesExceeded:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigRetriesExceeded
-scalar fourWay.node[9].nic.mac1609_4 sentAcks:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentAck
-scalar fourWay.node[9].nic.mac1609_4 sentPackets:count 51
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[9].nic.mac1609_4 collisions:count 101
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[9].nic.mac1609_4 channelBusy:timeavg 0.034690835879805
-attr recordingmode timeavg
-attr source org_car2x_veins_modules_mac_sigChannelBusy
-par fourWay.node[9].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
-par fourWay.node[9].nic connectionManagerName "\"connectionManager\""
-par fourWay.node[9].veinsmobility typename "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[9].veinsmobility notAffectedByHostState true
-par fourWay.node[9].veinsmobility x 0
-par fourWay.node[9].veinsmobility y 0
-par fourWay.node[9].veinsmobility z 0
-par fourWay.node[9].veinsmobility xOrientation 1
-par fourWay.node[9].veinsmobility yOrientation 0
-par fourWay.node[9].veinsmobility zOrientation 0
-par fourWay.node[9].veinsmobility hostPositionOffset 0m
-attr unit m
-par fourWay.node[9].veinsmobility setHostSpeed false
-par fourWay.node[9].veinsmobility accidentCount 0
-par fourWay.node[9].veinsmobility accidentStart 50.3664s
-attr unit s
-par fourWay.node[9].veinsmobility accidentDuration "uniform(30s, 60s)"
-attr unit s
-par fourWay.node[9].veinsmobility accidentInterval "uniform(30s, 60s)"
-attr unit s
-scalar fourWay.node[9].veinsmobility startTime 0.1
-scalar fourWay.node[9].veinsmobility totalTime 10.2
-scalar fourWay.node[9].veinsmobility stopTime 10.35
-scalar fourWay.node[9].veinsmobility minSpeed 0
-scalar fourWay.node[9].veinsmobility maxSpeed 6.331168980799
-scalar fourWay.node[9].veinsmobility totalDistance 6.3075662220918
-scalar fourWay.node[9].veinsmobility totalCO2Emission 10.527086621139
-par fourWay.node[9] typename "\"org.car2x.veins.nodes.Car\""
-par fourWay.node[9] applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[9] nicType "\"Nic80211p\""
-par fourWay.node[9] veinsmobilityType "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[10].appl typename "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[10].appl headerLength 80bit
-attr unit bit
-par fourWay.node[10].appl sendBeacons false
-par fourWay.node[10].appl beaconLengthBits 256bit
-attr unit bit
-par fourWay.node[10].appl beaconUserPriority 7
-par fourWay.node[10].appl beaconInterval 1s
-attr unit s
-par fourWay.node[10].appl dataLengthBits 1024bit
-attr unit bit
-par fourWay.node[10].appl dataOnSch false
-par fourWay.node[10].appl dataUserPriority 7
-par fourWay.node[10].appl avoidBeaconSynchronization true
-par fourWay.node[10].appl sendWSA false
-par fourWay.node[10].appl wsaLengthBits 250bit
-attr unit bit
-par fourWay.node[10].appl wsaInterval 1s
-attr unit s
-par fourWay.node[10].appl replicaId 10
-par fourWay.node[10].appl triggerJoinTime 1s
-attr unit s
-par fourWay.node[10].appl serviceChannel 2
-par fourWay.node[10].appl intersectionX 300m
-attr unit m
-par fourWay.node[10].appl intersectionY 300m
-attr unit m
-par fourWay.node[10].appl stopDistance 100m
-attr unit m
-par fourWay.node[10].appl intersectionWidth 15m
-attr unit m
-par fourWay.node[10].appl avgSpeed 14mps
-attr unit mps
-par fourWay.node[10].appl safetyGap 1.5s
-attr unit s
-par fourWay.node[10].appl consensusTimeoutSec 120s
-attr unit s
-scalar fourWay.node[10].appl generatedWSMs 0
-scalar fourWay.node[10].appl receivedWSMs 0
-scalar fourWay.node[10].appl generatedBSMs 0
-scalar fourWay.node[10].appl receivedBSMs 0
-scalar fourWay.node[10].appl generatedWSAs 0
-scalar fourWay.node[10].appl receivedWSAs 0
-scalar fourWay.node[10].appl bftMsgReceived:count 81
-attr recordingmode count
-attr source bftMsgReceived
-attr title "BFT messages received, count"
-scalar fourWay.node[10].appl bftMsgSent:count 50
-attr recordingmode count
-attr source bftMsgSent
-attr title "BFT messages sent, count"
-par fourWay.node[10].nic.phy80211p typename "\"org.car2x.veins.modules.phy.PhyLayer80211p\""
-par fourWay.node[10].nic.phy80211p recordStats false
-par fourWay.node[10].nic.phy80211p usePropagationDelay true
-par fourWay.node[10].nic.phy80211p noiseFloor -98dBm
-attr unit dBm
-par fourWay.node[10].nic.phy80211p useNoiseFloor true
-par fourWay.node[10].nic.phy80211p antenna "<Antenna type=\"SampledAntenna1D\" id=\"monopole\">...</Antenna> at /home/yash/omnetpp/fourway//antenna.xml:35"
-par fourWay.node[10].nic.phy80211p antennaOffsetX 0m
-attr unit m
-par fourWay.node[10].nic.phy80211p antennaOffsetY 1.895m
-attr unit m
-par fourWay.node[10].nic.phy80211p antennaOffsetZ 1.895m
-attr unit m
-par fourWay.node[10].nic.phy80211p antennaOffsetYaw 0rad
-attr unit rad
-par fourWay.node[10].nic.phy80211p analogueModels "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[10].nic.phy80211p decider "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[10].nic.phy80211p minPowerLevel -110dBm
-attr unit dBm
-par fourWay.node[10].nic.phy80211p timeRXToTX 0s
-attr unit s
-par fourWay.node[10].nic.phy80211p timeRXToSleep 0s
-attr unit s
-par fourWay.node[10].nic.phy80211p timeTXToRX 0s
-attr unit s
-par fourWay.node[10].nic.phy80211p timeTXToSleep 0s
-attr unit s
-par fourWay.node[10].nic.phy80211p timeSleepToRX 0s
-attr unit s
-par fourWay.node[10].nic.phy80211p timeSleepToTX 0s
-attr unit s
-par fourWay.node[10].nic.phy80211p initialRadioState 0
-par fourWay.node[10].nic.phy80211p radioMinAtt 1
-par fourWay.node[10].nic.phy80211p radioMaxAtt 0
-par fourWay.node[10].nic.phy80211p nbRadioChannels 1
-par fourWay.node[10].nic.phy80211p initialRadioChannel 0
-par fourWay.node[10].nic.phy80211p ccaThreshold -90dBm
-attr unit dBm
-par fourWay.node[10].nic.phy80211p collectCollisionStatistics true
-par fourWay.node[10].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[10].nic.phy80211p busyTime 0.078997073170732
-scalar fourWay.node[10].nic.phy80211p ncollisions 96
-par fourWay.node[10].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
-par fourWay.node[10].nic.mac1609_4 notAffectedByHostState false
-par fourWay.node[10].nic.mac1609_4 headerLength 0bit
-attr unit bit
-par fourWay.node[10].nic.mac1609_4 address "\"auto\""
-par fourWay.node[10].nic.mac1609_4 useServiceChannel false
-par fourWay.node[10].nic.mac1609_4 serviceChannel 1
-par fourWay.node[10].nic.mac1609_4 bitrate 6000000bps
-attr unit bps
-par fourWay.node[10].nic.mac1609_4 syncOffset 0.0003s
-attr unit s
-par fourWay.node[10].nic.mac1609_4 txPower 20mW
-attr unit mW
-par fourWay.node[10].nic.mac1609_4 queueSize 0
-par fourWay.node[10].nic.mac1609_4 dot11RTSThreshold 12000bit
-attr unit bit
-par fourWay.node[10].nic.mac1609_4 dot11ShortRetryLimit 7
-par fourWay.node[10].nic.mac1609_4 dot11LongRetryLimit 4
-par fourWay.node[10].nic.mac1609_4 ackLength 112bit
-attr unit bit
-par fourWay.node[10].nic.mac1609_4 useAcks false
-par fourWay.node[10].nic.mac1609_4 frameErrorRate 0
-par fourWay.node[10].nic.mac1609_4 ackErrorRate 0
-scalar fourWay.node[10].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[10].nic.mac1609_4 ReceivedBroadcasts 81
-scalar fourWay.node[10].nic.mac1609_4 SentPackets 50
-scalar fourWay.node[10].nic.mac1609_4 SentAcknowledgements 0
-scalar fourWay.node[10].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[10].nic.mac1609_4 SNIRLostPackets 471
-scalar fourWay.node[10].nic.mac1609_4 RXTXLostPackets 212
-scalar fourWay.node[10].nic.mac1609_4 TotalLostPackets 683
-scalar fourWay.node[10].nic.mac1609_4 DroppedPacketsInMac 0
-scalar fourWay.node[10].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[10].nic.mac1609_4 TimesIntoBackoff 70
-scalar fourWay.node[10].nic.mac1609_4 SlotsBackoff 106
-scalar fourWay.node[10].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[10].nic.mac1609_4 totalBusyTime 0.355580281738
-scalar fourWay.node[10].nic.mac1609_4 retriesExceeded:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigRetriesExceeded
-scalar fourWay.node[10].nic.mac1609_4 sentAcks:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentAck
-scalar fourWay.node[10].nic.mac1609_4 sentPackets:count 50
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[10].nic.mac1609_4 collisions:count 96
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[10].nic.mac1609_4 channelBusy:timeavg 0.034690759193951
-attr recordingmode timeavg
-attr source org_car2x_veins_modules_mac_sigChannelBusy
-par fourWay.node[10].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
-par fourWay.node[10].nic connectionManagerName "\"connectionManager\""
-par fourWay.node[10].veinsmobility typename "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[10].veinsmobility notAffectedByHostState true
-par fourWay.node[10].veinsmobility x 0
-par fourWay.node[10].veinsmobility y 0
-par fourWay.node[10].veinsmobility z 0
-par fourWay.node[10].veinsmobility xOrientation 1
-par fourWay.node[10].veinsmobility yOrientation 0
-par fourWay.node[10].veinsmobility zOrientation 0
-par fourWay.node[10].veinsmobility hostPositionOffset 0m
-attr unit m
-par fourWay.node[10].veinsmobility setHostSpeed false
-par fourWay.node[10].veinsmobility accidentCount 0
-par fourWay.node[10].veinsmobility accidentStart 34.3006s
-attr unit s
-par fourWay.node[10].veinsmobility accidentDuration "uniform(30s, 60s)"
-attr unit s
-par fourWay.node[10].veinsmobility accidentInterval "uniform(30s, 60s)"
-attr unit s
-scalar fourWay.node[10].veinsmobility startTime 0.1
-scalar fourWay.node[10].veinsmobility totalTime 10.2
-scalar fourWay.node[10].veinsmobility stopTime 10.35
-scalar fourWay.node[10].veinsmobility minSpeed 0
-scalar fourWay.node[10].veinsmobility maxSpeed 12.27509
-scalar fourWay.node[10].veinsmobility totalDistance 20.375776457313
-scalar fourWay.node[10].veinsmobility totalCO2Emission 10.716414340481
-par fourWay.node[10] typename "\"org.car2x.veins.nodes.Car\""
-par fourWay.node[10] applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[10] nicType "\"Nic80211p\""
-par fourWay.node[10] veinsmobilityType "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
 par fourWay.node[11].appl typename "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
 par fourWay.node[11].appl headerLength 80bit
 attr unit bit
@@ -2172,7 +1419,7 @@ par fourWay.node[11].appl intersectionX 300m
 attr unit m
 par fourWay.node[11].appl intersectionY 300m
 attr unit m
-par fourWay.node[11].appl stopDistance 100m
+par fourWay.node[11].appl stopDistance 200m
 attr unit m
 par fourWay.node[11].appl intersectionWidth 15m
 attr unit m
@@ -2182,17 +1429,45 @@ par fourWay.node[11].appl safetyGap 1.5s
 attr unit s
 par fourWay.node[11].appl consensusTimeoutSec 120s
 attr unit s
+par fourWay.node[11].appl orderDelayGap 0s
+attr unit s
+par fourWay.node[11].appl viewJitterMin 0.001s
+attr unit s
+par fourWay.node[11].appl viewJitterMax 0.005s
+attr unit s
+par fourWay.node[11].appl viewAgreementSlotSec 0.025s
+attr unit s
+par fourWay.node[11].appl ackJitterMin 0.001s
+attr unit s
+par fourWay.node[11].appl ackJitterMax 0.01s
+attr unit s
+par fourWay.node[11].appl witnessSlotSec 0.002s
+attr unit s
+par fourWay.node[11].appl broadcastSlotSec 0.005s
+attr unit s
+par fourWay.node[11].appl arrivalSlotSec 0.025s
+attr unit s
+par fourWay.node[11].appl broadcastJitterMin 0.0001s
+attr unit s
+par fourWay.node[11].appl broadcastJitterMax 0.001s
+attr unit s
+par fourWay.node[11].appl orderCollectMinSec 4s
+attr unit s
+par fourWay.node[11].appl orderCollectPerReplicaSec 0.08s
+attr unit s
+par fourWay.node[11].appl orderCollectMaxSec 5s
+attr unit s
 scalar fourWay.node[11].appl generatedWSMs 0
 scalar fourWay.node[11].appl receivedWSMs 0
 scalar fourWay.node[11].appl generatedBSMs 0
 scalar fourWay.node[11].appl receivedBSMs 0
 scalar fourWay.node[11].appl generatedWSAs 0
 scalar fourWay.node[11].appl receivedWSAs 0
-scalar fourWay.node[11].appl bftMsgReceived:count 68
+scalar fourWay.node[11].appl bftMsgReceived:count 454
 attr recordingmode count
 attr source bftMsgReceived
 attr title "BFT messages received, count"
-scalar fourWay.node[11].appl bftMsgSent:count 49
+scalar fourWay.node[11].appl bftMsgSent:count 122
 attr recordingmode count
 attr source bftMsgSent
 attr title "BFT messages sent, count"
@@ -2236,8 +1511,8 @@ par fourWay.node[11].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[11].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[11].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[11].nic.phy80211p busyTime 0.079315512195122
-scalar fourWay.node[11].nic.phy80211p ncollisions 110
+scalar fourWay.node[11].nic.phy80211p busyTime 0.10229417721519
+scalar fourWay.node[11].nic.phy80211p ncollisions 132
 par fourWay.node[11].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[11].nic.mac1609_4 notAffectedByHostState false
 par fourWay.node[11].nic.mac1609_4 headerLength 0bit
@@ -2251,7 +1526,7 @@ par fourWay.node[11].nic.mac1609_4 syncOffset 0.0003s
 attr unit s
 par fourWay.node[11].nic.mac1609_4 txPower 20mW
 attr unit mW
-par fourWay.node[11].nic.mac1609_4 queueSize 0
+par fourWay.node[11].nic.mac1609_4 queueSize 1024
 par fourWay.node[11].nic.mac1609_4 dot11RTSThreshold 12000bit
 attr unit bit
 par fourWay.node[11].nic.mac1609_4 dot11ShortRetryLimit 7
@@ -2262,32 +1537,32 @@ par fourWay.node[11].nic.mac1609_4 useAcks false
 par fourWay.node[11].nic.mac1609_4 frameErrorRate 0
 par fourWay.node[11].nic.mac1609_4 ackErrorRate 0
 scalar fourWay.node[11].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[11].nic.mac1609_4 ReceivedBroadcasts 68
-scalar fourWay.node[11].nic.mac1609_4 SentPackets 49
+scalar fourWay.node[11].nic.mac1609_4 ReceivedBroadcasts 1802
+scalar fourWay.node[11].nic.mac1609_4 SentPackets 122
 scalar fourWay.node[11].nic.mac1609_4 SentAcknowledgements 0
 scalar fourWay.node[11].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[11].nic.mac1609_4 SNIRLostPackets 485
-scalar fourWay.node[11].nic.mac1609_4 RXTXLostPackets 212
-scalar fourWay.node[11].nic.mac1609_4 TotalLostPackets 697
+scalar fourWay.node[11].nic.mac1609_4 SNIRLostPackets 351
+scalar fourWay.node[11].nic.mac1609_4 RXTXLostPackets 66
+scalar fourWay.node[11].nic.mac1609_4 TotalLostPackets 417
 scalar fourWay.node[11].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.node[11].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[11].nic.mac1609_4 TimesIntoBackoff 66
-scalar fourWay.node[11].nic.mac1609_4 SlotsBackoff 106
+scalar fourWay.node[11].nic.mac1609_4 TimesIntoBackoff 162
+scalar fourWay.node[11].nic.mac1609_4 SlotsBackoff 250
 scalar fourWay.node[11].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[11].nic.mac1609_4 totalBusyTime 0.35557885566
+scalar fourWay.node[11].nic.mac1609_4 totalBusyTime 1.533195134601
 scalar fourWay.node[11].nic.mac1609_4 retriesExceeded:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigRetriesExceeded
 scalar fourWay.node[11].nic.mac1609_4 sentAcks:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentAck
-scalar fourWay.node[11].nic.mac1609_4 sentPackets:count 49
+scalar fourWay.node[11].nic.mac1609_4 sentPackets:count 122
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[11].nic.mac1609_4 collisions:count 110
+scalar fourWay.node[11].nic.mac1609_4 collisions:count 132
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[11].nic.mac1609_4 channelBusy:timeavg 0.03469062006439
+scalar fourWay.node[11].nic.mac1609_4 channelBusy:timeavg 0.097037666746899
 attr recordingmode timeavg
 attr source org_car2x_veins_modules_mac_sigChannelBusy
 par fourWay.node[11].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
@@ -2304,551 +1579,23 @@ par fourWay.node[11].veinsmobility hostPositionOffset 0m
 attr unit m
 par fourWay.node[11].veinsmobility setHostSpeed false
 par fourWay.node[11].veinsmobility accidentCount 0
-par fourWay.node[11].veinsmobility accidentStart 33.1772s
+par fourWay.node[11].veinsmobility accidentStart 47.1059s
 attr unit s
 par fourWay.node[11].veinsmobility accidentDuration "uniform(30s, 60s)"
 attr unit s
 par fourWay.node[11].veinsmobility accidentInterval "uniform(30s, 60s)"
 attr unit s
-scalar fourWay.node[11].veinsmobility startTime 0.1
-scalar fourWay.node[11].veinsmobility totalTime 10.2
-scalar fourWay.node[11].veinsmobility stopTime 10.35
-scalar fourWay.node[11].veinsmobility minSpeed 0
-scalar fourWay.node[11].veinsmobility maxSpeed 9.5498971045855
-scalar fourWay.node[11].veinsmobility totalDistance 12.99520950964
-scalar fourWay.node[11].veinsmobility totalCO2Emission 10.688692264262
+scalar fourWay.node[11].veinsmobility startTime 0.3
+scalar fourWay.node[11].veinsmobility totalTime 15.7
+scalar fourWay.node[11].veinsmobility stopTime 16.1
+scalar fourWay.node[11].veinsmobility minSpeed 0.00027240476970536
+scalar fourWay.node[11].veinsmobility maxSpeed 30
+scalar fourWay.node[11].veinsmobility totalDistance 327.79899736481
+scalar fourWay.node[11].veinsmobility totalCO2Emission 278.05056957791
 par fourWay.node[11] typename "\"org.car2x.veins.nodes.Car\""
 par fourWay.node[11] applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
 par fourWay.node[11] nicType "\"Nic80211p\""
 par fourWay.node[11] veinsmobilityType "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[12].appl typename "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[12].appl headerLength 80bit
-attr unit bit
-par fourWay.node[12].appl sendBeacons false
-par fourWay.node[12].appl beaconLengthBits 256bit
-attr unit bit
-par fourWay.node[12].appl beaconUserPriority 7
-par fourWay.node[12].appl beaconInterval 1s
-attr unit s
-par fourWay.node[12].appl dataLengthBits 1024bit
-attr unit bit
-par fourWay.node[12].appl dataOnSch false
-par fourWay.node[12].appl dataUserPriority 7
-par fourWay.node[12].appl avoidBeaconSynchronization true
-par fourWay.node[12].appl sendWSA false
-par fourWay.node[12].appl wsaLengthBits 250bit
-attr unit bit
-par fourWay.node[12].appl wsaInterval 1s
-attr unit s
-par fourWay.node[12].appl replicaId 12
-par fourWay.node[12].appl triggerJoinTime 1s
-attr unit s
-par fourWay.node[12].appl serviceChannel 2
-par fourWay.node[12].appl intersectionX 300m
-attr unit m
-par fourWay.node[12].appl intersectionY 300m
-attr unit m
-par fourWay.node[12].appl stopDistance 100m
-attr unit m
-par fourWay.node[12].appl intersectionWidth 15m
-attr unit m
-par fourWay.node[12].appl avgSpeed 14mps
-attr unit mps
-par fourWay.node[12].appl safetyGap 1.5s
-attr unit s
-par fourWay.node[12].appl consensusTimeoutSec 120s
-attr unit s
-scalar fourWay.node[12].appl generatedWSMs 0
-scalar fourWay.node[12].appl receivedWSMs 0
-scalar fourWay.node[12].appl generatedBSMs 0
-scalar fourWay.node[12].appl receivedBSMs 0
-scalar fourWay.node[12].appl generatedWSAs 0
-scalar fourWay.node[12].appl receivedWSAs 0
-scalar fourWay.node[12].appl bftMsgReceived:count 77
-attr recordingmode count
-attr source bftMsgReceived
-attr title "BFT messages received, count"
-scalar fourWay.node[12].appl bftMsgSent:count 48
-attr recordingmode count
-attr source bftMsgSent
-attr title "BFT messages sent, count"
-par fourWay.node[12].nic.phy80211p typename "\"org.car2x.veins.modules.phy.PhyLayer80211p\""
-par fourWay.node[12].nic.phy80211p recordStats false
-par fourWay.node[12].nic.phy80211p usePropagationDelay true
-par fourWay.node[12].nic.phy80211p noiseFloor -98dBm
-attr unit dBm
-par fourWay.node[12].nic.phy80211p useNoiseFloor true
-par fourWay.node[12].nic.phy80211p antenna "<Antenna type=\"SampledAntenna1D\" id=\"monopole\">...</Antenna> at /home/yash/omnetpp/fourway//antenna.xml:35"
-par fourWay.node[12].nic.phy80211p antennaOffsetX 0m
-attr unit m
-par fourWay.node[12].nic.phy80211p antennaOffsetY 1.895m
-attr unit m
-par fourWay.node[12].nic.phy80211p antennaOffsetZ 1.895m
-attr unit m
-par fourWay.node[12].nic.phy80211p antennaOffsetYaw 0rad
-attr unit rad
-par fourWay.node[12].nic.phy80211p analogueModels "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[12].nic.phy80211p decider "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[12].nic.phy80211p minPowerLevel -110dBm
-attr unit dBm
-par fourWay.node[12].nic.phy80211p timeRXToTX 0s
-attr unit s
-par fourWay.node[12].nic.phy80211p timeRXToSleep 0s
-attr unit s
-par fourWay.node[12].nic.phy80211p timeTXToRX 0s
-attr unit s
-par fourWay.node[12].nic.phy80211p timeTXToSleep 0s
-attr unit s
-par fourWay.node[12].nic.phy80211p timeSleepToRX 0s
-attr unit s
-par fourWay.node[12].nic.phy80211p timeSleepToTX 0s
-attr unit s
-par fourWay.node[12].nic.phy80211p initialRadioState 0
-par fourWay.node[12].nic.phy80211p radioMinAtt 1
-par fourWay.node[12].nic.phy80211p radioMaxAtt 0
-par fourWay.node[12].nic.phy80211p nbRadioChannels 1
-par fourWay.node[12].nic.phy80211p initialRadioChannel 0
-par fourWay.node[12].nic.phy80211p ccaThreshold -90dBm
-attr unit dBm
-par fourWay.node[12].nic.phy80211p collectCollisionStatistics true
-par fourWay.node[12].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[12].nic.phy80211p busyTime 0.080916292682927
-scalar fourWay.node[12].nic.phy80211p ncollisions 102
-par fourWay.node[12].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
-par fourWay.node[12].nic.mac1609_4 notAffectedByHostState false
-par fourWay.node[12].nic.mac1609_4 headerLength 0bit
-attr unit bit
-par fourWay.node[12].nic.mac1609_4 address "\"auto\""
-par fourWay.node[12].nic.mac1609_4 useServiceChannel false
-par fourWay.node[12].nic.mac1609_4 serviceChannel 1
-par fourWay.node[12].nic.mac1609_4 bitrate 6000000bps
-attr unit bps
-par fourWay.node[12].nic.mac1609_4 syncOffset 0.0003s
-attr unit s
-par fourWay.node[12].nic.mac1609_4 txPower 20mW
-attr unit mW
-par fourWay.node[12].nic.mac1609_4 queueSize 0
-par fourWay.node[12].nic.mac1609_4 dot11RTSThreshold 12000bit
-attr unit bit
-par fourWay.node[12].nic.mac1609_4 dot11ShortRetryLimit 7
-par fourWay.node[12].nic.mac1609_4 dot11LongRetryLimit 4
-par fourWay.node[12].nic.mac1609_4 ackLength 112bit
-attr unit bit
-par fourWay.node[12].nic.mac1609_4 useAcks false
-par fourWay.node[12].nic.mac1609_4 frameErrorRate 0
-par fourWay.node[12].nic.mac1609_4 ackErrorRate 0
-scalar fourWay.node[12].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[12].nic.mac1609_4 ReceivedBroadcasts 77
-scalar fourWay.node[12].nic.mac1609_4 SentPackets 48
-scalar fourWay.node[12].nic.mac1609_4 SentAcknowledgements 0
-scalar fourWay.node[12].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[12].nic.mac1609_4 SNIRLostPackets 490
-scalar fourWay.node[12].nic.mac1609_4 RXTXLostPackets 199
-scalar fourWay.node[12].nic.mac1609_4 TotalLostPackets 689
-scalar fourWay.node[12].nic.mac1609_4 DroppedPacketsInMac 0
-scalar fourWay.node[12].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[12].nic.mac1609_4 TimesIntoBackoff 66
-scalar fourWay.node[12].nic.mac1609_4 SlotsBackoff 103
-scalar fourWay.node[12].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[12].nic.mac1609_4 totalBusyTime 0.355577895998
-scalar fourWay.node[12].nic.mac1609_4 retriesExceeded:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigRetriesExceeded
-scalar fourWay.node[12].nic.mac1609_4 sentAcks:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentAck
-scalar fourWay.node[12].nic.mac1609_4 sentPackets:count 48
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[12].nic.mac1609_4 collisions:count 102
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[12].nic.mac1609_4 channelBusy:timeavg 0.034690526438829
-attr recordingmode timeavg
-attr source org_car2x_veins_modules_mac_sigChannelBusy
-par fourWay.node[12].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
-par fourWay.node[12].nic connectionManagerName "\"connectionManager\""
-par fourWay.node[12].veinsmobility typename "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[12].veinsmobility notAffectedByHostState true
-par fourWay.node[12].veinsmobility x 0
-par fourWay.node[12].veinsmobility y 0
-par fourWay.node[12].veinsmobility z 0
-par fourWay.node[12].veinsmobility xOrientation 1
-par fourWay.node[12].veinsmobility yOrientation 0
-par fourWay.node[12].veinsmobility zOrientation 0
-par fourWay.node[12].veinsmobility hostPositionOffset 0m
-attr unit m
-par fourWay.node[12].veinsmobility setHostSpeed false
-par fourWay.node[12].veinsmobility accidentCount 0
-par fourWay.node[12].veinsmobility accidentStart 53.227s
-attr unit s
-par fourWay.node[12].veinsmobility accidentDuration "uniform(30s, 60s)"
-attr unit s
-par fourWay.node[12].veinsmobility accidentInterval "uniform(30s, 60s)"
-attr unit s
-scalar fourWay.node[12].veinsmobility startTime 0.1
-scalar fourWay.node[12].veinsmobility totalTime 10.2
-scalar fourWay.node[12].veinsmobility stopTime 10.35
-scalar fourWay.node[12].veinsmobility minSpeed 0
-scalar fourWay.node[12].veinsmobility maxSpeed 7.1229816666667
-scalar fourWay.node[12].veinsmobility totalDistance 7.7329099470915
-scalar fourWay.node[12].veinsmobility totalCO2Emission 10.539383561501
-par fourWay.node[12] typename "\"org.car2x.veins.nodes.Car\""
-par fourWay.node[12] applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[12] nicType "\"Nic80211p\""
-par fourWay.node[12] veinsmobilityType "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[13].appl typename "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[13].appl headerLength 80bit
-attr unit bit
-par fourWay.node[13].appl sendBeacons false
-par fourWay.node[13].appl beaconLengthBits 256bit
-attr unit bit
-par fourWay.node[13].appl beaconUserPriority 7
-par fourWay.node[13].appl beaconInterval 1s
-attr unit s
-par fourWay.node[13].appl dataLengthBits 1024bit
-attr unit bit
-par fourWay.node[13].appl dataOnSch false
-par fourWay.node[13].appl dataUserPriority 7
-par fourWay.node[13].appl avoidBeaconSynchronization true
-par fourWay.node[13].appl sendWSA false
-par fourWay.node[13].appl wsaLengthBits 250bit
-attr unit bit
-par fourWay.node[13].appl wsaInterval 1s
-attr unit s
-par fourWay.node[13].appl replicaId 13
-par fourWay.node[13].appl triggerJoinTime 1s
-attr unit s
-par fourWay.node[13].appl serviceChannel 2
-par fourWay.node[13].appl intersectionX 300m
-attr unit m
-par fourWay.node[13].appl intersectionY 300m
-attr unit m
-par fourWay.node[13].appl stopDistance 100m
-attr unit m
-par fourWay.node[13].appl intersectionWidth 15m
-attr unit m
-par fourWay.node[13].appl avgSpeed 14mps
-attr unit mps
-par fourWay.node[13].appl safetyGap 1.5s
-attr unit s
-par fourWay.node[13].appl consensusTimeoutSec 120s
-attr unit s
-scalar fourWay.node[13].appl generatedWSMs 0
-scalar fourWay.node[13].appl receivedWSMs 0
-scalar fourWay.node[13].appl generatedBSMs 0
-scalar fourWay.node[13].appl receivedBSMs 0
-scalar fourWay.node[13].appl generatedWSAs 0
-scalar fourWay.node[13].appl receivedWSAs 0
-scalar fourWay.node[13].appl bftMsgReceived:count 80
-attr recordingmode count
-attr source bftMsgReceived
-attr title "BFT messages received, count"
-scalar fourWay.node[13].appl bftMsgSent:count 49
-attr recordingmode count
-attr source bftMsgSent
-attr title "BFT messages sent, count"
-par fourWay.node[13].nic.phy80211p typename "\"org.car2x.veins.modules.phy.PhyLayer80211p\""
-par fourWay.node[13].nic.phy80211p recordStats false
-par fourWay.node[13].nic.phy80211p usePropagationDelay true
-par fourWay.node[13].nic.phy80211p noiseFloor -98dBm
-attr unit dBm
-par fourWay.node[13].nic.phy80211p useNoiseFloor true
-par fourWay.node[13].nic.phy80211p antenna "<Antenna type=\"SampledAntenna1D\" id=\"monopole\">...</Antenna> at /home/yash/omnetpp/fourway//antenna.xml:35"
-par fourWay.node[13].nic.phy80211p antennaOffsetX 0m
-attr unit m
-par fourWay.node[13].nic.phy80211p antennaOffsetY 1.895m
-attr unit m
-par fourWay.node[13].nic.phy80211p antennaOffsetZ 1.895m
-attr unit m
-par fourWay.node[13].nic.phy80211p antennaOffsetYaw 0rad
-attr unit rad
-par fourWay.node[13].nic.phy80211p analogueModels "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[13].nic.phy80211p decider "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[13].nic.phy80211p minPowerLevel -110dBm
-attr unit dBm
-par fourWay.node[13].nic.phy80211p timeRXToTX 0s
-attr unit s
-par fourWay.node[13].nic.phy80211p timeRXToSleep 0s
-attr unit s
-par fourWay.node[13].nic.phy80211p timeTXToRX 0s
-attr unit s
-par fourWay.node[13].nic.phy80211p timeTXToSleep 0s
-attr unit s
-par fourWay.node[13].nic.phy80211p timeSleepToRX 0s
-attr unit s
-par fourWay.node[13].nic.phy80211p timeSleepToTX 0s
-attr unit s
-par fourWay.node[13].nic.phy80211p initialRadioState 0
-par fourWay.node[13].nic.phy80211p radioMinAtt 1
-par fourWay.node[13].nic.phy80211p radioMaxAtt 0
-par fourWay.node[13].nic.phy80211p nbRadioChannels 1
-par fourWay.node[13].nic.phy80211p initialRadioChannel 0
-par fourWay.node[13].nic.phy80211p ccaThreshold -90dBm
-attr unit dBm
-par fourWay.node[13].nic.phy80211p collectCollisionStatistics true
-par fourWay.node[13].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[13].nic.phy80211p busyTime 0.07712
-scalar fourWay.node[13].nic.phy80211p ncollisions 98
-par fourWay.node[13].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
-par fourWay.node[13].nic.mac1609_4 notAffectedByHostState false
-par fourWay.node[13].nic.mac1609_4 headerLength 0bit
-attr unit bit
-par fourWay.node[13].nic.mac1609_4 address "\"auto\""
-par fourWay.node[13].nic.mac1609_4 useServiceChannel false
-par fourWay.node[13].nic.mac1609_4 serviceChannel 1
-par fourWay.node[13].nic.mac1609_4 bitrate 6000000bps
-attr unit bps
-par fourWay.node[13].nic.mac1609_4 syncOffset 0.0003s
-attr unit s
-par fourWay.node[13].nic.mac1609_4 txPower 20mW
-attr unit mW
-par fourWay.node[13].nic.mac1609_4 queueSize 0
-par fourWay.node[13].nic.mac1609_4 dot11RTSThreshold 12000bit
-attr unit bit
-par fourWay.node[13].nic.mac1609_4 dot11ShortRetryLimit 7
-par fourWay.node[13].nic.mac1609_4 dot11LongRetryLimit 4
-par fourWay.node[13].nic.mac1609_4 ackLength 112bit
-attr unit bit
-par fourWay.node[13].nic.mac1609_4 useAcks false
-par fourWay.node[13].nic.mac1609_4 frameErrorRate 0
-par fourWay.node[13].nic.mac1609_4 ackErrorRate 0
-scalar fourWay.node[13].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[13].nic.mac1609_4 ReceivedBroadcasts 80
-scalar fourWay.node[13].nic.mac1609_4 SentPackets 49
-scalar fourWay.node[13].nic.mac1609_4 SentAcknowledgements 0
-scalar fourWay.node[13].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[13].nic.mac1609_4 SNIRLostPackets 459
-scalar fourWay.node[13].nic.mac1609_4 RXTXLostPackets 226
-scalar fourWay.node[13].nic.mac1609_4 TotalLostPackets 685
-scalar fourWay.node[13].nic.mac1609_4 DroppedPacketsInMac 0
-scalar fourWay.node[13].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[13].nic.mac1609_4 TimesIntoBackoff 67
-scalar fourWay.node[13].nic.mac1609_4 SlotsBackoff 90
-scalar fourWay.node[13].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[13].nic.mac1609_4 totalBusyTime 0.355579242199
-scalar fourWay.node[13].nic.mac1609_4 retriesExceeded:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigRetriesExceeded
-scalar fourWay.node[13].nic.mac1609_4 sentAcks:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentAck
-scalar fourWay.node[13].nic.mac1609_4 sentPackets:count 49
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[13].nic.mac1609_4 collisions:count 98
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[13].nic.mac1609_4 channelBusy:timeavg 0.034690657775512
-attr recordingmode timeavg
-attr source org_car2x_veins_modules_mac_sigChannelBusy
-par fourWay.node[13].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
-par fourWay.node[13].nic connectionManagerName "\"connectionManager\""
-par fourWay.node[13].veinsmobility typename "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[13].veinsmobility notAffectedByHostState true
-par fourWay.node[13].veinsmobility x 0
-par fourWay.node[13].veinsmobility y 0
-par fourWay.node[13].veinsmobility z 0
-par fourWay.node[13].veinsmobility xOrientation 1
-par fourWay.node[13].veinsmobility yOrientation 0
-par fourWay.node[13].veinsmobility zOrientation 0
-par fourWay.node[13].veinsmobility hostPositionOffset 0m
-attr unit m
-par fourWay.node[13].veinsmobility setHostSpeed false
-par fourWay.node[13].veinsmobility accidentCount 0
-par fourWay.node[13].veinsmobility accidentStart 34.0565s
-attr unit s
-par fourWay.node[13].veinsmobility accidentDuration "uniform(30s, 60s)"
-attr unit s
-par fourWay.node[13].veinsmobility accidentInterval "uniform(30s, 60s)"
-attr unit s
-scalar fourWay.node[13].veinsmobility startTime 0.1
-scalar fourWay.node[13].veinsmobility totalTime 10.2
-scalar fourWay.node[13].veinsmobility stopTime 10.35
-scalar fourWay.node[13].veinsmobility minSpeed 0
-scalar fourWay.node[13].veinsmobility maxSpeed 5.3155871666667
-scalar fourWay.node[13].veinsmobility totalDistance 4.6154880759179
-scalar fourWay.node[13].veinsmobility totalCO2Emission 10.107873070475
-par fourWay.node[13] typename "\"org.car2x.veins.nodes.Car\""
-par fourWay.node[13] applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[13] nicType "\"Nic80211p\""
-par fourWay.node[13] veinsmobilityType "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[14].appl typename "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[14].appl headerLength 80bit
-attr unit bit
-par fourWay.node[14].appl sendBeacons false
-par fourWay.node[14].appl beaconLengthBits 256bit
-attr unit bit
-par fourWay.node[14].appl beaconUserPriority 7
-par fourWay.node[14].appl beaconInterval 1s
-attr unit s
-par fourWay.node[14].appl dataLengthBits 1024bit
-attr unit bit
-par fourWay.node[14].appl dataOnSch false
-par fourWay.node[14].appl dataUserPriority 7
-par fourWay.node[14].appl avoidBeaconSynchronization true
-par fourWay.node[14].appl sendWSA false
-par fourWay.node[14].appl wsaLengthBits 250bit
-attr unit bit
-par fourWay.node[14].appl wsaInterval 1s
-attr unit s
-par fourWay.node[14].appl replicaId 14
-par fourWay.node[14].appl triggerJoinTime 1s
-attr unit s
-par fourWay.node[14].appl serviceChannel 2
-par fourWay.node[14].appl intersectionX 300m
-attr unit m
-par fourWay.node[14].appl intersectionY 300m
-attr unit m
-par fourWay.node[14].appl stopDistance 100m
-attr unit m
-par fourWay.node[14].appl intersectionWidth 15m
-attr unit m
-par fourWay.node[14].appl avgSpeed 14mps
-attr unit mps
-par fourWay.node[14].appl safetyGap 1.5s
-attr unit s
-par fourWay.node[14].appl consensusTimeoutSec 120s
-attr unit s
-scalar fourWay.node[14].appl generatedWSMs 0
-scalar fourWay.node[14].appl receivedWSMs 0
-scalar fourWay.node[14].appl generatedBSMs 0
-scalar fourWay.node[14].appl receivedBSMs 0
-scalar fourWay.node[14].appl generatedWSAs 0
-scalar fourWay.node[14].appl receivedWSAs 0
-scalar fourWay.node[14].appl bftMsgReceived:count 77
-attr recordingmode count
-attr source bftMsgReceived
-attr title "BFT messages received, count"
-scalar fourWay.node[14].appl bftMsgSent:count 50
-attr recordingmode count
-attr source bftMsgSent
-attr title "BFT messages sent, count"
-par fourWay.node[14].nic.phy80211p typename "\"org.car2x.veins.modules.phy.PhyLayer80211p\""
-par fourWay.node[14].nic.phy80211p recordStats false
-par fourWay.node[14].nic.phy80211p usePropagationDelay true
-par fourWay.node[14].nic.phy80211p noiseFloor -98dBm
-attr unit dBm
-par fourWay.node[14].nic.phy80211p useNoiseFloor true
-par fourWay.node[14].nic.phy80211p antenna "<Antenna type=\"SampledAntenna1D\" id=\"monopole\">...</Antenna> at /home/yash/omnetpp/fourway//antenna.xml:35"
-par fourWay.node[14].nic.phy80211p antennaOffsetX 0m
-attr unit m
-par fourWay.node[14].nic.phy80211p antennaOffsetY 1.895m
-attr unit m
-par fourWay.node[14].nic.phy80211p antennaOffsetZ 1.895m
-attr unit m
-par fourWay.node[14].nic.phy80211p antennaOffsetYaw 0rad
-attr unit rad
-par fourWay.node[14].nic.phy80211p analogueModels "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[14].nic.phy80211p decider "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.node[14].nic.phy80211p minPowerLevel -110dBm
-attr unit dBm
-par fourWay.node[14].nic.phy80211p timeRXToTX 0s
-attr unit s
-par fourWay.node[14].nic.phy80211p timeRXToSleep 0s
-attr unit s
-par fourWay.node[14].nic.phy80211p timeTXToRX 0s
-attr unit s
-par fourWay.node[14].nic.phy80211p timeTXToSleep 0s
-attr unit s
-par fourWay.node[14].nic.phy80211p timeSleepToRX 0s
-attr unit s
-par fourWay.node[14].nic.phy80211p timeSleepToTX 0s
-attr unit s
-par fourWay.node[14].nic.phy80211p initialRadioState 0
-par fourWay.node[14].nic.phy80211p radioMinAtt 1
-par fourWay.node[14].nic.phy80211p radioMaxAtt 0
-par fourWay.node[14].nic.phy80211p nbRadioChannels 1
-par fourWay.node[14].nic.phy80211p initialRadioChannel 0
-par fourWay.node[14].nic.phy80211p ccaThreshold -90dBm
-attr unit dBm
-par fourWay.node[14].nic.phy80211p collectCollisionStatistics true
-par fourWay.node[14].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[14].nic.phy80211p busyTime 0.081713951219512
-scalar fourWay.node[14].nic.phy80211p ncollisions 100
-par fourWay.node[14].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
-par fourWay.node[14].nic.mac1609_4 notAffectedByHostState false
-par fourWay.node[14].nic.mac1609_4 headerLength 0bit
-attr unit bit
-par fourWay.node[14].nic.mac1609_4 address "\"auto\""
-par fourWay.node[14].nic.mac1609_4 useServiceChannel false
-par fourWay.node[14].nic.mac1609_4 serviceChannel 1
-par fourWay.node[14].nic.mac1609_4 bitrate 6000000bps
-attr unit bps
-par fourWay.node[14].nic.mac1609_4 syncOffset 0.0003s
-attr unit s
-par fourWay.node[14].nic.mac1609_4 txPower 20mW
-attr unit mW
-par fourWay.node[14].nic.mac1609_4 queueSize 0
-par fourWay.node[14].nic.mac1609_4 dot11RTSThreshold 12000bit
-attr unit bit
-par fourWay.node[14].nic.mac1609_4 dot11ShortRetryLimit 7
-par fourWay.node[14].nic.mac1609_4 dot11LongRetryLimit 4
-par fourWay.node[14].nic.mac1609_4 ackLength 112bit
-attr unit bit
-par fourWay.node[14].nic.mac1609_4 useAcks false
-par fourWay.node[14].nic.mac1609_4 frameErrorRate 0
-par fourWay.node[14].nic.mac1609_4 ackErrorRate 0
-scalar fourWay.node[14].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[14].nic.mac1609_4 ReceivedBroadcasts 77
-scalar fourWay.node[14].nic.mac1609_4 SentPackets 50
-scalar fourWay.node[14].nic.mac1609_4 SentAcknowledgements 0
-scalar fourWay.node[14].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[14].nic.mac1609_4 SNIRLostPackets 493
-scalar fourWay.node[14].nic.mac1609_4 RXTXLostPackets 194
-scalar fourWay.node[14].nic.mac1609_4 TotalLostPackets 687
-scalar fourWay.node[14].nic.mac1609_4 DroppedPacketsInMac 0
-scalar fourWay.node[14].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[14].nic.mac1609_4 TimesIntoBackoff 70
-scalar fourWay.node[14].nic.mac1609_4 SlotsBackoff 103
-scalar fourWay.node[14].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[14].nic.mac1609_4 totalBusyTime 0.355580165787
-scalar fourWay.node[14].nic.mac1609_4 retriesExceeded:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigRetriesExceeded
-scalar fourWay.node[14].nic.mac1609_4 sentAcks:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentAck
-scalar fourWay.node[14].nic.mac1609_4 sentPackets:count 50
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[14].nic.mac1609_4 collisions:count 100
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[14].nic.mac1609_4 channelBusy:timeavg 0.034690747881659
-attr recordingmode timeavg
-attr source org_car2x_veins_modules_mac_sigChannelBusy
-par fourWay.node[14].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
-par fourWay.node[14].nic connectionManagerName "\"connectionManager\""
-par fourWay.node[14].veinsmobility typename "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.node[14].veinsmobility notAffectedByHostState true
-par fourWay.node[14].veinsmobility x 0
-par fourWay.node[14].veinsmobility y 0
-par fourWay.node[14].veinsmobility z 0
-par fourWay.node[14].veinsmobility xOrientation 1
-par fourWay.node[14].veinsmobility yOrientation 0
-par fourWay.node[14].veinsmobility zOrientation 0
-par fourWay.node[14].veinsmobility hostPositionOffset 0m
-attr unit m
-par fourWay.node[14].veinsmobility setHostSpeed false
-par fourWay.node[14].veinsmobility accidentCount 0
-par fourWay.node[14].veinsmobility accidentStart 48.3629s
-attr unit s
-par fourWay.node[14].veinsmobility accidentDuration "uniform(30s, 60s)"
-attr unit s
-par fourWay.node[14].veinsmobility accidentInterval "uniform(30s, 60s)"
-attr unit s
-scalar fourWay.node[14].veinsmobility startTime 0.1
-scalar fourWay.node[14].veinsmobility totalTime 10.2
-scalar fourWay.node[14].veinsmobility stopTime 10.35
-scalar fourWay.node[14].veinsmobility minSpeed 0
-scalar fourWay.node[14].veinsmobility maxSpeed 10.282916666667
-scalar fourWay.node[14].veinsmobility totalDistance 11.510333033331
-scalar fourWay.node[14].veinsmobility totalCO2Emission 10.282937828394
-par fourWay.node[14] typename "\"org.car2x.veins.nodes.Car\""
-par fourWay.node[14] applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
-par fourWay.node[14] nicType "\"Nic80211p\""
-par fourWay.node[14] veinsmobilityType "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
 par fourWay.node[15].appl typename "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
 par fourWay.node[15].appl headerLength 80bit
 attr unit bit
@@ -2876,7 +1623,7 @@ par fourWay.node[15].appl intersectionX 300m
 attr unit m
 par fourWay.node[15].appl intersectionY 300m
 attr unit m
-par fourWay.node[15].appl stopDistance 100m
+par fourWay.node[15].appl stopDistance 200m
 attr unit m
 par fourWay.node[15].appl intersectionWidth 15m
 attr unit m
@@ -2886,17 +1633,45 @@ par fourWay.node[15].appl safetyGap 1.5s
 attr unit s
 par fourWay.node[15].appl consensusTimeoutSec 120s
 attr unit s
+par fourWay.node[15].appl orderDelayGap 0s
+attr unit s
+par fourWay.node[15].appl viewJitterMin 0.001s
+attr unit s
+par fourWay.node[15].appl viewJitterMax 0.005s
+attr unit s
+par fourWay.node[15].appl viewAgreementSlotSec 0.025s
+attr unit s
+par fourWay.node[15].appl ackJitterMin 0.001s
+attr unit s
+par fourWay.node[15].appl ackJitterMax 0.01s
+attr unit s
+par fourWay.node[15].appl witnessSlotSec 0.002s
+attr unit s
+par fourWay.node[15].appl broadcastSlotSec 0.005s
+attr unit s
+par fourWay.node[15].appl arrivalSlotSec 0.025s
+attr unit s
+par fourWay.node[15].appl broadcastJitterMin 0.0001s
+attr unit s
+par fourWay.node[15].appl broadcastJitterMax 0.001s
+attr unit s
+par fourWay.node[15].appl orderCollectMinSec 4s
+attr unit s
+par fourWay.node[15].appl orderCollectPerReplicaSec 0.08s
+attr unit s
+par fourWay.node[15].appl orderCollectMaxSec 5s
+attr unit s
 scalar fourWay.node[15].appl generatedWSMs 0
 scalar fourWay.node[15].appl receivedWSMs 0
 scalar fourWay.node[15].appl generatedBSMs 0
 scalar fourWay.node[15].appl receivedBSMs 0
 scalar fourWay.node[15].appl generatedWSAs 0
 scalar fourWay.node[15].appl receivedWSAs 0
-scalar fourWay.node[15].appl bftMsgReceived:count 71
+scalar fourWay.node[15].appl bftMsgReceived:count 470
 attr recordingmode count
 attr source bftMsgReceived
 attr title "BFT messages received, count"
-scalar fourWay.node[15].appl bftMsgSent:count 49
+scalar fourWay.node[15].appl bftMsgSent:count 122
 attr recordingmode count
 attr source bftMsgSent
 attr title "BFT messages sent, count"
@@ -2940,8 +1715,8 @@ par fourWay.node[15].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[15].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[15].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[15].nic.phy80211p busyTime 0.081195707317073
-scalar fourWay.node[15].nic.phy80211p ncollisions 107
+scalar fourWay.node[15].nic.phy80211p busyTime 0.099864878048781
+scalar fourWay.node[15].nic.phy80211p ncollisions 137
 par fourWay.node[15].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[15].nic.mac1609_4 notAffectedByHostState false
 par fourWay.node[15].nic.mac1609_4 headerLength 0bit
@@ -2955,7 +1730,7 @@ par fourWay.node[15].nic.mac1609_4 syncOffset 0.0003s
 attr unit s
 par fourWay.node[15].nic.mac1609_4 txPower 20mW
 attr unit mW
-par fourWay.node[15].nic.mac1609_4 queueSize 0
+par fourWay.node[15].nic.mac1609_4 queueSize 1024
 par fourWay.node[15].nic.mac1609_4 dot11RTSThreshold 12000bit
 attr unit bit
 par fourWay.node[15].nic.mac1609_4 dot11ShortRetryLimit 7
@@ -2966,32 +1741,32 @@ par fourWay.node[15].nic.mac1609_4 useAcks false
 par fourWay.node[15].nic.mac1609_4 frameErrorRate 0
 par fourWay.node[15].nic.mac1609_4 ackErrorRate 0
 scalar fourWay.node[15].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[15].nic.mac1609_4 ReceivedBroadcasts 71
-scalar fourWay.node[15].nic.mac1609_4 SentPackets 49
+scalar fourWay.node[15].nic.mac1609_4 ReceivedBroadcasts 1797
+scalar fourWay.node[15].nic.mac1609_4 SentPackets 122
 scalar fourWay.node[15].nic.mac1609_4 SentAcknowledgements 0
 scalar fourWay.node[15].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[15].nic.mac1609_4 SNIRLostPackets 497
-scalar fourWay.node[15].nic.mac1609_4 RXTXLostPackets 197
-scalar fourWay.node[15].nic.mac1609_4 TotalLostPackets 694
+scalar fourWay.node[15].nic.mac1609_4 SNIRLostPackets 373
+scalar fourWay.node[15].nic.mac1609_4 RXTXLostPackets 49
+scalar fourWay.node[15].nic.mac1609_4 TotalLostPackets 422
 scalar fourWay.node[15].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.node[15].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[15].nic.mac1609_4 TimesIntoBackoff 67
-scalar fourWay.node[15].nic.mac1609_4 SlotsBackoff 92
+scalar fourWay.node[15].nic.mac1609_4 TimesIntoBackoff 168
+scalar fourWay.node[15].nic.mac1609_4 SlotsBackoff 238
 scalar fourWay.node[15].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[15].nic.mac1609_4 totalBusyTime 0.355578175638
+scalar fourWay.node[15].nic.mac1609_4 totalBusyTime 1.533194656654
 scalar fourWay.node[15].nic.mac1609_4 retriesExceeded:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigRetriesExceeded
 scalar fourWay.node[15].nic.mac1609_4 sentAcks:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentAck
-scalar fourWay.node[15].nic.mac1609_4 sentPackets:count 49
+scalar fourWay.node[15].nic.mac1609_4 sentPackets:count 122
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[15].nic.mac1609_4 collisions:count 107
+scalar fourWay.node[15].nic.mac1609_4 collisions:count 137
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[15].nic.mac1609_4 channelBusy:timeavg 0.03469055372078
+scalar fourWay.node[15].nic.mac1609_4 channelBusy:timeavg 0.093487479064269
 attr recordingmode timeavg
 attr source org_car2x_veins_modules_mac_sigChannelBusy
 par fourWay.node[15].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
@@ -3008,168 +1783,20 @@ par fourWay.node[15].veinsmobility hostPositionOffset 0m
 attr unit m
 par fourWay.node[15].veinsmobility setHostSpeed false
 par fourWay.node[15].veinsmobility accidentCount 0
-par fourWay.node[15].veinsmobility accidentStart 57.078s
+par fourWay.node[15].veinsmobility accidentStart 34.7691s
 attr unit s
 par fourWay.node[15].veinsmobility accidentDuration "uniform(30s, 60s)"
 attr unit s
 par fourWay.node[15].veinsmobility accidentInterval "uniform(30s, 60s)"
 attr unit s
-scalar fourWay.node[15].veinsmobility startTime 0.1
-scalar fourWay.node[15].veinsmobility totalTime 10.2
-scalar fourWay.node[15].veinsmobility stopTime 10.35
-scalar fourWay.node[15].veinsmobility minSpeed 0
-scalar fourWay.node[15].veinsmobility maxSpeed 7.777467948718
-scalar fourWay.node[15].veinsmobility totalDistance 8.2338402240142
-scalar fourWay.node[15].veinsmobility totalCO2Emission 10.202920848483
+scalar fourWay.node[15].veinsmobility startTime 0.3
+scalar fourWay.node[15].veinsmobility totalTime 16.3
+scalar fourWay.node[15].veinsmobility stopTime 16.7
+scalar fourWay.node[15].veinsmobility minSpeed 2.781408702126e-05
+scalar fourWay.node[15].veinsmobility maxSpeed 30
+scalar fourWay.node[15].veinsmobility totalDistance 327.79899983385
+scalar fourWay.node[15].veinsmobility totalCO2Emission 278.34256556789
 par fourWay.node[15] typename "\"org.car2x.veins.nodes.Car\""
 par fourWay.node[15] applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
 par fourWay.node[15] nicType "\"Nic80211p\""
 par fourWay.node[15] veinsmobilityType "\"org.car2x.veins.modules.mobility.traci.TraCIMobility\""
-par fourWay.tls[0].appl typename "\"org.car2x.veins.modules.application.traci.TraCIDemoTrafficLightApp\""
-par fourWay.tls[0].appl headerLength 88bit
-attr unit bit
-par fourWay.tls[0].appl sendBeacons true
-par fourWay.tls[0].appl beaconLengthBits 256bit
-attr unit bit
-par fourWay.tls[0].appl beaconUserPriority 7
-par fourWay.tls[0].appl beaconInterval 1s
-attr unit s
-par fourWay.tls[0].appl dataLengthBits 1024bit
-attr unit bit
-par fourWay.tls[0].appl dataOnSch false
-par fourWay.tls[0].appl dataUserPriority 7
-par fourWay.tls[0].appl avoidBeaconSynchronization true
-par fourWay.tls[0].appl sendWSA false
-par fourWay.tls[0].appl wsaLengthBits 250bit
-attr unit bit
-par fourWay.tls[0].appl wsaInterval 1s
-attr unit s
-par fourWay.tls[0].appl aggregationInterval 1s
-attr unit s
-scalar fourWay.tls[0].appl generatedWSMs 0
-scalar fourWay.tls[0].appl receivedWSMs 0
-scalar fourWay.tls[0].appl generatedBSMs 0
-scalar fourWay.tls[0].appl receivedBSMs 0
-scalar fourWay.tls[0].appl generatedWSAs 0
-scalar fourWay.tls[0].appl receivedWSAs 0
-par fourWay.tls[0].nic.phy80211p typename "\"org.car2x.veins.modules.phy.PhyLayer80211p\""
-par fourWay.tls[0].nic.phy80211p recordStats false
-par fourWay.tls[0].nic.phy80211p usePropagationDelay true
-par fourWay.tls[0].nic.phy80211p noiseFloor -98dBm
-attr unit dBm
-par fourWay.tls[0].nic.phy80211p useNoiseFloor true
-par fourWay.tls[0].nic.phy80211p antenna "<Antenna type=\"SampledAntenna1D\" id=\"monopole\">...</Antenna> at /home/yash/omnetpp/fourway//antenna.xml:35"
-par fourWay.tls[0].nic.phy80211p antennaOffsetX 0m
-attr unit m
-par fourWay.tls[0].nic.phy80211p antennaOffsetY 0m
-attr unit m
-par fourWay.tls[0].nic.phy80211p antennaOffsetZ 1.895m
-attr unit m
-par fourWay.tls[0].nic.phy80211p antennaOffsetYaw 0rad
-attr unit rad
-par fourWay.tls[0].nic.phy80211p analogueModels "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.tls[0].nic.phy80211p decider "<root>...</root> at /home/yash/omnetpp/fourway//config.xml:34"
-par fourWay.tls[0].nic.phy80211p minPowerLevel -110dBm
-attr unit dBm
-par fourWay.tls[0].nic.phy80211p timeRXToTX 0s
-attr unit s
-par fourWay.tls[0].nic.phy80211p timeRXToSleep 0s
-attr unit s
-par fourWay.tls[0].nic.phy80211p timeTXToRX 0s
-attr unit s
-par fourWay.tls[0].nic.phy80211p timeTXToSleep 0s
-attr unit s
-par fourWay.tls[0].nic.phy80211p timeSleepToRX 0s
-attr unit s
-par fourWay.tls[0].nic.phy80211p timeSleepToTX 0s
-attr unit s
-par fourWay.tls[0].nic.phy80211p initialRadioState 0
-par fourWay.tls[0].nic.phy80211p radioMinAtt 1
-par fourWay.tls[0].nic.phy80211p radioMaxAtt 0
-par fourWay.tls[0].nic.phy80211p nbRadioChannels 1
-par fourWay.tls[0].nic.phy80211p initialRadioChannel 0
-par fourWay.tls[0].nic.phy80211p ccaThreshold -65dBm
-attr unit dBm
-par fourWay.tls[0].nic.phy80211p collectCollisionStatistics false
-par fourWay.tls[0].nic.phy80211p allowTxDuringRx false
-scalar fourWay.tls[0].nic.phy80211p busyTime 0.11520154589372
-par fourWay.tls[0].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
-par fourWay.tls[0].nic.mac1609_4 notAffectedByHostState false
-par fourWay.tls[0].nic.mac1609_4 headerLength 0bit
-attr unit bit
-par fourWay.tls[0].nic.mac1609_4 address "\"auto\""
-par fourWay.tls[0].nic.mac1609_4 useServiceChannel false
-par fourWay.tls[0].nic.mac1609_4 serviceChannel 1
-par fourWay.tls[0].nic.mac1609_4 bitrate 6000000bps
-attr unit bps
-par fourWay.tls[0].nic.mac1609_4 syncOffset 0.0003s
-attr unit s
-par fourWay.tls[0].nic.mac1609_4 txPower 20mW
-attr unit mW
-par fourWay.tls[0].nic.mac1609_4 queueSize 0
-par fourWay.tls[0].nic.mac1609_4 dot11RTSThreshold 12000bit
-attr unit bit
-par fourWay.tls[0].nic.mac1609_4 dot11ShortRetryLimit 7
-par fourWay.tls[0].nic.mac1609_4 dot11LongRetryLimit 4
-par fourWay.tls[0].nic.mac1609_4 ackLength 112bit
-attr unit bit
-par fourWay.tls[0].nic.mac1609_4 useAcks false
-par fourWay.tls[0].nic.mac1609_4 frameErrorRate 0
-par fourWay.tls[0].nic.mac1609_4 ackErrorRate 0
-scalar fourWay.tls[0].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.tls[0].nic.mac1609_4 ReceivedBroadcasts 103
-scalar fourWay.tls[0].nic.mac1609_4 SentPackets 0
-scalar fourWay.tls[0].nic.mac1609_4 SentAcknowledgements 0
-scalar fourWay.tls[0].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.tls[0].nic.mac1609_4 SNIRLostPackets 711
-scalar fourWay.tls[0].nic.mac1609_4 RXTXLostPackets 0
-scalar fourWay.tls[0].nic.mac1609_4 TotalLostPackets 711
-scalar fourWay.tls[0].nic.mac1609_4 DroppedPacketsInMac 0
-scalar fourWay.tls[0].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.tls[0].nic.mac1609_4 TimesIntoBackoff 0
-scalar fourWay.tls[0].nic.mac1609_4 SlotsBackoff 0
-scalar fourWay.tls[0].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.tls[0].nic.mac1609_4 totalBusyTime 0.353201602158
-scalar fourWay.tls[0].nic.mac1609_4 retriesExceeded:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigRetriesExceeded
-scalar fourWay.tls[0].nic.mac1609_4 sentAcks:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentAck
-scalar fourWay.tls[0].nic.mac1609_4 sentPackets:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.tls[0].nic.mac1609_4 collisions:count 0
-attr recordingmode count
-attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.tls[0].nic.mac1609_4 channelBusy:timeavg 0.034125758662609
-attr recordingmode timeavg
-attr source org_car2x_veins_modules_mac_sigChannelBusy
-par fourWay.tls[0].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
-par fourWay.tls[0].nic connectionManagerName "\"connectionManager\""
-par fourWay.tls[0].mobility typename "\"org.car2x.veins.base.modules.BaseMobility\""
-par fourWay.tls[0].mobility notAffectedByHostState true
-par fourWay.tls[0].mobility x 0
-par fourWay.tls[0].mobility y 0
-par fourWay.tls[0].mobility z 3
-par fourWay.tls[0].mobility xOrientation 1
-par fourWay.tls[0].mobility yOrientation 0
-par fourWay.tls[0].mobility zOrientation 0
-par fourWay.tls[0].tlInterface typename "\"org.car2x.veins.modules.world.traci.trafficLight.TraCITrafficLightInterface\""
-par fourWay.tls[0].logic typename "\"org.car2x.veins.modules.world.traci.trafficLight.logics.TraCITrafficLightSimpleLogic\""
-par fourWay.tls[0] typename "\"org.car2x.veins.nodes.TrafficLight\""
-par fourWay.tls[0] logicType "\"org.car2x.veins.modules.world.traci.trafficLight.logics.TraCITrafficLightSimpleLogic\""
-par fourWay.tls[0] applType "\"org.car2x.veins.modules.application.traci.TraCIDemoTrafficLightApp\""
-par fourWay.tls[0] nicType "\"Nic80211p\""
-par fourWay.tls[0] externalId "\"C\""
-par fourWay typename "\"fourWay\""
-par fourWay playgroundSizeX 2500m
-attr unit m
-par fourWay playgroundSizeY 2500m
-attr unit m
-par fourWay playgroundSizeZ 50m
-attr unit m
-par fourWay numNodes 0
-par fourWay numTls 0
-par fourWay numRsu 0
-

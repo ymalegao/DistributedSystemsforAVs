@@ -52,6 +52,7 @@ public class Proposer {
      */
     public void startConsensus(int cid, byte[] value) {
         //******* EDUARDO BEGIN **************//
+        System.out.println("[PHASE_TIMER] CID=" + cid + " replica=" + controller.getStaticConf().getProcessId() + " PROPOSE_SENT wall_ms=" + System.currentTimeMillis());
         communication.send(this.controller.getCurrentViewAcceptors(),
                 factory.createPropose(cid, 0, value));
         //******* EDUARDO END **************//

@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <chrono>
 #include <thread>
+#include <limits>
 
 #define XXH_INLINE_ALL
 #include "xxhash.h"
@@ -19,15 +20,26 @@
 using namespace veins;
 
 static int completedConsensusCount = 0;
-static const int BATCH_SIZE = 12;
+static const int BATCH_SIZE = 16;
 static bool logged100m = false;
+static std::map<int, std::map<int, double>> orderLatencyByEpochAndReplica;
+static std::set<int> printedOrderLatencyAvgEpochs;
+static std::map<int, std::map<int, double>> orderBftRttByEpochAndReplica;
+static std::set<int> printedOrderBftRttAvgEpochs;
+static std::map<int, std::map<int, double>> viewLatencyByEpochAndReplica;
+static std::set<int> printedViewLatencyAvgEpochs;
+static std::map<int, std::map<int, double>> orderQcWindowByEpochAndReplica;
+static std::set<int> printedOrderQcWindowAvgEpochs;
+static std::map<int, std::map<int, double>> resetToViewEndByEpochAndReplica;
+static std::set<int> printedResetToViewEndAvgEpochs;
 // Base64 encoding table
 
-void V2VProxyModule::zombieFilter() {
+bool V2VProxyModule::zombieFilter() {
     if (isDeparted) {
         std::cout << "[V2VProxy " << replicaId << "] ZOMBIE: Not executing action (departed)" << std::endl;
-        return;
+        return true;
     }
+    return false;
 }
 Define_Module(veins::V2VProxyModule);
 
@@ -83,7 +95,7 @@ V2VProxyModule::V2VProxyModule()
     , consensusTimeoutTimer(nullptr)
     , shouldFlush(false)
     , consensusTimeoutSec(80.0)  // Default 40 seconds
-    , MAX_MESSAGES_PER_TICK(getMaxMessagesPerTick())
+    , MAX_MESSAGES_PER_TICK(BATCH_SIZE)  // Will be updated by notifyJavaNewBatchSize() when BFT group size is known
     , startReadyQCCollectionMsg(nullptr)
     , consensusStartTime(0)
     , viewConsensusStartTime(0)
@@ -93,11 +105,16 @@ V2VProxyModule::V2VProxyModule()
     , orderCollectDeadlineTimer(nullptr)
     , orderGossipRetransmitTimer(nullptr)
     , orderBagRetransmitTimer(nullptr)
+    , orderDelayTimer(nullptr)
     , orderCollectionActive(false)
     , orderBagProposed(false)
     , orderDecisionReceived(false)
+    , delayedOrderSubmitScheduled(false)
     , orderCollectionDeadline(0)
     , orderBagRetransmitCount(0)
+    , orderDelayGap(0.0)
+    , pendingOrderEpoch(-1)
+    , pendingOrderViewHash(0)
     , myReadyQCComplete(false)
     , orderBagCloseFlag(false)
 {
@@ -114,10 +131,12 @@ V2VProxyModule::~V2VProxyModule()
     cancelAndDelete(consensusTimeoutTimer);
     cancelAndDelete(checkJavaReadyTimer);
     cancelAndDelete(startReadyQCCollectionMsg);
-    cancelAndDelete(retxCheckTimer);
+    cancelAndDelete(retxCheckTimer);   
+    cancelAndDelete(readyQCTimeoutTimer);
     cancelAndDelete(orderCollectDeadlineTimer);
     cancelAndDelete(orderGossipRetransmitTimer);
     cancelAndDelete(orderBagRetransmitTimer);
+    cancelAndDelete(orderDelayTimer);
     // Clean up JNI global reference
     if (javaCallbackObject && jvm) {
         JNIEnv* env;
@@ -171,6 +190,7 @@ void V2VProxyModule::initialize(int stage)
         avgSpeed = par("avgSpeed").doubleValue();
         safetyGap = par("safetyGap").doubleValue();
         consensusTimeoutSec = par("consensusTimeoutSec").doubleValue();
+        orderDelayGap = par("orderDelayGap").doubleValue();
 
         // Initialize signals
         bftMsgSentSignal = registerSignal("bftMsgSent");
@@ -195,15 +215,17 @@ void V2VProxyModule::initialize(int stage)
         orderCollectDeadlineTimer = new cMessage("orderCollectDeadline");
         orderGossipRetransmitTimer = new cMessage("orderGossipRetransmit");
         orderBagRetransmitTimer = new cMessage("orderBagRetransmit");
+        orderDelayTimer = new cMessage("orderDelaySubmit");
 
         // Create timer for checking Java readiness
         checkJavaReadyTimer = new cMessage("checkJavaReady");
         retxCheckTimer = new cMessage("retransmissionCheck");
+        readyQCTimeoutTimer = new cMessage("readyQCRetransmit");
         
         
         
 
-        scheduleAt(simTime() + 0.1, retxCheckTimer);
+        scheduleAt(simTime() + 0.02, retxCheckTimer);
         scheduleAt(simTime() + 0.5, checkJavaReadyTimer); // Start checking after 0.5s
 
         EV_INFO << "V2VProxyModule initialized for replica " << replicaId << std::endl;
@@ -471,10 +493,55 @@ void V2VProxyModule::sendBFTMessage(int fromReplicaId, int toReplicaId, const st
     bftMsg->setRecipientAddress(LAddress::L2BROADCAST());
     std::cout << "[V2V-BROADCAST] Replica " << replicaId << ": Packet created, broadcasting to LAddress::L2BROADCAST()" << std::endl;
 
-    // REACTIVE YIELD: Mark radio as busy
-    double jitter = uniform(0.001, 0.10);
-    double delay = replicaId * 0.01 + jitter;
-    std::cout << "[V2V-BROADCAST] Replica " << replicaId << ": Calling sendDelayed() with jitter=" << jitter << "s..." << std::endl;
+    // STAGGER STRATEGY (message-type specific for stability + low latency):
+    // - VIEW_PROPOSAL (4): tiny jitter only — replicas must sample the car-set simultaneously.
+    // - VIEW_AGREEMENT (5): per-replica slot + tiny jitter — stagger replies to proposer.
+    // - WITNESS_RESPONSE (2): per-replica slot stagger (witnessSlotSec) to prevent all
+    //   15 responses to a given car from colliding in a tight ackJitter window.
+    // - READYQC_ACK (6): jitter-only — fast ACK return path.
+    // - BFT consensus (0), arrival announcement (1), READYQC_COMPLETE (3): deterministic
+    //   slot stagger (tighter 3ms slot) to avoid collisions while reducing tail delay.
+    double delay;
+    if (messageType == 4) {
+        // VIEW_PROPOSAL: tiny jitter only — all replicas must sample the car-set
+        // at nearly the same sim-time so their views agree.
+        delay = uniform(par("viewJitterMin").doubleValue(), par("viewJitterMax").doubleValue());
+    } else if (messageType == 5) {
+        // VIEW_AGREEMENT: per-replica slot stagger so 15 simultaneous replies
+        // don't all collide at the proposer.  View is already sampled at proposal
+        // receipt, so staggering the reply is safe.
+        delay = replicaId * par("viewAgreementSlotSec").doubleValue()
+                + uniform(par("viewJitterMin").doubleValue(), par("viewJitterMax").doubleValue());
+    } else if (messageType == 2) {
+        // WITNESS_RESPONSE: per-replica slot stagger so all 15 responses to a given car
+        // don't pile up in a 1.5ms ackJitter window and collide on the 802.11p channel.
+        // 0.5ms slot × 16 replicas = 8ms max window — safely collision-free.
+        delay = replicaId * par("witnessSlotSec").doubleValue()
+                + uniform(par("ackJitterMin").doubleValue(), par("ackJitterMax").doubleValue());
+    } else if (messageType == 6) {
+        // READYQC_ACK: fast ACK return, jitter only
+        delay = uniform(par("ackJitterMin").doubleValue(), par("ackJitterMax").doubleValue());
+    } else if (messageType == 1) {
+        // ARRIVAL_ANNOUNCE: larger per-replica slot so each car's witness responses
+        // don't collide with other cars' witness responses on the 802.11p channel
+        delay = replicaId * par("arrivalSlotSec").doubleValue()
+                + uniform(par("broadcastJitterMin").doubleValue(), par("broadcastJitterMax").doubleValue());
+    } else {
+        // BFT (0), READYQC_COMPLETE (3): deterministic slot stagger
+        delay = replicaId * par("broadcastSlotSec").doubleValue()
+                + uniform(par("broadcastJitterMin").doubleValue(), par("broadcastJitterMax").doubleValue());
+    }
+    
+    // double microStagger = 0.0;
+    
+    // // Check if it's a unicast message (assuming -1 is your broadcast ID)
+    // if (toReplicaId != -1) {
+    //     // 1.5ms gap between each unicast packet sent by THIS car
+    //     microStagger = toReplicaId * 0.0015; 
+    // }
+    
+    // delay += microStagger;
+    std::cout << "[V2V-BROADCAST] Replica " << replicaId << ": Calling sendDelayed() with delay=" << delay << "s (msgType=" << messageType << ")..." << std::endl;
     sendDelayed(bftMsg, delay, lowerLayerOut);
     std::cout << "[V2V-BROADCAST] Replica " << replicaId << ": sendDelayed() returned - packet transmitted to OMNeT++ network layer" << std::endl;
     // radioBusy = true;
@@ -555,9 +622,24 @@ void V2VProxyModule::flushReliabilityQueue() {
 
 
 int V2VProxyModule::getMaxMessagesPerTick() {
-    const int CHANNEL_CAPACITY = 75;
-    const double TARGET_UTIL = 0.85;
-    return std::max(2, (int)(CHANNEL_CAPACITY * TARGET_UTIL / BATCH_SIZE)); 
+    // const int CHANNEL_CAPACITY = 100;
+    // const double TARGET_UTIL = 0.85;
+    // int localviewBatchSize = (int)establishedView.size();
+    // if (localviewBatchSize > 0){
+    //     std::cout << "using localViewBatchSize" << localviewBatchSize <<  std::endl;
+    //     return std::max(2, (int)(CHANNEL_CAPACITY * TARGET_UTIL / localviewBatchSize)); 
+    // }
+    
+
+    // return std::max(2, (int)(CHANNEL_CAPACITY * TARGET_UTIL / BATCH_SIZE)); 
+    const double DSRC_CHANNEL_MBPS = 3.0;          // 802.11p effective rate
+    const double MSG_SIZE_BITS     = 750 * 8.0;     // ~750 byte BFT msg
+    const double TICK_SEC          = 0.05;          // processQueueTimer interval
+    const double TARGET_UTIL       = 0.85;
+
+    int n = std::max(1, (int)establishedView.size());
+    double msgs_per_sec = (DSRC_CHANNEL_MBPS * 1e6 / MSG_SIZE_BITS) / n;
+    return std::max(2, (int)(msgs_per_sec * TICK_SEC * TARGET_UTIL));   
 }
 
 bool V2VProxyModule::checkJavaReplicaStatus() {
@@ -605,10 +687,10 @@ void V2VProxyModule::triggerRetransmissionCheckViaJNI() {
         return;
     }
 
-    // Step 1: Call checkRetransmissionsForAllReplicas() to queue retransmissions
-    jmethodID checkMethod = env->GetStaticMethodID(reliabilityClass, "checkRetransmissionsForAllReplicas", "()V");
+    // Step 1: Check retransmissions for this replica only (H2 fix: was checkRetransmissionsForAllReplicas)
+    jmethodID checkMethod = env->GetStaticMethodID(reliabilityClass, "checkRetransmissionsForReplica", "(I)V");
     if (checkMethod) {
-        env->CallStaticVoidMethod(reliabilityClass, checkMethod);
+        env->CallStaticVoidMethod(reliabilityClass, checkMethod, (jint)replicaId);
     }
 
     if (env->ExceptionCheck()) {
@@ -685,7 +767,7 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
             // std::cout << "[V2V-QUEUE] Replica " << replicaId << ": Processing " << messageQueue.size() 
             //           << " queued message(s) at t=" << simTime() << std::endl;
 
-            while (!messageQueue.empty() && count < MAX_MESSAGES_PER_TICK) {
+            while (!messageQueue.empty()) {
                 toProcess.push_back(messageQueue.front());
                 messageQueue.pop();
                 count++;
@@ -728,17 +810,77 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                 double delay = pendingResumeDelays.front();
                 pendingResumeDelays.pop();
                 
-                // Mark the end of Order consensus
+                // Mark the end of the local post-decision pipeline on the simulation thread.
                 orderConsensusEndTime = simTime();
-                realOrderConsensusEnd = std::chrono::high_resolution_clock::now();
-                auto realOrderConsensusDuration = std::chrono::duration_cast<std::chrono::milliseconds>(realOrderConsensusEnd - realOrderConsensusStart);
-                std::cout << "[METRICS " << replicaId << "] Order_Consensus_Duration: " << realOrderConsensusDuration.count() << "ms" << std::endl;
+                if (!orderDecisionCallbackSeen) {
+                    // Fallback when callback timing was not captured (should be rare).
+                    realOrderConsensusEnd = std::chrono::high_resolution_clock::now();
+                }
+                if (orderDecisionCallbackSeen && realOrderConsensusStart.time_since_epoch().count() > 0) {
+                    auto realOrderConsensusDuration =
+                        std::chrono::duration_cast<std::chrono::milliseconds>(realOrderConsensusEnd - realOrderConsensusStart);
+                    lastOrderBftRequestRttMs = static_cast<double>(realOrderConsensusDuration.count());
+                    std::cout << "[METRICS " << replicaId
+                              << "] Order_BFT_Request_RTT_ms: " << lastOrderBftRequestRttMs << std::endl;
+                } else {
+                    lastOrderBftRequestRttMs = -1.0;
+                }
                 
                 
-                // Calculate durations
-                simtime_t viewConsensusDuration = viewConsensusEndTime - viewConsensusStartTime;
-                simtime_t orderConsensusDuration = orderConsensusEndTime - orderConsensusStartTime;
-                simtime_t totalConsensusDuration = orderConsensusEndTime - consensusStartTime;
+                // Compute robust timing anchors before deriving durations.
+                // Some callbacks run on followers without setting all start fields.
+                simtime_t effectiveViewStart = viewConsensusStartTime;
+                bool usedViewStartFallback = false;
+                if (effectiveViewStart <= 0) {
+                    if (viewSignatureCollectionEndTime > 0) {
+                        effectiveViewStart = viewSignatureCollectionEndTime;
+                    } else if (viewSignatureCollectionStartTime > 0) {
+                        effectiveViewStart = viewSignatureCollectionStartTime;
+                    } else {
+                        effectiveViewStart = consensusStartTime;
+                    }
+                    usedViewStartFallback = true;
+                }
+                simtime_t effectiveViewEnd = viewConsensusEndTime;
+                if (effectiveViewEnd < effectiveViewStart) {
+                    effectiveViewEnd = effectiveViewStart;
+                }
+                simtime_t viewConsensusDuration = effectiveViewEnd - effectiveViewStart;
+
+                simtime_t effectiveOrderStart = orderConsensusStartTime;
+                bool usedOrderStartFallback = false;
+                if (effectiveOrderStart <= 0) {
+                    if (orderSignatureCollectionEndTime > 0) {
+                        effectiveOrderStart = orderSignatureCollectionEndTime;
+                    } else if (orderSignatureCollectionStartTime > 0) {
+                        effectiveOrderStart = orderSignatureCollectionStartTime;
+                    } else {
+                        effectiveOrderStart = orderConsensusEndTime;
+                    }
+                    usedOrderStartFallback = true;
+                }
+                simtime_t effectiveOrderEnd = orderConsensusEndTime;
+                if (effectiveOrderEnd < effectiveOrderStart) {
+                    effectiveOrderEnd = effectiveOrderStart;
+                }
+                simtime_t orderConsensusDuration = effectiveOrderEnd - effectiveOrderStart;
+
+                simtime_t effectiveTotalStart = consensusStartTime;
+                if (effectiveTotalStart <= 0) {
+                    effectiveTotalStart = effectiveViewStart;
+                }
+                if (effectiveOrderEnd < effectiveTotalStart) {
+                    effectiveTotalStart = effectiveOrderEnd;
+                }
+                simtime_t totalConsensusDuration = effectiveOrderEnd - effectiveTotalStart;
+
+                simtime_t effectiveOrderWindowStart = orderCollectionWindowStart;
+                bool usedGossipFallback = false;
+                if (effectiveOrderWindowStart <= 0 || orderCollectionWindowEnd < effectiveOrderWindowStart) {
+                    effectiveOrderWindowStart = orderCollectionWindowEnd;
+                    usedGossipFallback = true;
+                }
+                simtime_t laneLeaderGossipDuration = orderCollectionWindowEnd - effectiveOrderWindowStart;
                 
                 std::cout << "\n========== CONSENSUS METRICS (Replica " << replicaId << ") ==========" << std::endl;
                 // View Signature Collection Metrics
@@ -751,11 +893,26 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
              
 
                 std::cout << "[METRICS " << replicaId << "] === VIEW CONSENSUS ===" << std::endl;
-                std::cout << "[METRICS " << replicaId << "] View_Consensus_Start: " << viewConsensusStartTime << std::endl;
-                std::cout << "[METRICS " << replicaId << "] View_Consensus_End:   " << viewConsensusEndTime << std::endl;
+                std::cout << "[METRICS " << replicaId << "] View_Consensus_Start: " << effectiveViewStart << std::endl;
+                std::cout << "[METRICS " << replicaId << "] View_Consensus_End:   " << effectiveViewEnd << std::endl;
                 std::cout << "[METRICS " << replicaId << "] View_Consensus_Latency: " << viewConsensusDuration.dbl() << " seconds" << std::endl;
-                
 
+                // Per-round metric: average view consensus latency over 4 cars in this epoch
+                viewLatencyByEpochAndReplica[currentEpoch][replicaId] = viewConsensusDuration.dbl();
+                {
+                    const auto& epochViewLatencies = viewLatencyByEpochAndReplica[currentEpoch];
+                    if (epochViewLatencies.size() >= 4 && printedViewLatencyAvgEpochs.count(currentEpoch) == 0) {
+                        double sumLatency = 0.0;
+                        for (const auto& kv : epochViewLatencies) {
+                            sumLatency += kv.second;
+                        }
+                        double avgLatency = sumLatency / epochViewLatencies.size();
+                        printedViewLatencyAvgEpochs.insert(currentEpoch);
+                        std::cout << "[ROUND-METRICS] Epoch " << currentEpoch
+                                  << " Avg_View_Consensus_Latency_4Cars: " << avgLatency
+                                  << " seconds (replicasCounted=" << epochViewLatencies.size() << ")" << std::endl;
+                    }
+                }
 
                 // Order Signature Collection Metrics
                 std::cout << "[METRICS " << replicaId << "] === ORDER SIGNATURE COLLECTION ===" << std::endl;
@@ -764,20 +921,64 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                 std::cout << "[METRICS " << replicaId << "] Order_Signature_Collection_End: " << orderSignatureCollectionEndTime << std::endl;
                 std::cout << "[METRICS " << replicaId << "] Order_Signature_Collection_Duration: " << (orderSignatureCollectionEndTime - orderSignatureCollectionStartTime).dbl() << " seconds" << std::endl;
 
+                std::cout << "[METRICS " << replicaId << "] LaneLeader_Gossip_Duration: " << laneLeaderGossipDuration.dbl() << " seconds" << std::endl;
+
                 // Order Consensus Metrics
-                if (orderConsensusStartTime == 0) {
-                    orderConsensusStartTime = orderSignatureCollectionEndTime;
-                }
                 std::cout << "[METRICS " << replicaId << "] === ORDER CONSENSUS ===" << std::endl;
-                std::cout << "[METRICS " << replicaId << "] Order_Consensus_Start: " << orderConsensusStartTime << std::endl;
-                std::cout << "[METRICS " << replicaId << "] Order_Consensus_End:   " << orderConsensusEndTime << std::endl;
+                std::cout << "[METRICS " << replicaId << "] Order_Consensus_Start: " << effectiveOrderStart << std::endl;
+                std::cout << "[METRICS " << replicaId << "] Order_Consensus_End:   " << effectiveOrderEnd << std::endl;
                 std::cout << "[METRICS " << replicaId << "] Order_Consensus_Latency: " << orderConsensusDuration.dbl() << " seconds" << std::endl;
+                if (lastOrderBftRequestRttMs >= 0.0) {
+                    std::cout << "[METRICS " << replicaId
+                              << "] Order_BFT_Request_RTT: " << (lastOrderBftRequestRttMs / 1000.0)
+                              << " seconds" << std::endl;
+                } else {
+                    std::cout << "[METRICS " << replicaId
+                              << "] Order_BFT_Request_RTT: N/A (no local ORDER submit)" << std::endl;
+                }
                 
                 // Overall Metrics
                 std::cout << "[METRICS " << replicaId << "] === OVERALL ===" << std::endl;
-                std::cout << "[METRICS " << replicaId << "] Total_Consensus_Start: " << consensusStartTime << std::endl;
-                std::cout << "[METRICS " << replicaId << "] Total_Consensus_End:   " << orderConsensusEndTime << std::endl;
+                std::cout << "[METRICS " << replicaId << "] Total_Consensus_Start: " << effectiveTotalStart << std::endl;
+                std::cout << "[METRICS " << replicaId << "] Total_Consensus_End:   " << effectiveOrderEnd << std::endl;
                 std::cout << "[METRICS " << replicaId << "] Total_Consensus_Duration: " << totalConsensusDuration.dbl() << " seconds" << std::endl;
+                if (usedViewStartFallback || usedOrderStartFallback || usedGossipFallback) {
+                    std::cout << "[METRICS " << replicaId << "] Timing_Fallbacks:"
+                              << " viewStart=" << (usedViewStartFallback ? "1" : "0")
+                              << " orderStart=" << (usedOrderStartFallback ? "1" : "0")
+                              << " gossipWindow=" << (usedGossipFallback ? "1" : "0")
+                              << std::endl;
+                }
+
+                // Per-round metric: average order consensus latency over 4 cars in this epoch.
+                orderLatencyByEpochAndReplica[currentEpoch][replicaId] = orderConsensusDuration.dbl();
+                const auto& epochLatencies = orderLatencyByEpochAndReplica[currentEpoch];
+                if (epochLatencies.size() >= 4 && printedOrderLatencyAvgEpochs.count(currentEpoch) == 0) {
+                    double sumLatency = 0.0;
+                    for (const auto& kv : epochLatencies) {
+                        sumLatency += kv.second;
+                    }
+                    double avgLatency = sumLatency / epochLatencies.size();
+                    printedOrderLatencyAvgEpochs.insert(currentEpoch);
+                    std::cout << "[ROUND-METRICS] Epoch " << currentEpoch
+                              << " Avg_Order_Consensus_Latency_4Cars: " << avgLatency
+                              << " seconds (replicasCounted=" << epochLatencies.size() << ")" << std::endl;
+                }
+                if (lastOrderBftRequestRttMs >= 0.0) {
+                    orderBftRttByEpochAndReplica[currentEpoch][replicaId] = lastOrderBftRequestRttMs / 1000.0;
+                }
+                const auto& epochBftRtt = orderBftRttByEpochAndReplica[currentEpoch];
+                if (!epochBftRtt.empty() && printedOrderBftRttAvgEpochs.count(currentEpoch) == 0) {
+                    double sumRtt = 0.0;
+                    for (const auto& kv : epochBftRtt) {
+                        sumRtt += kv.second;
+                    }
+                    double avgRtt = sumRtt / epochBftRtt.size();
+                    printedOrderBftRttAvgEpochs.insert(currentEpoch);
+                    std::cout << "[ROUND-METRICS] Epoch " << currentEpoch
+                              << " Avg_Order_BFT_Request_RTT_Submitter: " << avgRtt
+                              << " seconds (submittersCounted=" << epochBftRtt.size() << ")" << std::endl;
+                }
                 
                 // Vehicle timing
                 simtime_t scheduledResumeTime = orderConsensusEndTime + delay;
@@ -806,14 +1007,52 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
             }
     
             if (pendingReconfigFlush) {
-                std::cout << "[FLUSH] Replica " << replicaId << ": pendingReconfigFlush=true, calling resetForNextRound()" << std::endl;
-                resetForNextRound();
-                shouldFlush = false;
-                std::cout << "[FLUSH] Replica " << replicaId << ": flushReliabilityQueue() returned" << std::endl;
-                return; 
+                // Guard against stale/duplicate JNI callbacks. After a successful reset,
+                // orderDecisionReceived is cleared; any late callback from the prior round
+                // must be ignored so currentEpoch cannot jump by +2/+3.
+                if (!orderDecisionReceived) {
+                    std::cout << "[FLUSH] Replica " << replicaId
+                              << ": dropping stale pendingReconfigFlush (no ORDER_DECIDED in epoch="
+                              << currentEpoch << ")" << std::endl;
+                    pendingReconfigFlush = false;
+                } else {
+                    std::cout << "[FLUSH] Replica " << replicaId
+                              << ": pendingReconfigFlush=true, calling resetForNextRound()" << std::endl;
+                    resetForNextRound();
+                    shouldFlush = false;
+                    std::cout << "[FLUSH] Replica " << replicaId << ": flushReliabilityQueue() returned" << std::endl;
+                    return;
+                }
+            }
+
+            // Drain pending ORDER decision queued by handleOrderDecision() on a JNI thread.
+            // cancelEvent() is safe here because we are on the OMNeT++ main thread.
+            // parseAndNotifyDecision() is called AFTER the lock is released because it
+            // calls resumeVehicle() which re-acquires jniMutex (would deadlock if still held).
+            if (pendingCancelOrderTimer) {
+                pendingCancelOrderTimer = false;
+                if (orderDelayTimer && orderDelayTimer->isScheduled()) {
+                    cancelEvent(orderDelayTimer);
+                    std::cout << "[ORDER] Replica " << replicaId
+                              << ": cancelled orderDelayTimer on main thread" << std::endl;
+                }
+            }
+        }  // jniMutex released here — safe to call parseAndNotifyDecision now
+
+        {
+            std::string decision;
+            {
+                std::lock_guard<std::mutex> lock(jniMutex);
+                decision = pendingOrderDecision;
+                pendingOrderDecision.clear();
+            }
+            if (!decision.empty()) {
+                std::cout << "[ORDER] Replica " << replicaId
+                          << ": main thread processing deferred ORDER decision: " << decision << std::endl;
+                parseAndNotifyDecision(decision);
             }
         }
-        
+
         // if (completedConsensusCount == BATCH_SIZE) {
         //     std::cout << "[METRICS " << replicaId << "] All Consensus Completed" << std::endl;
         //     endSimulation();
@@ -835,11 +1074,15 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                   << " currentPhase=" << currentPhase << std::endl;
         delete msg;
 
-        // Only resume if we are actually waiting for the GO signal (ORDER_CONSENSUS).
-        // Ignore spurious/early resume (e.g. from re-entrant JNI during retx check or duplicate Java callback).
-        if (currentPhase != ORDER_CONSENSUS) {
-            std::cout << "[V2VProxy " << replicaId << "] IGNORING resume - phase is " << currentPhase
-                      << " (expected ORDER_CONSENSUS). Car must not move yet." << std::endl;
+        // Only ignore if already moving or departed — a resumeVehicle message is only
+        // ever scheduled by notifyVehicleCanGo (GO car) or the consensus timeout fallback.
+        // WAIT cars never get a resumeVehicle scheduled, so any message here is legitimate.
+        // We must NOT check currentPhase == ORDER_CONSENSUS because resetForNextRound() or
+        // startReadyQCCollection() can change the phase between when the message is scheduled
+        // and when it fires (same simulation timestep, later event ID).
+        if (currentPhase == EXECUTING || currentPhase == DEPARTED) {
+            std::cout << "[V2VProxy " << replicaId << "] IGNORING resume - already in phase " << currentPhase
+                      << " (EXECUTING or DEPARTED)." << std::endl;
             return;
         }
         flushReliabilityQueue();
@@ -854,6 +1097,7 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
 
         if (mobility && mobility->getVehicleCommandInterface()) {
             currentPhase = EXECUTING;
+            isWaitingForClearance = false;  // Prevent clearance watcher from interfering with GO car
             mobility->getVehicleCommandInterface()->setSpeedMode(0);
             mobility->getVehicleCommandInterface()->setSpeed(30);  // Release control to SUMO
             isStopped = false;
@@ -922,6 +1166,11 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
             // C. Once all 4 cars are GONE, trigger the next round!
             bool allDeparted = (!expectedToGo.empty() && confirmedDeparted.size() == expectedToGo.size());
             bool timedOut = (simTime() >= clearanceStartTime + CLEARANCE_TIMEOUT);
+            // D. Car has physically reached the stop line — its own lane must be clear.
+            // This prevents cars in one lane from being blocked by slow-clearing cars in
+            // other lanes. Reaching the stop line is physical proof that the car ahead
+            // in THIS lane has already moved out of the way.
+            // bool atStopLine = (distance < stopDistance + 1.5);
 
             if (allDeparted || timedOut) {
                 int remainingCars = getVisibleVehicles(300.0).size();
@@ -929,11 +1178,27 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                 laneDiscovered = false;
                 discoverLane();
 
+                // if (atStopLine && !allDeparted && !timedOut) {
+                //     std::cout << "[CLEARANCE] Replica " << replicaId
+                //               << " reached stop line — own lane is clear, ending clearance wait early." << std::endl;
+                // } else {
+                //     std::cout << "[CLEARANCE] Intersection is completely clear! Ready to propose." << std::endl;
+                // }
+
                 std::cout << "[CLEARANCE] Intersection is completely clear! Ready to propose." << std::endl;
+
+                std::vector<int> departedIds;
+                for (const auto& carIdStr : confirmedDeparted) {
+                    departedIds.push_back(extractReplicaIdFromCarId(carIdStr));
+                }
+
+                // Sync the reset: before starting the next round, trigger the global V2V cleanup in Java
+                triggerGlobalResetViaJNI(departedIds);
 
                 isWaitingForClearance = false;
                 currentPhase = IDLE;   // Reset phase to trigger Rule 3
                 joinTriggered = false; // Reset trigger so Rule 3 fires
+
 
                 // Release any explicitly stopped car so SUMO can advance it to the
                 // new stop line.  Rule 0 will re-stop it (and Rule 3 will fire) once
@@ -966,7 +1231,7 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
             laneDiscovered = false;
             discoverLane();
 
-            if (carAhead.empty()) {
+            if (carAhead.empty() || firstOrderBagProposalTime == 0) {
                 std::cout << "[V2VProxy " << replicaId << "] ===== APPROACHING INTERSECTION =====" << std::endl;
                 stopVehicle();
                 initiateViewProposal();  // START THE NEW ROUND
@@ -1016,7 +1281,7 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
         }
 
         // Keep the heartbeat alive!
-        scheduleAt(simTime() + 0.1, checkPositionTimer);
+        scheduleAt(simTime() + 0.05, checkPositionTimer);
         return;
     }
     // =========================================================================
@@ -1024,9 +1289,40 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
     // =========================================================================
 
     if (msg == readyQCTimeoutTimer) {
-        std::cout << "[V2VProxy " << replicaId << "] ReadyQC timeout (deprecated in new flow)" << std::endl;
-        delete msg;
-        readyQCTimeoutTimer = nullptr;
+        // Retransmit ARRIVAL_ANNOUNCE if we haven't collected enough witnesses yet
+        std::string myCarId = "veh" + std::to_string(replicaId);
+        
+        std::string laneForFrontCheck;
+        auto annIt = pendingAnnouncements.find(myCarId);
+        if (annIt != pendingAnnouncements.end() && !annIt->second.laneId.empty()) {
+            laneForFrontCheck = annIt->second.laneId;
+        } else if (mobility && mobility->getCommandInterface()) {
+            try {
+                laneForFrontCheck = mobility->getCommandInterface()->vehicle(myCarId).getLaneId();
+            } catch (...) {
+                laneForFrontCheck.clear();
+            }
+        }
+
+        // bool isLineLeader = !laneForFrontCheck.empty() &&
+        //                     isCarAtFrontOfLane(myCarId, laneForFrontCheck);
+        if (!establishedView.empty() && establishedView.count(myCarId) &&
+            currentPhase == COLLECTING_QC) {
+            int f = ((int)establishedView.size() - 1) / 3;
+            int required = f + 1;
+            size_t have = collectedWitnesses[myCarId].size();
+            if ((int)have < required) {
+                std::cout << "[V2VProxy " << replicaId << "] ARRIVAL retransmit: only "
+                          << have << "/" << required << " witnesses. Rebroadcasting..." << std::endl;
+                broadcastArrivalAnnouncement();
+                // Reschedule for another attempt
+                double retryStagger = replicaId * 0.025; // 25ms gap between cars
+                double retryJitter = uniform(0.001, 0.010); // 1-10ms randomness
+                scheduleAt(simTime() + 0.1 + retryStagger + retryJitter, readyQCTimeoutTimer);
+                return;
+            }
+        }
+        // QC already complete — nothing to do
         return;
     }
 
@@ -1038,10 +1334,10 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
     }
     
     if (msg == retxCheckTimer) {
-        syncTimeToJava(); 
+        syncTimeToJava();
         triggerRetransmissionCheckViaJNI();
-        scheduleAt(simTime() + 0.5, retxCheckTimer);
-        std::cout << "[V2VProxy " << replicaId << "] Retransmission check at t=" << simTime() << std::endl;
+        double jitter = uniform(0.001, 0.005);
+        scheduleAt(simTime() + 0.001 + jitter, retxCheckTimer);
         return;
     }
     
@@ -1067,7 +1363,7 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
 
     if (msg == startReadyQCCollectionMsg) {
         std::cout << "[V2VProxy " << replicaId << "] Starting Phase 2 at t=" << simTime() << std::endl;
-        double jitter = uniform(0.010, 0.050);
+        double jitter = uniform(0.001, 0.005);
         scheduleAt(simTime() + jitter, startReadyQCCollectionMsg);
       //  startReadyQCCollection();
         // Do not delete member variables that might be reused, or set to null
@@ -1114,10 +1410,16 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                 // to signal Java to finalize with whatever it has
                 orderBagCloseFlag = true;
                 auto bag = buildOrderBagQCs();
-                if (!bag.empty()) {
+                int viewLeader = establishedView.empty() ? -1 : getCurrentViewLeader(establishedView);
+                bool iAmViewLeader = (viewLeader == replicaId);
+                if (!bag.empty() && iAmViewLeader) {
                     std::cout << "[ORDER-BAG] Replica " << replicaId
                               << " DEADLINE retransmit with closeFlag=true at t=" << simTime() << std::endl;
                     triggerJoinViaJNI(serializeOrderBagRequest(bag, true));
+                } else if (!iAmViewLeader) {
+                    std::cout << "[ORDER-BAG] Replica " << replicaId
+                              << " skipping DEADLINE retransmit (not view leader, leader=" << viewLeader << ")"
+                              << std::endl;
                 }
             }
         }
@@ -1125,19 +1427,38 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
     }
 
     if (msg == orderGossipRetransmitTimer) {
-        // Re-broadcast own ReadyQC with jitter to improve distribution during collection window
-       
         std::string myCarId = "veh" + std::to_string(replicaId);
         if (myReadyQCComplete && !orderDecisionReceived && orderCollectionActive && isMyQCFrontMostKnownInLaneFromPool()) {
+            // Count un-ACKed peers — if all have ACKed, no need to retransmit
+            int unackedCount = 0;
+            for (const auto& peerStr : establishedView) {
+                if (peerStr == myCarId) continue;
+                int peerId = extractReplicaIdFromCarId(peerStr);
+                if (peerId != -1 && readyQCAcks.count(peerId) == 0) unackedCount++;
+            }
+
+            if (unackedCount == 0) {
+                std::cout << "[ORDER-GOSSIP] Replica " << replicaId
+                          << " all peers ACKed, stopping gossip retransmit at t=" << simTime() << std::endl;
+                return;
+            }
+
             if (verifiedPool.count(myCarId)) {
+                // Single broadcast — cheap, reaches all peers in one packet
                 std::vector<uint8_t> payload = serializeReadyQC(verifiedPool[myCarId]);
                 sendBFTMessage(replicaId, -1, payload, 3);
                 std::cout << "[ORDER-GOSSIP] Replica " << replicaId
-                          << " re-broadcast own ReadyQC at t=" << simTime() << std::endl;
+                          << " re-broadcast own ReadyQC (" << unackedCount
+                          << " peers not yet ACKed) at t=" << simTime() << std::endl;
             }
-            // Reschedule once more if well before deadline
-            if (simTime() < orderCollectionDeadline - SimTime(0.05)) {
-                scheduleAt(simTime() + uniform(0.05, 0.12), orderGossipRetransmitTimer);
+
+            // Reschedule while there are un-ACKed peers and before deadline. Scale interval
+            // to remaining window so 2-3 retries fit before deadline (helps small-n / final epoch).
+            double remaining = (orderCollectionDeadline - simTime()).dbl();
+            double interval = std::min(0.35, remaining / 3.0);
+            if (interval < 0.02) interval = 0.02;
+            if (remaining > 0.20 && simTime() < orderCollectionDeadline - SimTime(0.20)) {
+                scheduleAt(simTime() + interval, orderGossipRetransmitTimer);
             }
         }
         return;
@@ -1145,19 +1466,68 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
 
     if (msg == orderBagRetransmitTimer) {
         if (orderDecisionReceived) return;
-        if (orderBagRetransmitCount >= 0) return;  // cap retries
-
-        orderBagRetransmitCount++;
-
-        auto bag = buildOrderBagQCs(); // rebuild so it can improve as pool grows
-        if (!bag.empty()) {
-            triggerJoinViaJNI(serializeOrderBagRequest(bag, orderBagCloseFlag));
+        // Single-submitter mode: submit ORDER exactly once per round.
+        // Do not retransmit ORDER_PROPOSE via JNI, or we reintroduce batching variance.
+        int viewLeader = establishedView.empty() ? -1 : getCurrentViewLeader(establishedView);
+        bool iAmViewLeader = (viewLeader == replicaId);
+        if (iAmViewLeader) {
+            std::cout << "[ORDER-BAG] Replica " << replicaId
+                      << " retransmit timer fired but suppressed (single-submit mode)" << std::endl;
         }
-        scheduleAt(simTime() + uniform(0.05, 0.12), orderBagRetransmitTimer);
+        return;
+    }
+
+    if (msg == orderDelayTimer) {
+        if (!delayedOrderSubmitScheduled) return;
+        delayedOrderSubmitScheduled = false;
+
+        if (orderDecisionReceived || pendingOrderPayload.empty()) {
+            pendingOrderPayload.clear();
+            pendingOrderEpoch = -1;
+            pendingOrderViewHash = 0;
+            return;
+        }
+
+        // Epoch/view binding: only submit if still in same ORDER round context.
+        std::string viewStr;
+        for (const auto& car : establishedView) {
+            if (!viewStr.empty()) viewStr += ",";
+            viewStr += car;
+        }
+        int32_t currentViewHash = computeXXHash32(viewStr);
+        if (pendingOrderEpoch != currentEpoch || pendingOrderViewHash != currentViewHash) {
+            std::cout << "[ORDER-DELAY] Replica " << replicaId
+                      << " dropping delayed ORDER submit due to epoch/view mismatch"
+                      << " pendingEpoch=" << pendingOrderEpoch
+                      << " currentEpoch=" << currentEpoch
+                      << " pendingViewHash=" << pendingOrderViewHash
+                      << " currentViewHash=" << currentViewHash
+                      << std::endl;
+            pendingOrderPayload.clear();
+            pendingOrderEpoch = -1;
+            pendingOrderViewHash = 0;
+            return;
+        }
+
+        std::cout << "[ORDER-DELAY] Replica " << replicaId
+                  << " firing delayed ORDER submit at t=" << simTime()
+                  << " gap=" << orderDelayGap << "s"
+                  << " epoch=" << pendingOrderEpoch
+                  << std::endl;
+        triggerJoinViaJNI(pendingOrderPayload);
+        pendingOrderPayload.clear();
+        pendingOrderEpoch = -1;
+        pendingOrderViewHash = 0;
         return;
     }
 
     std::cout << "[HANDLE-SELF-MSG] Replica " << replicaId << ": msg=" << msg->getName() << std::endl;
+    
+    if (isDeparted) {
+        delete msg;
+        return;
+    }
+    
     DemoBaseApplLayer::handleSelfMsg(msg);
 }
 
@@ -1331,6 +1701,66 @@ bool V2VProxyModule::triggerJoinViaJNI(const std::string& request )
 
 }
 
+bool V2VProxyModule::triggerGlobalResetViaJNI(const std::vector<int>& departedReplicas)
+{
+    std::cout << "[V2VProxy " << replicaId << "] triggerGlobalResetViaJNI() called at t=" << simTime() << std::endl;
+
+    std::lock_guard<std::mutex> lock(jvmMutex);
+    
+    if (!sharedJVM) {
+        std::cerr << "[ERROR V2VProxy " << replicaId << "] No JVM available for triggerGlobalReset" << std::endl;
+        return false;
+    }
+    
+    JNIEnv* env;
+    int envStat = sharedJVM->GetEnv((void**)&env, JNI_VERSION_1_8);
+    if (envStat == JNI_EDETACHED) {
+        sharedJVM->AttachCurrentThread((void**)&env, nullptr);
+    }
+    
+    // Find ReliableV2VMessaging class
+    jclass messagingClass = env->FindClass("bftsmart/communication/V2V/ReliableV2VMessaging");
+    if (!messagingClass) {
+        std::cerr << "[ERROR V2VProxy " << replicaId << "] Failed to find ReliableV2VMessaging class" << std::endl;
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        return false;
+    }
+
+    // Get the static globalResetV2V method taking int[]
+    jmethodID resetMethod = env->GetStaticMethodID(messagingClass, "globalResetV2V", "([I)V");
+
+    if (resetMethod) {
+        jintArray jDepartedArray = nullptr;
+        if (!departedReplicas.empty()) {
+            jDepartedArray = env->NewIntArray(departedReplicas.size());
+            // Need cast because jint is usually long on 64-bit windows, but usually int on linux.
+            // On linux jint is int32_t. data() of vector<int> is safe for SetIntArrayRegion.
+            env->SetIntArrayRegion(jDepartedArray, 0, departedReplicas.size(), (const jint*)departedReplicas.data());
+        }
+
+        // Call Java method
+        env->CallStaticVoidMethod(messagingClass, resetMethod, jDepartedArray);
+
+        if (jDepartedArray) {
+            env->DeleteLocalRef(jDepartedArray);
+        }
+
+        if (!env->ExceptionCheck()) {
+            std::cout << "[V2VProxy " << replicaId << "] SUCCESS: Triggered globalResetV2V via JNI at t=" << simTime() << std::endl;
+            return true; // Success!
+        } else {
+            std::cerr << "[V2VProxy " << replicaId << "] Exception calling globalResetV2V" << std::endl;
+            env->ExceptionDescribe();
+            env->ExceptionClear();
+        }
+    } else {
+        std::cerr << "[V2VProxy " << replicaId << "] ERROR: Could not find globalResetV2V([I)V method" << std::endl;
+    }
+
+    return false;
+}
+
 void V2VProxyModule::onBSM(DemoSafetyMessage* bsm)
 {
     // Not used for BFT communication
@@ -1406,6 +1836,22 @@ bool V2VProxyModule::createOrAttachJVM()
         }
 
         jvm = sharedJVM;
+
+        // Each replica needs its own clockClass/updateTimeMethod so syncTimeToJava()
+        // works on non-first replicas. Without this, only the JVM-creating replica
+        // (replica 0) can update SimulationClock; after it departs the clock freezes,
+        // which makes envelope.timestampMs == now forever and suppresses all reliability
+        // retransmissions for subsequent epochs.
+        jclass localClockCls = env->FindClass("bftsmart/communication/V2V/SimulationClock");
+        if (localClockCls) {
+            clockClass = (jclass) env->NewGlobalRef(localClockCls);
+            updateTimeMethod = env->GetStaticMethodID(clockClass, "updateTime", "(D)V");
+            env->DeleteLocalRef(localClockCls);
+        } else {
+            std::cerr << "[V2VProxy " << replicaId << "] WARNING: SimulationClock class not found on attach" << std::endl;
+            env->ExceptionClear();
+        }
+
         return true;
     }
 
@@ -1776,8 +2222,8 @@ bool V2VProxyModule::isApproachingIntersection()
 void V2VProxyModule::stopVehicle()
 {
     if (!isStopped && mobility && mobility->getVehicleCommandInterface()) {
-        mobility->getVehicleCommandInterface()->setSpeedMode(0);
-        mobility->getVehicleCommandInterface()->setSpeed(0);
+        mobility->getVehicleCommandInterface()->setSpeedMode(31);
+        mobility->getVehicleCommandInterface()->setSpeed(-1);
        
         isStopped = true;
         discoverLane();
@@ -1796,7 +2242,14 @@ void V2VProxyModule::resumeVehicle(double delaySeconds)
     if (delaySeconds >= 99999.0) {
         //not in final decision
         return;
-    
+    }
+    // Dedup: two paths can call resumeVehicle for the same round
+    // (notifyOrderDecided JNI callback AND sendConsensusRequest reply).
+    // Only the first call per round is accepted; reset in resetForNextRound().
+    if (!pendingResumeDelays.empty()) {
+        std::cout << "[RESUME] Replica " << replicaId << ": Duplicate GO signal (delay=" << delaySeconds
+                  << "s) ignored — already queued " << pendingResumeDelays.size() << " entry(s)" << std::endl;
+        return;
     }
     pendingResumeDelays.push(delaySeconds);
     std::cout << "[RESUME] Replica " << replicaId << ": JNI received GO signal with delay=" << delaySeconds 
@@ -1808,6 +2261,7 @@ void V2VProxyModule::resumeVehicle(double delaySeconds)
 
 void V2VProxyModule::resetForNextRound() {
     std::cout << "[V2VProxy " << replicaId << "] resetForNextRound triggered" << std::endl;
+    const simtime_t resetNow = simTime();
     
     // Reset basic flags for a new round
     joinTriggered = false;
@@ -1815,14 +2269,30 @@ void V2VProxyModule::resetForNextRound() {
     orderCollectionActive = false;
     myReadyQCComplete = false;
     orderDecisionReceived = false;
-    currentEpoch++;         
+    currentEpoch++;
+    lastRoundResetTime = resetNow;
+    lastRoundResetEpoch = currentEpoch;
     establishedView.clear();
     verifiedPool.clear();
+    // Drain any QCs that arrived while we were still on the old epoch
+    for (auto& kv : nextEpochPool) {
+        if (kv.second.epoch == currentEpoch) {
+            verifiedPool[kv.first] = kv.second;
+            std::cout << "[READYQC] Replica " << replicaId
+                      << " promoted buffered QC from " << kv.first
+                      << " epoch=" << kv.second.epoch << std::endl;
+        }
+    }
+    nextEpochPool.clear();
 
     // The cars waiting for clearing need to transition here securely on OMNeT++ thread.
     // This includes WAIT cars that were in ORDER_CONSENSUS AND background cars (2nd/3rd
     // in queue) that were in IDLE because they never reached the stop line to propose.
-    if (currentPhase != EXECUTING && currentPhase != DEPARTED) {
+    // Also handles DEPARTED: resetForNextRound is ONLY called for cars that haven't
+    // physically crossed yet, so DEPARTED here means a false-positive departure flag
+    // (e.g. from a stale checkIfDeparted call) that must be cleared.
+    isDeparted = false;
+    if (currentPhase != EXECUTING) {
         currentPhase = WAITING_FOR_CLEARANCE;
         isWaitingForClearance = true;
         clearanceStartTime = simTime();
@@ -1846,9 +2316,20 @@ void V2VProxyModule::resetForNextRound() {
     orderBagRetransmitCount = 0;
     alreadyAtStopLine = false;
 
+
+
+    //tracking per round not overall
+    receivedMessages = 0;
+    sentMessages = 0;
+
    
 
 
+
+    // Cancel witness retransmit timer
+    if (readyQCTimeoutTimer && readyQCTimeoutTimer->isScheduled()) {
+        cancelEvent(readyQCTimeoutTimer);
+    }
 
     // Cancel order-collection timers
     if (orderCollectDeadlineTimer && orderCollectDeadlineTimer->isScheduled()) {
@@ -1860,17 +2341,50 @@ void V2VProxyModule::resetForNextRound() {
     if (orderBagRetransmitTimer && orderBagRetransmitTimer->isScheduled()) {
         cancelEvent(orderBagRetransmitTimer);
     }
+    if (orderDelayTimer && orderDelayTimer->isScheduled()) {
+        cancelEvent(orderDelayTimer);
+    }
+    delayedOrderSubmitScheduled = false;
+    pendingOrderPayload.clear();
+    pendingOrderEpoch = -1;
+    pendingOrderViewHash = 0;
 
-    verifiedPool.clear();
-    establishedView.clear();
+    // verifiedPool and establishedView already cleared above (after epoch increment + drain)
     collectedWitnesses.clear();
     arrivalAnnouncementsReceived.clear();
+
+    // Clear stale clearance-watch sets from the previous epoch.
+    // Without this, checkPositionTimer can fire at the same sim-tick as the reset
+    // and see confirmedDeparted == expectedToGo (both filled from the prior epoch),
+    // concluding "all departed" instantly and skipping the real clearance wait.
+    expectedToGo.clear();
+    confirmedDeparted.clear();
 
     viewVotes.clear();
     shouldFlush = false;
     pendingReconfigFlush = false;
 
+    // Reset per-round timing metrics so next round starts with clean slate
+    orderSignatureCollectionStartTime = 0;
+    orderSignatureCollectionEndTime = 0;
+    orderCollectionWindowStart = 0;
+    orderCollectionWindowEnd = 0;
+    firstOrderBagProposalTime = 0;
+    firstOrderBagProposerReplica = -1;
+    viewConsensusStartTime = 0;
+    viewConsensusEndTime = 0;
+    orderConsensusStartTime = 0;
+    orderConsensusEndTime = 0;
+    orderDecisionCallbackSeen = false;
+    lastOrderBftRequestRttMs = -1.0;
+    consensusStartTime = 0;
+
     flushReliabilityQueue();
+
+    if (retxCheckTimer && !retxCheckTimer->isScheduled()) {
+        scheduleAt(simTime() + 0.02, retxCheckTimer);
+        std::cout << "[RESET] Replica " << replicaId << ": Rescheduled retxCheckTimer for reliability queue checks" << std::endl;
+    }
 
     // Release control back to SUMO
 
@@ -2006,7 +2520,7 @@ std::vector<uint8_t> V2VProxyModule::signWitnessClaim(const ArrivalAnnouncement&
 void V2VProxyModule::broadcastArrivalAnnouncement() {
    
     // ZOMBIE FILTER: Departed cars don't broadcast arrival announcements
-    V2VProxyModule::zombieFilter();
+    if (zombieFilter()) return;
     std::string myCarId = "veh" + std::to_string(replicaId);
     ArrivalAnnouncement announcement;
     announcement.carId = myCarId;
@@ -2132,7 +2646,7 @@ void V2VProxyModule::handleWitnessResponse(BFTMessage* bftMsg) {
 
 void V2VProxyModule::assembleAndBroadcastReadyQC() {
     // ZOMBIE FILTER: Departed cars don't assemble and broadcast ReadyQCs
-   V2VProxyModule::zombieFilter();
+   if (zombieFilter()) return;
     std::string myCarId = "veh" + std::to_string(replicaId);
     
     // Check if pendingAnnouncements exists - if not, populate from current TraCI state
@@ -2249,7 +2763,7 @@ int V2VProxyModule::countDistinctFrontLanesInPool() {
 
     for (const auto& kv : verifiedPool) {
         const ReadyQC& qc = kv.second;
-        if (qc.epoch != currentEpoch) continue;
+        // View guard: only count QCs from established view members
         if (!establishedView.empty() && establishedView.count(qc.carId) == 0) continue;
 
         if (!isCarAtFrontOfLane(qc.carId, qc.laneId)) {
@@ -2275,21 +2789,42 @@ void V2VProxyModule::startOrderCollectionWindowIfNeeded() {
     orderCollectionActive = true;
     orderBagProposed = false;
     orderBagRetransmitCount = 0;
-    orderCollectionDeadline = simTime() + SimTime(2.0); // 1 second sim time
+    orderCollectionWindowStart = simTime();
+    int viewLeader = establishedView.empty() ? -1 : getCurrentViewLeader(establishedView);
+    bool iAmViewLeader = (viewLeader == replicaId);
+    std::cout << "[METRICS " << replicaId << "] Order_QC_Window_Start: " << simTime()
+            << " lanes_ready=" << countDistinctFrontLanesInPool() << "\n";
+    std::cout << "[ORDER-DIAG] Replica " << replicaId
+              << " epoch=" << currentEpoch
+              << " phase=" << currentPhase
+              << " viewSize=" << establishedView.size()
+              << " poolSize=" << verifiedPool.size()
+              << " viewLeader=" << viewLeader
+              << " iAmViewLeader=" << (iAmViewLeader ? "true" : "false")
+              << std::endl;
+    // Adaptive ORDER collection window: base + per-replica time, clamped to [min, max]
+    // so late rounds (small n) finish sooner and final epoch can complete.
+    double orderCollectMinSec = par("orderCollectMinSec").doubleValue();
+    double orderCollectPerReplicaSec = par("orderCollectPerReplicaSec").doubleValue();
+    double orderCollectMaxSec = par("orderCollectMaxSec").doubleValue();
+    size_t n = establishedView.empty() ? 4 : establishedView.size();
+    double windowSec = orderCollectMinSec + n * orderCollectPerReplicaSec;
+    if (windowSec > orderCollectMaxSec) windowSec = orderCollectMaxSec;
+    if (windowSec < orderCollectMinSec) windowSec = orderCollectMinSec;
+    orderCollectionDeadline = simTime() + SimTime(windowSec);
 
     // schedule deadline
     scheduleAt(orderCollectionDeadline, orderCollectDeadlineTimer);
 
     // optional: schedule a few extra ReadyQC re-broadcasts with jitter
-    
-    scheduleAt(simTime() + uniform(0.01, 0.04), orderGossipRetransmitTimer);
+    scheduleAt(simTime() + uniform(0.001, 0.005), orderGossipRetransmitTimer);
 
     std::cout << "[ORDER-COLLECT] Replica " << replicaId
        << " started collection window until " << orderCollectionDeadline << "\n";
 
     // Early close if we already have enough lane fronts
     if (countDistinctFrontLanesInPool() >= 4) {
-       
+        orderBagCloseFlag = true;
         proposeOrderBagNow("EARLY_4_LANES");
     }
 }
@@ -2302,8 +2837,7 @@ std::vector<V2VProxyModule::ReadyQC> V2VProxyModule::buildOrderBagQCs() {
         // Filter: must be in established view
         if (!establishedView.empty() && establishedView.count(qc.carId) == 0) continue;
 
-        // Filter: current epoch only (and later add viewHash/viewId match too)
-        if (qc.epoch != currentEpoch) continue;
+        // Epoch filter removed here — verifiedPool already gates by epoch+view in handleReadyQCComplete
 
         // Optional: validate QC signatures before using
         // if (!validateReadyQC(qc)) continue;
@@ -2359,6 +2893,41 @@ std::vector<V2VProxyModule::ReadyQC> V2VProxyModule::buildOrderBagQCs() {
 }
 
 void V2VProxyModule::proposeOrderBagNow(const std::string& reason) {
+    int viewLeader = establishedView.empty() ? -1 : getCurrentViewLeader(establishedView);
+    bool iAmViewLeader = (viewLeader == replicaId);
+    if (!iAmViewLeader) {
+        std::cout << "[ORDER-BAG] Replica " << replicaId
+                  << " skipping ORDER submit reason=" << reason
+                  << " (not view leader, leader=" << viewLeader << ")" << std::endl;
+        return;
+    }
+    
+    orderCollectionWindowEnd = simTime();
+    const double orderQcWindowDurationSec = (orderCollectionWindowEnd - orderCollectionWindowStart).dbl();
+    std::cout << "[METRICS " << replicaId << "] Order_QC_Window_End: " << simTime()
+            << " reason=" << reason
+            << " lanes=" << countDistinctFrontLanesInPool()
+            << " duration=" << orderQcWindowDurationSec << "s\n";
+    orderQcWindowByEpochAndReplica[currentEpoch][replicaId] = orderQcWindowDurationSec;
+    {
+        const auto& epochQcWindows = orderQcWindowByEpochAndReplica[currentEpoch];
+        if (epochQcWindows.size() >= 4 && printedOrderQcWindowAvgEpochs.count(currentEpoch) == 0) {
+            double sumWindow = 0.0;
+            double minWindow = std::numeric_limits<double>::max();
+            double maxWindow = 0.0;
+            for (const auto& kv : epochQcWindows) {
+                sumWindow += kv.second;
+                minWindow = std::min(minWindow, kv.second);
+                maxWindow = std::max(maxWindow, kv.second);
+            }
+            double avgWindow = sumWindow / epochQcWindows.size();
+            printedOrderQcWindowAvgEpochs.insert(currentEpoch);
+            std::cout << "[ROUND-METRICS] Epoch " << currentEpoch
+                      << " Avg_Order_QC_Window_4Cars: " << avgWindow
+                      << " seconds (spread=" << (maxWindow - minWindow)
+                      << "s, replicasCounted=" << epochQcWindows.size() << ")" << std::endl;
+        }
+    }
     if (orderDecisionReceived) return;
 
     auto bag = buildOrderBagQCs();
@@ -2368,29 +2937,92 @@ void V2VProxyModule::proposeOrderBagNow(const std::string& reason) {
     }
 
     // closeFlag=true means Java should decide even partial candidates (used at deadline)
-    bool closeFlag = (reason == "DEADLINE");
+    bool closeFlag = orderBagCloseFlag || (reason == "DEADLINE");
     orderBagCloseFlag = closeFlag;
 
     if (!orderBagProposed) {
         // First proposal — record ORDER consensus start time and set phase
         orderConsensusStartTime = simTime();
         realOrderConsensusStart = std::chrono::high_resolution_clock::now();
+        orderDecisionCallbackSeen = false;
+        lastOrderBftRequestRttMs = -1.0;
         currentPhase = ORDER_CONSENSUS;
         std::cout << "[METRICS " << replicaId << "] Order_Consensus_Start: " << orderConsensusStartTime << std::endl;
+    }
+
+    if (firstOrderBagProposalTime == 0) {
+        firstOrderBagProposalTime = simTime();
+        firstOrderBagProposerReplica = replicaId;
+    }
+
+    double sigToOrderStartGap = -1.0;
+    if (orderSignatureCollectionEndTime > 0) {
+        sigToOrderStartGap = (orderConsensusStartTime - orderSignatureCollectionEndTime).dbl();
+    }
+    std::cout << "[ORDER-DIAG] Replica " << replicaId
+              << " epoch=" << currentEpoch
+              << " reason=" << reason
+              << " closeFlag=" << (closeFlag ? "true" : "false")
+              << " bagSize=" << bag.size()
+              << " viewSize=" << establishedView.size()
+              << " frontLanes=" << countDistinctFrontLanesInPool()
+              << " viewLeader=" << viewLeader
+              << " iAmViewLeader=" << (iAmViewLeader ? "true" : "false")
+              << " sigEndToOrderStartGap=" << sigToOrderStartGap
+              << " firstLocalBagReplica=" << firstOrderBagProposerReplica
+              << " firstLocalBagTime=" << firstOrderBagProposalTime
+              << std::endl;
+    if (reason == "DEADLINE") {
+        std::cout << "[ORDER-DIAG] Replica " << replicaId
+                  << " DEADLINE_HIT epoch=" << currentEpoch
+                  << " windowStart=" << orderCollectionWindowStart
+                  << " deadline=" << orderCollectionDeadline
+                  << " windowDuration=" << (orderCollectionWindowEnd - orderCollectionWindowStart).dbl()
+                  << "s"
+                  << std::endl;
     }
 
     std::string payload = serializeOrderBagRequest(bag, closeFlag);
     std::cout << "[ORDER-BAG] Replica " << replicaId << " proposing bag size=" << bag.size()
               << " reason=" << reason << " closeFlag=" << closeFlag << " at t=" << simTime() << std::endl;
 
-    triggerJoinViaJNI(payload);
+    // 1. Kill the ARRIVAL_ANNOUNCE retransmit timer
+    if (readyQCTimeoutTimer && readyQCTimeoutTimer->isScheduled()) {
+        cancelEvent(readyQCTimeoutTimer);
+        std::cout << "[V2VProxy " << replicaId << "] Cancelled ARRIVAL retransmit timer on ORDER submit" << std::endl;
+    }
+
+    // 2. Kill the Gossip retransmit timer
+    if (orderGossipRetransmitTimer && orderGossipRetransmitTimer->isScheduled()) {
+        cancelEvent(orderGossipRetransmitTimer);
+        std::cout << "[V2VProxy " << replicaId << "] Cancelled Gossip retransmit timer on ORDER submit" << std::endl;
+    }
+    
+    if (orderDelayGap > 0.0) {
+        // Delay only the ORDER submit action; keep all other collection logic unchanged.
+        std::string viewStr;
+        for (const auto& car : establishedView) {
+            if (!viewStr.empty()) viewStr += ",";
+            viewStr += car;
+        }
+        pendingOrderPayload = payload;
+        pendingOrderEpoch = currentEpoch;
+        pendingOrderViewHash = computeXXHash32(viewStr);
+        delayedOrderSubmitScheduled = true;
+        if (orderDelayTimer->isScheduled()) {
+            cancelEvent(orderDelayTimer);
+        }
+        std::cout << "[ORDER-DELAY] Replica " << replicaId
+                  << " scheduled delayed ORDER submit at t=" << (simTime() + orderDelayGap)
+                  << " gap=" << orderDelayGap << "s"
+                  << " epoch=" << pendingOrderEpoch
+                  << std::endl;
+        scheduleAt(simTime() + orderDelayGap, orderDelayTimer);
+    } else {
+        triggerJoinViaJNI(payload);
+    }
 
     orderBagProposed = true;
-
-    // Retransmit until order decision arrives (duplicates are de-duped by Java)
-    if (!orderBagRetransmitTimer->isScheduled()) {
-        scheduleAt(simTime() + uniform(0.05, 0.10), orderBagRetransmitTimer);
-    }
 }
 
 std::string V2VProxyModule::serializeOrderBagRequest(const std::vector<ReadyQC>& bag, bool closeFlag) {
@@ -2485,7 +3117,7 @@ void V2VProxyModule::triggerOrderConsensus() {
  
 
 void V2VProxyModule::handlepreConsensusMessages(BFTMessage* bftMsg) {
-    zombieFilter();
+    if (zombieFilter()) return;
     if (replicaId < 0) {
         return;
     }
@@ -2499,6 +3131,22 @@ void V2VProxyModule::handlepreConsensusMessages(BFTMessage* bftMsg) {
     switch (msgType) {
         case 0:  // BFT_CONSENSUS
             std::cout << " (BFT_CONSENSUS) - forwarding to handleBFTMessage -> Java" << std::endl;
+            // --- THE GLOBAL "SHUT UP" SIGNAL ---
+            // Only cancel the arrival retransmit timer once this replica's own QC
+            // is complete.  If we cancel unconditionally, any BFT VIEW-consensus
+            // retransmit that arrives *after* phase-2 starts (while the 0.5s
+            // initial timer is still pending) would silence the retransmit before
+            // the first retry fires, starving replicas that missed the initial
+            // flood due to simultaneous-transmission collisions.
+            if (myReadyQCComplete && readyQCTimeoutTimer && readyQCTimeoutTimer->isScheduled()) {
+                cancelEvent(readyQCTimeoutTimer);
+                std::cout << "[V2VProxy " << replicaId << "] Cancelled ARRIVAL timer because BFT started (QC already complete)!" << std::endl;
+            }
+            if (orderGossipRetransmitTimer && orderGossipRetransmitTimer->isScheduled()) {
+                cancelEvent(orderGossipRetransmitTimer);
+                std::cout << "[V2VProxy " << replicaId << "] Cancelled Gossip timer because BFT started!" << std::endl;
+            }
+
             handleBFTMessage(bftMsg);
             break;
         case 1:  // ARRIVAL_ANNOUNCE
@@ -2521,6 +3169,10 @@ void V2VProxyModule::handlepreConsensusMessages(BFTMessage* bftMsg) {
             std::cout << " (VIEW_AGREEMENT)" << std::endl;
             handleViewAgreement(bftMsg);
             break;
+        case 6:  // READYQC_ACK (Gossip Retransmit ACK)
+            std::cout << " (READYQC_ACK)" << std::endl;
+            handleReadyQCAck(bftMsg);
+            break;
         default:
             std::cout << " (UNKNOWN)" << std::endl;
             EV_WARN << "Unknown message type: " << msgType << "\n";
@@ -2532,10 +3184,33 @@ void V2VProxyModule::handlepreConsensusMessages(BFTMessage* bftMsg) {
 void V2VProxyModule::handleOrderDecision(const std::string& orderDecision) {
     std::cout << "[V2VProxy " << replicaId << "] handleOrderDecision: " << orderDecision << std::endl;
 
-    // Stop retransmit timer — decision is in
-    orderDecisionReceived = true;
+    // THREAD SAFETY: this method is called from JNI threads (Java BFT-SMaRt).
+    // In the final epoch every departing replica proactively notifies every other
+    // departing replica, so up to N JNI threads can call handleOrderDecision on
+    // the SAME proxy concurrently.  OMNeT++'s FES is a std::map (red-black tree)
+    // that is NOT thread-safe; calling cancelEvent() or scheduleAt() from a JNI
+    // thread while the OMNeT++ main thread is also touching the FES causes the
+    // std::_Rb_tree_insert_and_rebalance SIGSEGV seen in the crash log.
+    //
+    // Fix: only update mutex-protected flags here.  The main thread's
+    // processQueueTimer callback drains pendingOrderDecision and performs all
+    // OMNeT++ scheduler calls safely on the simulation thread.
+    std::lock_guard<std::mutex> lock(jniMutex);
 
-    parseAndNotifyDecision(orderDecision);
+    orderDecisionReceived = true;
+    pendingCancelOrderTimer = true;   // main thread will call cancelEvent safely
+    delayedOrderSubmitScheduled = false;
+    pendingOrderPayload.clear();
+    pendingOrderEpoch = -1;
+    pendingOrderViewHash = 0;
+    orderDecisionCallbackSeen = true;
+    realOrderConsensusEnd = std::chrono::high_resolution_clock::now();
+
+    // Dedup: first JNI thread to arrive wins; later duplicate calls are ignored.
+    if (pendingOrderDecision.empty()) {
+        pendingOrderDecision = orderDecision;
+    }
+    // parseAndNotifyDecision() and cancelEvent() are deferred to the main thread.
 }
 
 std::vector<std::string> split(const std::string& s, char delimiter) {
@@ -2583,12 +3258,14 @@ void V2VProxyModule::parseAndNotifyDecision(const std::string& decision) {
 
 
     if (foundMyself) {
-         // Calculate delay based on position
-        // Position 0 goes immediately, position 1 waits for car 0 to clear, etc.
-        // Example: position 0 → 0s, position 1 → 2s, position 2 → 4s, position 3 → 6s
-        double delaySeconds = myPosition;  // 1.5 seconds between cars
+        // Use same physics formula as Java calculateDelayFromPosition():
+        //   slotDuration = (intersectionWidth / avgSpeed) + safetyGap
+        //   delay = position * slotDuration
+        // double slotDuration = (intersectionWidth / avgSpeed) + safetyGap;
+        double delaySeconds = myPosition * 0.5;
 
-        std::cout << "[V2VProxy " << replicaId << "] Resuming vehicle in " << delaySeconds << " seconds" << std::endl;
+        // std::cout << "[V2VProxy " << replicaId << "] Resuming vehicle in " << delaySeconds
+        //           << "s (position=" << myPosition << ", slot=" << slotDuration << "s)" << std::endl;
         resumeVehicle(delaySeconds);
 
         return;
@@ -2713,8 +3390,19 @@ std::vector<uint8_t> stringToSignatureBytes(const std::string& sigStr) {
 void V2VProxyModule::scheduleReconfigFlush() {
     // Thread-safe flag update
     std::lock_guard<std::mutex> lock(jniMutex);
+    if (!orderDecisionReceived) {
+        std::cout << "[JNI] Ignoring notifyReconfigComplete for replica " << replicaId
+                  << " (no ORDER_DECIDED observed yet, epoch=" << currentEpoch << ")" << std::endl;
+        return;
+    }
+    if (pendingReconfigFlush) {
+        std::cout << "[JNI] Duplicate notifyReconfigComplete ignored for replica " << replicaId
+                  << " (epoch=" << currentEpoch << ")" << std::endl;
+        return;
+    }
     pendingReconfigFlush = true;
-    std::cout << "[JNI] Flagged pendingReconfigFlush=true for main thread." << std::endl;
+    std::cout << "[JNI] Flagged pendingReconfigFlush=true for main thread (epoch="
+              << currentEpoch << ")." << std::endl;
 }
 
 // ============================================================================
@@ -2771,13 +3459,19 @@ V2VProxyModule::ViewProposal V2VProxyModule::deserializeViewProposal(BFTMessage*
         proposal.proposalTimestamp = std::stod(parts[2]);
         
         int siglen = std::stoi(parts[3]);
-        size_t offset = s.find_last_of('|') + 1;
-        
-        if (offset < payload.size() && offset + siglen <= payload.size()) {
+        // Find offset of raw bytes by locating the 4th '|' scanning forward
+        // through the text header only (same bug-fix as deserializeViewAgreement).
+        size_t p1 = s.find('|');
+        size_t p2 = (p1 != std::string::npos) ? s.find('|', p1 + 1) : std::string::npos;
+        size_t p3 = (p2 != std::string::npos) ? s.find('|', p2 + 1) : std::string::npos;
+        size_t p4 = (p3 != std::string::npos) ? s.find('|', p3 + 1) : std::string::npos;
+        size_t offset = (p4 != std::string::npos) ? p4 + 1 : s.size();
+
+        if (offset < payload.size() && offset + (size_t)siglen <= payload.size()) {
             proposal.signature.assign(payload.begin() + offset, payload.begin() + offset + siglen);
         }
     }
-    
+
     return proposal;
 }
 
@@ -2824,13 +3518,20 @@ V2VProxyModule::ViewAgreement V2VProxyModule::deserializeViewAgreement(BFTMessag
         }
         
         int siglen = std::stoi(parts[2]);
-        size_t offset = s.find_last_of('|') + 1;
-        
-        if (offset < payload.size() && offset + siglen <= payload.size()) {
+        // Find offset of raw bytes by locating the 3rd '|' scanning forward
+        // through the text header only.  find_last_of('|') is wrong because
+        // the binary signature bytes can contain 0x7C ('|'), causing it to
+        // land inside the payload and produce an empty or corrupt signature.
+        size_t p1 = s.find('|');
+        size_t p2 = (p1 != std::string::npos) ? s.find('|', p1 + 1) : std::string::npos;
+        size_t p3 = (p2 != std::string::npos) ? s.find('|', p2 + 1) : std::string::npos;
+        size_t offset = (p3 != std::string::npos) ? p3 + 1 : s.size();
+
+        if (offset < payload.size() && offset + (size_t)siglen <= payload.size()) {
             agreement.signature.assign(payload.begin() + offset, payload.begin() + offset + siglen);
         }
     }
-    
+
     return agreement;
 }
 
@@ -2872,11 +3573,13 @@ V2VProxyModule::ArrivalAnnouncement V2VProxyModule::deserializeArrivalAnnounceme
         ann.epoch = std::stoi(parts[4]);
 
         int siglen = std::stoi(parts[5]);
-        size_t offset = s.find_last_of('|') + 1;
+        // Locate the 6th '|' by scanning forward through the text header only.
+        size_t p = s.find('|');
+        for (int k = 1; k < 6 && p != std::string::npos; ++k) p = s.find('|', p + 1);
+        size_t offset = (p != std::string::npos) ? p + 1 : s.size();
 
-        if (offset < payload.size() && offset + siglen <= payload.size()) { 
+        if (offset < payload.size() && offset + (size_t)siglen <= payload.size()) {
             ann.signature.assign(payload.begin() + offset, payload.begin() + offset + siglen);
-
         }
     }
 
@@ -3055,6 +3758,14 @@ std::string V2VProxyModule::serializeReadyQCToString(const ReadyQC& qc) {
 // ============================================================================
 
 std::set<std::string> V2VProxyModule::getVisibleVehicles(double maxRange) {
+    
+    // ZOMBIE FILTER: Departed cars don't see anyone
+    if (isDeparted) {
+        std::set<std::string> visible;
+        visible.insert("veh" + std::to_string(replicaId));  // Only themselves
+        return visible;
+    }
+    
     std::set<std::string> visible;
     
     if (!mobility) {
@@ -3174,7 +3885,7 @@ void V2VProxyModule::initiateViewProposal() {
 
 void V2VProxyModule::broadcastViewProposal() {
      // ZOMBIE FILTER: Departed cars don't broadcast views
-    V2VProxyModule::zombieFilter();
+    if (zombieFilter()) return;
     
     
     
@@ -3188,6 +3899,10 @@ void V2VProxyModule::broadcastViewProposal() {
 }
 
 void V2VProxyModule::handleViewProposal(BFTMessage* bftMsg) {
+    
+    // ZOMBIE FILTER: Departed cars don't accept view proposals
+    if (zombieFilter()) return;
+    
     ViewProposal proposal = deserializeViewProposal(bftMsg);
     
     std::cout << "[V2VProxy " << replicaId << "] Received view proposal from replica " 
@@ -3225,6 +3940,29 @@ void V2VProxyModule::handleViewProposal(BFTMessage* bftMsg) {
         std::cout << "[V2VProxy " << replicaId << "] ✗ DISAGREEMENT: Views don't match. Not signing." << std::endl;
     }
 }
+
+// Use the AGREED view (not live visibility) so all replicas elect the same leader.
+int V2VProxyModule::getCurrentViewLeader(const std::set<std::string>& agreedView) {
+    if (agreedView.empty()) return -1;
+    
+    int minId = INT_MAX;
+    
+    for (const std::string& veh : agreedView) {
+        try {
+            int currentId = std::stoi(veh.substr(3));
+            minId = std::min(minId, currentId);
+        } catch (const std::exception& e) {
+            EV_ERROR << "[VIEW] Failed to parse vehicle ID from: " << veh << std::endl;
+        }
+    }
+
+    return minId;
+}
+
+bool V2VProxyModule::amITheLeader(const std::set<std::string>& agreedView) {
+    return (getCurrentViewLeader(agreedView) == replicaId);
+}
+
 void V2VProxyModule::handleViewAgreement(BFTMessage* bftMsg) {
     ViewAgreement agreement = deserializeViewAgreement(bftMsg);
     
@@ -3244,25 +3982,40 @@ void V2VProxyModule::handleViewAgreement(BFTMessage* bftMsg) {
     if (alreadyVoted) {
         std::cout << "[V2VProxy " << replicaId << "] IGNORING duplicate V2V agreement from replica " 
                   << agreement.agreingReplicaId << std::endl;
-        return; // Exit early so we don't re-trigger consensus or increment counters
+        return;
     }
 
-    // 4. Record the unique vote
+    // 4. Validate signature BEFORE counting — a vote with an empty/malformed
+    //    signature will be skipped during serialization, so counting it here
+    //    would make voteCount drift above the actual number of sigs Java receives.
+    if (agreement.signature.size() < 4) {
+        std::cout << "[V2VProxy " << replicaId << "] IGNORING vote from replica "
+                  << agreement.agreingReplicaId << " — signature.size()="
+                  << agreement.signature.size() << " (need >=4)" << std::endl;
+        return;
+    }
+
+    // 5. Record the unique, valid vote
     votes.push_back(agreement);
-    
+
     int voteCount = votes.size();
-    std::cout << "[V2VProxy " << replicaId << "] Received NEW unique V2V agreement from " 
-              << agreement.agreingReplicaId << ". Total unique votes: " << voteCount << std::endl;
+    std::cout << "[V2VProxy " << replicaId << "] Received NEW valid V2V agreement from " 
+              << agreement.agreingReplicaId << ". Valid votes: " << voteCount << std::endl;
     
     // 5. Check if we have f+1 V2V agreements on this view
-    std::set<std::string> myView = getVisibleVehicles(300.0);
+    // std::set<std::string> myView = getVisibleVehicles(300.0);
+    int viewSize = agreement.agreedView.size();
+    int f = (viewSize - 1) / 3;
 
-    int f = (myView.size() - 1) / 3;
     int required = f + 1;
+    std::cout << "[V2VProxy " << replicaId << "] NEW agreement from " 
+              << agreement.agreingReplicaId << ". Bucket for this exact view has: " 
+              << voteCount << "/" << required << " votes. (View Size: " << viewSize << ")" << std::endl;
     
-    // Use '==' instead of '>=' to ensure we only trigger the BFT submission once
     if (voteCount >= required && !viewEstablished) {
-        viewSignatureCollectionEndTime = simTime(); //we are done collecting view signatures
+        viewSignatureCollectionEndTime = simTime();
+        viewEstablished = true;
+
         std::cout << "[V2VProxy " << replicaId << "] ===== PHASE 1c: SUBMITTING TO BFT CONSENSUS =====" << std::endl;
         std::cout << "[V2VProxy " << replicaId << "] Collected f+1=" << required 
                   << " V2V signatures for view: {";
@@ -3270,11 +4023,17 @@ void V2VProxyModule::handleViewAgreement(BFTMessage* bftMsg) {
             std::cout << car << " ";
         }
         std::cout << "}" << std::endl;
-        
-        viewEstablished = true;
-        
-        // Submit the view with the accumulated unique V2V signatures to BFT-SMaRt
-        submitViewToBFTConsensus(agreement.agreedView, votes);
+
+       //submitViewToBFTConsensus(agreement.agreedView, votes);
+
+        // Use the AGREED view (not live visibility) to elect the leader deterministically.
+        // // All replicas with the same agreedView will compute the same leader.
+        if (amITheLeader(agreement.agreedView)) {
+            std::cout << "[V2VProxy " << replicaId << "] ===== PHASE 1c: LEADER SUBMITTING TO BFT =====" << std::endl;
+            submitViewToBFTConsensus(agreement.agreedView, votes);
+        } else {
+            std::cout << "[V2VProxy " << replicaId << "] I am a follower. Waiting for BFT delivery via Java callback." << std::endl;
+        }
     }
 }
 
@@ -3301,17 +4060,20 @@ void V2VProxyModule::submitViewToBFTConsensus(const std::set<std::string>& view,
     }
     ss << ":";
     
-    // Add V2V signatures
+    // Add V2V signatures — only emit entries with valid 4-byte hashes
+    // (skip the separator for empty sigs to avoid "||" in the string)
+    bool firstSig = true;
     for (size_t i = 0; i < v2vSigs.size(); i++) {
-        if (i > 0) ss << "|";
-        
         const ViewAgreement& sig = v2vSigs[i];
-        
-        // Convert signature bytes to decimal hash value
         if (sig.signature.size() >= 4) {
+            if (!firstSig) ss << "|";
             int32_t hashValue;
             std::memcpy(&hashValue, sig.signature.data(), sizeof(int32_t));
             ss << sig.agreingReplicaId << "," << hashValue;
+            firstSig = false;
+        } else {
+            std::cerr << "[V2VProxy " << replicaId << "] WARNING: skipping sig from replica "
+                      << sig.agreingReplicaId << " (signature.size()=" << sig.signature.size() << ")" << std::endl;
         }
     }
     
@@ -3326,6 +4088,16 @@ void V2VProxyModule::submitViewToBFTConsensus(const std::set<std::string>& view,
 
 void V2VProxyModule::onViewAgreed(const std::set<std::string>& agreedView) {
     std::lock_guard<std::mutex> lock(jniMutex);
+
+    // Idempotency guard: phase2 must only be triggered once.
+    // The leader can receive this callback TWICE:
+    //   1. From appExecuteBatch (delivery thread, fires for ALL replicas), and
+    //   2. From sendConsensusRequest's proxy reply (only the invokeOrdered caller).
+    // Followers only receive it once from appExecuteBatch.
+    if (phase2Pending) {
+        std::cout << "[V2VProxy " << replicaId << "] onViewAgreed called again - already triggered Phase 2, ignoring." << std::endl;
+        return;
+    }
     
     // Mark the end of View consensus
     viewConsensusEndTime = simTime();
@@ -3336,8 +4108,43 @@ void V2VProxyModule::onViewAgreed(const std::set<std::string>& agreedView) {
     std::cout << "[V2VProxy " << replicaId << "] Phase 2 flag SET via JNI thread." << std::endl;
     std::cout << "[METRICS " << replicaId << "] View_Consensus_End: " << viewConsensusEndTime << std::endl;
     std::cout << "[METRICS " << replicaId << "] View_Consensus_Latency: " << viewConsensusDuration.dbl() << " seconds" << std::endl;
+    if (lastRoundResetTime >= 0 && lastRoundResetEpoch == currentEpoch) {
+        const double resetToViewEndSec = (viewConsensusEndTime - lastRoundResetTime).dbl();
+        std::cout << "[ROUND-DIAG] Replica " << replicaId
+                  << " epoch=" << currentEpoch
+                  << " resetToViewEnd=" << resetToViewEndSec
+                  << " seconds (resetAt=" << lastRoundResetTime
+                  << ", viewEnd=" << viewConsensusEndTime << ")" << std::endl;
+        resetToViewEndByEpochAndReplica[currentEpoch][replicaId] = resetToViewEndSec;
+        const auto& epochResetToView = resetToViewEndByEpochAndReplica[currentEpoch];
+        if (epochResetToView.size() >= 4 && printedResetToViewEndAvgEpochs.count(currentEpoch) == 0) {
+            double sumDelay = 0.0;
+            for (const auto& kv : epochResetToView) {
+                sumDelay += kv.second;
+            }
+            printedResetToViewEndAvgEpochs.insert(currentEpoch);
+            std::cout << "[ROUND-METRICS] Epoch " << currentEpoch
+                      << " Avg_ResetToViewEnd_4Cars: " << (sumDelay / epochResetToView.size())
+                      << " seconds (replicasCounted=" << epochResetToView.size() << ")" << std::endl;
+        }
+    }
     
+    // Within-epoch H1 fix: once VIEW is decided, any remaining VIEW WRITE/ACCEPT retransmissions
+    // are stale and should not spill into the ORDER broadcast window.
+    // // Clear this replica's reliability-layer unacked queue now (before ORDER starts).
+    // if (jvm && javaReady) {
+    //     JNIEnv* env;
+    //     jvm->AttachCurrentThread((void**)&env, nullptr);
+    //     jclass cls = env->FindClass("bftsmart/communication/V2V/ReliableV2VMessaging");
+    //     if (cls) {
+    //         jmethodID m = env->GetStaticMethodID(cls, "clearUnackedForReplica", "(I)V");
+    //         if (m) env->CallStaticVoidMethod(cls, m, (jint)replicaId);
+    //         if (env->ExceptionCheck()) env->ExceptionClear();
+    //     }
+    // }
+
     establishedView = agreedView;
+   // MAX_MESSAGES_PER_TICK = getMaxMessagesPerTick();
     viewEstablished = true;
     phase2Pending = true;
 
@@ -3363,13 +4170,20 @@ void V2VProxyModule::startReadyQCCollection() {
     std::cout << "[V2VProxy " << replicaId << "] ===== PHASE 2: STARTING READYQC COLLECTION =====" << std::endl;
     std::cout << "[V2VProxy " << replicaId << "] View members: " << establishedView.size() << " cars" << std::endl;
     arrivalAnnouncementsReceived.clear();
+    readyQCAcks.clear();
     currentPhase = COLLECTING_QC;
+    orderSignatureCollectionEndTime = 0;  // Reset so end can't precede start
     orderSignatureCollectionStartTime = simTime();
     std::string myCarId = "veh" + std::to_string(replicaId);
     if (establishedView.find(myCarId) != establishedView.end()) {
         std::cout << "[V2VProxy " << replicaId << "] I AM in the view - broadcasting arrival announcement" << std::endl;
         // Broadcast arrival announcement so neighbors can witness
         broadcastArrivalAnnouncement();
+        arrivalAnnouncementsReceived.insert(myCarId);
+        // Schedule retransmit in case the broadcast was lost due to CSMA collision
+        if (readyQCTimeoutTimer && !readyQCTimeoutTimer->isScheduled()) {
+            scheduleAt(simTime() + 0.5, readyQCTimeoutTimer);
+        }
     } else {
         std::cout << "[V2VProxy " << replicaId << "] I am NOT in the view - will act as witness only" << std::endl;
     }
@@ -3406,6 +4220,10 @@ bool V2VProxyModule::isCarAtFrontOfLane(const std::string& carId,
     std::vector<std::pair<std::string,double>> sameLane;
     for (const auto& vid : allIds) {
         try {
+
+             int otherRepId = extractReplicaIdFromCarId(vid);
+        V2VProxyModule* otherProxy = getProxyForReplica(otherRepId);
+        if (otherProxy && otherProxy->isDeparted) continue; // CRITICAL: Ignore departed cars
             auto v = traci->vehicle(vid);
             if (v.getLaneId() == laneId) {
                 sameLane.push_back({vid, v.getLanePosition()});
@@ -3537,16 +4355,47 @@ std::set<std::string> V2VProxyModule::proposeView() {
 void V2VProxyModule::handleReadyQCComplete(BFTMessage* bftMsg) {
     ReadyQC qc = deserializeReadyQC(bftMsg);
 
-    // Epoch guard
-    if (qc.epoch != currentEpoch) {
-        std::cout << "[READYQC] Replica " << replicaId
-                  << " ignoring stale QC from " << qc.carId
-                  << " epoch=" << qc.epoch << " current=" << currentEpoch << std::endl;
-        return;
+    // Epoch + View guard
+    // If the sender is in the established VIEW (agreed via BFT), the view guard is
+    // the authoritative check. Accept its QC regardless of epoch skew — late-joining
+    // cars and staggered resetForNextRound() calls can produce arbitrary epoch gaps.
+    // A newer QC (higher epoch) always overwrites an older one in verifiedPool.
+    bool senderInView = !establishedView.empty() && establishedView.count(qc.carId) > 0;
+    if (senderInView) {
+        auto it = verifiedPool.find(qc.carId);
+        if (it != verifiedPool.end() && it->second.epoch > qc.epoch) {
+            // Already have a fresher QC from this view member — discard the older one
+            std::cout << "[READYQC] Replica " << replicaId
+                      << " ignoring older QC from VIEW member " << qc.carId
+                      << " (stored epoch=" << it->second.epoch
+                      << " > incoming epoch=" << qc.epoch << ")" << std::endl;
+            return;
+        }
+        if (qc.epoch != currentEpoch) {
+            std::cout << "[READYQC] Replica " << replicaId
+                      << " accepting off-epoch QC from VIEW member " << qc.carId
+                      << " epoch=" << qc.epoch << " (local=" << currentEpoch << ")" << std::endl;
+        }
+    } else {
+        // Not in established view — buffer epoch+1, accept epoch, drop everything else
+        if (qc.epoch == currentEpoch + 1) {
+            nextEpochPool[qc.carId] = qc;
+            std::cout << "[READYQC] Replica " << replicaId
+                      << " buffering ahead-epoch QC from non-view car " << qc.carId
+                      << " epoch=" << qc.epoch << " (local=" << currentEpoch << ")" << std::endl;
+            return;
+        }
+        if (qc.epoch != currentEpoch) {
+            std::cout << "[READYQC] Replica " << replicaId
+                      << " ignoring QC from non-view car " << qc.carId
+                      << " epoch=" << qc.epoch << " current=" << currentEpoch << std::endl;
+            return;
+        }
+        // epoch == currentEpoch and not in view: fall through to view guard below
     }
 
-    // View guard (optional but recommended)
-    if (!establishedView.empty() && establishedView.count(qc.carId) == 0) {
+    // Secondary view guard for the non-view, same-epoch path
+    if (!senderInView && !establishedView.empty()) {
         std::cout << "[READYQC] Replica " << replicaId
                   << " ignoring QC from non-view car " << qc.carId << std::endl;
         return;
@@ -3561,6 +4410,12 @@ void V2VProxyModule::handleReadyQCComplete(BFTMessage* bftMsg) {
               << (isNew ? " [NEW]" : " [UPDATE]") << std::endl;
 
     std::string myCarId = "veh" + std::to_string(replicaId);
+
+    // Send ACK back to the sender
+    if (bftMsg->getFromReplicaId() != replicaId && senderInView) {
+        std::vector<uint8_t> emptyPayload;
+        sendBFTMessage(replicaId, bftMsg->getFromReplicaId(), emptyPayload, 6); // msgType 6 = READYQC_ACK
+    }
 
     // If self-delivered broadcast arrives and myReadyQCComplete wasn't set yet, set/start
     if (qc.carId == myCarId && !myReadyQCComplete) {
@@ -3581,8 +4436,45 @@ void V2VProxyModule::handleReadyQCComplete(BFTMessage* bftMsg) {
         std::cout << "[ORDER-COLLECT] Replica " << replicaId
                   << " front-lanes-in-pool=" << frontLanes << std::endl;
 
-        if (frontLanes >= 4) {
+
+        int viewLeader = establishedView.empty() ? -1 : getCurrentViewLeader(establishedView);
+        bool iAmViewLeader = (viewLeader == replicaId);
+
+
+        if (frontLanes >= 4 && iAmViewLeader) {
+            orderBagCloseFlag = true;
             proposeOrderBagNow("EARLY_4_LANES");
+        }
+    }
+}
+
+void V2VProxyModule::handleReadyQCAck(BFTMessage* bftMsg) {
+    if (currentPhase != COLLECTING_QC && currentPhase != ORDER_CONSENSUS) return;
+    if (bftMsg->getToReplicaId() != replicaId) return;
+    int ackSenderId = bftMsg->getFromReplicaId();
+    
+    if (readyQCAcks.count(ackSenderId) == 0) {
+        std::cout << "[ORDER-GOSSIP] Replica " << replicaId << " received ReadyQC ACK from replica " << ackSenderId << std::endl;
+        readyQCAcks.insert(ackSenderId);
+    }
+    
+    // Check if we have received ACKs from all active peers in the view
+    bool allAcked = true;
+    std::string myCarId = "veh" + std::to_string(replicaId);
+    for (const auto& peerStr : establishedView) {
+        if (peerStr == myCarId) continue;
+        int peerId = extractReplicaIdFromCarId(peerStr);
+        if (peerId != -1 && readyQCAcks.count(peerId) == 0) {
+            allAcked = false;
+            break;
+        }
+    }
+    
+    if (allAcked) {
+        if (orderGossipRetransmitTimer && orderGossipRetransmitTimer->isScheduled()) {
+            std::cout << "[ORDER-GOSSIP] Replica " << replicaId << " has received ReadyQC ACKs from all peers. Gossip complete." << std::endl;
+            cancelEvent(orderGossipRetransmitTimer);
+            std::cout << "[ORDER-GOSSIP] Replica " << replicaId << " canceled orderGossipRetransmitTimer." << std::endl;
         }
     }
 }
@@ -3664,6 +4556,13 @@ void V2VProxyModule::notifyJavaDeparted()
 
 
 void V2VProxyModule::notifyJavaNewBatchSize(int newBatchSize) {
+    // Update rate limiter using BFT group size (not VIEW size).
+    // Allow at least newBatchSize messages/tick so BFT phases don't stall:
+    // ceil(n/rate) ticks × 50ms × 3 phases = BFT latency.
+    MAX_MESSAGES_PER_TICK = std::max(newBatchSize, 2);
+    std::cout << "[V2VProxy " << replicaId << "] MAX_MESSAGES_PER_TICK updated to " << MAX_MESSAGES_PER_TICK
+              << " for bftGroupSize=" << newBatchSize << std::endl;
+
     std::lock_guard<std::mutex> lock(jvmMutex);                                                                                                                                    
                                                                                                                                                                                 
     if (!sharedJVM) {                                                                                                                                                              

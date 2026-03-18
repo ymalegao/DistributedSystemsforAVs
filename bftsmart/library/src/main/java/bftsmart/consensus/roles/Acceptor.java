@@ -185,6 +185,7 @@ public final class Acceptor {
 		int cid = epoch.getConsensus().getId();
 		int ts = epoch.getConsensus().getEts();
 		int ets = executionManager.getConsensus(msg.getNumber()).getEts();
+		System.out.println("[PHASE_TIMER] CID=" + cid + " replica=" + me + " PROPOSE_RECV wall_ms=" + System.currentTimeMillis());
 		logger.debug("PROPOSE received from:{}, for consensus cId:{}, I am:{}", msg.getSender(), cid, me);
 		if (msg.getSender() == executionManager.getCurrentLeader() // Is the replica the leader?
 				&& epoch.getTimestamp() == 0 && ts == ets && ets == 0) { // Is all this in epoch 0?
@@ -241,6 +242,7 @@ public final class Acceptor {
 					logger.debug("Sending WRITE for cId:{}, I am:{}", cid, me);
 					communication.send(this.controller.getCurrentViewOtherAcceptors(),
 							factory.createWrite(cid, epoch.getTimestamp(), epoch.propValueHash));
+					System.out.println("[PHASE_TIMER] CID=" + cid + " replica=" + me + " WRITE_SENT wall_ms=" + System.currentTimeMillis());
 
 					epoch.writeSent();
 
@@ -304,11 +306,11 @@ public final class Acceptor {
 		logger.debug("I have {}, WRITE's for cId:{}, Epoch timestamp:{},", writeAccepted, cid, epoch.getTimestamp());
 		System.out.println("[Acceptor " + me + "] computeWrite: cId=" + cid + ", writeAccepted=" + writeAccepted + ", quorum=" + controller.getQuorum());
 
-		if (writeAccepted > controller.getQuorum() 
+		if (writeAccepted > controller.getQuorum()
 				&& Arrays.equals(value, epoch.propValueHash)) {
 
 			if (!epoch.isAcceptSent()) {
-
+				System.out.println("[PHASE_TIMER] CID=" + cid + " replica=" + me + " WRITE_QUORUM wall_ms=" + System.currentTimeMillis());
 				logger.debug("Sending ACCEPT message, cId:{}, I am:{}", cid, me);
 
 				/**** LEADER CHANGE CODE! ******/
@@ -448,6 +450,7 @@ public final class Acceptor {
 		if (epoch.countAccept(value) > controller.getQuorum()
 				&& !epoch.getConsensus().isDecided()
 				&& Arrays.equals(value, epoch.propValueHash)) {
+			System.out.println("[PHASE_TIMER] CID=" + cid + " replica=" + me + " ACCEPT_QUORUM wall_ms=" + System.currentTimeMillis());
 			logger.debug("Deciding consensus " + cid);
 			decide(epoch);
 

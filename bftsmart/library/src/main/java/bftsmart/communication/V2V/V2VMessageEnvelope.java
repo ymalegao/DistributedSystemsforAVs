@@ -4,13 +4,16 @@ import bftsmart.communication.V2V.*;
 import java.io.Serializable;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 //wrapper for BFTSmart messages sent over V2V -adds reliable metadata (sequence number, ack, etc)
 public class V2VMessageEnvelope implements Serializable {
+    private static final long serialVersionUID = 1L;
+
     public enum MessageType {
         DATA,  //bftsmart message
-        ACK, //ack 
-        NACK, 
+        ACK, //ack
+        NACK,
         HEARTBEAT //keep alive
     }
 
@@ -21,6 +24,11 @@ public class V2VMessageEnvelope implements Serializable {
     public final long ackNum;
     public long currentTimeout;
     public ArrayList<Long> piggybackedAcks = new ArrayList<>();
+    // For true broadcast-style multicasts: broadcaster tags ACKs by original sender.
+    // broadcastAcks[originalSenderId] = list of sequence numbers the broadcaster received from originalSenderId.
+    public HashMap<Integer, ArrayList<Long>> broadcastAcks = new HashMap<>();
+    // True when this envelope represents a V2V multicast/broadcast delivery.
+    public boolean isBroadcast = false;
 
     public final byte[] serializedMessage;
 
@@ -45,5 +53,5 @@ public class V2VMessageEnvelope implements Serializable {
     }
 
 
-    
+
 }

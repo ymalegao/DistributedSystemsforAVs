@@ -94,7 +94,8 @@ public class NettyClientServerCommunicationSystemClientSide extends SimpleChanne
 	private PrivateKey privKey;
 	/* end Tulio Ribeiro */
 
-	// Used for a re-transmission of the last (pending) request in case of a re-connect to some replica
+	// Used for a re-transmission of the last (pending) request in case of a
+	// re-connect to some replica
 	private TOMMessage pendingRequest;
 	private boolean pendingRequestSign;
 
@@ -234,11 +235,12 @@ public class NettyClientServerCommunicationSystemClientSide extends SimpleChanne
 							future = connectToReplica(replicaId, secretKeyFactory);
 							// Re-transmit a request after re-connection
 							future.await();
-							logger.info("Retransmitting message after a re-connect: " + this.pendingRequest.getSequence());
+							logger.info(
+									"Retransmitting message after a re-connect: " + this.pendingRequest.getSequence());
 							retransmitMessage(this.pendingRequest, replicaId, this.pendingRequestSign);
 						} catch (InvalidKeyException | InvalidKeySpecException e) {
 							// TODO Auto-generated catch block
-							logger.error("Error in key.",e);
+							logger.error("Error in key.", e);
 						} catch (InterruptedException e) {
 							e.printStackTrace();
 						}
@@ -270,7 +272,6 @@ public class NettyClientServerCommunicationSystemClientSide extends SimpleChanne
 
 		Integer[] targetArray = Arrays.stream(targets).boxed().toArray(Integer[]::new);
 		Collections.shuffle(Arrays.asList(targetArray), new Random());
-
 
 		listener.waitForChannels(quorum); // wait for the previous transmission to complete
 
@@ -332,7 +333,8 @@ public class NettyClientServerCommunicationSystemClientSide extends SimpleChanne
 	}
 
 	/**
-	 * Serializes the message to the serializedMessage field of the passed TOMMessage object
+	 * Serializes the message to the serializedMessage field of the passed
+	 * TOMMessage object
 	 *
 	 * @param sm TOMMessage to be serialized
 	 */
@@ -552,11 +554,12 @@ public class NettyClientServerCommunicationSystemClientSide extends SimpleChanne
 	}
 
 	/**
-	 * Re-transmits a pending request to a recovered replica after successful re-connection
+	 * Re-transmits a pending request to a recovered replica after successful
+	 * re-connection
 	 *
-	 * @param sm pending TOM Message
+	 * @param sm        pending TOM Message
 	 * @param replicaId recovered replica's id
-	 * @param sign if a signature should be added
+	 * @param sign      if a signature should be added
 	 */
 	private void retransmitMessage(TOMMessage sm, int replicaId, boolean sign) {
 		// No pending request then abort;

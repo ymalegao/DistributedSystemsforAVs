@@ -1,0 +1,15 @@
+n == 4 
+[ROUND-METRICS] Epoch 0 Avg_View_Consensus_Latency_4Cars: 0.2555786763335 seconds (replicasCounted=4)
+[ROUND-METRICS] Epoch 0 Avg_Order_Consensus_Latency_4Cars: 0.38786738358325 seconds (replicasCounted=4)
+
+n == 8
+[ROUND-METRICS] Epoch 0 Avg_View_Consensus_Latency_4Cars: 0.3301717432165 seconds (replicasCounted=4)
+[ROUND-METRICS] Epoch 0 Avg_Order_Consensus_Latency_4Cars: 0.41730030059175 seconds (replicasCounted=4)
+
+n == 12:
+[ROUND-METRICS] Epoch 0 Avg_View_Consensus_Latency_4Cars: 0.3800220548605 seconds (replicasCounted=4)
+[ROUND-METRICS] Epoch 0 Avg_Order_Consensus_Latency_4Cars: 0.492458281556 seconds (replicasCounted=4)
+
+n == 16:
+[ROUND-METRICS] Epoch 0 Avg_View_Consensus_Latency_4Cars: 0.44439190641375 seconds (replicasCounted=4)
+[ROUND-METRICS] Epoch 0 Avg_Order_Consensus_Latency_4Cars: 0.58575875490925 seconds (replicasCounted=4)
