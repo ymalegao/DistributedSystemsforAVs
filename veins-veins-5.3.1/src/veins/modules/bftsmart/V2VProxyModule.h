@@ -56,8 +56,19 @@ public:
     void flushReliabilityQueue();
     void onViewAgreed(const std::set<std::string>& agreedView);
     void resetForNextRound();
-    bool pendingReconfigFlush = false;
-    void scheduleReconfigFlush();
+    void handleWipeComplete();  // Called by notifyWipeComplete JNI callback
+
+    // Direction and VehicleState are public so static helpers (dirToStr/strToDir) and
+    // ConflictMatrix/OrderRequestVerifier can use them without friendship boilerplate.
+    enum Direction { DIR_STRAIGHT, DIR_LEFT, DIR_RIGHT };
+
+    struct VehicleState {
+        std::string vehicleId;
+        std::string lane;
+        int positionInLane;
+        Direction direction;
+        bool isAmbulance;
+    };
 
     // Pending ORDER decision queued by JNI thread for safe processing on main thread.
     // cancelEvent() and parseAndNotifyDecision() must never be called from a JNI thread
@@ -107,6 +118,17 @@ protected:
         double witnessTimestamp;
     };
 
+    // Message type constants (kept protected for access within member functions)
+    static constexpr int MSG_BFT_CONSENSUS   = 0;
+    static constexpr int MSG_ARRIVAL_ANNOUNCE= 1;
+    static constexpr int MSG_WITNESS_RESPONSE= 2;
+    static constexpr int MSG_READYQC_COMPLETE= 3;
+    static constexpr int MSG_VIEW_PROPOSAL   = 4;
+    static constexpr int MSG_VIEW_AGREEMENT  = 5;
+    static constexpr int MSG_READYQC_ACK     = 6;
+    static constexpr int MSG_EXECUTING       = 7;  // Broadcast by cars crossing; locks new arrivals
+
+    // Legacy ReadyQC kept only for the witness-response sub-protocol during ARRIVAL_ANNOUNCE
     struct ReadyQC {
         std::string carId;           // "veh0", "veh1", etc.
         std::string laneId;          // TraCI lane ID (e.g., ":J0_1_0")
@@ -114,7 +136,7 @@ protected:
         double verifiedArrival;      // Earliest witness timestamp
         int epoch;                   // Prevents replay attacks
         std::vector<WitnessSignature> signatures;  // f+1 signatures
-   
+
         bool isValid(int f) const { return signatures.size() >= f + 1; }
     };
    
@@ -122,11 +144,17 @@ protected:
    
     struct ArrivalAnnouncement {
         std::string carId;
-        std::string laneId;
-        double positionInLane;
-        double claimedArrivalTime;
+        std::string laneId;        // TraCI lane ID (e.g., ":J0_1_0")
+        std::string lane;          // Cardinal: "N", "S", "E", "W"
+        int positionInLane;        // 1 = front, 2 = behind 1, etc. (integer)
+        Direction direction;       // Intended movement
+        bool isAmbulance;          // True if cert verified via CryptoAuth
+        double claimedArrivalTime; // For witness timestamp comparison (kept for legacy)
         int epoch;
-        std::vector<uint8_t> signature;  // Self-signed
+        std::vector<uint8_t> signature;  // Self-signed (XXHash32)
+        // Ambulance-only: raw cert and signature bytes for peer verification
+        std::vector<uint8_t> ambulanceCertBytes;
+        std::vector<uint8_t> ambulanceSigBytes;
     };
    
     struct WitnessResponse {
@@ -141,8 +169,9 @@ protected:
     struct ViewProposal {
         int proposerReplicaId;
         std::set<std::string> observedCars;  // Cars I can see via TraCI
+        std::string vehicleStatesStr;        // Serialized VehicleStates: "veh0|N|1|S|0;veh1|S|1|L|0"
         double proposalTimestamp;
-        std::vector<uint8_t> signature;  // Self-signed proposal
+        std::vector<uint8_t> signature;  // Self-signed proposal (covers vehicleStatesStr)
     };
 
     struct ViewAgreement {
@@ -151,15 +180,27 @@ protected:
         std::vector<uint8_t> signature;     // Signature over hash(view set)
     };
 
-    // ReadyQC Management (Phase 2 - after view is established)
-    std::map<std::string, ReadyQC> verifiedPool;  // Completed ReadyQCs
-    std::map<std::string, ReadyQC> nextEpochPool; // Buffer for epoch+1 QCs received before local epoch increments
+    // VIEW consensus state: agreed VehicleState per car (populated after VIEW_PROPOSE commits)
+    std::map<std::string, VehicleState> viewState;
+
+    // Batch execution state (populated after ORDER_PROPOSE commits)
+    std::vector<std::vector<std::string>> pendingBatches; // pendingBatches[batchIdx] = list of vehicleIds
+    int currentBatchIndex = 0;
+    std::set<std::string> currentBatchExpected;  // Cars in the active batch we are waiting to depart
+
+    // Epoch Preemption state
+    bool intersectionLocked = false;             // True when EXECUTING heard; new arrivals buffered
+    std::vector<std::string> bufferedNewArrivals;// Cars heard while locked; triggers preemption after batch clears
+    std::map<std::string, int> waitRegistry;     // vehicleId -> epochs waited (fairness across preemptions)
+
+    // Arrival-announce sub-protocol (witness collection — kept from previous design)
+    std::map<std::string, ReadyQC> verifiedPool;  // Used during witness collection phase only
+    std::map<std::string, ReadyQC> nextEpochPool; // Buffer for epoch+1 QCs received early
     std::map<std::string, ArrivalAnnouncement> pendingAnnouncements;
     std::map<std::string, std::vector<WitnessResponse>> collectedWitnesses;
-    /** Track which cars' arrival announcements this replica has received (for debugging drop detection) */
     std::set<std::string> arrivalAnnouncementsReceived;
-    std::set<int> readyQCAcks;  // Track which replicas have ACKed our ReadyQC
-    double readyQCTimeoutSec = 10.0;  // Longer timeout for testing
+    std::set<int> readyQCAcks;
+    double readyQCTimeoutSec = 10.0;
     int currentEpoch = 0;
     bool hasProposedOrder = false;
 
@@ -173,6 +214,19 @@ protected:
     // Neighbor tracking
     std::set<int> neighborsInRange;
     double witnessRange = 150.0;
+
+    // Ambulance: Emergency_CA VehicleCert + EC private key (auto-issued in initialize when isAmbulance)
+    std::vector<uint8_t> myAmbulanceCertBytes;
+    void* ambulancePrivateKey = nullptr;  // EVP_PKEY*; freed in destructor
+    void attachAmbulanceCryptoToAnnouncement(ArrivalAnnouncement& ann);
+
+    // Byzantine fault injection types
+    enum ByzantineType {
+        BYZANTINE_HONEST      = 0,  // Normal behavior
+        BYZANTINE_FALSE_LANE  = 1,  // Claims wrong lane in ARRIVAL_ANNOUNCE
+        BYZANTINE_INVALID_SIG = 2,  // Attaches garbage signature bytes
+        BYZANTINE_EQUIVOCATOR = 3,  // Sends different epoch to different peers (unicast)
+    };
 
     // Consensus phases (CORRECTED ORDER)
     enum ConsensusPhase {
@@ -202,6 +256,8 @@ private:
     // Configuration
     int replicaId;
     int serviceChannel;
+    /** True if this module should act as ambulance (see ambulanceReplicaId vs isAmbulance in NED). */
+    bool moduleIsAmbulance = false;
 
     std::string myLaneId;
     std::vector<std::string> laneQueue;  // ordered front-to-back by lane position
@@ -243,9 +299,9 @@ private:
     void stopBFTSmartReplica();
 
     std::set<std::string> expectedToGo;      // Cars that should cross this round (from ORDER decision)
-    std::set<std::string> confirmedDeparted; // Cars we've confirmed as departed
+    std::set<std::string> confirmedDeparted; // Cars confirmed past the junction (TraCI), not radio range
     simtime_t clearanceStartTime = 0;        // When we started waiting for clearance
-    double CLEARANCE_TIMEOUT = 10.0;           // Max wait for clearance after ORDER delivery (seconds)
+    double CLEARANCE_TIMEOUT = 60.0;           // Max wait for clearance after ORDER delivery (seconds)
     simtime_t viewSignatureCollectionStartTime = 0;  
     simtime_t viewSignatureCollectionEndTime = 0;  
     simtime_t orderSignatureCollectionStartTime = 0;  
@@ -261,6 +317,7 @@ private:
     simtime_t orderCollectionDeadline;       // e.g. simTime() + 0.300
     int orderBagRetransmitCount = 0;
     double orderDelayGap = 0.0;              // Optional delay between VIEW complete and ORDER submit (seconds)
+    std::string pendingViewProposalRequest;  // VIEW_PROPOSE request to retry when Java becomes ready
     std::string pendingOrderPayload;         // Serialized ORDER payload awaiting delayed submit
     int pendingOrderEpoch = -1;              // Epoch associated with pendingOrderPayload
     int pendingOrderViewHash = 0;            // View hash associated with pendingOrderPayload
@@ -329,6 +386,8 @@ private:
     bool isStopped;
     cMessage* checkPositionTimer;
     cMessage* consensusTimeoutTimer;  // Timer for consensus timeout fallback
+    cMessage* stopSignTimeoutTimer;   // 3s stop-sign fallback per car
+    double    stopSignTimeoutSec;     // configurable, default 3.0
     std::atomic<bool> phase2Pending{false}; // Use atomic for thread safety
     cMessage* startReadyQCCollectionMsg;
     double consensusTimeoutSec;       // Configurable timeout duration
@@ -336,6 +395,8 @@ private:
     double getDistanceToIntersection();
     bool isApproachingIntersection();
     void stopVehicle();
+    /** True if car is gone from SUMO or on a post-junction edge (e.g. C2*) far enough along it. */
+    bool vehicleHasClearedIntersectionTraCI(const std::string& carId);
 
     int getCurrentViewLeader(const std::set<std::string>& agreedView);
     bool amITheLeader(const std::set<std::string>& agreedView);
@@ -371,12 +432,22 @@ private:
     std::string serializeReadyQCToString(const ReadyQC& qc);
 
     // Message handlers
-    void handleViewProposal(BFTMessage* bftMsg);      // NEW: Phase 1
-    void handleViewAgreement(BFTMessage* bftMsg);     // NEW: Phase 1
-    void handleArrivalAnnouncement(BFTMessage* bftMsg);  // Phase 2
-    void handleWitnessResponse(BFTMessage* bftMsg);      // Phase 2
-    void handleReadyQCComplete(BFTMessage* bftMsg);      // Phase 2
-    void handleReadyQCAck(BFTMessage* bftMsg);           // Phase 2
+    void handleViewProposal(BFTMessage* bftMsg);
+    void handleViewAgreement(BFTMessage* bftMsg);
+    void handleArrivalAnnouncement(BFTMessage* bftMsg);
+    void handleWitnessResponse(BFTMessage* bftMsg);
+    void handleReadyQCComplete(BFTMessage* bftMsg);
+    void handleReadyQCAck(BFTMessage* bftMsg);
+
+    // Batch execution (new)
+    void executeBatch(int batchIndex);
+    void broadcastExecutingMessage(int batchIndex);
+    void handleExecutingMessage(BFTMessage* bftMsg);
+
+    // Epoch preemption (new)
+    void checkPreemptionConditions();
+    void triggerEpochPreemption(const std::string& reason);
+    bool triggerWipeAndReinitViaJNI(const std::vector<int>& newParticipants);
     void assembleAndBroadcastReadyQC();
     void handleBFTMessage(BFTMessage* bftMsg);
     void handlepreConsensusMessages(BFTMessage* bftMsg);
@@ -389,8 +460,8 @@ private:
                                    const std::vector<ViewAgreement>& v2vSigs);  // Phase 1c: BFT consensus
     void startReadyQCCollection();        // Phase 2: Begin after view established
     void broadcastArrivalAnnouncement();  // Phase 2: Announce arrival for witnessing
-    void triggerOrderConsensus();         // Phase 3: BFT on order
-    
+    void triggerOrderConsensus();         // Phase 3: BFT on order (legacy — no longer called)
+
     bool triggerJoinViaJNI(const std::string& request);
     bool triggerGlobalResetViaJNI(const std::vector<int>& departedReplicas);
     int extractReplicaIdFromCarId(const std::string& carId);
@@ -398,6 +469,15 @@ private:
     // View detection (uses TraCI sensors)
     std::set<std::string> getVisibleVehicles(double maxRange);
     std::vector<uint8_t> signViewProposal(const std::set<std::string>& viewSet);
+    std::string buildVehicleStatesStr() const;  // Serialize viewState to "veh0|N|1|S|0;..." format
+
+    // Byzantine fault injection
+    bool isByzantine = false;
+    ByzantineType byzantineType = BYZANTINE_HONEST;
+    // Returns a corrupted serialized ARRIVAL_ANNOUNCE payload.
+    // targetReplicaId is used by EQUIVOCATOR to vary content per recipient (-1 = broadcast).
+    std::vector<uint8_t> generateByzantinePayload(ByzantineType type,
+        const ArrivalAnnouncement& honest, int targetReplicaId = -1);
     
 
 

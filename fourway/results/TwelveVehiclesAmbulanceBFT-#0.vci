@@ -1,0 +1,340 @@
+                                                                
+version 3
+run TwelveVehiclesAmbulanceBFT-0-20260405-15:58:45-895535
+attr configname TwelveVehiclesAmbulanceBFT
+attr datetime 20260405-15:58:45
+attr datetimef 20260405-155845
+attr experiment TwelveVehiclesAmbulanceBFT
+attr inifile omnetpp.ini
+attr iterationvars ""
+attr iterationvarsd ""
+attr iterationvarsf ""
+attr measurement ""
+attr network fourWay
+attr processid 895535
+attr repetition 0
+attr replication #0
+attr resultdir results
+attr runnumber 0
+attr seedset 0
+config extends TwelveVehiclesBFTOverV2V
+config description "12 vehicles; veh11 auto-issues Emergency_CA cert (ambulanceReplicaId matches SUMO veh id, not node index)"
+config *.node[*].appl.ambulanceReplicaId 11
+config extends BFTOverV2V
+config description "BFT test on 12-vehicle routes"
+config *.manager.launchConfig "xmldoc(\"bft_12veh.launchd.xml\")"
+config *.node[*].appl.intersectionX 300m
+config *.node[*].appl.intersectionY 300m
+config *.node[*].appl.stopDistance 200m
+config *.node[*].appl.consensusTimeoutSec 100s
+config extends WithChannelSwitching
+config *.node[*].applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
+config *.node[0].appl.replicaId 0
+config *.node[1].appl.replicaId 1
+config *.node[2].appl.replicaId 2
+config *.node[3].appl.replicaId 3
+config *.node[*].appl.intersectionX 104m
+config *.node[*].appl.intersectionY 82m
+config *.node[*].appl.stopDistance 50m
+config *.node[*].appl.intersectionWidth 15m
+config *.node[*].appl.avgSpeed 14mps
+config *.node[*].appl.safetyGap 1.5s
+config *.node[*].appl.stopSignTimeoutSec 10.0s
+config *.node[*].appl.gatewayHost "\"\""
+config *.node[*].appl.gatewayPort 0
+config *.node[*].appl.carId "\"\""
+config *.node[*].appl.direction "\"\""
+config *.connectionManager.pMax 20mW
+config *.connectionManager.sat -89dBm
+config *.connectionManager.alpha 2.0
+config *.connectionManager.carrierFrequency "5.890e9 Hz"
+config *.node[*].nic.phy80211p.collectCollisionStatistics true
+config *.node[*].nic.phy80211p.ccaThreshold -90dBm
+config *.node[*].nic.mac1609_4.cwMin 3
+config *.node[*].nic.mac1609_4.cwMax 7
+config *.**.nic.mac1609_4.useServiceChannel false
+config *.node[*].appl.dataOnSch false
+config *.rsu[*].appl.dataOnSch false
+config *.node[*].nic.mac1609_4.useServiceChannel false
+config *.node[0].appl.gatewayHost "\"127.0.0.1\""
+config *.node[0].appl.gatewayPort 9001
+config *.node[0].appl.carId "\"CAR_0\""
+config *.node[0].appl.direction "\"straight\""
+config *.node[0].appl.stopDistance 50m
+config *.node[0].appl.intersectionX 104m
+config *.node[0].appl.intersectionY 82m
+config *.node[1].appl.gatewayHost "\"127.0.0.1\""
+config *.node[1].appl.gatewayPort 9002
+config *.node[1].appl.carId "\"CAR_1\""
+config *.node[1].appl.direction "\"right\""
+config *.node[1].appl.stopDistance 50m
+config *.node[1].appl.intersectionX 104m
+config *.node[1].appl.intersectionY 82m
+config *.node[2].appl.gatewayHost "\"127.0.0.1\""
+config *.node[2].appl.gatewayPort 9003
+config *.node[2].appl.carId "\"CAR_2\""
+config *.node[2].appl.direction "\"left\""
+config *.node[2].appl.stopDistance 50m
+config *.node[2].appl.intersectionX 104m
+config *.node[2].appl.intersectionY 82m
+config *.node[3].appl.gatewayHost "\"127.0.0.1\""
+config *.node[3].appl.gatewayPort 9004
+config *.node[3].appl.carId "\"CAR_3\""
+config *.node[3].appl.direction "\"right\""
+config *.node[3].appl.stopDistance 50m
+config *.node[3].appl.intersectionX 104m
+config *.node[3].appl.intersectionY 82m
+config scheduler-class omnetpp::cRealTimeScheduler
+config realtimescheduler-scaling 0.1
+config cmdenv-express-mode false
+config cmdenv-autoflush false
+config cmdenv-status-frequency 1s
+config **.cmdenv-log-level info
+config image-path ../../images
+config network fourWay
+config debug-on-errors true
+config print-undisposed true
+config sim-time-limit 50000s
+config **.scalar-recording true
+config **.vector-recording true
+config *.playgroundSizeX 2500m
+config *.playgroundSizeY 2500m
+config *.playgroundSizeZ 50m
+config *.annotations.draw true
+config *.obstacles.debug false
+config *.manager.updateInterval 0.1s
+config *.manager.host "\"localhost\""
+config *.manager.port 9999
+config *.manager.autoShutdown true
+config *.manager.launchConfig "xmldoc(\"osm.launchd.xml\")"
+config *.manager.trafficLightModuleType "\"org.car2x.veins.nodes.TrafficLight\""
+config *.tls[*].mobility.x 0
+config *.tls[*].mobility.y 0
+config *.tls[*].mobility.z 5
+config *.tls[*].applType "\"org.car2x.veins.modules.application.traci.TraCIDemoTrafficLightApp\""
+config *.tls[*].logicType "\"org.car2x.veins.modules.world.traci.trafficLight.logics.TraCITrafficLightSimpleLogic\""
+config *.rsu[0].mobility.x 2000
+config *.rsu[0].mobility.y 2000
+config *.rsu[0].mobility.z 3
+config *.rsu[*].applType "\"TraCIDemoRSU11p\""
+config *.rsu[*].appl.headerLength "80 bit"
+config *.rsu[*].appl.sendBeacons false
+config *.rsu[*].appl.dataOnSch false
+config *.rsu[*].appl.beaconInterval 1s
+config *.rsu[*].appl.beaconUserPriority 7
+config *.rsu[*].appl.dataUserPriority 5
+config *.rsu[*].nic.phy80211p.antennaOffsetZ "1.5 m"
+config *.connectionManager.sendDirect true
+config *.connectionManager.maxInterfDist 2600m
+config *.connectionManager.drawMaxIntfDist false
+config *.connectionManagerName "\"connectionManager\""
+config *.**.nic.mac1609_4.useServiceChannel false
+config *.**.nic.phy80211p.txPower 20mW
+config *.**.nic.mac1609_4.txPower 20mW
+config *.**.nic.mac1609_4.bitrate 6Mbps
+config *.**.nic.phy80211p.minPowerLevel -110dBm
+config *.**.nic.mac1609_4.queueSize 1024
+config *.**.nic.phy80211p.useNoiseFloor true
+config *.**.nic.phy80211p.noiseFloor -98dBm
+config *.**.nic.phy80211p.decider "xmldoc(\"config.xml\")"
+config *.**.nic.phy80211p.analogueModels "xmldoc(\"config.xml\")"
+config *.**.nic.phy80211p.usePropagationDelay true
+config *.**.nic.phy80211p.antenna "xmldoc(\"antenna.xml\", \"/root/Antenna[@id='monopole']\")"
+config *.node[*].nic.phy80211p.antennaOffsetY "1.895 m"
+config *.node[*].nic.phy80211p.antennaOffsetZ "1.895 m"
+config *.node[*].applType "\"src.IntersectionApp\""
+config *.node[*].appl.headerLength "80 bit"
+config *.node[*].appl.sendBeacons false
+config *.node[*].appl.dataOnSch false
+config *.node[*].appl.beaconInterval 1s
+config *.node[*].nic.phy80211p.connectionManagerName "\"connectionManager\""
+config *.node[*].veinsmobility.x 0
+config *.node[*].veinsmobility.y 0
+config *.node[*].veinsmobility.z 0
+config *.node[*].veinsmobility.setHostSpeed false
+config *.node[0].veinsmobility.accidentCount 0
+config *.node[0].veinsmobility.accidentStart 73s
+config *.node[0].veinsmobility.accidentDuration 50s
+
+vector 0 fourWay.tls[0].nic.phy80211p RadioState ETV
+vector 1 fourWay.tls[0].nic.phy80211p RadioChannel ETV
+vector 2 fourWay.node[0].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 3 fourWay.node[0].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 4 fourWay.node[0].nic.phy80211p RadioState ETV
+vector 5 fourWay.node[0].nic.phy80211p RadioChannel ETV
+vector 6 fourWay.manager posx ETV
+vector 7 fourWay.manager posy ETV
+vector 8 fourWay.manager speed ETV
+vector 9 fourWay.node[1].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 10 fourWay.node[1].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 11 fourWay.node[1].nic.phy80211p RadioState ETV
+vector 12 fourWay.node[1].nic.phy80211p RadioChannel ETV
+vector 13 fourWay.manager posx ETV
+vector 14 fourWay.manager posy ETV
+vector 15 fourWay.node[2].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 16 fourWay.node[2].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 17 fourWay.node[2].nic.phy80211p RadioState ETV
+vector 18 fourWay.node[2].nic.phy80211p RadioChannel ETV
+vector 19 fourWay.manager posx ETV
+vector 20 fourWay.manager posy ETV
+vector 21 fourWay.node[3].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 22 fourWay.node[3].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 23 fourWay.node[3].nic.phy80211p RadioState ETV
+vector 24 fourWay.node[3].nic.phy80211p RadioChannel ETV
+vector 25 fourWay.manager posx ETV
+vector 26 fourWay.manager posy ETV
+vector 27 fourWay.node[4].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 28 fourWay.node[4].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 29 fourWay.node[4].nic.phy80211p RadioState ETV
+vector 30 fourWay.node[4].nic.phy80211p RadioChannel ETV
+vector 31 fourWay.manager posx ETV
+vector 32 fourWay.manager posy ETV
+vector 33 fourWay.node[5].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 34 fourWay.node[5].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 35 fourWay.node[5].nic.phy80211p RadioState ETV
+vector 36 fourWay.node[5].nic.phy80211p RadioChannel ETV
+vector 37 fourWay.manager posx ETV
+vector 38 fourWay.manager posy ETV
+vector 39 fourWay.node[6].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 40 fourWay.node[6].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 41 fourWay.node[6].nic.phy80211p RadioState ETV
+vector 42 fourWay.node[6].nic.phy80211p RadioChannel ETV
+vector 43 fourWay.manager posx ETV
+vector 44 fourWay.manager posy ETV
+vector 45 fourWay.node[7].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 46 fourWay.node[7].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 47 fourWay.node[7].nic.phy80211p RadioState ETV
+vector 48 fourWay.node[7].nic.phy80211p RadioChannel ETV
+vector 49 fourWay.manager posx ETV
+vector 50 fourWay.manager posy ETV
+vector 51 fourWay.node[8].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 52 fourWay.node[8].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 53 fourWay.node[8].nic.phy80211p RadioState ETV
+vector 54 fourWay.node[8].nic.phy80211p RadioChannel ETV
+vector 55 fourWay.manager posx ETV
+vector 56 fourWay.manager posy ETV
+vector 57 fourWay.node[9].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 58 fourWay.node[9].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 59 fourWay.node[9].nic.phy80211p RadioState ETV
+vector 60 fourWay.node[9].nic.phy80211p RadioChannel ETV
+vector 61 fourWay.manager posx ETV
+vector 62 fourWay.manager posy ETV
+vector 63 fourWay.node[10].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 64 fourWay.node[10].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 65 fourWay.node[10].nic.phy80211p RadioState ETV
+vector 66 fourWay.node[10].nic.phy80211p RadioChannel ETV
+vector 67 fourWay.manager posx ETV
+vector 68 fourWay.manager posy ETV
+vector 69 fourWay.node[11].appl bftMsgSent:vector ETV
+attr recordingmode vector
+attr source bftMsgSent
+attr title "BFT messages sent"
+vector 70 fourWay.node[11].appl bftMsgReceived:vector ETV
+attr recordingmode vector
+attr source bftMsgReceived
+attr title "BFT messages received"
+vector 71 fourWay.node[11].nic.phy80211p RadioState ETV
+vector 72 fourWay.node[11].nic.phy80211p RadioChannel ETV
+vector 73 fourWay.manager posx ETV
+vector 74 fourWay.manager posy ETV
+vector 75 fourWay.manager acceleration ETV
+vector 76 fourWay.manager co2emission ETV
+vector 77 fourWay.manager speed ETV
+vector 78 fourWay.manager speed ETV
+vector 79 fourWay.manager speed ETV
+vector 80 fourWay.manager speed ETV
+vector 81 fourWay.manager speed ETV
+vector 82 fourWay.manager speed ETV
+vector 83 fourWay.manager speed ETV
+vector 84 fourWay.manager speed ETV
+vector 85 fourWay.manager speed ETV
+vector 86 fourWay.manager speed ETV
+vector 87 fourWay.manager speed ETV
+vector 88 fourWay.manager acceleration ETV
+vector 89 fourWay.manager co2emission ETV
+vector 90 fourWay.manager acceleration ETV
+vector 91 fourWay.manager co2emission ETV
+vector 92 fourWay.manager acceleration ETV
+vector 93 fourWay.manager co2emission ETV
+vector 94 fourWay.manager acceleration ETV
+vector 95 fourWay.manager co2emission ETV
+vector 96 fourWay.manager acceleration ETV
+vector 97 fourWay.manager co2emission ETV
+vector 98 fourWay.manager acceleration ETV
+vector 99 fourWay.manager co2emission ETV
+vector 100 fourWay.manager acceleration ETV
+vector 101 fourWay.manager co2emission ETV
+vector 102 fourWay.manager acceleration ETV
+vector 103 fourWay.manager co2emission ETV
+vector 104 fourWay.manager acceleration ETV
+vector 105 fourWay.manager co2emission ETV
+vector 106 fourWay.manager acceleration ETV
+vector 107 fourWay.manager co2emission ETV
+vector 108 fourWay.manager acceleration ETV
+vector 109 fourWay.manager co2emission ETV

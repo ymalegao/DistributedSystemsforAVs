@@ -112,51 +112,82 @@ public final class IntersectionServer extends DefaultRecoverable {
     private final long experimentStartWall = System.currentTimeMillis();
 
     // Phase 1: View consensus state
-    private Map<Set<String>, List<ViewProposal>> viewProposals = new HashMap<>(); // view -> proposals
+    private Map<Set<String>, List<ViewProposal>> viewProposals = new HashMap<>();
     // Volatile: updated by BFT delivery thread, read by proxy/polling thread
-    private volatile Set<String> agreedView = null;
+    volatile Map<String, VehicleState> agreedViewState = null; // vehicleId to VehicleState
     private volatile boolean viewPhaseComplete = false;
 
-    // Phase 2: ReadyQC state (after view established)
-    private Map<String, ReadyQCData> verifiedCars = new HashMap<>();
-
-    // Volatile: updated by BFT delivery thread, read by proxy/polling thread
-    private volatile List<String> agreedOrder = null;
+    // Phase 2: ORDER state (leader builds OrderBag from agreedViewState)
     private volatile boolean orderPhaseComplete = false;
-    private volatile boolean orderNotifiedThisRound = false; // guard against race with reconfig
+    private volatile boolean orderNotifiedThisRound = false;
 
     private bftsmart.tom.ServiceProxy localClientProxy = null;
 
     private Set<Integer> departedReplicas = new HashSet<>(); // Replica IDs that have left
     private final Object departedLock = new Object(); // Thread-safe access
 
-    public native void notifyReconfigComplete(int processId);
+    /** Notify C++ that wipeAndReinit completed; C++ will then command re-announce. */
+    private native void notifyWipeComplete(int processId);
 
     // View Consensus Data (Phase 1)
     static class ViewProposal implements Serializable {
         int proposerReplicaId;
-        Set<String> observedCars; // Cars visible to this replica
-        List<ViewSignature> v2vSignatures; // f+1 V2V signatures agreeing on this view
+        Set<String> observedCars; // kept for legacy VIEW_AGREE matching; actual state in vehicleStates
+        List<VehicleState> vehicleStates; // full per-car state with f+1 witness sigs
+        List<ViewSignature> v2vSignatures; // f+1 signatures over the vehicleStates string
     }
 
     static class ViewSignature implements Serializable {
         int signingReplicaId;
-        byte[] signatureBytes; // Hash of sorted car list
+        byte[] signatureBytes; // XXHash32 over vehicleStates_semicolon_string + ":" + proposerReplicaId
     }
 
-    // ReadyQC Data (Phase 2 - after view established)
-    static class ReadyQCData implements Serializable {
-        String carId; // "veh0", "veh1", etc.
-        String laneId; // TraCI lane ID
-        double positionInLane; // Meters from lane start
-        double verifiedArrival; // Earliest witness timestamp
-        int epoch; // Prevents replay
-        List<WitnessSignature> signatures; // f+1 signatures
+    /** Per-vehicle state agreed via VIEW consensus (replaces ReadyQCData). */
+    static class VehicleState implements Serializable {
+        String vehicleId;     // "veh0", "veh1", etc.
+        String lane;          // "N", "S", "E", "W"
+        int positionInLane;   // 1 = front of lane
+        String direction;     // "S" (Straight) | "L" (Left) | "R" (Right)
+        boolean isAmbulance;
+        List<WitnessSignature> signatures; // f+1 witness sigs on the full state
+    }
+
+    /** Parse "vehN" suffix; numeric order so veh9 sorts before veh10 (string order would not). */
+    static int vehicleIdNumericOrder(String vehicleId) {
+        if (vehicleId == null || !vehicleId.startsWith("veh")) return 0;
+        try {
+            return Integer.parseInt(vehicleId.substring(3));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Total order along a lane: lower positionInLane = closer to intersection;
+     * ties broken by numeric vehicle id so queue order is deterministic.
+     */
+    static int compareLaneQueueOrder(VehicleState a, VehicleState b) {
+        int c = Integer.compare(a.positionInLane, b.positionInLane);
+        if (c != 0) return c;
+        return Integer.compare(vehicleIdNumericOrder(a.vehicleId), vehicleIdNumericOrder(b.vehicleId));
+    }
+
+    /** An ordered set of vehicles that can cross simultaneously. */
+    static class Batch implements Serializable {
+        List<String> vehicleIds;
+        Batch() { vehicleIds = new ArrayList<>(); }
+    }
+
+    /** The ordered schedule output by the leader and agreed via ORDER consensus. */
+    static class OrderBag implements Serializable {
+        int epoch;
+        List<Batch> batches;
+        OrderBag(int epoch) { this.epoch = epoch; this.batches = new ArrayList<>(); }
     }
 
     static class WitnessSignature implements Serializable {
         int witnessReplicaId;
-        byte[] signatureBytes; // Mock hash signature
+        byte[] signatureBytes; // XXHash32 mock
         double witnessTimestamp;
     }
 
@@ -190,7 +221,7 @@ public final class IntersectionServer extends DefaultRecoverable {
 
         try {
             System.out.println("[Server " + id + "] DEBUG: Calling new ServiceReplica(" + id + ", ...)");
-            this.replica = new ServiceReplica(id, this, this);
+            this.replica = new ServiceReplica(id, this, this, new OrderRequestVerifier(this));
             if (replica != null) {
                 bftsmart.communication.ServerCommunicationSystem commSystem = replica.getServerCommunicationSystem();
                 if (commSystem != null) {
@@ -242,16 +273,12 @@ public final class IntersectionServer extends DefaultRecoverable {
     public void markReplicaDeparted(int replicaId) {
         synchronized (departedLock) {
             departedReplicas.add(replicaId);
-
-            // Remove from verifiedCars (no longer active)
-            String carId = "veh" + replicaId;
-            verifiedCars.remove(carId);
             bftsmart.communication.V2V.ReliableV2VMessaging.removeInstance(replicaId);
 
-            System.out.println("[ZOMBIE] Replica " + replicaId + " (" + carId +
+            System.out.println("[ZOMBIE] Replica " + replicaId + " (veh" + replicaId +
                     ") marked as DEPARTED");
             System.out.println("[ZOMBIE] Total zombies: " + departedReplicas.size());
-            System.out.println("[ZOMBIE] Remaining active cars: " + verifiedCars.size());
+            System.out.println("[ZOMBIE] Remaining active cars: " + (agreedViewState != null ? agreedViewState.size() : 0));
         }
     }
 
@@ -567,6 +594,12 @@ public final class IntersectionServer extends DefaultRecoverable {
      */
     private void parseAndNotifyDecision(String decision) {
         System.out.println("[SERVER " + processId + "] >>> parseAndNotifyDecision called with: " + decision);
+        // ORDER execution is BATCH-based; C++ parseAndNotifyDecision + executeBatch drives TraCI.
+        // Legacy GO: format is obsolete here — do not call notifyVehicleCanGo (would use wrong :GO: check).
+        if (decision.contains(":BATCH:")) {
+            System.out.println("[SERVER " + processId + "] BATCH ORDER — C++ handles resume; skipping legacy GO parse");
+            return;
+        }
         String myCarId = "veh" + processId;
 
         // Parse the decision string to find this car's position
@@ -730,7 +763,10 @@ public final class IntersectionServer extends DefaultRecoverable {
 
     private static final class Cmd {
         enum Type {
-            JOIN, LEAVE, GET_STATE, VIEW_PROPOSE, ORDER_PROPOSE
+            JOIN, LEAVE, GET_STATE,
+            VIEW_PROPOSE,   // Round 1: agree on who is present + their full state
+            ORDER_PROPOSE,  // Round 2: leader proposes OrderBag; followers validate via RequestVerifier
+            WIPE_STATE      // Internal: C++ triggered epoch preemption
         }
 
         Type type;
@@ -884,87 +920,118 @@ public final class IntersectionServer extends DefaultRecoverable {
 
     // === View Consensus Helper Methods (Phase 1) ===
 
+    /**
+     * Parse the semicolon-delimited VehicleState records from a VIEW_PROPOSE payload.
+     * Format: "veh0|N|1|S|0;veh1|S|1|L|0;veh2|W|2|R|1"
+     * Fields per record: vehicleId|lane|posInLane|direction|isAmbulance
+     */
+    private List<VehicleState> parseVehicleStates(String vehicleStatesStr) {
+        List<VehicleState> states = new ArrayList<>();
+        if (vehicleStatesStr == null || vehicleStatesStr.isEmpty()) return states;
+
+        for (String record : vehicleStatesStr.split(";")) {
+            String[] f = record.trim().split("\\|");
+            if (f.length < 5) {
+                System.err.println("[VIEW] Malformed VehicleState record: " + record);
+                continue;
+            }
+            try {
+                VehicleState vs = new VehicleState();
+                vs.vehicleId     = f[0].trim();
+                vs.lane          = f[1].trim();
+                vs.positionInLane= Integer.parseInt(f[2].trim());
+                vs.direction     = f[3].trim();
+                vs.isAmbulance   = "1".equals(f[4].trim());
+                vs.signatures    = new ArrayList<>();
+                states.add(vs);
+            } catch (Exception e) {
+                System.err.println("[VIEW] Error parsing VehicleState record '" + record + "': " + e.getMessage());
+            }
+        }
+        return states;
+    }
+
+    /** Serialise VehicleState list back to the semicolon-pipe wire format. */
+    private String serializeVehicleStates(List<VehicleState> states) {
+        StringBuilder sb = new StringBuilder();
+        for (VehicleState vs : states) {
+            if (sb.length() > 0) sb.append(';');
+            sb.append(vs.vehicleId).append('|')
+              .append(vs.lane).append('|')
+              .append(vs.positionInLane).append('|')
+              .append(vs.direction).append('|')
+              .append(vs.isAmbulance ? '1' : '0');
+        }
+        return sb.toString();
+    }
+
     private List<ViewSignature> parseViewSignatures(String sigString) {
         // Format: "replicaId,hash|replicaId,hash|..."
         List<ViewSignature> signatures = new ArrayList<>();
+        if (sigString == null || sigString.isEmpty()) return signatures;
 
-        if (sigString == null || sigString.isEmpty()) {
-            return signatures;
-        }
-
-        String[] sigParts = sigString.split("\\|");
-        for (String sigPart : sigParts) {
+        for (String sigPart : sigString.split("\\|")) {
             String[] fields = sigPart.split(",");
             if (fields.length >= 2) {
                 try {
                     ViewSignature sig = new ViewSignature();
-                    sig.signingReplicaId = Integer.parseInt(fields[0]);
-
-                    // Convert decimal string to 4-byte array (XXHash32)
+                    sig.signingReplicaId = Integer.parseInt(fields[0].trim());
                     long hashValue = Long.parseLong(fields[1].trim());
                     ByteBuffer buffer = ByteBuffer.allocate(4);
                     buffer.order(ByteOrder.LITTLE_ENDIAN);
                     buffer.putInt((int) hashValue);
                     sig.signatureBytes = buffer.array();
-
                     signatures.add(sig);
                 } catch (Exception e) {
                     System.err.println("[VIEW] Error parsing view signature: " + e.getMessage());
                 }
             }
         }
-
         return signatures;
     }
 
     private boolean validateViewProposal(ViewProposal proposal) {
-        int groupSize = proposal.observedCars.size();
+        int groupSize = proposal.vehicleStates != null ? proposal.vehicleStates.size()
+                                                       : proposal.observedCars.size();
         int f = (groupSize - 1) / 3;
 
-        // Check we have f+1 V2V signatures
         if (proposal.v2vSignatures.size() < f + 1) {
             System.err.println("[VIEW] Insufficient V2V signatures: " +
                     proposal.v2vSignatures.size() + " (need " + (f + 1) + ")");
             return false;
         }
 
-        // Verify each V2V signature is a valid hash of the view
+        // Build the vehicleStates string for verification (must match C++ construction)
+        String vsStr = proposal.vehicleStates != null
+                ? serializeVehicleStates(proposal.vehicleStates) : "";
+
         for (ViewSignature sig : proposal.v2vSignatures) {
-            if (!verifyViewSignature(proposal.observedCars, sig)) {
+            if (!verifyViewSignature(vsStr, sig)) {
                 System.err.println("[VIEW] Invalid V2V signature from replica " + sig.signingReplicaId);
                 return false;
             }
         }
-
         return true;
     }
 
-    private boolean verifyViewSignature(Set<String> viewSet, ViewSignature sig) {
-        // Create deterministic string from sorted set
-        List<String> sorted = new ArrayList<>(viewSet);
-        Collections.sort(sorted);
-        String viewString = String.join(",", sorted);
-
-        // Add replica ID for uniqueness (matches C++ signViewProposal)
-        viewString += ":" + sig.signingReplicaId;
-
-        // Compute expected hash
-        byte[] dataBytes = viewString.getBytes(StandardCharsets.UTF_8);
+    /**
+     * Verify a single ViewSignature against the vehicleStates semicolon string.
+     * XXHash32 input: vehicleStatesStr + ":" + signingReplicaId  (matches C++)
+     */
+    private boolean verifyViewSignature(String vehicleStatesStr, ViewSignature sig) {
+        String input = vehicleStatesStr + ":" + sig.signingReplicaId;
+        byte[] dataBytes = input.getBytes(StandardCharsets.UTF_8);
         int expectedHash = xxhash.hash(dataBytes, 0, dataBytes.length, 0);
 
-        // Extract actual hash from signature
-        if (sig.signatureBytes == null || sig.signatureBytes.length < 4) {
-            return false;
-        }
+        if (sig.signatureBytes == null || sig.signatureBytes.length < 4) return false;
 
         ByteBuffer buffer = ByteBuffer.wrap(sig.signatureBytes);
         buffer.order(ByteOrder.LITTLE_ENDIAN);
         int actualHash = buffer.getInt();
 
         System.out.println("[VIEW_VERIFY] Replica " + sig.signingReplicaId +
-                " view=\"" + viewString + "\" expected=" + expectedHash +
+                " input=\"" + input + "\" expected=" + expectedHash +
                 " actual=" + actualHash + " match=" + (expectedHash == actualHash));
-
         return expectedHash == actualHash;
     }
 
@@ -1005,376 +1072,321 @@ public final class IntersectionServer extends DefaultRecoverable {
         return signatures;
     }
 
-    private boolean validateReadyQC(ReadyQCData qc) {
-        int f = currentF;
-        // Check f+1 signatures
-        if (qc.signatures.size() < f + 1) {
-            System.err.println("[VIEW] Insufficient signatures for " + qc.carId + ": " +
-                    qc.signatures.size() + " (need " + (f + 1) + ")");
-            return false;
-        }
+    // =========================================================================
+    // ORDER BAG HELPERS (new format)
+    // =========================================================================
 
-        // Check same-lane ordering invariant
-        for (ReadyQCData existing : verifiedCars.values()) {
-            if (existing.laneId.equals(qc.laneId)) {
-                // Same lane - verify ordering
-                if (existing.positionInLane < qc.positionInLane &&
-                        existing.verifiedArrival > qc.verifiedArrival) {
-                    System.err.println("[VIEW] ORDERING VIOLATION: " +
-                            existing.carId + " (pos=" + existing.positionInLane + ", arr=" + existing.verifiedArrival
-                            + ") " +
-                            "ahead but arrived later than " + qc.carId +
-                            " (pos=" + qc.positionInLane + ", arr=" + qc.verifiedArrival + ")");
-                    return false; // Byzantine attempt
+    /**
+     * Parse the ORDER_PROPOSE payload.
+     * Format: {@code "<epoch>:<veh0:0;veh1:0;veh2:1;veh3:2>"}
+     * where each entry is {@code <vehicleId>:<batchIndex>}.
+     */
+    OrderBag parseNewOrderBag(String payload) {
+        if (payload == null || payload.isEmpty()) return null;
+        try {
+            String[] top = payload.split(":", 2);
+            int epoch = Integer.parseInt(top[0].trim());
+            OrderBag bag = new OrderBag(epoch);
+
+            if (top.length < 2 || top[1].trim().isEmpty()) return bag; // empty bag
+
+            // Find highest batch index first to size the list
+            int maxIdx = -1;
+            String[] entries = top[1].split(";");
+            for (String entry : entries) {
+                String[] kv = entry.split(":");
+                if (kv.length == 2) maxIdx = Math.max(maxIdx, Integer.parseInt(kv[1].trim()));
+            }
+            for (int idx = 0; idx <= maxIdx; idx++) bag.batches.add(new Batch());
+
+            for (String entry : entries) {
+                String[] kv = entry.split(":");
+                if (kv.length == 2) {
+                    String vid = kv[0].trim();
+                    int batchIdx = Integer.parseInt(kv[1].trim());
+                    bag.batches.get(batchIdx).vehicleIds.add(vid);
                 }
             }
+            return bag;
+        } catch (Exception e) {
+            System.err.println("[ORDER-PARSE] Failed to parse OrderBag: " + e.getMessage());
+            return null;
         }
-
-        return true;
-    }
-
-    private static int verifyCallCount = 0;
-
-    private boolean verifyMockSignature(ReadyQCData qc, WitnessSignature sig) {
-        // Reconstruct hash from fields (must match C++ signWitnessClaim)
-        // CRITICAL: Must match C++ std::to_string() formatting (6 decimal places)
-        String data = qc.carId + ":" + qc.laneId + ":" +
-                String.format("%.6f", qc.positionInLane) + ":" +
-                String.format("%.6f", qc.verifiedArrival) + ":" +
-                qc.epoch + ":" +
-                String.format("%.6f", sig.witnessTimestamp) + ":" +
-                sig.witnessReplicaId;
-
-        System.out.println("[VERIFY] Reconstructed data: " + data);
-        // Use XXHash32 for deterministic hashing across C++ and Java
-        byte[] dataBytes = data.getBytes(StandardCharsets.UTF_8);
-        int expectedHash = xxhash.hash(dataBytes, 0, dataBytes.length, 0); // seed = 0
-
-        // Convert signature bytes to int (4 bytes from C++ int32_t)
-        if (sig.signatureBytes == null || sig.signatureBytes.length < 4) {
-            System.err.println("[VERIFY] Invalid signature bytes: " +
-                    (sig.signatureBytes == null ? "null" : sig.signatureBytes.length + " bytes"));
-            return false;
-        }
-
-        ByteBuffer buffer = ByteBuffer.wrap(sig.signatureBytes);
-        buffer.order(ByteOrder.LITTLE_ENDIAN); // Match C++ byte order
-        int actualHash = buffer.getInt(); // Read 4 bytes as int
-
-        if (++verifyCallCount <= 5) {
-            System.out.println("[VERIFY_JAVA] === Verifying witness " + sig.witnessReplicaId + " ===");
-            System.out.println("[VERIFY_JAVA] Data string: \"" + data + "\"");
-            System.out.println("[VERIFY_JAVA] XXHash32(data): " + expectedHash);
-            System.out.print("[VERIFY_JAVA] Signature bytes: [");
-            for (int i = 0; i < sig.signatureBytes.length; i++) {
-                if (i > 0)
-                    System.out.print(", ");
-                System.out.print(sig.signatureBytes[i]); // Print as signed to match C++
-            }
-            System.out.println("]");
-            System.out.println("[VERIFY_JAVA] Hash from signature: " + actualHash);
-            System.out.println("[VERIFY_JAVA] Match: " + (expectedHash == actualHash));
-            System.out.flush();
-        }
-
-        return expectedHash == actualHash;
-    }
-
-    private String computeOrderBatch(int maxGoCars) {
-
-        // Build deterministic map of cars in agreed view that have a verified QC
-        Map<String, ReadyQCData> viewCars = new HashMap<>();
-
-        if (agreedView != null) {
-            for (String carId : agreedView) {
-                int replicaId = Integer.parseInt(carId.substring(3));
-                if (isReplicaDeparted(replicaId))
-                    continue;
-
-                ReadyQCData qc = verifiedCars.get(carId);
-                if (qc != null) {
-                    viewCars.put(carId, qc);
-                }
-            }
-        }
-
-        System.out.println("[SERVER " + processId + "] View Cars: " + viewCars);
-
-        // 1) One front-most car per lane
-        Map<String, ReadyQCData> frontCars = new HashMap<>();
-        for (ReadyQCData car : viewCars.values()) {
-            ReadyQCData cur = frontCars.get(car.laneId);
-            // Higher positionInLane = closer to intersection (your convention)
-            if (cur == null || car.positionInLane > cur.positionInLane) {
-                frontCars.put(car.laneId, car);
-            }
-        }
-
-        System.out.println("[SERVER " + processId + "] Front Cars: " + frontCars);
-
-        List<ReadyQCData> candidates = new ArrayList<>(frontCars.values());
-        System.out.println("[SERVER " + processId + "] Candidates: " + candidates);
-
-        // 2) Sort front candidates deterministically using wait registry, then arrival,
-        // then carId
-        candidates.sort((a, b) -> {
-            int waitA = waitRegistry.getOrDefault(a.carId, 0);
-            int waitB = waitRegistry.getOrDefault(b.carId, 0);
-
-            int waitCompare = Integer.compare(waitB, waitA); // larger wait first
-            if (waitCompare != 0)
-                return waitCompare;
-
-            int timeCompare = Double.compare(a.verifiedArrival, b.verifiedArrival); // earlier first
-            if (timeCompare != 0)
-                return timeCompare;
-
-            return a.carId.compareTo(b.carId);
-        });
-
-        System.out.println("[SERVER " + processId + "] Sorted Candidates: " + candidates);
-
-        // IMPORTANT FIX:
-        // max winners is bounded by the number of front-lane candidates, NOT by total
-        // viewCars
-        int requestedWinners = Math.min(maxGoCars, candidates.size());
-
-        System.out.println("[SERVER " + processId + "] Requested Winners: " + requestedWinners);
-        System.out.println("[SERVER " + processId + "] Candidate Count: " + candidates.size());
-
-        // Precompute rank in sorted candidate list (avoid indexOf/object identity
-        // issues)
-        Map<String, Integer> rankByCarId = new HashMap<>();
-        for (int i = 0; i < candidates.size(); i++) {
-            rankByCarId.put(candidates.get(i).carId, i);
-        }
-
-        // 3) Select winners safely
-        Set<String> selectedToGo = new HashSet<>();
-        for (int i = 0; i < requestedWinners; i++) {
-            selectedToGo.add(candidates.get(i).carId);
-        }
-
-        System.out.println("[SERVER " + processId + "] Selected To Go: " + selectedToGo);
-
-        // 4) Build decision string deterministically (sort IDs!)
-        List<String> sortedCarIds = new ArrayList<>(viewCars.keySet());
-        Collections.sort(sortedCarIds);
-
-        StringBuilder sb = new StringBuilder();
-        boolean first = true;
-
-        for (String carId : sortedCarIds) {
-            ReadyQCData car = viewCars.get(carId);
-
-            if (!first)
-                sb.append(";");
-
-            if (selectedToGo.contains(carId)) {
-                int pos = rankByCarId.getOrDefault(carId, -1);
-                sb.append(carId).append(":GO:").append(pos);
-                waitRegistry.remove(carId);
-            } else {
-                int newWait = waitRegistry.getOrDefault(carId, 0) + 1;
-                waitRegistry.put(carId, newWait);
-                sb.append(carId).append(":WAIT:").append(newWait);
-            }
-
-            first = false;
-        }
-
-        return sb.toString();
-    }
-
-    // ORDER BAG PARSING
-    /** Envelope parsed from an ORDER_PROPOSE bag sent by C++. */
-    private static class OrderBag {
-        int epoch;
-        int viewHashVal;
-        boolean closeFlag;
-        List<ReadyQCData> qcs = new ArrayList<>();
     }
 
     /**
-     * Parse the bag payload that arrives as {@code cmd.carId} after
-     * {@code parseCommand()} splits on the first {@code ":"}.
-     * Expected format: {@code <epoch>:<viewHash>:<closeFlag>:<qc1>||<qc2>||...}
-     * Each {@code qcN} string is in the format accepted by {@link #parseReadyQC}.
+     * Serialise an OrderBag to the JNI wire format:
+     * {@code "veh0:BATCH:0;veh1:BATCH:0;veh2:BATCH:1"}
      */
-    private OrderBag parseOrderBag(String bagData) {
-        // Split on ":" with limit 4 so the QC portion (which contains colons) stays
-        // intact
-        String[] parts = bagData.split(":", 4);
-        if (parts.length < 4) {
-            System.err.println("[ORDER-BAG] Cannot parse bag envelope (need 4 fields): " + bagData);
-            return null;
-        }
-
-        OrderBag bag = new OrderBag();
-        try {
-            bag.epoch = Integer.parseInt(parts[0].trim());
-            bag.viewHashVal = Integer.parseInt(parts[1].trim());
-            bag.closeFlag = Boolean.parseBoolean(parts[2].trim());
-        } catch (NumberFormatException e) {
-            System.err.println("[ORDER-BAG] Error parsing bag header fields: " + e.getMessage());
-            return null;
-        }
-
-        // QCs are delimited by "||"
-        String[] qcStrings = parts[3].split("\\|\\|");
-        for (String qcStr : qcStrings) {
-            qcStr = qcStr.trim();
-            if (!qcStr.isEmpty()) {
-                ReadyQCData qc = parseReadyQC(qcStr);
-                if (qc != null) {
-                    bag.qcs.add(qc);
-                } else {
-                    System.err.println("[ORDER-BAG] Failed to parse QC entry in bag: " + qcStr);
-                }
+    private String serializeOrderBagForJNI(OrderBag bag) {
+        StringBuilder sb = new StringBuilder();
+        for (int bIdx = 0; bIdx < bag.batches.size(); bIdx++) {
+            for (String vid : bag.batches.get(bIdx).vehicleIds) {
+                if (sb.length() > 0) sb.append(';');
+                sb.append(vid).append(":BATCH:").append(bIdx);
             }
         }
+        return sb.toString();
+    }
 
-        System.out.println("[ORDER-BAG] Parsed bag: epoch=" + bag.epoch
-                + " closeFlag=" + bag.closeFlag + " qcs=" + bag.qcs.size());
+    /**
+     * Serialise an OrderBag for submission as an ORDER_PROPOSE BFT request.
+     * Format: {@code "<epoch>:<veh0:0;veh1:0;veh2:1>"}
+     */
+    private String serializeOrderBagForBFT(OrderBag bag) {
+        StringBuilder sb = new StringBuilder();
+        for (int bIdx = 0; bIdx < bag.batches.size(); bIdx++) {
+            for (String vid : bag.batches.get(bIdx).vehicleIds) {
+                if (sb.length() > 0) sb.append(';');
+                sb.append(vid).append(':').append(bIdx);
+            }
+        }
+        return bag.epoch + ":" + sb;
+    }
+
+    // =========================================================================
+    // LEADER SCHEDULING ALGORITHM
+    // =========================================================================
+
+    /** True when every same-lane car strictly ahead in {@link #compareLaneQueueOrder} is already placed. */
+    private static boolean allSameLaneFrontPlaced(VehicleState c, Map<String, VehicleState> view,
+                                                  Set<String> placed) {
+        for (VehicleState v : view.values()) {
+            if (!v.lane.equals(c.lane)) continue;
+            if (compareLaneQueueOrder(v, c) < 0 && !placed.contains(v.vehicleId))
+                return false;
+        }
+        return true;
+    }
+
+    private static int batchIndexOfOrderBag(OrderBag bag, String vehicleId) {
+        for (int i = 0; i < bag.batches.size(); i++) {
+            if (bag.batches.get(i).vehicleIds.contains(vehicleId)) return i;
+        }
+        return -1;
+    }
+
+    /**
+     * Build the OrderBag for the given epoch from the agreed view.
+     *
+     * Priority order (work queue):
+     *   1. Ambulance blockers (same lane, positionInLane &lt; ambulance), front-to-back
+     *   2. Ambulances (verified isAmbulance=true)
+     *   3. Remaining cars sorted by waitRegistry desc → positionInLane asc → vehicleId
+     *
+     * Batch construction: only cars whose same-lane front cars are already scheduled may
+     * be placed (so a rear car never shares a batch with or precedes someone still ahead
+     * in its lane). Within that, greedily pack ConflictMatrix-safe cars; repeat until
+     * all placed.
+     */
+    OrderBag buildProposal(Map<String, VehicleState> view, int epoch) {
+        if (view == null || view.isEmpty()) return new OrderBag(epoch);
+
+        // Separate ambulances and normal cars
+        List<VehicleState> ambulances = new ArrayList<>();
+        for (VehicleState vs : view.values()) {
+            if (vs.isAmbulance) ambulances.add(vs);
+        }
+        ambulances.sort(Comparator
+                .comparingInt((VehicleState vs) -> vs.positionInLane)
+                .thenComparingInt(vs -> vehicleIdNumericOrder(vs.vehicleId)));
+
+        // Build work queue
+        Set<String> priorityIds = new HashSet<>(); // blockers + ambulances
+        List<VehicleState> workQueue = new ArrayList<>();
+
+        for (VehicleState amb : ambulances) {
+            // Collect blockers (same lane, ahead of ambulance in queue order; excludes ambulance)
+            List<VehicleState> blockers = new ArrayList<>();
+            for (VehicleState vs : view.values()) {
+                if (!vs.lane.equals(amb.lane)) continue;
+                if (vs.isAmbulance) continue;
+                if (compareLaneQueueOrder(vs, amb) < 0) {
+                    blockers.add(vs);
+                }
+            }
+            blockers.sort(Comparator
+                    .comparingInt((VehicleState vs) -> vs.positionInLane)
+                    .thenComparingInt(vs -> vehicleIdNumericOrder(vs.vehicleId)));
+            for (VehicleState b : blockers) {
+                if (priorityIds.add(b.vehicleId)) workQueue.add(b);
+            }
+            if (priorityIds.add(amb.vehicleId)) workQueue.add(amb);
+        }
+
+        // Remaining cars sorted by waitRegistry (desc) → positionInLane (asc) → vehicleId
+        List<VehicleState> remaining = new ArrayList<>();
+        for (VehicleState vs : view.values()) {
+            if (!priorityIds.contains(vs.vehicleId)) remaining.add(vs);
+        }
+        remaining.sort(Comparator
+                .comparingInt((VehicleState vs) -> -(waitRegistry.getOrDefault(vs.vehicleId, 0)))
+                .thenComparingInt(vs -> vs.positionInLane)
+                .thenComparingInt(vs -> vehicleIdNumericOrder(vs.vehicleId)));
+        workQueue.addAll(remaining);
+
+        StringBuilder wq = new StringBuilder();
+        for (VehicleState v : workQueue) {
+            if (wq.length() > 0) wq.append(',');
+            wq.append(v.vehicleId);
+        }
+        System.out.println("[LEADER] workQueue=" + wq);
+
+        // Greedy batch construction with same-lane queue gating
+        OrderBag bag = new OrderBag(epoch);
+        Set<String> placed = new HashSet<>();
+        while (placed.size() < view.size()) {
+            VehicleState head = null;
+            for (VehicleState vs : workQueue) {
+                if (placed.contains(vs.vehicleId)) continue;
+                if (!allSameLaneFrontPlaced(vs, view, placed)) continue;
+                head = vs;
+                break;
+            }
+            if (head == null) {
+                System.err.println("[LEADER] buildProposal: no schedulable head (placed=" + placed.size()
+                        + "/" + view.size() + ")");
+                break;
+            }
+
+            Batch batch = new Batch();
+            batch.vehicleIds.add(head.vehicleId);
+            placed.add(head.vehicleId);
+
+            boolean grew;
+            do {
+                grew = false;
+                for (VehicleState candidate : workQueue) {
+                    if (placed.contains(candidate.vehicleId)) continue;
+                    if (!allSameLaneFrontPlaced(candidate, view, placed)) continue;
+                    boolean safe = true;
+                    for (String inBatch : batch.vehicleIds) {
+                        if (!ConflictMatrix.isSafeToBatch(view.get(inBatch), candidate)) {
+                            safe = false;
+                            break;
+                        }
+                    }
+                    if (safe) {
+                        batch.vehicleIds.add(candidate.vehicleId);
+                        placed.add(candidate.vehicleId);
+                        grew = true;
+                    }
+                }
+            } while (grew);
+
+            bag.batches.add(batch);
+        }
+
+        for (VehicleState amb : ambulances) {
+            int ambBi = batchIndexOfOrderBag(bag, amb.vehicleId);
+            StringBuilder blk = new StringBuilder();
+            for (VehicleState o : view.values()) {
+                if (!o.lane.equals(amb.lane)) continue;
+                if (compareLaneQueueOrder(o, amb) >= 0) continue; // not ahead of ambulance
+                if (blk.length() > 0) blk.append(';');
+                blk.append(o.vehicleId).append("@batch").append(batchIndexOfOrderBag(bag, o.vehicleId));
+            }
+            System.out.println("[AMBULANCE_SCHED] " + amb.vehicleId + " batch=" + ambBi
+                    + " blockersAhead=" + blk);
+        }
+
+        System.out.println("[LEADER] Built OrderBag epoch=" + epoch + " batches=" + bag.batches.size()
+                + " totalCars=" + placed.size());
         return bag;
     }
 
-    private ReadyQCData parseReadyQC(String qcData) {
+    /**
+     * Called by the leader thread (spawned from VIEW consensus delivery) to submit
+     * the ORDER_PROPOSE request via localClientProxy.  Must run on a separate thread
+     * to avoid deadlocking the BFT delivery thread.
+     */
+    private void submitOrderPropose(Map<String, VehicleState> view, int epoch) {
         try {
-            // Don't limit the split yet, because a double-colon will add an extra chunk
-            String[] parts = qcData.split(":");
-            if (parts.length < 5)
-                return null;
-
-            ReadyQCData qc = new ReadyQCData();
-            qc.carId = parts[0];
-
-            int offset = 0;
-
-            // If parts[1] is empty, it means we hit a SUMO internal lane (":C_1_0")
-            if (parts[1].isEmpty()) {
-                offset = 1; // Shift all math indices by 1 to skip the extra split
-                qc.laneId = ":" + parts[2];
-            } else {
-                qc.laneId = parts[1];
+            // Build the OrderBag deterministically from the agreed view
+            OrderBag bag = buildProposal(view, epoch);
+            if (bag == null) {
+                System.err.println("[LEADER] buildProposal returned null — cannot submit ORDER_PROPOSE");
+                return;
             }
 
-            // Apply the offset to grab the correct numbers
-            qc.positionInLane = Double.parseDouble(parts[2 + offset]);
-            qc.verifiedArrival = Double.parseDouble(parts[3 + offset]);
-            qc.epoch = Integer.parseInt(parts[4 + offset]);
+            String payload = "ORDER_PROPOSE:" + serializeOrderBagForBFT(bag);
+            System.out.println("[LEADER] Submitting ORDER_PROPOSE: " + payload);
 
-            // Reconstruct the signature string from whatever is left
-            if (parts.length > (5 + offset)) {
-                // Re-join the remaining parts in case the signatures also contained colons
-                StringBuilder sigs = new StringBuilder();
-                for (int i = 5 + offset; i < parts.length; i++) {
-                    if (i > 5 + offset)
-                        sigs.append(":");
-                    sigs.append(parts[i]);
-                }
-                qc.signatures = parseSignatures(sigs.toString());
-            } else {
-                qc.signatures = new ArrayList<>();
+            // Lazily create client proxy
+            if (localClientProxy == null) {
+                int clientId = this.processId + 1000;
+                localClientProxy = new bftsmart.tom.ServiceProxy(clientId);
+                Thread.sleep(80);
             }
-
-            return qc;
+            byte[] result = localClientProxy.invokeOrdered(payload.getBytes(StandardCharsets.UTF_8));
+            if (result != null) {
+                System.out.println("[LEADER] ORDER_PROPOSE completed, reply=" + new String(result, StandardCharsets.UTF_8));
+            }
         } catch (Exception e) {
-            System.err.println("[JAVA] Error parsing QC string: " + e.getMessage());
-            return null;
+            System.err.println("[LEADER] submitOrderPropose failed: " + e.getMessage());
         }
     }
 
-    public void triggerBatchedLeave(int[] departingReplicas) {
-        // Run in a new thread to prevent deadlocking the BFT proxy!
-        new Thread(() -> {
-            System.out.println("[RECONFIG] Initiating batched BFT LEAVE for: " + Arrays.toString(departingReplicas));
-
-            try {
-                // 1. Setup config (empty string defaults to BFT-SMaRt's standard "config/"
-                // folder)
-                String configDir = "";
-
-                // 2. Use a dedicated ADMIN client ID (not a replica ID)
-                // BFTSmart typically reserves high IDs for admin clients (e.g., 7001)
-                // Make sure this ID has corresponding keys in config/keys/
-                int adminId = 7001;
-
-                // 3. Load the cryptographic keys to sign the request
-                System.out.println("[RECONFIG] Loading keys for admin ID " + adminId);
-                KeyLoader keyLoader = null;
-                try {
-                    keyLoader = new ECDSAKeyLoader(adminId, configDir, false, "ECDSA");
-                    System.out.println("[RECONFIG] KeyLoader created successfully");
-                } catch (Exception e) {
-                    System.err.println(
-                            "[RECONFIG ERROR] Failed to load keys for admin " + adminId + ": " + e.getMessage());
-                    System.err.println("[RECONFIG ERROR] Make sure config/keys/publickey" + adminId + " and privatekey"
-                            + adminId + " exist!");
-                    e.printStackTrace();
-                    return;
-                }
-
-                // 4. Initialize the reconfiguration client
-                Reconfiguration rec = new Reconfiguration(adminId, configDir, keyLoader);
-                System.out.println("[RECONFIG] Reconfiguration client created");
-
-                // 5. Connect the underlying ServiceProxy (REQUIRED by your version)
-                rec.connect();
-                System.out.println("[RECONFIG] Connected to BFT network via ServiceProxy");
-
-                // 6. Queue up all removals in one shot
-                for (int id : departingReplicas) {
-                    rec.removeServer(id);
-                    System.out.println("[RECONFIG] Queued removal of replica " + id);
-                }
-                System.out.println("[RECONFIG] All removals queued: " + Arrays.toString(departingReplicas));
-
-                // 7. Execute once! (This triggers a single consensus round)
-                System.out.println("[RECONFIG] Executing reconfiguration request (waiting for consensus)...");
-                long startTime = System.currentTimeMillis();
-                ReconfigureReply reply = rec.execute();
-                long duration = System.currentTimeMillis() - startTime;
-
-                System.out.println("[RECONFIG] Reconfiguration consensus completed in " + duration + "ms");
-                System.out.println("[RECONFIG] Reply: " + (reply != null ? reply.toString() : "null"));
-
-                // 8. Clean up the connections
-                rec.close();
-                System.out.println("[RECONFIG] Closed reconfiguration client");
-
-                System.out.println("[RECONFIG] ===== BATCH REMOVAL COMPLETE =====");
-                System.out.println("[RECONFIG] Removed replicas: " + Arrays.toString(departingReplicas));
-                System.out.println("[RECONFIG] Notifying C++ that reconfiguration is complete...");
-
-                notifyReconfigComplete(processId);
-
-            } catch (Exception e) {
-                System.err.println("[RECONFIG ERROR] Failed to execute BFT LEAVE: " + e.getMessage());
-                e.printStackTrace();
-            }
-
-        }).start();
-    }
 
     private void resetForNextRound() {
-        // Keep verifiedCars but remove cars that have left
-        // (C++ will notify which cars have departed)
-
-        // Reset consensus phases
         viewPhaseComplete = false;
         orderPhaseComplete = false;
         orderNotifiedThisRound = false;
-        agreedView = null;
-        agreedOrder = null;
-        finalDecision = null;
-
+        agreedViewState = null;
         roundNumber++;
-
-        this.verifiedCars.clear();
-
         System.out.println("[RESET] ===== STARTING ROUND " + roundNumber + " =====");
-        System.out.println("[RESET] Remaining cars in pool: " + verifiedCars.size());
+    }
+
+    /**
+     * Full wipe triggered by C++ epoch preemption.
+     * Resets all protocol state and reconfigures BFT-SMaRt for the new participant set.
+     * Called by C++ via JNI (ServerRunner.wipeAndReinitForReplica).
+     */
+    public void doWipeAndReinit(int[] newParticipants) {
+        System.out.println("[WIPE] doWipeAndReinit called for replica " + processId +
+                " with " + newParticipants.length + " participants");
+
+        // 1. Reset all volatile protocol state
+        resetForNextRound();
+
+        // 2. Close and null the client proxy (will be lazily recreated)
+        if (localClientProxy != null) {
+            try { localClientProxy.close(); } catch (Exception e) { /* ignore */ }
+            localClientProxy = null;
+        }
+
+        // 3. Reconfigure BFT-SMaRt for new N via svc.reconfigureTo()
+        try {
+            bftsmart.reconfiguration.ServerViewController svc =
+                    this.replica.getReplicaContext().getSVController();
+            bftsmart.reconfiguration.views.View current = svc.getCurrentView();
+
+            int newF = (newParticipants.length - 1) / 3;
+            int newViewId = current.getId() + 1;
+
+            // Build dense address array — all vehicle IDs are pre-registered in hosts.config
+            java.net.InetSocketAddress[] addrs = new java.net.InetSocketAddress[newParticipants.length];
+            for (int i = 0; i < newParticipants.length; i++) {
+                addrs[i] = current.getAddress(newParticipants[i]);
+            }
+
+            bftsmart.reconfiguration.views.View newView =
+                    new bftsmart.reconfiguration.views.View(newViewId, newParticipants, newF, addrs);
+            svc.reconfigureTo(newView);
+
+            System.out.println("[WIPE] Reconfigured BFT to N=" + newParticipants.length +
+                    " f=" + newF + " viewId=" + newViewId);
+        } catch (Exception e) {
+            System.err.println("[WIPE] Error during svc.reconfigureTo: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        // 4. Notify C++ that wipe is complete; C++ will then command re-announce
+        try {
+            notifyWipeComplete(processId);
+        } catch (UnsatisfiedLinkError e) {
+            System.err.println("[WIPE] JNI notifyWipeComplete unavailable: " + e.getMessage());
+        }
     }
 
     @Override
@@ -1399,118 +1411,76 @@ public final class IntersectionServer extends DefaultRecoverable {
             // PHASE 1: LOGIC & DECISION (Scan the whole batch to update state)
             // =========================================================================
 
-            Set<String> validCarsUnion = new HashSet<>();
-            boolean foundNewValidEvidence = false;
-
-            // Scan for VIEW_PROPOSE to build the Union
+            // Scan for a valid VIEW_PROPOSE; on success populate agreedViewState
             for (Cmd cmd : decoded) {
-                if (cmd.type == Cmd.Type.VIEW_PROPOSE && cmd.carId != null && !cmd.carId.equals("NONE")) {
-                    if (isReplicaDeparted(processId))
-                        continue;
+                if (viewPhaseComplete) break;
+                if (cmd.type != Cmd.Type.VIEW_PROPOSE) continue;
+                if (cmd.carId == null || cmd.carId.equals("NONE")) continue;
+                if (isReplicaDeparted(processId)) continue;
 
-                    if (cmd.type == Cmd.Type.VIEW_PROPOSE && !viewPhaseComplete) {
-                        System.out.println("[BATCH_RECV " + processId + "] First VIEW_PROPOSE in batch, " +
-                                "wall_offset=" + (System.currentTimeMillis() - experimentStartWall) + "ms " +
-                                "roundNumber=" + roundNumber);
+                try {
+                    // New wire format: "<proposerId>:<vehicleStates>:<viewSignatures>"
+                    // vehicleStates uses ';' between cars and '|' within fields
+                    String[] parts = cmd.carId.split(":", 3);
+                    if (parts.length < 3) continue;
+
+                    ViewProposal proposal = new ViewProposal();
+                    proposal.proposerReplicaId = Integer.parseInt(parts[0].trim());
+                    proposal.vehicleStates     = parseVehicleStates(parts[1]);
+                    proposal.v2vSignatures     = parseViewSignatures(parts[2]);
+                    // Reconstruct observedCars for legacy compatibility
+                    proposal.observedCars = new HashSet<>();
+                    for (VehicleState vs : proposal.vehicleStates) proposal.observedCars.add(vs.vehicleId);
+
+                    if (!validateViewProposal(proposal)) continue;
+
+                    // Build agreedViewState, filtering departed replicas
+                    Map<String, VehicleState> newViewState = new LinkedHashMap<>();
+                    for (VehicleState vs : proposal.vehicleStates) {
+                        int rid = Integer.parseInt(vs.vehicleId.substring(3));
+                        if (!isReplicaDeparted(rid)) newViewState.put(vs.vehicleId, vs);
                     }
+
+                    this.agreedViewState  = newViewState;
+                    this.viewPhaseComplete = true;
+
+                    String resultString = String.join(",", new TreeSet<>(newViewState.keySet()));
+                    System.out.println("[SERVER] VIEW CONSENSUS REACHED. Cars=" + resultString);
+                    System.out.println("[SERVER] wall_offset=" + (System.currentTimeMillis() - experimentStartWall) + "ms");
 
                     try {
-                        // Manual Parsing (Logic extracted from your switch case)
-                        String[] parts = cmd.carId.split(":", 3);
-                        if (parts.length >= 3) {
-                            ViewProposal proposal = new ViewProposal();
-                            proposal.proposerReplicaId = Integer.parseInt(parts[0]);
-                            String[] carArray = parts[1].split(",");
-                            proposal.observedCars = new HashSet<>(Arrays.asList(carArray));
-                            proposal.v2vSignatures = parseViewSignatures(parts[2]);
-
-                            // CRITICAL: The "F+1" Check
-                            // We check validity immediately. We do NOT wait for other replicas.
-                            // if (validateViewProposal(proposal)) {
-                            // for (String car : proposal.observedCars) {
-                            // int rid = Integer.parseInt(car.substring(3));
-                            // if (!isReplicaDeparted(rid)) {
-                            // validCarsUnion.add(car);
-                            // }
-                            // }
-
-                            // foundNewValidEvidence = true;
-
-                            // Debug log
-                            // System.out.println("[VIEW] Found valid evidence from Replica " +
-                            // proposal.proposerReplicaId);
-
-                            // CRITICAL: The "F+1" Check on the Leader's Bag
-                            if (validateViewProposal(proposal)) {
-                                List<String> validCars = new ArrayList<>();
-
-                                // Filter out departed cars
-                                for (String car : proposal.observedCars) {
-                                    int rid = Integer.parseInt(car.substring(3));
-                                    if (!isReplicaDeparted(rid)) {
-                                        validCars.add(car);
-                                    }
-                                }
-
-                                Collections.sort(validCars);
-                                // LOCK IN THE DECISION IMMEDIATELY
-                                this.agreedView = new HashSet<>(validCars);
-                                this.viewPhaseComplete = true;
-
-                                String resultString = String.join(",", validCars);
-                                System.out.println(
-                                        "[SERVER] CONSENSUS REACHED (Leader-Bag). Final View: " + resultString);
-                                System.out.println("[SERVER] REACHED AT WALL TIME = "
-                                        + (System.currentTimeMillis() - experimentStartWall) + "ms");
-
-                                // Notify C++ directly from the BFT delivery thread.
-                                // This fires for ALL replicas (leader AND followers) because appExecuteBatch
-                                // runs on every replica. Followers never call invokeOrdered so they would
-                                // otherwise never receive the VIEW_AGREED reply via sendConsensusRequest.
-                                try {
-                                    notifyViewAgreed(this.processId, resultString);
-                                    System.out.println("[VIEW] Replica " + processId + " notified C++ of agreed view: "
-                                            + resultString);
-                                } catch (UnsatisfiedLinkError e) {
-                                    System.err.println("[VIEW] JNI notifyViewAgreed unavailable: " + e.getMessage());
-                                }
-
-
-                                // We found the absolute truth, no need to keep scanning!
-                                break;
-
-                            }
-
-                        }
-                    } catch (Exception e) {
-                        System.err.println("[VIEW] Error parsing proposal in scan phase: " + e.getMessage());
+                        notifyViewAgreed(this.processId, resultString);
+                    } catch (UnsatisfiedLinkError e) {
+                        System.err.println("[VIEW] JNI notifyViewAgreed unavailable: " + e.getMessage());
                     }
+
+                    // If I am the leader, submit ORDER_PROPOSE in a new thread
+                    final Map<String, VehicleState> frozenView = Collections.unmodifiableMap(newViewState);
+                    final int frozenEpoch = (int) roundNumber;
+                    final int leaderIdSnapshot = this.processId; // forcedLeader stored elsewhere; use min ID
+                    // Determine leader: minimum processId in the agreed view
+                    int minId = newViewState.keySet().stream()
+                            .mapToInt(id -> Integer.parseInt(id.substring(3)))
+                            .min().orElse(-1);
+                    if (this.processId == minId) {
+                        new Thread(() -> {
+                            try {
+                                Thread.sleep(this.processId * 2L + 20); // small stagger
+                                submitOrderPropose(frozenView, frozenEpoch);
+                            } catch (Exception ex) {
+                                System.err.println("[ORDER] Leader ORDER_PROPOSE thread failed: " + ex.getMessage());
+                            }
+                        }, "order-propose-" + processId).start();
+                    }
+
+                    break; // found valid evidence — stop scanning
+
+                } catch (Exception e) {
+                    System.err.println("[VIEW] Error parsing VIEW_PROPOSE in scan phase: " + e.getMessage());
                 }
             }
 
-            // DECIDE IMMEDIATELY if we have evidence and haven't decided yet
-            if (!viewPhaseComplete && foundNewValidEvidence) {
-                // Deterministic Sort
-                List<String> sortedView = new ArrayList<>(validCarsUnion);
-                Collections.sort(sortedView);
-
-                // LOCK IN THE DECISION
-                this.agreedView = new HashSet<>(sortedView);
-                this.viewPhaseComplete = true;
-
-                String resultString = String.join(",", sortedView);
-                System.out.println("[SERVER] CONSENSUS REACHED (One-Round). Final View: " + resultString);
-
-                System.out.println(
-                        "[SERVER] REACHED AT WALL TIME = " + (System.currentTimeMillis() - experimentStartWall) + "ms");
-
-                // // Notify C++
-                // try {
-                // notifyViewAgreed(processId, resultString);
-                // } catch (UnsatisfiedLinkError e) {
-                // System.err.println("JNI Error: " + e.getMessage());
-                // }
-            }
+            // VIEW scan complete — agreedViewState is set if valid evidence was found
 
             // =========================================================================
             // PHASE 2: REPLY GENERATION (Respond to clients based on Phase 1 state)
@@ -1535,302 +1505,56 @@ public final class IntersectionServer extends DefaultRecoverable {
 
                         if (isReplicaDeparted(processId)) {
                             reply = "DEPARTED";
-                        } else if (viewPhaseComplete) {
-                            // SUCCESS: Everyone gets the agreed view (even if they were late)
-                            reply = "VIEW_AGREED:" + String.join(",", agreedView);
+                        } else if (viewPhaseComplete && agreedViewState != null) {
+                            reply = "VIEW_AGREED:" + String.join(",", new TreeSet<>(agreedViewState.keySet()));
                         } else {
-                            // FAILURE: Batch contained only invalid junk (rare)
                             reply = "VIEW_REJECTED:No_Valid_Evidence";
                         }
                         break;
 
                     case ORDER_PROPOSE:
-                        // Bag-based ORDER phase: each car proposes a bag of ReadyQCs gathered
-                        // during a V2V gossip window. Java de-dupes by carId and decides as
-                        // soon as at least one front-lane candidate has a verified QC.
-                        //
+                        // Round 2: leader proposed OrderBag; RequestVerifier has already
+                        // validated completeness, safety, and ambulance priority before this fires.
                         if (isReplicaDeparted(processId)) {
                             reply = "DEPARTED";
                         } else if (viewPhaseComplete && !orderPhaseComplete) {
-                            
-                            long simMs = SimulationClock.currentTimeMillis();
-                            int cid = -1;
-                            if (msgCtxs != null && i < msgCtxs.length && msgCtxs[i] != null) {
-                                cid = msgCtxs[i].getConsensusId();
-                            }
-                            if (cid != lastLoggedOrderCid) {
-                                System.out.println("[ORDER_CID " + processId + "] consensus_id=" + cid
-                                        + " epoch=" + roundNumber + " at t=" + simMs + "ms");
-                                lastLoggedOrderCid = cid;
-                            }
+                            // Parse the OrderBag from the request payload
+                            // Format: "ORDER_PROPOSE:<epoch>:<veh0:0;veh1:0;veh2:1;veh3:2>"
+                            OrderBag bag = parseNewOrderBag(cmd.carId);
+                            if (bag != null) {
+                                this.orderPhaseComplete  = true;
+                                this.orderNotifiedThisRound = true;
+                                triggerRoundReset = true;
 
-                            String bagData = cmd.carId;
-                            if (bagData != null && !bagData.isEmpty()) {
-                                OrderBag bag = parseOrderBag(bagData);
-                                if (bag != null) {
-                                    long nowMs = System.currentTimeMillis();
-                                    if (lastFirstOrderSeenEpoch != bag.epoch) {
-                                        long leaderSetDeltaMs = (lastForcedLeaderSetWallMs > 0)
-                                                ? (nowMs - lastForcedLeaderSetWallMs)
-                                                : -1;
-                                        System.out.println("[LEADER-DIAG] Replica " + processId
-                                                + " first ORDER_PROPOSE seen for epoch=" + bag.epoch
-                                                + " leader=" + lastForcedLeaderId
-                                                + " leaderViewId=" + lastForcedLeaderViewId
-                                                + " deltaFromLeaderSetMs=" + leaderSetDeltaMs
-                                                + " bagCloseFlag=" + bag.closeFlag
-                                                + " bagQcs=" + bag.qcs.size()
-                                                + " viewSize=" + (agreedView != null ? agreedView.size() : 0));
-                                        lastFirstOrderSeenEpoch = bag.epoch;
-                                    }
+                                String batchDecision = serializeOrderBagForJNI(bag);
+                                System.out.println("[ORDER] Committed OrderBag epoch=" + bag.epoch
+                                        + " batches=" + bag.batches.size() + " decision=" + batchDecision);
 
-                                    System.out.println("[ORDER-DIAG] Replica " + processId
-                                            + " recv ORDER_PROPOSE epoch=" + bag.epoch
-                                            + " closeFlag=" + bag.closeFlag
-                                            + " qcs=" + bag.qcs.size()
-                                            + " verifiedPoolBefore=" + verifiedCars.size()
-                                            + " viewComplete=" + viewPhaseComplete
-                                            + " orderComplete=" + orderPhaseComplete);
-
-                                    // Insert each validated QC (dedup by carId)
-                                    for (ReadyQCData qc : bag.qcs) {
-                                        if (qc != null && !verifiedCars.containsKey(qc.carId)) {
-                                            if (validateReadyQC(qc)) {
-                                                verifiedCars.put(qc.carId, qc);
-                                                System.out.println("[ORDER] Server " + processId
-                                                        + " accepted QC for " + qc.carId
-                                                        + " (pool size=" + verifiedCars.size() + ")");
-                                            } else {
-                                                System.out.println("[ORDER] Server " + processId
-                                                        + " rejected invalid QC for "
-                                                        + (qc.carId != null ? qc.carId : "null"));
-                                            }
-                                        }
+                                // Notify this replica's C++ module
+                                try {
+                                    notifyOrderDecided(processId, batchDecision);
+                                } catch (UnsatisfiedLinkError e) {
+                                    System.err.println("[ORDER] JNI notifyOrderDecided unavailable: " + e.getMessage());
+                                }
+                                // Proactively notify all other replicas in the agreed view
+                                if (agreedViewState != null) {
+                                    for (String vid : agreedViewState.keySet()) {
+                                        int rid = Integer.parseInt(vid.substring(3));
+                                        if (rid == processId) continue;
+                                        try { notifyOrderDecided(rid, batchDecision); }
+                                        catch (UnsatisfiedLinkError e) { /* ignore */ }
                                     }
                                 }
-                            }
-
-                            if (agreedView != null) {
-                                // Attempt to produce a decision from current verifiedCars.
-                                // Decide as soon as at least one front-lane candidate is available.
-                                String tentativeDecision = computeOrderBatch(4);
-                                boolean hasGocar = tentativeDecision != null
-                                        && tentativeDecision.contains(":GO:");
-                                if (hasGocar) {
-                                    this.finalDecision = tentativeDecision;
-                                    this.orderPhaseComplete = true;
-                                    triggerRoundReset = true;
-                                    List<Integer> departingIdsList = new ArrayList<>();
-                                    for (String entry : this.finalDecision.split(";")) {
-                                        if (entry.contains(":GO:")) {
-                                            // Extract the integer ID (e.g., "veh3" -> 3)
-                                            String carIdStr = entry.split(":")[0];
-                                            departingIdsList.add(Integer.parseInt(carIdStr.substring(3)));
-                                        }
-                                    }
-
-                                    System.out.println(
-                                            "[SERVER " + processId + "] Departing IDs List: " + departingIdsList);
-
-                                    // CRITICAL FIX: Only ONE replica (the leader with lowest non-departing ID)
-                                    // triggers reconfig
-                                    // This prevents 8 concurrent reconfig requests from conflicting
-                                    orderProposeSubmitted = false; // reset for next round
-                                    orderNotifiedThisRound = true;
-                                    // Always notify own proxy first (non-departing replicas rely on this
-                                    // call to trigger scheduleReconfigFlush via the !foundMyself path
-                                    // in parseAndNotifyDecision).
-                                    try {
-                                        notifyOrderDecided(processId, finalDecision);
-                                        System.out.println("[ORDER] NOTIFIED C++ ORDER DECIDED: " + finalDecision);
-                                    } catch (UnsatisfiedLinkError e) {
-                                        System.err.println("JNI Error: " + e.getMessage());
-                                    }
-                                    // Also proactively notify other departing replicas.
-                                    // In the final epoch all cars depart simultaneously; a concurrent
-                                    // reconfig from a faster replica can shut down BFT delivery for
-                                    // other replicas before their appExecuteBatch fires. Notifying
-                                    // every departing ID here ensures no car is left without a GO signal.
-                                    // C++ resumeVehicle() has a dedup guard so duplicate calls are safe.
-                                    for (int notifyId : departingIdsList) {
-                                        if (notifyId == processId) continue;
-                                        try {
-                                            notifyOrderDecided(notifyId, finalDecision);
-                                            System.out.println("[ORDER] PROACTIVE-NOTIFY C++ replica " + notifyId + ": " + finalDecision);
-                                        } catch (UnsatisfiedLinkError e) {
-                                            System.err.println("JNI Error notifying replica " + notifyId + ": " + e.getMessage());
-                                        }
-                                    }
-
-                                    if (!departingIdsList.isEmpty()) {
-                                        int reconfigViewId = -1;
-                                        try {
-                                            bftsmart.reconfiguration.ServerViewController svc = this.replica
-                                                    .getReplicaContext().getSVController();
-                                            bftsmart.reconfiguration.views.View currentView = svc.getCurrentView();
-                                            TOMLayer tom = svc.getTOMLayer();
-
-                                            List<Integer> newProcessList = new ArrayList<>();
-                                            for (int id : currentView.getProcesses()) {
-                                                if (!departingIdsList.contains(id)) {
-                                                    newProcessList.add(id);
-                                                }
-                                            }
-
-                                            int[] newProcesses = newProcessList.stream().mapToInt(Integer::intValue)
-                                                    .toArray();
-                                            int newF = (newProcesses.length - 1) / 3;
-                                            int newViewId = currentView.getId() + 1;
-                                            reconfigViewId = newViewId;
-
-                                            // View constructor uses addresses[i] = address of processes[i]
-                                            // (dense/position-indexed). A sparse array indexed by replica ID
-                                            // scrambles every address mapping and causes "Impossible to connect".
-                                            java.net.InetSocketAddress[] newAddresses = new java.net.InetSocketAddress[newProcesses.length];
-                                            for (int j = 0; j < newProcesses.length; j++) {
-                                                newAddresses[j] = currentView.getAddress(newProcesses[j]);
-                                            }
-
-                                            bftsmart.reconfiguration.views.View newView = new bftsmart.reconfiguration.views.View(
-                                                    newViewId, newProcesses, newF, newAddresses);
-
-                                            // Idempotence guard: duplicate ORDER callbacks for the same view can
-                                            // arrive on one replica; avoid re-running expensive reconfig side-effects.
-                                            if (newViewId > lastAppliedInMemoryViewId) {
-                                                // Apply view
-                                                svc.reconfigureTo(newView);
-                                                if (this.localClientProxy != null) {
-                                                    this.localClientProxy.getViewManager().reconfigureTo(newView);
-                                                }
-
-                                                // Drop stale sockets
-                                                try {
-                                                    bftsmart.communication.ServerCommunicationSystem cs = tom
-                                                            .getCommunication();
-                                                    cs.updateServersConnections();
-                                                    System.out.println("[SERVER " + processId
-                                                            + "] Server connections refreshed for new view " + newViewId);
-                                                    Thread.sleep(70);
-                                                } catch (Exception csEx) {
-                                                    System.err.println("[SERVER " + processId
-                                                            + "] Warning: could not refresh connections");
-                                                }
-
-                                                // Set Leader Safely!
-                                                if (newProcesses.length > 0) {
-                                                    int forcedLeader = Arrays.stream(newProcesses).min().getAsInt();
-                                                    tom.execManager.setNewLeader(forcedLeader);
-                                                    lastForcedLeaderSetWallMs = System.currentTimeMillis();
-                                                    lastForcedLeaderId = forcedLeader;
-                                                    lastForcedLeaderViewId = newViewId;
-                                                    System.out.println("[LEADER-DIAG] Replica " + processId
-                                                            + " set forced leader=" + forcedLeader
-                                                            + " for viewId=" + newViewId
-                                                            + " atWallMs=" + lastForcedLeaderSetWallMs
-                                                            + " newProcesses=" + Arrays.toString(newProcesses));
-
-                                                    if (processId == forcedLeader) {
-                                                        tom.imAmTheLeader();
-                                                        System.out.println(
-                                                                "[SERVER " + processId + "] I am the new forced leader!");
-                                                    } else {
-                                                        System.out.println("[SERVER " + processId
-                                                                + "] Acknowledging forced leader is " + forcedLeader);
-                                                    }
-                                                }
-                                                lastAppliedInMemoryViewId = newViewId;
-                                            } else {
-                                                System.out.println("[RECONFIG] Replica " + processId
-                                                        + " skipping duplicate in-memory apply for viewId=" + newViewId
-                                                        + " (lastApplied=" + lastAppliedInMemoryViewId + ")");
-                                            }
-
-                                            // Clean up app state
-                                            for (int depId : departingIdsList) {
-                                                markReplicaDeparted(depId);
-                                                verifiedCars.remove("veh" + depId);
-                                                // Remove all unacked entries addressed TO this departed
-                                                // replica from every live instance's outgoing queue.
-                                                // Without this, live replicas keep retransmitting to a
-                                                // zombie node forever (ACK never arrives → queue grows).
-                                                String cleanupKey = newViewId + ":" + depId;
-                                                if (clearedUnackedKeys.add(cleanupKey)) {
-                                                    bftsmart.communication.V2V.ReliableV2VMessaging
-                                                            .clearUnackedToReplica(depId);
-                                                } else {
-                                                    System.out.println("[RECONFIG] Replica " + processId
-                                                            + " skipping duplicate clearUnackedToReplica for key="
-                                                            + cleanupKey);
-                                                }
-                                            }
-                                            updateBatchSize(newProcesses.length);
-
-                                            // Update BFT-SMaRt's internal maxBatchSize to match
-                                            // the new group size so the proposer doesn't wait for
-                                            // batchtimeout when fewer replicas remain.
-                                            try {
-                                                bftsmart.reconfiguration.util.TOMConfiguration staticConf = svc
-                                                        .getStaticConf();
-                                                java.lang.reflect.Field mbsField = bftsmart.reconfiguration.util.TOMConfiguration.class
-                                                        .getDeclaredField("maxBatchSize");
-                                                mbsField.setAccessible(true);
-                                                mbsField.setInt(staticConf, 1);
-                                                // System.out.println("[RECONFIG] maxBatchSize updated to "
-                                                //         + bftbatchsize + " (activeReplicas=" + newProcesses.length + ")");
-                                            } catch (Exception reflEx) {
-                                                System.err.println("[RECONFIG] Could not update maxBatchSize: "
-                                                        + reflEx.getMessage());
-                                            }
-
-                                        } catch (Exception e) {
-                                            System.err.println("[SERVER " + processId
-                                                    + "] ERROR applying in-memory view: " + e.getMessage());
-                                        }
-
-                                        // =========================================================================
-                                        // 3. START NEXT ROUND
-                                        // Now that the old connections are dead, tell the remaining cars they
-                                        // can safely reset their C++ state and start Round 2.
-                                        // =========================================================================
-                                        if (!departingIdsList.contains(processId)) {
-                                            if (reconfigViewId > lastNotifiedReconfigViewId) {
-                                                System.out.println("[SERVER " + processId
-                                                        + "] Notifying C++ that reconfiguration is complete...");
-                                                notifyReconfigComplete(processId);
-                                                lastNotifiedReconfigViewId = reconfigViewId;
-                                            } else {
-                                                System.out.println("[SERVER " + processId
-                                                        + "] Duplicate reconfig completion suppressed for viewId="
-                                                        + reconfigViewId);
-                                            }
-                                        } else {
-                                            System.out.println("[SERVER " + processId
-                                                    + "] I am departing - NOT notifying C++ (will exit soon)");
-                                            // For departing replicas, just close the proxy
-                                            if (this.localClientProxy != null) {
-                                                this.localClientProxy.close();
-                                                this.localClientProxy = null;
-                                            }
-                                        }
-
-                                        reply = finalDecision;
-
-                                    }
-
-                                    // reply = finalDecision;
-                                } else {
-                                    int received = verifiedCars.size();
-                                    int needed = (agreedView != null) ? agreedView.size() : 0;
-                                    reply = "ORDER_BUFFERING:Have " + received + "/" + needed;
-                                }
-
-                            } else if (orderPhaseComplete) {
-                                reply = finalDecision;
+                                reply = batchDecision;
                             } else {
-                                reply = "ERROR:View not complete yet";
+                                reply = "ERROR:Could not parse OrderBag";
                             }
-                            break;
+                        } else if (orderPhaseComplete) {
+                            reply = "ORDER_ALREADY_DECIDED";
+                        } else {
+                            reply = "ERROR:View not complete yet";
                         }
+                        break;
 
                     case JOIN: // Legacy
                         reply = "JOIN:LEGACY COMMANDS ARE NOT SUPPORTED";

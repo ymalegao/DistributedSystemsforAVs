@@ -9,8 +9,8 @@
     <route id="rW" edges="W2C C2E"/>
 
     <!-- 4 vehicles total -->
-    <vehicle id="veh0" type="car" route="rN" depart="5" departSpeed="max" departPos="280"/>
-    <vehicle id="veh1" type="car" route="rS" depart="5" departSpeed="max" departPos="280"/>
-    <vehicle id="veh2" type="car" route="rE" depart="5" departSpeed="max" departPos="280"/>
-    <vehicle id="veh3" type="car" route="rW" depart="5" departSpeed="max" departPos="280"/>
+    <vehicle id="veh0" type="car" route="rN" depart="0" departSpeed="max" departPos="280"/>
+    <vehicle id="veh1" type="car" route="rS" depart="0" departSpeed="max" departPos="280"/>
+    <vehicle id="veh2" type="car" route="rE" depart="0" departSpeed="max" departPos="280"/>
+    <vehicle id="veh3" type="car" route="rW" depart="0" departSpeed="max" departPos="280"/>
 </routes>

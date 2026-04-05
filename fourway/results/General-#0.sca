@@ -1,8 +1,8 @@
 version 3
-run General-0-20260224-22:48:43-993265
+run General-0-20260403-20:53:09-228505
 attr configname General
-attr datetime 20260224-22:48:43
-attr datetimef 20260224-224843
+attr datetime 20260403-20:53:09
+attr datetimef 20260403-205309
 attr experiment General
 attr inifile omnetpp.ini
 attr iterationvars ""
@@ -10,7 +10,7 @@ attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network fourWay
-attr processid 993265
+attr processid 228505
 attr repetition 0
 attr replication #0
 attr resultdir results
@@ -19,7 +19,7 @@ attr seedset 0
 config scheduler-class omnetpp::cRealTimeScheduler
 config realtimescheduler-scaling 0.1
 config cmdenv-express-mode false
-config cmdenv-autoflush true
+config cmdenv-autoflush false
 config cmdenv-status-frequency 1s
 config **.cmdenv-log-level info
 config image-path ../../images
@@ -42,7 +42,7 @@ config *.manager.launchConfig "xmldoc(\"osm.launchd.xml\")"
 config *.manager.trafficLightModuleType "\"org.car2x.veins.nodes.TrafficLight\""
 config *.tls[*].mobility.x 0
 config *.tls[*].mobility.y 0
-config *.tls[*].mobility.z 3
+config *.tls[*].mobility.z 5
 config *.tls[*].applType "\"org.car2x.veins.modules.application.traci.TraCIDemoTrafficLightApp\""
 config *.tls[*].logicType "\"org.car2x.veins.modules.world.traci.trafficLight.logics.TraCITrafficLightSimpleLogic\""
 config *.rsu[0].mobility.x 2000
@@ -55,15 +55,15 @@ config *.rsu[*].appl.dataOnSch false
 config *.rsu[*].appl.beaconInterval 1s
 config *.rsu[*].appl.beaconUserPriority 7
 config *.rsu[*].appl.dataUserPriority 5
-config *.rsu[*].nic.phy80211p.antennaOffsetZ "0 m"
+config *.rsu[*].nic.phy80211p.antennaOffsetZ "1.5 m"
 config *.connectionManager.sendDirect true
 config *.connectionManager.maxInterfDist 2600m
 config *.connectionManager.drawMaxIntfDist false
 config *.connectionManagerName "\"connectionManager\""
 config *.**.nic.mac1609_4.useServiceChannel false
-config *.**.nic.phy80211p.txPower 500mW
-config *.**.nic.mac1609_4.txPower 400mW
-config *.**.nic.mac1609_4.bitrate 27Mbps
+config *.**.nic.phy80211p.txPower 20mW
+config *.**.nic.mac1609_4.txPower 20mW
+config *.**.nic.mac1609_4.bitrate 6Mbps
 config *.**.nic.phy80211p.minPowerLevel -110dBm
 config *.**.nic.mac1609_4.queueSize 1024
 config *.**.nic.phy80211p.useNoiseFloor true

@@ -1,0 +1,7 @@
+[ROUND-METRICS] Epoch 0 Avg_Order_BFT_Request_RTT_Submitter: 0.683 seconds (submittersCounted=1)
+[ROUND-METRICS] Epoch 0 Avg_View_Consensus_Latency_4Cars: 0.102586782176 seconds (replicasCounted=4)
+[ROUND-METRICS] Epoch 0 Avg_Order_Consensus_Latency_4Cars: 0.180001196759 seconds (replicasCounted=4)
+[ROUND-METRICS] Epoch 0 Avg_StopSign_Failures: 0 seconds (count)
+[ROUND-METRICS] Epoch 0 Avg_Messages_Sent_PerReplica: 34.3333333333333 seconds (count)
+[ROUND-METRICS] Epoch 0 Avg_Messages_Received_PerReplica: 33.6666666666667 seconds (count)
+[ROUND-METRICS] Epoch 0 Avg_Total_Consensus_Duration: 1.150000 seconds (goCars=4)

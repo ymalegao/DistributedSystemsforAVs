@@ -14,7 +14,6 @@ Compares against golden isolated-n values.
 import sys
 import re
 import os
-import shutil
 import argparse
 import statistics
 from collections import defaultdict
@@ -23,11 +22,38 @@ _parser = argparse.ArgumentParser(description="BFT-SMaRt V2V log analyzer")
 _parser.add_argument("log_file", nargs="?", default="/tmp/bft-all-replicas.log",
                      help="Path to combined replica log (default: /tmp/bft-all-replicas.log)")
 _parser.add_argument("--save-to", metavar="DIR",
-                     help="Copy log into DIR as 16veh_<i>.log for later batch analysis")
+                     help="Copy metrics into DIR as <N>veh_<i>.log for later batch analysis")
+_parser.add_argument("--cars", type=int, default=None,
+                     help="Total cars/replicas in the scenario (e.g. 12 or 16). "
+                          "If omitted, inferred from --save-to path or defaults to 16.")
 _args = _parser.parse_args()
 
 LOG_FILE = _args.log_file
 SAVE_TO  = _args.save_to
+
+def _infer_cars_from_save_to(save_to: str | None) -> int | None:
+    if not save_to:
+        return None
+    # Try a few common naming conventions:
+    # - ".../12veh_0.log" or folder ".../12vehRuns"
+    # - ".../2phase12Honest" or ".../phase12..."
+    hay = save_to
+    patterns = [
+        r'(\d+)\s*veh',
+        r'phase\s*(\d+)',
+        r'(\d+)(?=Honest)',
+    ]
+    for pat in patterns:
+        m = re.search(pat, hay, flags=re.IGNORECASE)
+        if m:
+            try:
+                return int(m.group(1))
+            except ValueError:
+                pass
+    return None
+
+CARS = _args.cars or _infer_cars_from_save_to(SAVE_TO) or 16
+N_EPOCHS = max(1, CARS // 4)
 
 # Golden isolated-n reference values (from benchmarks/golden.log)
 GOLDEN = {
@@ -37,7 +63,7 @@ GOLDEN = {
     16: {"view": 0.4444, "order": 0.5858},
 }
 # Epoch → group size mapping (4 cars depart each round)
-EPOCH_N = {0: 16, 1: 12, 2: 8, 3: 4}
+EPOCH_N = {epoch: max(CARS - 4 * epoch, 0) for epoch in range(N_EPOCHS)}
 
 # ── Patterns ────────────────────────────────────────────────────────────────
 RE_ROUND_METRIC = re.compile(
@@ -100,6 +126,13 @@ RE_GO_STRING = re.compile(r'(veh\d+):GO:\d+')
 RE_RESUME = re.compile(r'\[RESUME\] Replica (\d+): JNI received GO signal')
 RE_RESUME_MSG = re.compile(r'\[HANDLE-SELF-MSG\] Replica (\d+): .*msgName=resumeVehicle')
 
+RE_MESSAGES_SENT     = re.compile(r'\[METRICS (\d+)\] Messages_Sent: (\d+)')
+RE_MESSAGES_RECEIVED = re.compile(r'\[METRICS (\d+)\] Messages_Received: (\d+)')
+RE_ARRIVAL_TIME      = re.compile(r'\[METRICS (\d+)\] Arrival_Time: ([\d.]+)')
+RE_STOP_TIME         = re.compile(r'\[METRICS (\d+)\] Stop_Time: ([\d.]+)')
+RE_RESUME_TIME       = re.compile(r'\[METRICS (\d+)\] Resume_Time: ([\d.]+)')
+RE_STOPSIGN_TIMEOUT  = re.compile(r'\[METRICS (\d+)\] StopSign_Timeout: 1')
+
 # ── Data stores ─────────────────────────────────────────────────────────────
 round_metrics = defaultdict(dict)      # epoch → {metric_name: value}
 view_starts   = defaultdict(list)      # replica → [sim_time, ...]
@@ -139,6 +172,16 @@ go_decision_epoch = {}  # carId -> epoch it was granted GO
 resume_signal_received = set() # set of replica IDs
 resume_msg_handled = set()     # set of replica IDs
 
+# New per-epoch data stores
+replica_arrival_time = {}                   # replica -> first arrival time in intersection zone
+replica_stop_time   = {}                    # replica -> stop_time (float)
+replica_resume_time = {}                    # replica -> resume_time (float)
+epoch_messages_sent = defaultdict(list)     # epoch -> [sent_count, ...]
+epoch_messages_recv = defaultdict(list)     # epoch -> [recv_count, ...]
+epoch_total_dur     = defaultdict(list)     # epoch -> [duration, ...]
+epoch_total_dur_by_car = defaultdict(dict)  # epoch -> {carId: duration}
+epoch_failures      = defaultdict(int)      # epoch -> count
+
 # ── Parse ────────────────────────────────────────────────────────────────────
 print(f"Parsing {LOG_FILE} ...")
 current_gossip_epoch = 0              # rough tracker for gossip events
@@ -166,7 +209,15 @@ with open(LOG_FILE, "r", errors="replace") as f:
             continue
         m = RE_METRICS_VIEW_END.search(line)
         if m:
-            view_ends[int(m.group(1))].append(float(m.group(2)))
+            # Be robust to occasional malformed concatenated timestamps
+            try:
+                t = float(m.group(2))
+            except ValueError:
+                floats = re.findall(r'\d+\.\d+', line)
+                if not floats:
+                    continue
+                t = float(floats[0])
+            view_ends[int(m.group(1))].append(t)
             continue
         m = RE_METRICS_ORDER_START.search(line)
         if m:
@@ -281,7 +332,59 @@ with open(LOG_FILE, "r", errors="replace") as f:
             resume_msg_handled.add(int(m.group(1)))
             continue
 
+        m = RE_MESSAGES_SENT.search(line)
+        if m:
+            rep, val = int(m.group(1)), int(m.group(2))
+            ep = replica_epoch.get(rep, current_gossip_epoch)
+            epoch_messages_sent[ep].append(val)
+            continue
+
+        m = RE_MESSAGES_RECEIVED.search(line)
+        if m:
+            rep, val = int(m.group(1)), int(m.group(2))
+            ep = replica_epoch.get(rep, current_gossip_epoch)
+            epoch_messages_recv[ep].append(val)
+            continue
+
+        m = RE_ARRIVAL_TIME.search(line)
+        if m:
+            rep = int(m.group(1))
+            # Keep only the first arrival (car enters zone once per epoch)
+            if rep not in replica_arrival_time:
+                replica_arrival_time[rep] = float(m.group(2))
+            continue
+
+        m = RE_STOP_TIME.search(line)
+        if m:
+            replica_stop_time[int(m.group(1))] = float(m.group(2))
+            continue
+
+        m = RE_RESUME_TIME.search(line)
+        if m:
+            replica_resume_time[int(m.group(1))] = float(m.group(2))
+            continue
+
+        m = RE_STOPSIGN_TIMEOUT.search(line)
+        if m:
+            rep = int(m.group(1))
+            ep = replica_epoch.get(rep, current_gossip_epoch)
+            epoch_failures[ep] += 1
+            continue
+
 print("Done.\n")
+
+# Compute per-epoch total durations: arrival at intersection zone → resume.
+# Uses Arrival_Time (car first enters zone, even if queued) so queue wait is included.
+# Falls back to Stop_Time if Arrival_Time is absent (older logs).
+for rep, resume_t in replica_resume_time.items():
+    arrival_t = replica_arrival_time.get(rep, replica_stop_time.get(rep))
+    if arrival_t is not None:
+        dur = resume_t - arrival_t
+        car_id = f"veh{rep}"
+        ep = go_decision_epoch.get(car_id)
+        if isinstance(ep, int):
+            epoch_total_dur[ep].append(dur)
+            epoch_total_dur_by_car[ep][car_id] = dur
 
 # ── PHASE_TIMER analysis ─────────────────────────────────────────────────────
 # CID 0,2,4,6 = VIEW epochs 0,1,2,3  (even CIDs)
@@ -388,7 +491,7 @@ print("=" * 72)
 print(f"{BOLD}BFT-SMaRt V2V Intersection — Epoch Latency Breakdown{RESET}")
 print("=" * 72)
 
-for epoch in range(4):
+for epoch in range(N_EPOCHS):
     n    = EPOCH_N[epoch]
     gold = GOLDEN.get(n, {})
     cid_view  = epoch * 2
@@ -450,7 +553,7 @@ print(f"\n{'=' * 72}")
 print(f"{BOLD}Cross-epoch ORDER monotonicity check{RESET}")
 print(f"{'─' * 72}")
 print(f"  {'Epoch':>5}  {'N':>4}  {'ORDER sim':>10}  {'Golden':>8}  {'Gossip sim':>10}  {'RTT':>7}  {'Retx/car':>9}")
-for epoch in range(4):
+for epoch in range(N_EPOCHS):
     n    = EPOCH_N[epoch]
     rm   = round_metrics.get(epoch, {})
     olat = rm.get("Order_Consensus_Latency_4Cars")
@@ -480,7 +583,7 @@ print(f"\n{'=' * 72}")
 print(f"{BOLD}PHASE_TIMER wall-clock detail (ms) — all epochs{RESET}")
 print(f"{'─' * 72}")
 print(f"  {'CID':>4}  {'Type':>6}  {'Epoch':>5}  {'Leader':>6}  {'PropagMs':>9}  {'TotalMs':>8}  {'#Reps':>5}")
-for cid in range(8):
+for cid in range(2 * N_EPOCHS):
     epoch, kind = cid_to_epoch_type(cid)
     ps = phase_summary(cid)
     if ps is None:
@@ -494,7 +597,7 @@ for cid in range(8):
 print(f"\n{'=' * 72}")
 print(f"{BOLD}QC Collection diagnostics per epoch{RESET}")
 print(f"{'─' * 72}")
-for epoch in range(4):
+for epoch in range(N_EPOCHS):
     n = EPOCH_N[epoch]
     fronts = lane_front_cars.get(epoch, {})
     broadcast = qc_broadcasted.get(epoch, set())
@@ -553,7 +656,7 @@ print(f"{BOLD}Witness collection diagnostics per epoch{RESET}")
 print(f"{'─' * 72}")
 print(f"  (Detects channel collisions: if witness sends all pile up in a tight window,")
 print(f"   most are lost to CSMA contention and replicas stall below QC threshold.)")
-for epoch in range(4):
+for epoch in range(N_EPOCHS):
     n = EPOCH_N[epoch]
     wp = witness_progress.get(epoch, {})
     wst = witness_send_times.get(epoch, {})
@@ -611,7 +714,7 @@ print(f"\n{'=' * 72}")
 print(f"{BOLD}Gossip ACK convergence per epoch{RESET}")
 print(f"{'─' * 72}")
 print(f"  {'Epoch':>5}  {'N':>4}  {'Retx events':>12}  {'Retx/car':>9}  {'ACKs':>6}  {'All-ACK events':>15}")
-for epoch in range(4):
+for epoch in range(N_EPOCHS):
     n    = EPOCH_N[epoch]
     retx = gossip_retx.get(epoch, 0)
     acks = gossip_acks.get(epoch, 0)
@@ -623,7 +726,7 @@ print(f"\n{'=' * 72}")
 print(f"{BOLD}VIEW_END spread and gossip impact per epoch{RESET}")
 print(f"{'─' * 72}")
 print(f"  {'Epoch':>5}  {'N':>4}  {'MinVEnd':>8}  {'MaxVEnd':>8}  {'Spread':>8}  {'GossipDur':>10}  {'Note'}")
-for epoch in range(4):
+for epoch in range(N_EPOCHS):
     n = EPOCH_N[epoch]
     ve_all = view_end_all.get(epoch, [])
     if not ve_all:
@@ -649,7 +752,7 @@ print(f"\n{'=' * 72}")
 print(f"{BOLD}Diagnosis summary{RESET}")
 print(f"{'─' * 72}")
 bottleneck_found = False
-for epoch in range(4):
+for epoch in range(N_EPOCHS):
     n   = EPOCH_N[epoch]
     rm  = round_metrics.get(epoch, {})
     olat = rm.get("Order_Consensus_Latency_4Cars")
@@ -687,7 +790,7 @@ print(f"\n{'=' * 72}")
 print(f"{BOLD}Vehicle Lifecycle Diagnostics{RESET}")
 print(f"{'─' * 72}")
 print(f"  {'Car':>6}  {'GO Epoch':>10}  {'JNI RESUME':>12}  {'OMNeT JNI-MSG':>15}")
-all_cars = [f"veh{i}" for i in range(16)]
+all_cars = [f"veh{i}" for i in range(CARS)]
 for car in all_cars:
     rep_id = int(car[3:])
     epoch = go_decision_epoch.get(car, "NONE")
@@ -703,8 +806,53 @@ print()
 # ── Save log to collection dir ────────────────────────────────────────────────
 if SAVE_TO:
     os.makedirs(SAVE_TO, exist_ok=True)
-    existing = [f for f in os.listdir(SAVE_TO) if re.match(r'16veh_\d+\.log$', f)]
+    existing = [f for f in os.listdir(SAVE_TO) if re.match(rf'{CARS}veh_\d+\.log$', f)]
     idx  = len(existing)
-    dest = os.path.join(SAVE_TO, f"16veh_{idx}.log")
-    shutil.copy2(LOG_FILE, dest)
-    print(f"Log saved → {dest}  (run #{idx})")
+    dest = os.path.join(SAVE_TO, f"{CARS}veh_{idx}.log")
+
+    # Write only the [ROUND-METRICS] lines (tiny file, not the full 93MB log)
+    with open(dest, 'w') as f:
+        # Pass 1: emit ROUND-METRICS lines already present in the source log
+        with open(LOG_FILE, "r", errors="replace") as src:
+            for line in src:
+                if '[ROUND-METRICS]' in line:
+                    f.write(line if line.endswith('\n') else line + '\n')
+
+        # Pass 2: append only metrics that C++ did NOT already emit
+        def _emit(ep, key, line):
+            """Write line only if key is absent from the already-parsed round_metrics."""
+            if key not in round_metrics.get(ep, {}):
+                f.write(line)
+
+        for ep in range(N_EPOCHS):
+            # Per-car durations (one line per car) so downstream scripts can build CDFs.
+            # These are only emitted if C++ didn't already emit them (it doesn't today).
+            per_car = epoch_total_dur_by_car.get(ep, {})
+            if per_car:
+                for car_id, dur in sorted(per_car.items(), key=lambda kv: int(kv[0][3:])):
+                    _emit(ep, f"Total_Consensus_Duration_{car_id}",
+                          f"[ROUND-METRICS] Epoch {ep} Total_Consensus_Duration {car_id}: "
+                          f"{dur:.6f} seconds\n")
+
+            if epoch_messages_sent[ep]:
+                avg_sent = sum(epoch_messages_sent[ep]) / len(epoch_messages_sent[ep])
+                avg_recv = (sum(epoch_messages_recv[ep]) / len(epoch_messages_recv[ep])
+                            if epoch_messages_recv[ep] else 0)
+                _emit(ep, "Messages_Sent_PerReplica",
+                      f"[ROUND-METRICS] Epoch {ep} Avg_Messages_Sent_PerReplica: "
+                      f"{avg_sent:.3f} seconds (count={len(epoch_messages_sent[ep])})\n")
+                _emit(ep, "Messages_Received_PerReplica",
+                      f"[ROUND-METRICS] Epoch {ep} Avg_Messages_Received_PerReplica: "
+                      f"{avg_recv:.3f} seconds (count={len(epoch_messages_recv[ep])})\n")
+            if epoch_total_dur[ep]:
+                avg_dur = sum(epoch_total_dur[ep]) / len(epoch_total_dur[ep])
+                _emit(ep, "Total_Consensus_Duration",
+                      f"[ROUND-METRICS] Epoch {ep} Avg_Total_Consensus_Duration: "
+                      f"{avg_dur:.6f} seconds (goCars={len(epoch_total_dur[ep])})\n")
+            fail_val = epoch_failures.get(ep, 0)
+            _emit(ep, "StopSign_Failures",
+                  f"[ROUND-METRICS] Epoch {ep} Avg_StopSign_Failures: "
+                  f"{float(fail_val):.3f} seconds (count)\n")
+
+    saved_size = os.path.getsize(dest)
+    print(f"Log saved → {dest}  (run #{idx}, {saved_size} bytes — ROUND-METRICS only)")

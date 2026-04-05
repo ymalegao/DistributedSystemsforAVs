@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <routes>
     <vType id="car" accel="2.6" decel="4.5" sigma="0.5" length="4.5" minGap="2.5" maxSpeed="14" color="1,1,0"/>
+    <vType id="ambulance" accel="2.6" decel="4.5" sigma="0.5" length="4.5" minGap="2.5" maxSpeed="14" color="1,0,0"/>
+
 
     <!-- Routes from each direction -->
     <route id="rN" edges="N2C C2S"/>
@@ -27,5 +29,5 @@
     <vehicle id="veh12" type="car" route="rW" depart="0.12" departSpeed="max" departPos="280"/>
     <vehicle id="veh13" type="car" route="rW" depart="0.13" departSpeed="max" departPos="270"/>
     <vehicle id="veh14" type="car" route="rW" depart="0.14" departSpeed="max" departPos="260"/>
-    <vehicle id="veh15" type="car" route="rW" depart="0.15" departSpeed="max" departPos="250"/>
+    <vehicle id="veh15" type="ambulance" route="rW" depart="0.15" departSpeed="max" departPos="250"/>
 </routes>

@@ -247,4 +247,23 @@ public class ServerRunner implements Runnable {
         long waiting = BATCH_SIZE - allRunnersReady.getCount();
         return waiting + "/" + BATCH_SIZE + " runners ready";
     }
+
+    /**
+     * Called by C++ via JNI on epoch preemption.
+     * Resets BFT state and reconfigures for the new participant set.
+     * C++ must call this before commanding re-announcement.
+     *
+     * @param replicaId      The replica being wiped
+     * @param newParticipants Array of replica IDs that will form the new epoch
+     */
+    public static void wipeAndReinitForReplica(int replicaId, int[] newParticipants) {
+        System.out.println("[ServerRunner] wipeAndReinitForReplica called for replica " + replicaId
+                + " newN=" + newParticipants.length);
+        ServerRunner runner = registry.get(replicaId);
+        if (runner != null && runner.server != null) {
+            runner.server.doWipeAndReinit(newParticipants);
+        } else {
+            System.err.println("[ServerRunner] Cannot wipe — server " + replicaId + " not found");
+        }
+    }
 }

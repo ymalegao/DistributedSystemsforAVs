@@ -38,9 +38,33 @@ simple V2VProxyModule extends DemoBaseApplLayer
         // After this timeout, vehicles resume without coordination
         double consensusTimeoutSec @unit(s) = default(40s);
 
+        // Stop-sign timeout: real-world 3s per-car limit; if BFT does not resolve in time,
+        // SUMO takes over and the event is logged as a failure.
+        double stopSignTimeoutSec @unit(s) = default(10s);
+
         // Optional delay between VIEW completion and ORDER submit (leader only).
         // Useful for diagnostics to test residual channel-congestion effects.
         double orderDelayGap @unit(s) = default(0s);
+
+        // Intended movement direction at the intersection: "S"=Straight, "L"=Left, "R"=Right
+        string intendedDirection = default("S");
+
+        // Ambulance: auto-generate EC key + Emergency_CA VehicleCert at init; sign each ARRIVAL_ANNOUNCE
+        bool isAmbulance = default(false);
+        // When >= 0, only the vehicle whose SUMO id is veh{ambulanceReplicaId} is the ambulance (matches
+        // replicaId from getExternalId). Use this when n>9: OMNeT node index order is lexicographic
+        // (veh10 before veh2), so per-node isAmbulance targets the wrong car. Default -1 = use isAmbulance only.
+        int ambulanceReplicaId = default(-1);
+
+        // Byzantine fault injection
+        // Set isByzantine=true and byzantineType to one of:
+        //   0 = HONEST (default — normal behavior)
+        //   1 = FALSE_LANE  — ARRIVAL_ANNOUNCE claims wrong lane; verifyCarPosition fails
+        //   2 = INVALID_SIG — ARRIVAL_ANNOUNCE carries garbage signature bytes
+        //   3 = EQUIVOCATOR — sends unicast ARRIVAL_ANNOUNCEs with different epochs
+        //                     (epoch+1 to even replicaIds, honest epoch to odd)
+        bool isByzantine = default(false);
+        int  byzantineType = default(0);
 
         // V2V send-delay knobs (Relaxed for MAC Layer Stability)
         double viewJitterMin @unit(s) = default(0.001s);   

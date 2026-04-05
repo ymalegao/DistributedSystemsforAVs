@@ -16,7 +16,7 @@ using namespace veins;
 // Forward declaration for JNI_OnLoad (defined below notifyVehicleCanGo)
 extern "C" JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyOrderDecided
     (JNIEnv*, jobject, jint, jstring);
-extern "C" JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyReconfigComplete
+extern "C" JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyWipeComplete
     (JNIEnv*, jobject, jint);
 
 static std::vector<uint8_t> jbyteArrayToVector(JNIEnv* env, jbyteArray array) {
@@ -217,11 +217,10 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
     jclass intersectionServerClass = env->FindClass("bftsmart/demo/intersection/IntersectionServer");
     if (intersectionServerClass) {
         JNINativeMethod serverMethods[] = {
-            {const_cast<char*>("notifyVehicleCanGo"), const_cast<char*>("(ID)V"), (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyVehicleCanGo},
-            {const_cast<char*>("notifyViewAgreed"), const_cast<char*>("(ILjava/lang/String;)V"), (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyViewAgreed},
-            {const_cast<char*>("notifyOrderDecided"), const_cast<char*>("(ILjava/lang/String;)V"), (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyOrderDecided},
-            {const_cast<char*>("notifyReconfigComplete"), const_cast<char*>("(I)V"), (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyReconfigComplete}
-
+            {const_cast<char*>("notifyVehicleCanGo"),    const_cast<char*>("(ID)V"),                (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyVehicleCanGo},
+            {const_cast<char*>("notifyViewAgreed"),      const_cast<char*>("(ILjava/lang/String;)V"),(void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyViewAgreed},
+            {const_cast<char*>("notifyOrderDecided"),    const_cast<char*>("(ILjava/lang/String;)V"),(void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyOrderDecided},
+            {const_cast<char*>("notifyWipeComplete"),    const_cast<char*>("(I)V"),                 (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyWipeComplete}
         };
         if (env->RegisterNatives(intersectionServerClass, serverMethods, 4) == 0) {
             std::cout << "[JNI] JNI_OnLoad: Registered 4 IntersectionServer native methods" << std::endl;
@@ -254,15 +253,14 @@ JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notify
   }
 
 
-JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyReconfigComplete
+
+JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyWipeComplete
     (JNIEnv* env, jobject obj, jint replicaId)
   {
       std::cout << "[JNI-CALLBACK] Replica " << replicaId
-                << " RECONFIG COMPLETE" << std::endl;
-
-      // Find the V2VProxyModule for this replica
+                << " WIPE COMPLETE — epoch preemption done" << std::endl;
       V2VProxyModule* proxy = V2VProxyModule::getProxyForReplica(replicaId);
       if (proxy) {
-          proxy->scheduleReconfigFlush();
+          proxy->handleWipeComplete();
       }
   }

@@ -37,7 +37,7 @@ public class ReliableV2VMessaging {
 
     private final ScheduledExecutorService retxScheduler = Executors.newScheduledThreadPool(1);
 
-    private static final long RETX_TIMEOUT_MS = 12;
+    private static final long RETX_TIMEOUT_MS = 30;
 
     private static final int MAX_RETX_ATTEMPTS = 20;
 

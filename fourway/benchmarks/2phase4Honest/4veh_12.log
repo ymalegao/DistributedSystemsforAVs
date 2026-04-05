@@ -1,0 +1,8 @@
+[ROUND-METRICS] Epoch 0 Avg_Order_BFT_Request_RTT_Submitter: 0.651 seconds (submittersCounted=1)
+[ROUND-METRICS] Epoch 0 Total_Consensus_Duration veh0: 0.400000 seconds
+[ROUND-METRICS] Epoch 0 Total_Consensus_Duration veh1: 0.900000 seconds
+[ROUND-METRICS] Epoch 0 Total_Consensus_Duration veh3: 1.400000 seconds
+[ROUND-METRICS] Epoch 0 Avg_Messages_Sent_PerReplica: 35.333 seconds (count=3)
+[ROUND-METRICS] Epoch 0 Avg_Messages_Received_PerReplica: 39.667 seconds (count=3)
+[ROUND-METRICS] Epoch 0 Avg_Total_Consensus_Duration: 0.900000 seconds (goCars=3)
+[ROUND-METRICS] Epoch 0 Avg_StopSign_Failures: 1.000 seconds (count)
