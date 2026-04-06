@@ -4,13 +4,109 @@
 //
 
 #include "veins/modules/bftsmart/V2VProxyModule.h"
+#include <algorithm>
 #include <chrono>
+#include <cstdlib>
+#include <filesystem>
 #include <thread>
+#include <vector>
 
 #define XXH_INLINE_ALL
 #include "xxhash.h"
 
 using namespace veins;
+namespace fs = std::filesystem;
+
+namespace {
+
+std::string getEnvVar(const char* name)
+{
+    const char* value = std::getenv(name);
+    return value ? std::string(value) : std::string();
+}
+
+fs::path resolveCurrentWorkingDirectory()
+{
+    std::error_code ec;
+    fs::path cwd = fs::current_path(ec);
+    return ec ? fs::path() : cwd;
+}
+
+fs::path resolveBftsmartRoot()
+{
+    const std::string envRoot = getEnvVar("BFTSMART_ROOT");
+    if (!envRoot.empty()) {
+        return fs::path(envRoot);
+    }
+
+    const fs::path cwd = resolveCurrentWorkingDirectory();
+    if (cwd.empty()) {
+        return fs::path();
+    }
+
+    const std::vector<fs::path> candidates = {
+        cwd.parent_path() / "bftsmart",
+        cwd / "bftsmart",
+    };
+    for (const auto& candidate : candidates) {
+        std::error_code ec;
+        if (fs::exists(candidate, ec) && !ec) {
+            return candidate;
+        }
+    }
+    return fs::path();
+}
+
+bool directoryExists(const fs::path& path)
+{
+    std::error_code ec;
+    return fs::is_directory(path, ec) && !ec;
+}
+
+std::vector<fs::path> collectJarFiles(const fs::path& libDir)
+{
+    std::vector<fs::path> jars;
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(libDir, ec)) {
+        if (ec) {
+            break;
+        }
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+        if (entry.path().extension() == ".jar") {
+            jars.push_back(entry.path());
+        }
+    }
+    std::sort(jars.begin(), jars.end());
+    return jars;
+}
+
+std::string buildClasspath(
+    const fs::path& classesDir,
+    const fs::path& resourcesDir,
+    const std::vector<fs::path>& jars)
+{
+    std::vector<std::string> entries;
+    entries.push_back(classesDir.string());
+    if (directoryExists(resourcesDir)) {
+        entries.push_back(resourcesDir.string());
+    }
+    for (const auto& jar : jars) {
+        entries.push_back(jar.string());
+    }
+
+    std::string classpath;
+    for (size_t i = 0; i < entries.size(); ++i) {
+        if (i > 0) {
+            classpath += ":";
+        }
+        classpath += entries[i];
+    }
+    return classpath;
+}
+
+} // namespace
 
 
 bool V2VProxyModule::zombieFilter() {
@@ -317,69 +413,83 @@ bool V2VProxyModule::createOrAttachJVM()
     // Create new JVM (first replica only)
     EV_INFO << "Replica " << replicaId << ": Creating new JVM" << "\n";
 
-    JavaVMInitArgs vm_args;
-    JavaVMOption options[14];  // Increased for intersection physics parameters + entropy fix
-    int optionIndex = 0;
+    const fs::path bftsmartRoot = resolveBftsmartRoot();
+    if (bftsmartRoot.empty()) {
+        std::cerr << "[V2VProxy " << replicaId << "] ERROR: Could not resolve BFTSMART_ROOT. "
+                  << "Export BFTSMART_ROOT or launch via bftsmart/run-omnet-simulation.sh." << "\n";
+        return false;
+    }
 
-    // Set classpath to include BFTSmart JARs
-    // Include all JARs from the build/install/library/lib directory
-    std::string classpath = "-Djava.class.path="
-        "/home/yash/omnetpp/omnetpp-6.2.0/bftsmart/library/build/classes/java/main:"
-        "/home/yash/omnetpp/omnetpp-6.2.0/bftsmart/library/build/resources/main:"
-        "/home/yash/omnetpp/omnetpp-6.2.0/bftsmart/library/build/install/library/lib/BFT-SMaRt.jar:"
-        "/home/yash/omnetpp/omnetpp-6.2.0/bftsmart/library/build/install/library/lib/BenchmarkExecutor.jar:"
-        "/home/yash/omnetpp/omnetpp-6.2.0/bftsmart/library/build/install/library/lib/bcpkix-jdk15on-1.69.jar:"
-        "/home/yash/omnetpp/omnetpp-6.2.0/bftsmart/library/build/install/library/lib/bcprov-jdk15on-1.69.jar:"
-        "/home/yash/omnetpp/omnetpp-6.2.0/bftsmart/library/build/install/library/lib/bcutil-jdk15on-1.69.jar:"
-        "/home/yash/omnetpp/omnetpp-6.2.0/bftsmart/library/build/install/library/lib/commons-codec-1.15.jar:"
-        "/home/yash/omnetpp/omnetpp-6.2.0/bftsmart/library/build/install/library/lib/core-0.1.4.jar:"
-        "/home/yash/omnetpp/omnetpp-6.2.0/bftsmart/library/build/install/library/lib/logback-classic-1.2.5.jar:"
-        "/home/yash/omnetpp/omnetpp-6.2.0/bftsmart/library/build/install/library/lib/logback-core-1.2.5.jar:"
-        "/home/yash/omnetpp/omnetpp-6.2.0/bftsmart/library/build/install/library/lib/netty-all-4.1.67.Final.jar:"
-        "/home/yash/omnetpp/omnetpp-6.2.0/bftsmart/library/build/install/library/lib/slf4j-api-1.7.32.jar:"
-        "/home/yash/omnetpp/omnetpp-6.2.0/bftsmart/library/build/install/library/lib/lz4-1.3.0.jar";
+    const fs::path libraryRoot = bftsmartRoot / "library";
+    const fs::path classesDir = libraryRoot / "build/classes/java/main";
+    const fs::path resourcesDir = libraryRoot / "build/resources/main";
+    const fs::path installLibDir = libraryRoot / "build/install/library/lib";
+    const fs::path nativeLibDir = libraryRoot / "native/lib";
+    const std::string buildHint = "cd " + libraryRoot.string() + " && ./gradlew installDist";
 
-    options[optionIndex++].optionString = const_cast<char*>(classpath.c_str());
+    if (!directoryExists(classesDir)) {
+        std::cerr << "[V2VProxy " << replicaId << "] ERROR: Missing compiled Java classes at "
+                  << classesDir << ". Run: " << buildHint << "\n";
+        return false;
+    }
+    if (!directoryExists(installLibDir)) {
+        std::cerr << "[V2VProxy " << replicaId << "] ERROR: Missing installDist library directory at "
+                  << installLibDir << ". Run: " << buildHint << "\n";
+        return false;
+    }
+    if (!directoryExists(nativeLibDir)) {
+        std::cerr << "[V2VProxy " << replicaId << "] ERROR: Missing JNI native library directory at "
+                  << nativeLibDir << "\n";
+        return false;
+    }
 
-    // Set library path for JNI library
-    std::string libpath = "-Djava.library.path="
-        "/home/yash/omnetpp/omnetpp-6.2.0/bftsmart/library/native/lib";
-    options[optionIndex++].optionString = const_cast<char*>(libpath.c_str());
+    const std::vector<fs::path> jarFiles = collectJarFiles(installLibDir);
+    if (jarFiles.empty()) {
+        std::cerr << "[V2VProxy " << replicaId << "] ERROR: No JAR files found under "
+                  << installLibDir << ". Run: " << buildHint << "\n";
+        return false;
+    }
+
+    std::cout << "[V2VProxy " << replicaId << "] Using BFTSMART_ROOT=" << bftsmartRoot << "\n";
+
+    std::vector<std::string> optionStrings;
+    optionStrings.push_back("-Djava.class.path=" + buildClasspath(classesDir, resourcesDir, jarFiles));
+    optionStrings.push_back("-Djava.library.path=" + nativeLibDir.string());
 
     // Enable verbose output for debugging
-    // options[optionIndex++].optionString = const_cast<char*>("-verbose:jni");
-    // options[optionIndex++].optionString = const_cast<char*>("-verbose:class");
+    // optionStrings.push_back("-verbose:jni");
+    // optionStrings.push_back("-verbose:class");
 
     // Tell BFTSmart to use V2V communication instead of TCP
-    std::string useV2V = "-Dbftsmart.communication.useV2V=true";
-    options[optionIndex++].optionString = const_cast<char*>(useV2V.c_str());
+    optionStrings.push_back("-Dbftsmart.communication.useV2V=true");
 
     // Tell V2VNativeBridge we're in embedded mode (library already loaded)
-    std::string embeddedMode = "-Dbftsmart.jni.embedded=true";
-    options[optionIndex++].optionString = const_cast<char*>(embeddedMode.c_str());
+    optionStrings.push_back("-Dbftsmart.jni.embedded=true");
 
     // Intersection physics parameters for delay calculation
-    std::string widthProp = "-Dintersection.width=" + std::to_string(intersectionWidth);
-    options[optionIndex++].optionString = const_cast<char*>(widthProp.c_str());
-
-    std::string speedProp = "-Dintersection.avgSpeed=" + std::to_string(avgSpeed);
-    options[optionIndex++].optionString = const_cast<char*>(speedProp.c_str());
-
-    std::string safetyProp = "-Dintersection.safetyGap=" + std::to_string(safetyGap);
-    options[optionIndex++].optionString = const_cast<char*>(safetyProp.c_str());
+    optionStrings.push_back("-Dintersection.width=" + std::to_string(intersectionWidth));
+    optionStrings.push_back("-Dintersection.avgSpeed=" + std::to_string(avgSpeed));
+    optionStrings.push_back("-Dintersection.safetyGap=" + std::to_string(safetyGap));
 
     // Memory settings
-    options[optionIndex++].optionString = const_cast<char*>("-Xms256m");
-    options[optionIndex++].optionString = const_cast<char*>("-Xmx1024m");
+    optionStrings.push_back("-Xms256m");
+    optionStrings.push_back("-Xmx1024m");
 
     // CRITICAL FIX: Force non-blocking entropy source for crypto operations
     // Without this, SecureRandom/ECDSA signing can block indefinitely in WSL2/VMs
     // waiting for /dev/random entropy. This uses /dev/urandom instead (non-blocking).
-    options[optionIndex++].optionString = const_cast<char*>("-Djava.security.egd=file:/dev/./urandom");
+    optionStrings.push_back("-Djava.security.egd=file:/dev/./urandom");
+
+    std::vector<JavaVMOption> options(optionStrings.size());
+    for (size_t i = 0; i < optionStrings.size(); ++i) {
+        options[i].optionString = const_cast<char*>(optionStrings[i].c_str());
+    }
+
+    JavaVMInitArgs vm_args;
 
     vm_args.version = JNI_VERSION_1_8;
-    vm_args.nOptions = optionIndex;
-    vm_args.options = options;
+    vm_args.nOptions = static_cast<jint>(options.size());
+    vm_args.options = options.data();
     vm_args.ignoreUnrecognized = JNI_FALSE;
 
     JNIEnv* env;
