@@ -23,6 +23,8 @@ class VEINS_API V2VProxyModule : public DemoBaseApplLayer {
 public:
     V2VProxyModule();
     ~V2VProxyModule() override;
+    static const int BATCH_SIZE = 16;
+
     simtime_t consensusStartTime;
     
     // Separate timing for View and Order consensus
@@ -95,7 +97,6 @@ protected:
 
     void handleSelfMsg(cMessage* msg) override;
     void handleLowerMsg(cMessage* msg) override;
-    std::set<std::string> proposeView();
     bool javaReady = false;
     cMessage* checkJavaReadyTimer = nullptr;
     bool checkJavaReplicaStatus();
@@ -112,59 +113,6 @@ protected:
     // Java callback - delivers message to Java
     void deliverMessageToJava(int fromReplicaId, const uint8_t* data, int dataLen);
 
-    struct WitnessSignature {
-        int witnessReplicaId;
-        std::vector<uint8_t> signature;  // Mock: hash of (carId, laneId, pos, time, epoch)
-        double witnessTimestamp;
-    };
-
-    // Message type constants (kept protected for access within member functions)
-    static constexpr int MSG_BFT_CONSENSUS   = 0;
-    static constexpr int MSG_ARRIVAL_ANNOUNCE= 1;
-    static constexpr int MSG_WITNESS_RESPONSE= 2;
-    static constexpr int MSG_READYQC_COMPLETE= 3;
-    static constexpr int MSG_VIEW_PROPOSAL   = 4;
-    static constexpr int MSG_VIEW_AGREEMENT  = 5;
-    static constexpr int MSG_READYQC_ACK     = 6;
-    static constexpr int MSG_EXECUTING       = 7;  // Broadcast by cars crossing; locks new arrivals
-
-    // Legacy ReadyQC kept only for the witness-response sub-protocol during ARRIVAL_ANNOUNCE
-    struct ReadyQC {
-        std::string carId;           // "veh0", "veh1", etc.
-        std::string laneId;          // TraCI lane ID (e.g., ":J0_1_0")
-        double positionInLane;       // Meters from lane start
-        double verifiedArrival;      // Earliest witness timestamp
-        int epoch;                   // Prevents replay attacks
-        std::vector<WitnessSignature> signatures;  // f+1 signatures
-
-        bool isValid(int f) const { return signatures.size() >= f + 1; }
-    };
-   
-    
-   
-    struct ArrivalAnnouncement {
-        std::string carId;
-        std::string laneId;        // TraCI lane ID (e.g., ":J0_1_0")
-        std::string lane;          // Cardinal: "N", "S", "E", "W"
-        int positionInLane;        // 1 = front, 2 = behind 1, etc. (integer)
-        Direction direction;       // Intended movement
-        bool isAmbulance;          // True if cert verified via CryptoAuth
-        double claimedArrivalTime; // For witness timestamp comparison (kept for legacy)
-        int epoch;
-        std::vector<uint8_t> signature;  // Self-signed (XXHash32)
-        // Ambulance-only: raw cert and signature bytes for peer verification
-        std::vector<uint8_t> ambulanceCertBytes;
-        std::vector<uint8_t> ambulanceSigBytes;
-    };
-   
-    struct WitnessResponse {
-        std::string targetCarId;
-        int witnessReplicaId;
-        bool verified;               // Did TraCI confirm?
-        std::vector<uint8_t> signature;
-        double witnessTimestamp;
-    };
-
     // View Consensus structures (NEW - Phase 1)
     struct ViewProposal {
         int proposerReplicaId;
@@ -180,6 +128,21 @@ protected:
         std::vector<uint8_t> signature;     // Signature over hash(view set)
     };
 
+    struct ArrivalAnnouncement {
+        std::string carId;
+        std::string laneId;        // TraCI lane ID (e.g., ":J0_1_0")
+        std::string lane;          // Cardinal: "N", "S", "E", "W"
+        int positionInLane;        // 1 = front, 2 = behind 1, etc. (integer)
+        Direction direction;       // Intended movement
+        bool isAmbulance;          // True if cert verified via CryptoAuth
+        double claimedArrivalTime; // For witness timestamp comparison (kept for legacy)
+        int epoch;
+        std::vector<uint8_t> signature;  // Self-signed (XXHash32)
+        // Ambulance-only: raw cert and signature bytes for peer verification
+        std::vector<uint8_t> ambulanceCertBytes;
+        std::vector<uint8_t> ambulanceSigBytes;
+    };
+
     // VIEW consensus state: agreed VehicleState per car (populated after VIEW_PROPOSE commits)
     std::map<std::string, VehicleState> viewState;
 
@@ -193,16 +156,8 @@ protected:
     std::vector<std::string> bufferedNewArrivals;// Cars heard while locked; triggers preemption after batch clears
     std::map<std::string, int> waitRegistry;     // vehicleId -> epochs waited (fairness across preemptions)
 
-    // Arrival-announce sub-protocol (witness collection — kept from previous design)
-    std::map<std::string, ReadyQC> verifiedPool;  // Used during witness collection phase only
-    std::map<std::string, ReadyQC> nextEpochPool; // Buffer for epoch+1 QCs received early
-    std::map<std::string, ArrivalAnnouncement> pendingAnnouncements;
-    std::map<std::string, std::vector<WitnessResponse>> collectedWitnesses;
     std::set<std::string> arrivalAnnouncementsReceived;
-    std::set<int> readyQCAcks;
-    double readyQCTimeoutSec = 10.0;
     int currentEpoch = 0;
-    bool hasProposedOrder = false;
 
 
     // View consensus state
@@ -214,6 +169,8 @@ protected:
     // Neighbor tracking
     std::set<int> neighborsInRange;
     double witnessRange = 150.0;
+
+
 
     // Ambulance: Emergency_CA VehicleCert + EC private key (auto-issued in initialize when isAmbulance)
     std::vector<uint8_t> myAmbulanceCertBytes;
@@ -234,7 +191,6 @@ protected:
         PROPOSING_VIEW,     // Phase 1a: Each car proposes who they can see
         VIEW_AGREEMENT,     // Phase 1b: Collecting f+1 V2V agreement signatures
         VIEW_CONSENSUS,     // Phase 1c: Waiting for BFT consensus on view
-        COLLECTING_QC,      // Phase 2: Collecting ReadyQCs (after view established)
         ORDER_CONSENSUS,    // Phase 3: BFT agreeing on traversal order
         WAITING_FOR_CLEARANCE, // Phase 4: Waiting for clearance from intersection controller
         PULLING_FORWARD,      // Phase 5: Pulling forward to stop line
@@ -247,8 +203,6 @@ protected:
     std::vector<std::string> agreedOrder;
 
     // Timers
-    cMessage* readyQCTimeoutTimer = nullptr;
-    cMessage* witnessGossipTimer = nullptr;
     cMessage* viewConsensusTimer = nullptr;
     
 
@@ -307,15 +261,9 @@ private:
     simtime_t orderSignatureCollectionStartTime = 0;  
     simtime_t orderSignatureCollectionEndTime = 0; 
     
-    bool myReadyQCComplete = false;          // I have f+1 witnesses and built my own QC
-    bool orderCollectionActive = false;      // In gossip/collect window
-    bool orderBagProposed = false;           // I have sent at least one ORDER bag this round
     bool orderDecisionReceived = false;      // stop retries when Java notifies decision
-    bool orderBagCloseFlag = false;          // close flag used when bag was first proposed
     bool delayedOrderSubmitScheduled = false; // true while a delayed ORDER submit is pending
 
-    simtime_t orderCollectionDeadline;       // e.g. simTime() + 0.300
-    int orderBagRetransmitCount = 0;
     double orderDelayGap = 0.0;              // Optional delay between VIEW complete and ORDER submit (seconds)
     std::string pendingViewProposalRequest;  // VIEW_PROPOSE request to retry when Java becomes ready
     std::string pendingOrderPayload;         // Serialized ORDER payload awaiting delayed submit
@@ -325,18 +273,7 @@ private:
     int firstOrderBagProposerReplica = -1;   // Which replica produced the first local bag this epoch
     simtime_t lastRoundResetTime = -1;       // When resetForNextRound advanced us into currentEpoch
     int lastRoundResetEpoch = -1;            // Epoch index entered at last resetForNextRound
-    cMessage* orderCollectDeadlineTimer;
-    cMessage* orderGossipRetransmitTimer; //optional
-    cMessage* orderBagRetransmitTimer;
     cMessage* orderDelayTimer;
-    void startOrderCollectionWindowIfNeeded();
-    int countDistinctFrontLanesInPool();
-    std::vector<ReadyQC> buildOrderBagQCs();
-    std::string serializeOrderBagRequest(const std::vector<ReadyQC>& bag, bool closeFlag);
-    std::string serializeReadyQCForJava(const ReadyQC& qc);
-    void proposeOrderBagNow(const std::string& reason);
-    bool isCarAtFrontOfLane(const std::string& carId, const std::string& laneId);
-    bool isMyQCFrontMostKnownInLaneFromPool();
     // Static registry for JNI lookup
     static std::map<int, V2VProxyModule*> replicaProxyMap;
     static std::mutex registryMutex;
@@ -388,8 +325,6 @@ private:
     cMessage* consensusTimeoutTimer;  // Timer for consensus timeout fallback
     cMessage* stopSignTimeoutTimer;   // 3s stop-sign fallback per car
     double    stopSignTimeoutSec;     // configurable, default 3.0
-    std::atomic<bool> phase2Pending{false}; // Use atomic for thread safety
-    cMessage* startReadyQCCollectionMsg;
     double consensusTimeoutSec;       // Configurable timeout duration
 
     double getDistanceToIntersection();
@@ -411,11 +346,9 @@ private:
         double claimedPosition,
         double tolerance = 5.0);
 
-    bool verifyNoLeaderInLane(const std::string& carId, const std::string& laneId);
 
 
     std::vector<uint8_t> signArrivalClaim(const ArrivalAnnouncement& announcement);
-    std::vector<uint8_t> signWitnessClaim(const ArrivalAnnouncement& ann, double witnessTime, int witnessId);
 
     // Serialization functions
     std::vector<uint8_t> serializeViewProposal(const ViewProposal& proposal);
@@ -425,19 +358,11 @@ private:
     
     std::vector<uint8_t> serializeArrivalAnnouncement(const ArrivalAnnouncement& ann);
     V2VProxyModule::ArrivalAnnouncement deserializeArrivalAnnouncement(BFTMessage* bftMsg);
-    std::vector<uint8_t> serializeWitnessResponse(const WitnessResponse& witness);
-    V2VProxyModule::WitnessResponse deserializeWitnessResponse(BFTMessage* bftMsg);
-    std::vector<uint8_t> serializeReadyQC(const ReadyQC& qc);
-    V2VProxyModule::ReadyQC deserializeReadyQC(BFTMessage* bftMsg);
-    std::string serializeReadyQCToString(const ReadyQC& qc);
 
     // Message handlers
     void handleViewProposal(BFTMessage* bftMsg);
     void handleViewAgreement(BFTMessage* bftMsg);
     void handleArrivalAnnouncement(BFTMessage* bftMsg);
-    void handleWitnessResponse(BFTMessage* bftMsg);
-    void handleReadyQCComplete(BFTMessage* bftMsg);
-    void handleReadyQCAck(BFTMessage* bftMsg);
 
     // Batch execution (new)
     void executeBatch(int batchIndex);
@@ -448,19 +373,15 @@ private:
     void checkPreemptionConditions();
     void triggerEpochPreemption(const std::string& reason);
     bool triggerWipeAndReinitViaJNI(const std::vector<int>& newParticipants);
-    void assembleAndBroadcastReadyQC();
     void handleBFTMessage(BFTMessage* bftMsg);
     void handlepreConsensusMessages(BFTMessage* bftMsg);
 
     // Three-phase consensus (CORRECTED)
     void initiateViewProposal();          // Phase 1a: Detect visible cars
     void broadcastViewProposal();         // Phase 1b: Collect V2V agreements
-    void processViewAgreements();         // Phase 1b: Check if we have f+1 V2V agreement
     void submitViewToBFTConsensus(const std::set<std::string>& view, 
                                    const std::vector<ViewAgreement>& v2vSigs);  // Phase 1c: BFT consensus
-    void startReadyQCCollection();        // Phase 2: Begin after view established
     void broadcastArrivalAnnouncement();  // Phase 2: Announce arrival for witnessing
-    void triggerOrderConsensus();         // Phase 3: BFT on order (legacy — no longer called)
 
     bool triggerJoinViaJNI(const std::string& request);
     bool triggerGlobalResetViaJNI(const std::vector<int>& departedReplicas);
@@ -478,7 +399,18 @@ private:
     // targetReplicaId is used by EQUIVOCATOR to vary content per recipient (-1 = broadcast).
     std::vector<uint8_t> generateByzantinePayload(ByzantineType type,
         const ArrivalAnnouncement& honest, int targetReplicaId = -1);
-    
+
+
+    static std::vector<std::string> split(const std::string& s, char delimiter) {
+        std::vector<std::string> tokens;
+        std::string token;
+        std::istringstream tokenStream(s);
+        while (std::getline(tokenStream, token, delimiter)) {
+            tokens.push_back(token);
+        }
+        return tokens;
+    }
+
 
 
 };

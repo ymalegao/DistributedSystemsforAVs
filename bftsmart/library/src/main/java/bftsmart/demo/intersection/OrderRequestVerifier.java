@@ -33,12 +33,12 @@ public class OrderRequestVerifier implements RequestVerifier {
         String cmd = new String(request.getContent(), StandardCharsets.UTF_8).trim();
         if (!cmd.startsWith("ORDER_PROPOSE:")) return true; // not an ORDER  pass through
 
-        Map<String, IntersectionServer.VehicleState> view = server.agreedViewState;
+        Map<String, VehicleState> view = server.agreedViewState;
         if (view == null) return true; // VIEW not yet agreed; pass through and let appExecuteBatch handle
 
         // Strip "ORDER_PROPOSE:" prefix, then delegate to payload parser
         String payload = cmd.substring("ORDER_PROPOSE:".length());
-        IntersectionServer.OrderBag bag = server.parseNewOrderBag(payload);
+        OrderBag bag = OrderScheduler.parseOrderBag(payload);
         if (bag == null) {
             System.err.println("[VERIFIER] Could not parse OrderBag  rejecting");
             return false;
@@ -46,7 +46,7 @@ public class OrderRequestVerifier implements RequestVerifier {
 
         // ---- Check 1 & 2: Completeness + No Duplicates ----
         Set<String> bagged = new HashSet<>();
-        for (IntersectionServer.Batch b : bag.batches) {
+        for (Batch b : bag.batches) {
             for (String vid : b.vehicleIds) {
                 if (!bagged.add(vid)) {
                     System.err.println("[VERIFIER] Duplicate vehicleId in OrderBag: " + vid);
@@ -61,11 +61,11 @@ public class OrderRequestVerifier implements RequestVerifier {
         }
 
         // ---- Check 3: Collision Safety ----
-        for (IntersectionServer.Batch b : bag.batches) {
+        for (Batch b : bag.batches) {
             for (int i = 0; i < b.vehicleIds.size(); i++) {
-                IntersectionServer.VehicleState vsA = view.get(b.vehicleIds.get(i));
+                VehicleState vsA = view.get(b.vehicleIds.get(i));
                 for (int j = i + 1; j < b.vehicleIds.size(); j++) {
-                    IntersectionServer.VehicleState vsB = view.get(b.vehicleIds.get(j));
+                    VehicleState vsB = view.get(b.vehicleIds.get(j));
                     if (vsA == null || vsB == null) {
                         System.err.println("[VERIFIER] Unknown vehicleId in batch  rejecting");
                         return false;
@@ -80,10 +80,10 @@ public class OrderRequestVerifier implements RequestVerifier {
         }
 
         // ---- Check 4: Same-lane queue order (compareLaneQueueOrder: front before back) ----
-        for (IntersectionServer.VehicleState behind : view.values()) {
-            for (IntersectionServer.VehicleState front : view.values()) {
+        for (VehicleState behind : view.values()) {
+            for (VehicleState front : view.values()) {
                 if (!front.lane.equals(behind.lane)) continue;
-                if (IntersectionServer.compareLaneQueueOrder(front, behind) >= 0) continue;
+                if (IntersectionTypes.compareLaneQueueOrder(front, behind) >= 0) continue;
                 int frontBi = batchIndexOf(bag, front.vehicleId);
                 int behindBi = batchIndexOf(bag, behind.vehicleId);
                 if (frontBi >= behindBi) {
@@ -99,10 +99,7 @@ public class OrderRequestVerifier implements RequestVerifier {
         return true;
     }
 
-    private int batchIndexOf(IntersectionServer.OrderBag bag, String vehicleId) {
-        for (int i = 0; i < bag.batches.size(); i++) {
-            if (bag.batches.get(i).vehicleIds.contains(vehicleId)) return i;
-        }
-        return -1;
+    private int batchIndexOf(OrderBag bag, String vehicleId) {
+        return OrderScheduler.batchIndexOf(bag, vehicleId);
     }
 }

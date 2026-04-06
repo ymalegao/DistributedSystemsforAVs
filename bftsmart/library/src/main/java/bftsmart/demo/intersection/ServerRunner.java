@@ -213,17 +213,6 @@ public class ServerRunner implements Runnable {
         }
     }
 
-    // Legacy method for backwards compatibility (will be removed)
-    @Deprecated
-    public static void triggerJoinForReplica(int replicaId) {
-        System.err.println("[ServerRunner] WARNING: Called deprecated triggerJoinForReplica without request string!");
-        ServerRunner runner = registry.get(replicaId);
-        if (runner != null && runner.server != null) {
-            // Call old triggerJoin for compatibility
-            runner.server.triggerJoin();
-        }
-    }
-
     /**
      * Check if the server is ready (fully initialized).
      */

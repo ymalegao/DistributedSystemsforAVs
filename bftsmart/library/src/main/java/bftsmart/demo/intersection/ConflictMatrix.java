@@ -64,8 +64,7 @@ public final class ConflictMatrix {
      * Returns {@code true} if vehicles {@code a} and {@code b} can cross
      * simultaneously without collision risk.
      */
-    public static boolean isSafeToBatch(IntersectionServer.VehicleState a,
-                                        IntersectionServer.VehicleState b) {
+    public static boolean isSafeToBatch(VehicleState a, VehicleState b) {
         if (a.lane.equals(b.lane)) return false; // same lane → rear-end risk
         String keyA = a.lane + dirCode(a.direction);
         String keyB = b.lane + dirCode(b.direction);
