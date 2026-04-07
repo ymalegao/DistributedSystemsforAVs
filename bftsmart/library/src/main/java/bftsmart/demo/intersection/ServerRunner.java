@@ -72,7 +72,7 @@ public class ServerRunner implements Runnable {
         try {
             // PHASE 1: Signal that this runner is ready
             allRunnersReady.countDown();
-            System.out.println("[ServerRunner " + replicaId + "] Signaled ready (" +
+            System.out.println("[ServerRunner " + replicaId + "] Signaled ready diod thios build  (" +
                     (BATCH_SIZE - allRunnersReady.getCount()) + "/" + BATCH_SIZE + " ready)");
 
             // PHASE 2: Wait for all replicas to reach this point (with timeout)

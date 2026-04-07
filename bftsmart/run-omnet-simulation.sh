@@ -10,6 +10,14 @@ export BFTSMART_ROOT="${BFTSMART_ROOT:-${REPO_ROOT}/bftsmart}"
 export VEINS_ROOT="${VEINS_ROOT:-${REPO_ROOT}/veins-veins-5.3.1}"
 export FOURWAY_ROOT="${FOURWAY_ROOT:-${REPO_ROOT}/fourway}"
 
+cleanup() {
+  echo ""
+  echo "=========================================="
+  echo "Simulation ended (exit/interrupt). Full log: ${LOG_FILE}"
+  echo "=========================================="
+}
+
+
 infer_omnetpp_root() {
     if [[ -n "${OMNETPP_ROOT:-}" ]]; then
         return
@@ -108,6 +116,7 @@ if [[ ! -d "${SIM_DIR}" ]]; then
 fi
 
 LOG_FILE="/tmp/bft-all-replicas.log"
+trap cleanup EXIT
 OLD_VIEW_FILE="${SIM_DIR}/config/currentView"
 rm -f "${OLD_VIEW_FILE}"
 
@@ -146,8 +155,3 @@ else
     opp_run "$@" 2>&1 | tee -a "${LOG_FILE}"
 fi
 
-echo ""
-echo "=========================================="
-echo "Simulation finished. Full log saved to: ${LOG_FILE}"
-echo "=========================================="
-echo ""

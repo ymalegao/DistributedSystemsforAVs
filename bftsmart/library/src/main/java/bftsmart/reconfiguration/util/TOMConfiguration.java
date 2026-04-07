@@ -59,6 +59,7 @@ public class TOMConfiguration extends Configuration {
     private boolean isToWriteCkpsToDisk;
     private boolean syncCkp;
     private boolean isBFT;
+    private java.util.Set<Integer> maliciousReplicaIds; // initialized inside init()
     private int numRepliers;
     private int numNettyWorkers;
     private boolean sameBatchSize;
@@ -432,6 +433,17 @@ public class TOMConfiguration extends Configuration {
                 clientInvokeOrderedTimeout = Integer.parseInt(s);
             }
 
+            maliciousReplicaIds = new java.util.HashSet<>();
+            s = (String) configs.remove("system.byzantine.maliciousReplicaIds");
+            if (s != null && !s.trim().isEmpty()) {
+                for (String token : s.split(",")) {
+                    String trimmed = token.trim();
+                    if (!trimmed.isEmpty()) {
+                        maliciousReplicaIds.add(Integer.parseInt(trimmed));
+                    }
+                }
+            }
+
         } catch (Exception e) {
             logger.error("Could not parse system configuration file",e);
         }
@@ -598,8 +610,12 @@ public class TOMConfiguration extends Configuration {
     }
 
     public boolean isBFT(){
-    	
+
     	return this.isBFT;
+    }
+
+    public boolean isByzantineNode(int replicaId) {
+        return maliciousReplicaIds != null && maliciousReplicaIds.contains(replicaId);
     }
 
     public int getNumRepliers() {

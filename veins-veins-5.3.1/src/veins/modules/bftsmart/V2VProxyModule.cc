@@ -27,7 +27,6 @@ using namespace veins;
 int32_t computeXXHash32(const std::string& str);
 
 static int completedConsensusCount = 0;
-static const int BATCH_SIZE = 16;
 static bool logged100m = false;
 static std::map<int, std::map<int, double>> orderLatencyByEpochAndReplica;
 static std::set<int> printedOrderLatencyAvgEpochs;
@@ -35,15 +34,10 @@ static std::map<int, std::map<int, double>> orderBftRttByEpochAndReplica;
 static std::set<int> printedOrderBftRttAvgEpochs;
 static std::map<int, std::map<int, double>> viewLatencyByEpochAndReplica;
 static std::set<int> printedViewLatencyAvgEpochs;
-static std::map<int, std::map<int, double>> orderQcWindowByEpochAndReplica;
-static std::set<int> printedOrderQcWindowAvgEpochs;
-
 static std::map<int, int> stopSignFailuresByEpoch;
 static std::map<int, std::map<int,int>>    messagesSentByEpochAndReplica;
 static std::map<int, std::map<int,int>>    messagesRecvByEpochAndReplica;
-static std::map<int, std::map<int,double>> totalConsDurByEpochAndReplica;
 static std::set<int> printedMsgAvgEpochs;
-static std::set<int> printedTotalDurAvgEpochs;
 // Base64 encoding table
 
 V2VProxyModule::V2VProxyModule()
@@ -367,62 +361,33 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                 } else {
                     lastOrderBftRequestRttMs = -1.0;
                 }
-                
-                
-                // Compute robust timing anchors before deriving durations.
-                // Some callbacks run on followers without setting all start fields.
-                simtime_t effectiveViewStart = viewConsensusStartTime;
-                bool usedViewStartFallback = false;
-                if (effectiveViewStart <= 0) {
-                    if (viewSignatureCollectionEndTime > 0) {
-                        effectiveViewStart = viewSignatureCollectionEndTime;
-                    } else if (viewSignatureCollectionStartTime > 0) {
-                        effectiveViewStart = viewSignatureCollectionStartTime;
-                    } else {
-                        effectiveViewStart = consensusStartTime;
-                    }
-                    usedViewStartFallback = true;
-                }
-                simtime_t effectiveViewEnd = viewConsensusEndTime;
-                if (effectiveViewEnd < effectiveViewStart) {
-                    effectiveViewEnd = effectiveViewStart;
-                }
-                simtime_t viewConsensusDuration = effectiveViewEnd - effectiveViewStart;
+                const bool hasViewSignatureCollection =
+                    viewSignatureCollectionStartTime > 0 &&
+                    viewSignatureCollectionEndTime >= viewSignatureCollectionStartTime;
+                const bool hasViewConsensusSim =
+                    viewConsensusStartTime > 0 &&
+                    viewConsensusEndTime >= viewConsensusStartTime;
+                const bool hasOrderConsensusSim =
+                    orderConsensusStartTime > 0 &&
+                    orderConsensusEndTime >= orderConsensusStartTime;
+                const bool hasStopToDecisionPipeline =
+                    consensusStartTime > 0 &&
+                    orderConsensusEndTime >= consensusStartTime;
 
-                simtime_t effectiveOrderStart = orderConsensusStartTime;
-                bool usedOrderStartFallback = false;
-                if (effectiveOrderStart <= 0) {
-                    if (orderSignatureCollectionEndTime > 0) {
-                        effectiveOrderStart = orderSignatureCollectionEndTime;
-                    } else if (orderSignatureCollectionStartTime > 0) {
-                        effectiveOrderStart = orderSignatureCollectionStartTime;
-                    } else {
-                        effectiveOrderStart = orderConsensusEndTime;
-                    }
-                    usedOrderStartFallback = true;
+                simtime_t viewConsensusDuration = 0;
+                if (hasViewConsensusSim) {
+                    viewConsensusDuration = viewConsensusEndTime - viewConsensusStartTime;
                 }
-                simtime_t effectiveOrderEnd = orderConsensusEndTime;
-                if (effectiveOrderEnd < effectiveOrderStart) {
-                    effectiveOrderEnd = effectiveOrderStart;
-                }
-                simtime_t orderConsensusDuration = effectiveOrderEnd - effectiveOrderStart;
 
-                simtime_t effectiveTotalStart = consensusStartTime;
-                if (effectiveTotalStart <= 0) {
-                    effectiveTotalStart = effectiveViewStart;
+                simtime_t orderConsensusDuration = 0;
+                if (hasOrderConsensusSim) {
+                    orderConsensusDuration = orderConsensusEndTime - orderConsensusStartTime;
                 }
-                if (effectiveOrderEnd < effectiveTotalStart) {
-                    effectiveTotalStart = effectiveOrderEnd;
-                }
-                simtime_t totalConsensusDuration = effectiveOrderEnd - effectiveTotalStart;
 
-                simtime_t effectiveOrderWindowStart = orderCollectionWindowStart;
-                bool usedGossipFallback = false;
-                if (effectiveOrderWindowStart <= 0 || orderCollectionWindowEnd < effectiveOrderWindowStart) {
-                    effectiveOrderWindowStart = orderCollectionWindowEnd;
-                    usedGossipFallback = true;
+                simtime_t stopToDecisionDuration = 0;
+                if (hasStopToDecisionPipeline) {
+                    stopToDecisionDuration = orderConsensusEndTime - consensusStartTime;
                 }
-                simtime_t laneLeaderGossipDuration = orderCollectionWindowEnd - effectiveOrderWindowStart;
 
                 // --- Phase timeline (sim time, seconds): V2V collect → VIEW BFT → ORDER prep → ORDER BFT ---
                 auto fmtPhaseSec = [](double v) -> std::string {
@@ -433,34 +398,27 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                     o << std::fixed << std::setprecision(4) << v << "s";
                     return o.str();
                 };
+                auto fmtSimInstant = [](simtime_t t) -> std::string {
+                    if (t <= 0) {
+                        return std::string("N/A");
+                    }
+                    std::ostringstream o;
+                    o << t;
+                    return o.str();
+                };
                 const double durViewV2vSig =
-                    (viewSignatureCollectionEndTime > viewSignatureCollectionStartTime
-                     && viewSignatureCollectionStartTime > 0)
+                    hasViewSignatureCollection
                         ? (viewSignatureCollectionEndTime - viewSignatureCollectionStartTime).dbl()
                         : -1.0;
                 const double gapV2vToViewBft =
-                    (viewConsensusStartTime > 0 && viewSignatureCollectionEndTime > 0
+                    (hasViewConsensusSim && viewSignatureCollectionEndTime > 0
                      && viewConsensusStartTime >= viewSignatureCollectionEndTime)
                         ? (viewConsensusStartTime - viewSignatureCollectionEndTime).dbl()
                         : -1.0;
-                const double durViewBftSim = viewConsensusDuration.dbl();
-                const double gapViewBftToOrderSig =
-                    (orderSignatureCollectionStartTime > 0 && viewConsensusEndTime > 0
-                     && orderSignatureCollectionStartTime >= viewConsensusEndTime)
-                        ? (orderSignatureCollectionStartTime - viewConsensusEndTime).dbl()
-                        : -1.0;
-                const double durOrderSigCollect =
-                    (orderSignatureCollectionEndTime > orderSignatureCollectionStartTime
-                     && orderSignatureCollectionStartTime > 0)
-                        ? (orderSignatureCollectionEndTime - orderSignatureCollectionStartTime).dbl()
-                        : -1.0;
-                const double gapOrderSigToOrderBft =
-                    (orderConsensusStartTime > 0 && orderSignatureCollectionEndTime > 0
-                     && orderConsensusStartTime >= orderSignatureCollectionEndTime)
-                        ? (orderConsensusStartTime - orderSignatureCollectionEndTime).dbl()
-                        : -1.0;
-                const double durOrderBftSim = orderConsensusDuration.dbl();
-                const double durLaneGossip = laneLeaderGossipDuration.dbl();
+                const double durViewBftSim = hasViewConsensusSim ? viewConsensusDuration.dbl() : -1.0;
+                const double durOrderBftSim = hasOrderConsensusSim ? orderConsensusDuration.dbl() : -1.0;
+                const double durStopToDecisionSim =
+                    hasStopToDecisionPipeline ? stopToDecisionDuration.dbl() : -1.0;
                 
                 std::cout << "\n========== CONSENSUS METRICS (Replica " << replicaId << ") epoch=" << currentEpoch
                           << " ==========" << "\n";
@@ -468,12 +426,8 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                           << "V2V_VIEW_SIG=" << fmtPhaseSec(durViewV2vSig)
                           << " gap_to_VIEW_BFT=" << fmtPhaseSec(gapV2vToViewBft)
                           << " VIEW_BFT(sim)=" << fmtPhaseSec(durViewBftSim)
-                          << " gap_to_ORDER_SIG=" << fmtPhaseSec(gapViewBftToOrderSig)
-                          << " ORDER_SIG_collect=" << fmtPhaseSec(durOrderSigCollect)
-                          << " gap_to_ORDER_BFT=" << fmtPhaseSec(gapOrderSigToOrderBft)
-                          << " lane_gossip=" << fmtPhaseSec(durLaneGossip)
                           << " ORDER_BFT(sim)=" << fmtPhaseSec(durOrderBftSim)
-                          << " total_pipeline(sim)=" << fmtPhaseSec(totalConsensusDuration.dbl())
+                          << " stop_to_decision(sim)=" << fmtPhaseSec(durStopToDecisionSim)
                           << "\n";
 
                 // View Signature Collection Metrics
@@ -484,13 +438,12 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                 std::cout << "[METRICS " << replicaId << "] View_Signature_Collection_Duration: " << fmtPhaseSec(durViewV2vSig) << "\n";
 
                 std::cout << "[METRICS " << replicaId << "] === VIEW CONSENSUS (BFT VIEW_PROPOSE → delivery) ===" << "\n";
-                std::cout << "[METRICS " << replicaId << "] View_Consensus_Start: " << effectiveViewStart << "\n";
-                std::cout << "[METRICS " << replicaId << "] View_Consensus_End:   " << effectiveViewEnd << "\n";
+                std::cout << "[METRICS " << replicaId << "] View_Consensus_Start: " << fmtSimInstant(viewConsensusStartTime) << "\n";
+                std::cout << "[METRICS " << replicaId << "] View_Consensus_End:   " << fmtSimInstant(viewConsensusEndTime) << "\n";
                 std::cout << "[METRICS " << replicaId << "] View_Consensus_Latency: " << fmtPhaseSec(durViewBftSim) << "\n";
 
-                // Per-round metric: average view consensus latency over 4 cars in this epoch
-                viewLatencyByEpochAndReplica[currentEpoch][replicaId] = viewConsensusDuration.dbl();
-                {
+                if (hasViewConsensusSim) {
+                    viewLatencyByEpochAndReplica[currentEpoch][replicaId] = viewConsensusDuration.dbl();
                     const auto& epochViewLatencies = viewLatencyByEpochAndReplica[currentEpoch];
                     if (epochViewLatencies.size() >= 4 && printedViewLatencyAvgEpochs.count(currentEpoch) == 0) {
                         double sumLatency = 0.0;
@@ -505,19 +458,10 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                     }
                 }
 
-                // Order Signature Collection Metrics
-                std::cout << "[METRICS " << replicaId << "] === ORDER SIGNATURE / QC COLLECTION ===" << "\n";
-                
-                std::cout << "[METRICS " << replicaId << "] Order_Signature_Collection_Start: " << orderSignatureCollectionStartTime << "\n";
-                std::cout << "[METRICS " << replicaId << "] Order_Signature_Collection_End: " << orderSignatureCollectionEndTime << "\n";
-                std::cout << "[METRICS " << replicaId << "] Order_Signature_Collection_Duration: " << fmtPhaseSec(durOrderSigCollect) << "\n";
-
-                std::cout << "[METRICS " << replicaId << "] LaneLeader_Gossip_Duration: " << fmtPhaseSec(durLaneGossip) << "\n";
-
                 // Order Consensus Metrics
                 std::cout << "[METRICS " << replicaId << "] === ORDER CONSENSUS (BFT ORDER_PROPOSE → decision) ===" << "\n";
-                std::cout << "[METRICS " << replicaId << "] Order_Consensus_Start: " << effectiveOrderStart << "\n";
-                std::cout << "[METRICS " << replicaId << "] Order_Consensus_End:   " << effectiveOrderEnd << "\n";
+                std::cout << "[METRICS " << replicaId << "] Order_Consensus_Start: " << fmtSimInstant(orderConsensusStartTime) << "\n";
+                std::cout << "[METRICS " << replicaId << "] Order_Consensus_End:   " << fmtSimInstant(orderConsensusEndTime) << "\n";
                 std::cout << "[METRICS " << replicaId << "] Order_Consensus_Latency: " << fmtPhaseSec(durOrderBftSim) << "\n";
                 if (lastOrderBftRequestRttMs >= 0.0) {
                     std::cout << "[METRICS " << replicaId
@@ -528,70 +472,24 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                               << "] Order_BFT_Request_RTT: N/A (no local ORDER submit)" << "\n";
                 }
                 
-                // Overall Metrics
-                std::cout << "[METRICS " << replicaId << "] === OVERALL (first stop → ORDER decision) ===" << "\n";
-                std::cout << "[METRICS " << replicaId << "] Total_Consensus_Start: " << effectiveTotalStart << "\n";
-                std::cout << "[METRICS " << replicaId << "] Total_Consensus_End:   " << effectiveOrderEnd << "\n";
-                std::cout << "[METRICS " << replicaId << "] Total_Consensus_Duration: " << fmtPhaseSec(totalConsensusDuration.dbl()) << "\n";
-                if (usedViewStartFallback || usedOrderStartFallback || usedGossipFallback) {
-                    std::cout << "[METRICS " << replicaId << "] Timing_Fallbacks:"
-                              << " viewStart=" << (usedViewStartFallback ? "1" : "0")
-                              << " orderStart=" << (usedOrderStartFallback ? "1" : "0")
-                              << " gossipWindow=" << (usedGossipFallback ? "1" : "0")
-                              << "\n";
-                }
+                std::cout << "[METRICS " << replicaId << "] === PIPELINE (stop → ORDER decision) ===" << "\n";
+                std::cout << "[METRICS " << replicaId << "] Stop_To_OrderDecision_Start: " << fmtSimInstant(consensusStartTime) << "\n";
+                std::cout << "[METRICS " << replicaId << "] Stop_To_OrderDecision_End:   " << fmtSimInstant(orderConsensusEndTime) << "\n";
+                std::cout << "[METRICS " << replicaId << "] Stop_To_OrderDecision_Time: " << fmtPhaseSec(durStopToDecisionSim) << "\n";
 
-                // Per-round metric: average order consensus latency over 4 cars in this epoch.
-                orderLatencyByEpochAndReplica[currentEpoch][replicaId] = orderConsensusDuration.dbl();
-                const auto& epochLatencies = orderLatencyByEpochAndReplica[currentEpoch];
-                if (epochLatencies.size() >= 4 && printedOrderLatencyAvgEpochs.count(currentEpoch) == 0) {
-                    double sumLatency = 0.0;
-                    for (const auto& kv : epochLatencies) {
-                        sumLatency += kv.second;
-                    }
-                    double avgLatency = sumLatency / epochLatencies.size();
-                    printedOrderLatencyAvgEpochs.insert(currentEpoch);
-                    std::cout << "[ROUND-METRICS] Epoch " << currentEpoch
-                              << " Avg_Order_Consensus_Latency_4Cars: " << avgLatency
-                              << " seconds (replicasCounted=" << epochLatencies.size() << ")" << "\n";
-
-                    // Stop-sign failures for this epoch
-                    int nFail = stopSignFailuresByEpoch.count(currentEpoch) ?
-                                stopSignFailuresByEpoch.at(currentEpoch) : 0;
-                    std::cout << "[ROUND-METRICS] Epoch " << currentEpoch
-                              << " Avg_StopSign_Failures: " << (double)nFail
-                              << " (count)" << "\n";
-
-                    // Average messages sent/received per replica
-                    if (printedMsgAvgEpochs.count(currentEpoch) == 0) {
-                        auto& sm = messagesSentByEpochAndReplica[currentEpoch];
-                        auto& rm = messagesRecvByEpochAndReplica[currentEpoch];
-                        if (!sm.empty()) {
-                            double avgSent = 0, avgRecv = 0;
-                            for (auto& kv : sm) avgSent += kv.second;
-                            for (auto& kv : rm) avgRecv += kv.second;
-                            avgSent /= sm.size(); avgRecv /= rm.size();
-                            std::cout << "[ROUND-METRICS] Epoch " << currentEpoch
-                                      << " Avg_Messages_Sent_PerReplica: " << avgSent
-                                      << " (count)" << "\n";
-                            std::cout << "[ROUND-METRICS] Epoch " << currentEpoch
-                                      << " Avg_Messages_Received_PerReplica: " << avgRecv
-                                      << " (count)" << "\n";
-                            printedMsgAvgEpochs.insert(currentEpoch);
+                if (hasOrderConsensusSim) {
+                    orderLatencyByEpochAndReplica[currentEpoch][replicaId] = orderConsensusDuration.dbl();
+                    const auto& epochLatencies = orderLatencyByEpochAndReplica[currentEpoch];
+                    if (epochLatencies.size() >= 4 && printedOrderLatencyAvgEpochs.count(currentEpoch) == 0) {
+                        double sumLatency = 0.0;
+                        for (const auto& kv : epochLatencies) {
+                            sumLatency += kv.second;
                         }
-                    }
-
-                    // Average total consensus duration (stop→resume, GO cars only)
-                    if (printedTotalDurAvgEpochs.count(currentEpoch) == 0) {
-                        auto& td = totalConsDurByEpochAndReplica[currentEpoch];
-                        if (td.size() >= 4) {
-                            double sum = 0;
-                            for (auto& kv : td) sum += kv.second;
-                            std::cout << "[ROUND-METRICS] Epoch " << currentEpoch
-                                      << " Avg_Total_Consensus_Duration: " << (sum / td.size())
-                                      << " seconds (replicasCounted=" << td.size() << ")" << "\n";
-                            printedTotalDurAvgEpochs.insert(currentEpoch);
-                        }
+                        double avgLatency = sumLatency / epochLatencies.size();
+                        printedOrderLatencyAvgEpochs.insert(currentEpoch);
+                        std::cout << "[ROUND-METRICS] Epoch " << currentEpoch
+                                  << " Avg_Order_Consensus_Latency_4Cars: " << avgLatency
+                                  << " seconds (replicasCounted=" << epochLatencies.size() << ")" << "\n";
                     }
                 }
                 if (lastOrderBftRequestRttMs >= 0.0) {
@@ -622,10 +520,34 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                 std::cout << "[METRICS " << replicaId << "] Messages_Sent: " << sentMessages << "\n";
                 std::cout << "[METRICS " << replicaId << "] Messages_Received: " << receivedMessages << "\n";
 
-                // Accumulate per-epoch message/duration metrics
+                // Accumulate per-epoch message metrics
                 messagesSentByEpochAndReplica[currentEpoch][replicaId] = (int)sentMessages;
                 messagesRecvByEpochAndReplica[currentEpoch][replicaId] = (int)receivedMessages;
-                totalConsDurByEpochAndReplica[currentEpoch][replicaId] = totalConsensusDuration.dbl();
+                if (printedMsgAvgEpochs.count(currentEpoch) == 0) {
+                    auto& sm = messagesSentByEpochAndReplica[currentEpoch];
+                    auto& rm = messagesRecvByEpochAndReplica[currentEpoch];
+                    if (sm.size() >= 4 && rm.size() >= 4) {
+                        double avgSent = 0.0;
+                        double avgRecv = 0.0;
+                        for (const auto& kv : sm) avgSent += kv.second;
+                        for (const auto& kv : rm) avgRecv += kv.second;
+                        avgSent /= sm.size();
+                        avgRecv /= rm.size();
+                        std::cout << "[ROUND-METRICS] Epoch " << currentEpoch
+                                  << " Avg_Messages_Sent_PerReplica: " << avgSent
+                                  << " (count)" << "\n";
+                        std::cout << "[ROUND-METRICS] Epoch " << currentEpoch
+                                  << " Avg_Messages_Received_PerReplica: " << avgRecv
+                                  << " (count)" << "\n";
+
+                        const int nFail = stopSignFailuresByEpoch.count(currentEpoch) ?
+                                          stopSignFailuresByEpoch.at(currentEpoch) : 0;
+                        std::cout << "[ROUND-METRICS] Epoch " << currentEpoch
+                                  << " Avg_StopSign_Failures: " << static_cast<double>(nFail)
+                                  << " (count)" << "\n";
+                        printedMsgAvgEpochs.insert(currentEpoch);
+                    }
+                }
 
                 std::cout << "========================================================\n" << "\n";
                 
@@ -1158,4 +1080,3 @@ void V2VProxyModule::handlePositionUpdate(cObject* obj)
     }
     // Position updates are handled via checkPositionTimer for efficiency
 }
-

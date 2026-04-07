@@ -162,16 +162,17 @@ std::vector<uint8_t> V2VProxyModule::generateByzantinePayload(
         }
 
         case BYZANTINE_EQUIVOCATOR: {
-            // Send epoch N+1 to even replica IDs, honest epoch N to odd replica IDs.
-            // From different receivers' perspectives this car is "in different rounds",
-            // which violates BFT-SMaRt's agreement property.
+            // Split direction: targetReplicaId >= 0 → first half (dir='L'),
+            //                  targetReplicaId < 0  → second half (dir='R').
             ArrivalAnnouncement corrupted = honest;
-            if (targetReplicaId >= 0 && targetReplicaId % 2 == 0) {
-                corrupted.epoch = honest.epoch + 1;
+            if (targetReplicaId >= 0) {
+                corrupted.direction = DIR_LEFT;
                 std::cout << "[BYZANTINE] Replica " << replicaId
-                          << " EQUIVOCATOR: sending epoch=" << corrupted.epoch
-                          << " to peer " << targetReplicaId
-                          << " (honest epoch=" << honest.epoch << ")" << "\n";
+                          << " EQUIVOCATOR: sending dir=L to peer " << targetReplicaId << "\n";
+            } else {
+                corrupted.direction = DIR_RIGHT;
+                std::cout << "[BYZANTINE] Replica " << replicaId
+                          << " EQUIVOCATOR: sending dir=R to second-half peer\n";
             }
             corrupted.signature = signArrivalClaim(corrupted);
             return serializeArrivalAnnouncement(corrupted);
@@ -258,26 +259,41 @@ void V2VProxyModule::broadcastArrivalAnnouncement() {
 
     if (isByzantine && byzantineType != BYZANTINE_HONEST) {
         if (byzantineType == BYZANTINE_EQUIVOCATOR) {
-            // Unicast different payloads to each peer so they see different epochs.
-            // We iterate the established view; fall back to replicaProxyMap if not yet set.
-            std::set<std::string> targets = establishedView.empty()
+            // Collect peers sorted by vehicle ID (MAC order), then split in half:
+            // first half receives direction 'L', second half receives direction 'R'.
+            std::set<std::string> targetsSet = establishedView.empty()
                 ? std::set<std::string>() : establishedView;
-            if (targets.empty()) {
+            if (targetsSet.empty()) {
                 std::lock_guard<std::mutex> lock(registryMutex);
                 for (const auto& kv : replicaProxyMap) {
                     if (kv.first != replicaId)
-                        targets.insert("veh" + std::to_string(kv.first));
+                        targetsSet.insert("veh" + std::to_string(kv.first));
                 }
             }
-            for (const auto& peerStr : targets) {
-                int peerId = extractReplicaIdFromCarId(peerStr);
+            std::vector<std::string> targets(targetsSet.begin(), targetsSet.end());
+            std::sort(targets.begin(), targets.end());
+            size_t half = targets.size() / 2;
+
+            // Build both direction variants: vehId|lane|pos|L|isAmb and vehId|lane|pos|R|isAmb
+            ArrivalAnnouncement annL = canonicalAnn;
+            annL.direction = DIR_LEFT;
+            annL.signature = signArrivalClaim(annL);
+            std::vector<uint8_t> payloadL = serializeArrivalAnnouncement(annL);
+
+            ArrivalAnnouncement annR = canonicalAnn;
+            annR.direction = DIR_RIGHT;
+            annR.signature = signArrivalClaim(annR);
+            std::vector<uint8_t> payloadR = serializeArrivalAnnouncement(annR);
+
+            for (size_t i = 0; i < targets.size(); ++i) {
+                int peerId = extractReplicaIdFromCarId(targets[i]);
                 if (peerId < 0 || peerId == replicaId) continue;
-                std::vector<uint8_t> byzantinePayload =
-                    generateByzantinePayload(byzantineType, canonicalAnn, peerId);
-                sendBFTMessage(replicaId, peerId, byzantinePayload, 1);
+                const std::vector<uint8_t>& pkt = (i < half) ? payloadL : payloadR;
+                sendBFTMessage(replicaId, peerId, pkt, 1);
             }
             std::cout << "[BYZANTINE] Replica " << replicaId
-                      << " EQUIVOCATOR: sent " << targets.size() << " divergent unicasts\n";
+                      << " EQUIVOCATOR: sent dir=L to first " << half
+                      << " peer(s), dir=R to remaining " << (targets.size() - half) << " peer(s)\n";
         } else {
             // FALSE_LANE or INVALID_SIG: single broadcast with corrupted payload
             std::vector<uint8_t> byzantinePayload =

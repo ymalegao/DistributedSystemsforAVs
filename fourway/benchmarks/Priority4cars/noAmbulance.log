@@ -1,0 +1,73 @@
+/home/yash/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
+  warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
+Parsing /tmp/bft-all-replicas.log ...
+Done.
+
+========================================================================
+BFT-SMaRt V2V Intersection — Epoch Latency Breakdown
+========================================================================
+
+── Epoch 0  (n=4 replicas) ──
+  Gossip phase:  2.9700s sim  (view_end=1.330s → leader_submit=4.300s)
+  BFT net (wall): total=3126ms, PROPOSE propagation=264ms wall
+  BFT leader:    replica 0  (16 replicas observed)
+  Gossip retx:   0 total  (0.0/car)   ACKs received=0  all-ACKed events=0
+
+========================================================================
+Cross-epoch ORDER monotonicity check
+────────────────────────────────────────────────────────────────────────
+  Epoch     N   ORDER sim    Golden  Gossip sim      RTT   Retx/car
+      0     4       N/A     0.3879s     2.9700s      N/A        0.0
+
+========================================================================
+Diagnosis summary
+────────────────────────────────────────────────────────────────────────
+  Epoch 0 (n=4): no ORDER data — epoch did not complete
+
+========================================================================
+Per-Car Lifecycle Metrics
+────────────────────────────────────────────────────────────────────────
+     Car        Role    Wait@Int    Arr→Resume    Resume→Leave    Arr→Leave
+    veh0      normal     1.9000s       1.4000s         0.5000s      1.9000s
+    veh1      normal     3.5000s       2.7000s         0.8000s      3.5000s
+    veh2      normal     5.1000s       4.3000s         0.8000s      5.1000s
+    veh3      normal     6.9000s       6.1000s         0.8000s      6.9000s
+    veh4      normal     1.7000s       1.2000s         0.5000s      1.7000s
+    veh5      normal     3.5000s       2.7000s         0.8000s      3.5000s
+    veh6      normal     5.1000s       4.3000s         0.8000s      5.1000s
+    veh7      normal     6.9000s       6.1000s         0.8000s      6.9000s
+    veh8      normal     2.5000s       1.9000s         0.6000s      2.5000s
+    veh9      normal     4.3000s       3.5000s         0.8000s      4.3000s
+   veh10      normal     5.9000s       5.1000s         0.8000s      5.9000s
+   veh11      normal     7.7000s       6.9000s         0.8000s      7.7000s
+   veh12      normal     2.5000s       1.9000s         0.6000s      2.5000s
+   veh13      normal     4.3000s       3.5000s         0.8000s      4.3000s
+   veh14      normal     5.9000s       5.1000s         0.8000s      5.9000s
+   veh15      normal     7.7000s       6.9000s         0.8000s      7.7000s
+
+========================================================================
+Paper-Friendly Summary Metrics
+────────────────────────────────────────────────────────────────────────
+  Throughput (user definition): 0.375000s per vehicle
+    Formula: (last leave - first leave) / cars = (8.5000 - 2.5000) / 16
+  Wait@intersection, all cars:      mean=4.7125s median=4.7000s p95=7.7000s max=7.7000s n=16
+  Wait@intersection, normal cars:   mean=4.7125s median=4.7000s p95=7.7000s max=7.7000s n=16
+  Wait@intersection, ambulance:     N/A
+  Arrival→resume, all cars:         mean=3.9750s median=3.9000s p95=6.9000s max=6.9000s n=16
+  Resume→leave, all cars:           mean=0.7375s median=0.8000s p95=0.8000s max=0.8000s n=16
+  Jain fairness index (all waits):  0.8543
+  Jain fairness index (normal):     0.8543
+  Saved per-car CSV:                /tmp/car_metrics.csv
+  Saved wait-role plot:             /tmp/waittime_ambulance_vs_normal.png
+  Saved per-car wait plot:          /tmp/waittime_per_car.png
+
+========================================================================
+Decision / Resume Coverage
+────────────────────────────────────────────────────────────────────────
+     Car  Decision Epoch    JNI Resume  Main Thread Resume
+    veh0               0  YES        YES
+    veh1               0  YES        YES
+    veh2               0  YES        YES
+    veh3               0  YES        YES
+
+yash@DESKTOP-N69GVSJ:~/DistributedSystemsforAVs$ 

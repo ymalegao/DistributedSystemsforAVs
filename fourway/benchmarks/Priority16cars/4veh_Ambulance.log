@@ -1,0 +1,32 @@
+[ROUND-METRICS] Epoch 0 Avg_View_Consensus_Latency_4Cars: 0 seconds (replicasCounted=4)
+[ROUND-METRICS] Epoch 0 Avg_Order_Consensus_Latency_4Cars: 0 seconds (replicasCounted=4)
+[ROUND-METRICS] Epoch 0 Avg_StopSign_Failures: 0 (count)
+[ROUND-METRICS] Epoch 0 Avg_Messages_Sent_PerReplica: 37.3333 (count)
+[ROUND-METRICS] Epoch 0 Avg_Messages_Received_PerReplica: 184.667 (count)
+[ROUND-METRICS] Epoch 0 Total_Consensus_Duration veh0: 5.700000 seconds
+[ROUND-METRICS] Epoch 0 Total_Consensus_Duration veh1: 6.300000 seconds
+[ROUND-METRICS] Epoch 0 Total_Consensus_Duration veh2: 7.300000 seconds
+[ROUND-METRICS] Epoch 0 Total_Consensus_Duration veh3: 8.500000 seconds
+[ROUND-METRICS] Epoch 0 Total_Consensus_Duration veh4: 5.500000 seconds
+[ROUND-METRICS] Epoch 0 Total_Consensus_Duration veh5: 6.300000 seconds
+[ROUND-METRICS] Epoch 0 Total_Consensus_Duration veh6: 7.300000 seconds
+[ROUND-METRICS] Epoch 0 Total_Consensus_Duration veh7: 8.500000 seconds
+[ROUND-METRICS] Epoch 0 Total_Consensus_Duration veh8: 1.150000 seconds
+[ROUND-METRICS] Epoch 0 Total_Consensus_Duration veh9: 1.900000 seconds
+[ROUND-METRICS] Epoch 0 Total_Consensus_Duration veh10: 2.900000 seconds
+[ROUND-METRICS] Epoch 0 Total_Consensus_Duration veh11: 4.100000 seconds
+[ROUND-METRICS] Epoch 0 Total_Consensus_Duration veh12: 1.150000 seconds
+[ROUND-METRICS] Epoch 0 Total_Consensus_Duration veh13: 1.900000 seconds
+[ROUND-METRICS] Epoch 0 Total_Consensus_Duration veh14: 2.900000 seconds
+[ROUND-METRICS] Epoch 0 Total_Consensus_Duration veh15: 4.100000 seconds
+[ROUND-METRICS] Epoch 0 Avg_Messages_Sent_PerReplica: 45.375 seconds (count=16)
+[ROUND-METRICS] Epoch 0 Avg_Messages_Received_PerReplica: 221.000 seconds (count=16)
+[ROUND-METRICS] Epoch 0 Avg_Total_Consensus_Duration: 4.718750 seconds (goCars=16)
+[ROUND-METRICS] Epoch 0 Avg_StopSign_Failures: 0.000 seconds (count)
+[RUN-METRICS] Throughput_User_Definition: 0.431250 seconds_per_vehicle
+[RUN-METRICS] Wait_Intersection_All_Mean: 5.250000 seconds
+[RUN-METRICS] Wait_Intersection_All_P95: 8.600000 seconds
+[RUN-METRICS] Wait_Intersection_Normal_Mean: 5.320000 seconds
+[RUN-METRICS] Wait_Intersection_Ambulance_Mean: 4.200000 seconds
+[RUN-METRICS] Arrival_To_Resume_Mean: 4.718750 seconds
+[RUN-METRICS] Resume_To_Depart_Mean: 0.531250 seconds

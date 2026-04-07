@@ -1,9 +1,9 @@
                                                                 
 version 3
-run TwelveVehiclesAmbulanceBFT-0-20260405-15:58:45-895535
+run TwelveVehiclesAmbulanceBFT-0-20260405-21:06:08-1000039
 attr configname TwelveVehiclesAmbulanceBFT
-attr datetime 20260405-15:58:45
-attr datetimef 20260405-155845
+attr datetime 20260405-21:06:08
+attr datetimef 20260405-210608
 attr experiment TwelveVehiclesAmbulanceBFT
 attr inifile omnetpp.ini
 attr iterationvars ""
@@ -11,7 +11,7 @@ attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network fourWay
-attr processid 895535
+attr processid 1000039
 attr repetition 0
 attr replication #0
 attr resultdir results
@@ -305,36 +305,3 @@ vector 73 fourWay.manager posx ETV
 vector 74 fourWay.manager posy ETV
 vector 75 fourWay.manager acceleration ETV
 vector 76 fourWay.manager co2emission ETV
-vector 77 fourWay.manager speed ETV
-vector 78 fourWay.manager speed ETV
-vector 79 fourWay.manager speed ETV
-vector 80 fourWay.manager speed ETV
-vector 81 fourWay.manager speed ETV
-vector 82 fourWay.manager speed ETV
-vector 83 fourWay.manager speed ETV
-vector 84 fourWay.manager speed ETV
-vector 85 fourWay.manager speed ETV
-vector 86 fourWay.manager speed ETV
-vector 87 fourWay.manager speed ETV
-vector 88 fourWay.manager acceleration ETV
-vector 89 fourWay.manager co2emission ETV
-vector 90 fourWay.manager acceleration ETV
-vector 91 fourWay.manager co2emission ETV
-vector 92 fourWay.manager acceleration ETV
-vector 93 fourWay.manager co2emission ETV
-vector 94 fourWay.manager acceleration ETV
-vector 95 fourWay.manager co2emission ETV
-vector 96 fourWay.manager acceleration ETV
-vector 97 fourWay.manager co2emission ETV
-vector 98 fourWay.manager acceleration ETV
-vector 99 fourWay.manager co2emission ETV
-vector 100 fourWay.manager acceleration ETV
-vector 101 fourWay.manager co2emission ETV
-vector 102 fourWay.manager acceleration ETV
-vector 103 fourWay.manager co2emission ETV
-vector 104 fourWay.manager acceleration ETV
-vector 105 fourWay.manager co2emission ETV
-vector 106 fourWay.manager acceleration ETV
-vector 107 fourWay.manager co2emission ETV
-vector 108 fourWay.manager acceleration ETV
-vector 109 fourWay.manager co2emission ETV

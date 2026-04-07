@@ -1,22 +1,24 @@
-                                                                
 version 3
-run FourVehiclesBFTOverV2V-0-20260405-22:48:50-1038008
-attr configname FourVehiclesBFTOverV2V
-attr datetime 20260405-22:48:50
-attr datetimef 20260405-224850
-attr experiment FourVehiclesBFTOverV2V
+run FourVehiclesAmbulanceBFT-0-20260407-00:26:53-1095859
+attr configname FourVehiclesAmbulanceBFT
+attr datetime 20260407-00:26:53
+attr datetimef 20260407-002653
+attr experiment FourVehiclesAmbulanceBFT
 attr inifile omnetpp.ini
 attr iterationvars ""
 attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network fourWay
-attr processid 1038008
+attr processid 1095859
 attr repetition 0
 attr replication #0
 attr resultdir results
 attr runnumber 0
 attr seedset 0
+config extends FourVehiclesBFTOverV2V
+config description "4 vehicles; veh3 auto-issues Emergency_CA cert (ambulanceReplicaId matches SUMO veh id, not node index)"
+config *.node[*].appl.ambulanceReplicaId 3
 config extends BFTOverV2V
 config description "BFT test on benchmarking 4-vehicle routes"
 config *.manager.launchConfig "xmldoc(\"bft_4veh.launchd.xml\")"

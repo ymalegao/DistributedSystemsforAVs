@@ -265,14 +265,8 @@ public final class IntersectionServer extends DefaultRecoverable {
 
             if (request.contains("VIEW_PROPOSE")) {
                 viewConsensusEndWall = System.currentTimeMillis();
-                System.out.println("[BFTCONSENSUS " + this.processId + "] View consensus time: "
-                        + (viewConsensusEndWall - viewConsensusStartWall) + "ms");
-            }
-
-            if (request.contains("ORDER_PROPOSE")) {
-                orderConsensusEndWall = System.currentTimeMillis();
-                System.out.println("[BFTCONSENSUS " + this.processId + "] Order consensus time: "
-                        + (orderConsensusEndWall - orderConsensusStartWall) + "ms");
+                System.out.println("[BFTCONSENSUS " + this.processId + "] View consensus time epoch="
+                        + roundNumber + ": " + (viewConsensusEndWall - viewConsensusStartWall) + "ms");
             }
 
             String replyStr = new String(reply, StandardCharsets.UTF_8);
@@ -365,7 +359,11 @@ public final class IntersectionServer extends DefaultRecoverable {
                 localClientProxy = new ServiceProxy(clientId);
                 Thread.sleep(80);
             }
+            long orderStartWall = System.currentTimeMillis();
             byte[] result = localClientProxy.invokeOrdered(payload.getBytes(StandardCharsets.UTF_8));
+            long orderEndWall = System.currentTimeMillis();
+            System.out.println("[BFTCONSENSUS " + this.processId + "] Order consensus time epoch="
+                    + epoch + ": " + (orderEndWall - orderStartWall) + "ms");
             if (result != null) {
                 System.out.println("[LEADER] ORDER_PROPOSE completed, reply="
                         + new String(result, StandardCharsets.UTF_8));

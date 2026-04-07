@@ -304,11 +304,23 @@ bool V2VProxyModule::checkIfDeparted()
     if (dist < -15.0 || (currentPhase == EXECUTING && dist > 15.0)) {
         isDeparted = true;
         currentPhase = DEPARTED;
+        const double departTimeSec = simTime().dbl();
+        const double stopTimeSec = (stopTime >= SIMTIME_ZERO) ? stopTime.dbl() : -1.0;
+        const double waitStopToDepartureSec =
+            (stopTime >= SIMTIME_ZERO) ? (departTimeSec - stopTimeSec) : -1.0;
+        const char* vehicleRole = moduleIsAmbulance ? "ambulance" : "normal";
 
         std::cout << "[V2VProxy " << replicaId << "] ===== VEHICLE DEPARTED =====" << "\n";
         std::cout << "[V2VProxy " << replicaId << "] Distance: " << dist << "m" << "\n";
         std::cout << "[V2VProxy " << replicaId << "] Entering ZOMBIE mode (no more V2V)" << "\n";
         std::cout << "[V2VProxy " << replicaId << "] Phase: " << currentPhase << "\n";
+        std::cout << "[CAR-METRICS] veh" << replicaId
+                  << " role=" << vehicleRole
+                  << " epoch=" << currentEpoch
+                  << " stop_time=" << stopTimeSec
+                  << " depart_time=" << departTimeSec
+                  << " wait_stop_to_departure_sec=" << waitStopToDepartureSec
+                  << "\n";
 
         if (moduleIsAmbulance && stopTime > 0) {
             std::cout << "[AMBULANCE_METRICS] veh" << replicaId

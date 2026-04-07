@@ -241,7 +241,7 @@ public final class Acceptor {
 
 					logger.debug("Sending WRITE for cId:{}, I am:{}", cid, me);
 					communication.send(this.controller.getCurrentViewOtherAcceptors(),
-							factory.createWrite(cid, epoch.getTimestamp(), epoch.propValueHash));
+							factory.createWrite(cid, epoch.getTimestamp(), maybeCorruptHash(epoch.propValueHash, cid)));
 					System.out.println("[PHASE_TIMER] CID=" + cid + " replica=" + me + " WRITE_SENT wall_ms=" + System.currentTimeMillis());
 
 					epoch.writeSent();
@@ -328,10 +328,8 @@ public final class Acceptor {
 				int[] targets = this.controller.getCurrentViewAcceptors();
 				epoch.acceptSent();
 
-				if (Arrays.equals(cm.getValue(), value)) { // make sure the ACCEPT message generated upon receiving the
-															// PROPOSE message
-															// still matches the value that ended up being written...
-
+				if (Arrays.equals(cm.getValue(), value) && !controller.getStaticConf().isByzantineNode(me)) {
+					// Speculative ACCEPT matches and this is an honest replica — fast path.
 					logger.debug(
 							"Speculative ACCEPT message for consensus {} matches the written value, sending it to the other replicas",
 							cid);
@@ -340,22 +338,30 @@ public final class Acceptor {
 					communication.getServersConn().send(targets, cm, true);
 					System.out.println("[Acceptor " + me + "] SENT speculative ACCEPT for cId=" + cid);
 
-				} else { // ... and if not, create the ACCEPT message again (with the correct value), and
-							// send it
+				} else {
+					// Either speculative value mismatched, or this replica is Byzantine.
+					// Byzantine replicas send a corrupted hash; honest replicas send the correct value.
+					byte[] sendValue = controller.getStaticConf().isByzantineNode(me)
+							? maybeCorruptHash(value, cid)
+							: value;
 
-					System.out.println("[Acceptor " + me + "] Speculative ACCEPT value MISMATCH for cId=" + cid + ", creating new ACCEPT");
-					ConsensusMessage correctAccept = factory.createAccept(cid, epoch.getTimestamp(), value);
+					System.out.println("[Acceptor " + me + "] " +
+							(controller.getStaticConf().isByzantineNode(me)
+									? "Byzantine: creating corrupted ACCEPT"
+									: "Speculative ACCEPT value MISMATCH") +
+							" for cId=" + cid + ", creating new ACCEPT");
+					ConsensusMessage correctAccept = factory.createAccept(cid, epoch.getTimestamp(), sendValue);
 
 					proofExecutor.submit(() -> {
 
 						// Create a cryptographic proof for this ACCEPT message
 						logger.debug(
-								"Creating cryptographic proof for the correct ACCEPT message from consensus " + cid);
+								"Creating cryptographic proof for ACCEPT message from consensus " + cid);
 						insertProof(correctAccept, epoch.deserializedPropValue);
 
-						System.out.println("[Acceptor " + me + "] ABOUT TO SEND corrected ACCEPT for cId=" + cid + " to targets=" + java.util.Arrays.toString(targets));
+						System.out.println("[Acceptor " + me + "] ABOUT TO SEND ACCEPT for cId=" + cid + " to targets=" + java.util.Arrays.toString(targets));
 						communication.getServersConn().send(targets, correctAccept, true);
-						System.out.println("[Acceptor " + me + "] SENT corrected ACCEPT for cId=" + cid);
+						System.out.println("[Acceptor " + me + "] SENT ACCEPT for cId=" + cid);
 
 					});
 				}
@@ -488,8 +494,28 @@ public final class Acceptor {
 	}
 
 	/**
+	 * Returns a bitwise-inverted copy of the hash if this replica is configured as
+	 * a Byzantine node; otherwise returns the original unchanged.
+	 * @param original the honest hash
+	 * @param cid BFT-SMaRt consensus ID (used for log parsing by analyze_log.py)
+	 */
+	private byte[] maybeCorruptHash(byte[] original, int cid) {
+		if (!controller.getStaticConf().isByzantineNode(me)) {
+			return original;
+		}
+		byte[] corrupted = Arrays.copyOf(original, original.length);
+		for (int i = 0; i < corrupted.length; i++) {
+			corrupted[i] = (byte) ~corrupted[i]; // flip all bits
+		}
+		System.out.println("[BYZANTINE INJECTION] Replica " + me +
+				" CID=" + cid +
+				" intentionally broadcasting corrupted consensus hash!");
+		return corrupted;
+	}
+
+	/**
 	 * This is the method invoked when a value is decided by this process
-	 * 
+	 *
 	 * @param epoch Epoch at which the decision is made
 	 */
 	private void decide(Epoch epoch) {

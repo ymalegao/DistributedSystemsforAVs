@@ -1,8 +1,8 @@
 version 3
-run FourVehiclesBFTOverV2V-0-20260319-23:32:34-110947
+run FourVehiclesBFTOverV2V-0-20260405-22:48:50-1038008
 attr configname FourVehiclesBFTOverV2V
-attr datetime 20260319-23:32:34
-attr datetimef 20260319-233234
+attr datetime 20260405-22:48:50
+attr datetimef 20260405-224850
 attr experiment FourVehiclesBFTOverV2V
 attr inifile omnetpp.ini
 attr iterationvars ""
@@ -10,7 +10,7 @@ attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network fourWay
-attr processid 110947
+attr processid 1038008
 attr repetition 0
 attr replication #0
 attr resultdir results
@@ -22,8 +22,6 @@ config *.manager.launchConfig "xmldoc(\"bft_4veh.launchd.xml\")"
 config *.node[*].appl.intersectionX 300m
 config *.node[*].appl.intersectionY 300m
 config *.node[*].appl.stopDistance 50m
-config *.node[0].appl.isByzantine true
-config *.node[0].appl.byzantineType 1
 config extends WithChannelSwitching
 config *.node[*].applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
 config *.node[0].appl.replicaId 0
@@ -36,7 +34,7 @@ config *.node[*].appl.stopDistance 50m
 config *.node[*].appl.intersectionWidth 15m
 config *.node[*].appl.avgSpeed 14mps
 config *.node[*].appl.safetyGap 1.5s
-config *.node[*].appl.stopSignTimeoutSec 3.0s
+config *.node[*].appl.stopSignTimeoutSec 10.0s
 config *.node[*].appl.gatewayHost "\"\""
 config *.node[*].appl.gatewayPort 0
 config *.node[*].appl.carId "\"\""
