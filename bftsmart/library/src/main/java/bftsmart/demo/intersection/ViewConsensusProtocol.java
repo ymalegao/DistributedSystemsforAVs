@@ -1,10 +1,12 @@
 package bftsmart.demo.intersection;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import net.jpountz.xxhash.XXHash32;
 import net.jpountz.xxhash.XXHashFactory;
 
@@ -34,6 +36,10 @@ final class ViewConsensusProtocol {
                 vehicleState.positionInLane = Integer.parseInt(fields[2].trim());
                 vehicleState.direction = fields[3].trim();
                 vehicleState.isAmbulance = "1".equals(fields[4].trim());
+                // 6th field (optional): cyberStatus = "SIGNED" or "QUIET"
+                if (fields.length >= 6 && !fields[5].trim().isEmpty()) {
+                    vehicleState.cyberStatus = fields[5].trim();
+                }
                 states.add(vehicleState);
             } catch (Exception e) {
                 System.err.println("[VIEW] Error parsing VehicleState record '" + record + "': " + e.getMessage());
@@ -57,70 +63,76 @@ final class ViewConsensusProtocol {
         return sb.toString();
     }
 
-    static List<ViewSignature> parseViewSignatures(String sigString) {
-        List<ViewSignature> signatures = new ArrayList<>();
-        if (sigString == null || sigString.isEmpty()) {
-            return signatures;
-        }
-
-        for (String sigPart : sigString.split("\\|")) {
-            String[] fields = sigPart.split(",");
-            if (fields.length < 2) {
-                continue;
+    /**
+     * Parse the per-car certs string from a PROPOSE_ALL payload.
+     * Format: "veh0~r1,12345|r2,67890;veh1~r0,11111|r1,22222"
+     * Returns Map&lt;vehicleId, List&lt;int[2]&gt;&gt; where int[2] = {replicaId, xxhashDecimal}
+     */
+    static Map<String, List<int[]>> parsePerCarCerts(String certsStr) {
+        Map<String, List<int[]>> result = new HashMap<>();
+        if (certsStr == null || certsStr.isEmpty()) return result;
+        for (String carEntry : certsStr.split(";")) {
+            String[] parts = carEntry.split("~", 2);
+            if (parts.length < 2) continue;
+            String carId = parts[0].trim();
+            List<int[]> sigs = new ArrayList<>();
+            for (String sigEntry : parts[1].split("\\|")) {
+                String[] rv = sigEntry.split(",", 2);
+                if (rv.length < 2) continue;
+                try {
+                    int rId   = Integer.parseInt(rv[0].trim());
+                    int hash  = (int) Long.parseLong(rv[1].trim());  // int32 stored as decimal
+                    sigs.add(new int[]{rId, hash});
+                } catch (NumberFormatException ignored) {}
             }
-            try {
-                ViewSignature signature = new ViewSignature();
-                signature.signingReplicaId = Integer.parseInt(fields[0].trim());
-                long hashValue = Long.parseLong(fields[1].trim());
-                ByteBuffer buffer = ByteBuffer.allocate(4);
-                buffer.order(ByteOrder.LITTLE_ENDIAN);
-                buffer.putInt((int) hashValue);
-                signature.signatureBytes = buffer.array();
-                signatures.add(signature);
-            } catch (Exception e) {
-                System.err.println("[VIEW] Error parsing view signature: " + e.getMessage());
-            }
+            result.put(carId, sigs);
         }
-        return signatures;
+        return result;
     }
 
-    static boolean validateViewProposal(ViewProposal proposal) {
-        int groupSize = proposal.vehicleStates.size();
-        int faultTolerance = (groupSize - 1) / 3;
-
-        if (proposal.v2vSignatures.size() < faultTolerance + 1) {
-            System.err.println("[VIEW] Insufficient V2V signatures: " + proposal.v2vSignatures.size()
-                    + " (need " + (faultTolerance + 1) + ")");
-            return false;
-        }
-
-        String vehicleStatesString = serializeVehicleStates(proposal.vehicleStates);
-        for (ViewSignature signature : proposal.v2vSignatures) {
-            if (!verifyViewSignature(vehicleStatesString, signature)) {
-                System.err.println("[VIEW] Invalid V2V signature from replica " + signature.signingReplicaId);
+    /**
+     * Validates that each SIGNED car has f+1 valid per-car echo signatures.
+     * Echo signature: XXHash32(carId:lane:pos:dir:isAmb:replicaId)
+     * where dir = "L"/"R"/"S" and isAmb = "1"/"0".
+     * f = (numCars - 1) / 3
+     */
+    static boolean validatePerCarCerts(List<VehicleState> states,
+                                       Map<String, List<int[]>> certs) {
+        int n = states.size();
+        int f = (n - 1) / 3;
+        int required = f + 1;
+        for (VehicleState vs : states) {
+            if (!"SIGNED".equals(vs.cyberStatus)) continue;
+            List<int[]> sigs = certs.get(vs.vehicleId);
+            if (sigs == null || sigs.isEmpty()) {
+                System.err.println("[CERT-VERIFY] " + vs.vehicleId
+                        + " is SIGNED but has no certs");
+                return false;
+            }
+            Set<Integer> seen = new HashSet<>();
+            int validCount = 0;
+            for (int[] rv : sigs) {
+                int rId = rv[0]; int claimedHash = rv[1];
+                if (!seen.add(rId)) continue;  // dedup
+                // C++ signs: XXHash32(carId:lane:pos:dir:isAmb:echoingReplicaId)
+                String isAmbStr = vs.isAmbulance ? "1" : "0";
+                String toSign = vs.vehicleId + ":" + vs.lane + ":"
+                        + vs.positionInLane + ":" + vs.direction + ":"
+                        + isAmbStr + ":" + rId;
+                byte[] data = toSign.getBytes(StandardCharsets.UTF_8);
+                int expected = XXHASH.hash(data, 0, data.length, 0);
+                System.out.println("[CERT-VERIFY] " + vs.vehicleId + " echo from r" + rId
+                        + " toSign=\"" + toSign + "\" expected=" + expected
+                        + " claimed=" + claimedHash + " match=" + (expected == claimedHash));
+                if (expected == claimedHash) validCount++;
+            }
+            if (validCount < required) {
+                System.err.println("[CERT-VERIFY] " + vs.vehicleId + " has only "
+                        + validCount + " valid sigs (need " + required + ")");
                 return false;
             }
         }
         return true;
-    }
-
-    private static boolean verifyViewSignature(String vehicleStatesStr, ViewSignature signature) {
-        String input = vehicleStatesStr + ":" + signature.signingReplicaId;
-        byte[] dataBytes = input.getBytes(StandardCharsets.UTF_8);
-        int expectedHash = XXHASH.hash(dataBytes, 0, dataBytes.length, 0);
-
-        if (signature.signatureBytes == null || signature.signatureBytes.length < 4) {
-            return false;
-        }
-
-        ByteBuffer buffer = ByteBuffer.wrap(signature.signatureBytes);
-        buffer.order(ByteOrder.LITTLE_ENDIAN);
-        int actualHash = buffer.getInt();
-
-        System.out.println("[VIEW_VERIFY] Replica " + signature.signingReplicaId
-                + " input=\"" + input + "\" expected=" + expectedHash
-                + " actual=" + actualHash + " match=" + (expectedHash == actualHash));
-        return expectedHash == actualHash;
     }
 
     private ViewConsensusProtocol() {}

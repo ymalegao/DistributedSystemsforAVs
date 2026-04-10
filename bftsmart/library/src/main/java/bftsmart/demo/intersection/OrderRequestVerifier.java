@@ -3,22 +3,27 @@ package bftsmart.demo.intersection;
 import bftsmart.tom.core.messages.TOMMessage;
 import bftsmart.tom.server.RequestVerifier;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * Byzantine Firewall for the ORDER_PROPOSE round.
+ * Byzantine Firewall for the single-round PROPOSE_ALL protocol.
  *
  * Runs on every follower before it sends WRITE (i.e., before voting).
  * If any check fails the batch is rejected, which triggers a BFT leader change.
  *
- * Checks applied (ORDER_PROPOSE messages only; all others pass through):
- *   1. Completeness   every vehicleId in agreedViewState appears exactly once
- *   2. No duplicates  no vehicleId appears in more than one batch
- *   3. Safety         every pair within a batch passes ConflictMatrix.isSafeToBatch()
- *   4. Lane queue     same-lane total order (positionInLane, then numeric veh id): if A is ahead of B
- *                     then A's batch index must be strictly less than B's
+ * For PROPOSE_ALL messages, the following checks are applied:
+ *   1. Signature validity   f+1 XXHash32 V2V signatures on the vehicleStates are present and valid
+ *   2. No phantoms          every vehicleId in the schedule appears in the vehicleStates
+ *   3. No duplicates        no vehicleId appears in more than one batch
+ *   4. Collision safety     every pair within a batch passes ConflictMatrix.isSafeToBatch()
+ *   5. Lane queue order     same-lane total order (positionInLane, then numeric veh id): if A is ahead of B
+ *                           then A's batch index must be strictly less than B's
+ *
+ * All other message types pass through without validation.
  */
 public class OrderRequestVerifier implements RequestVerifier {
 
@@ -31,47 +36,89 @@ public class OrderRequestVerifier implements RequestVerifier {
     @Override
     public boolean isValidRequest(TOMMessage request) {
         String cmd = new String(request.getContent(), StandardCharsets.UTF_8).trim();
-        if (!cmd.startsWith("ORDER_PROPOSE:")) return true; // not an ORDER  pass through
 
-        Map<String, VehicleState> view = server.agreedViewState;
-        if (view == null) return true; // VIEW not yet agreed; pass through and let appExecuteBatch handle
+        if (cmd.startsWith("PROPOSE_ALL:")) {
+            return validateProposeAll(cmd.substring("PROPOSE_ALL:".length()));
+        }
 
-        // Strip "ORDER_PROPOSE:" prefix, then delegate to payload parser
-        String payload = cmd.substring("ORDER_PROPOSE:".length());
-        OrderBag bag = OrderScheduler.parseOrderBag(payload);
-        if (bag == null) {
-            System.err.println("[VERIFIER] Could not parse OrderBag  rejecting");
+        // Unknown command types pass through; appExecuteBatch will handle/reject them.
+        return true;
+    }
+
+    /**
+     * Validates the PROPOSE_ALL payload.
+     *
+     * Payload format (after stripping "PROPOSE_ALL:" prefix):
+     *   <proposerId>:<vehicleStatesStr>:<perCarCerts>:<orderBagStr>
+     *
+     * vehicleStatesStr has no ':', perCarCerts has no ':', so split with limit=4 is safe.
+     * orderBagStr may contain ':' (epoch:assignments) and is captured as parts[3].
+     */
+    private boolean validateProposeAll(String payload) {
+        String[] parts = payload.split(":", 4);
+        if (parts.length < 4) {
+            System.err.println("[VERIFIER] PROPOSE_ALL payload too short: " + payload);
             return false;
         }
 
-        // ---- Check 1 & 2: Completeness + No Duplicates ----
-        Set<String> bagged = new HashSet<>();
+        String vehicleStatesStr = parts[1];
+        String perCarCertsStr   = parts[2];
+        String orderBagStr      = parts[3];
+
+        // ---- Check 1: Per-car ARRIVAL_CERT validation ----
+        // Each SIGNED car must have f+1 valid echo signatures (physically verified by peers).
+        List<VehicleState> states = ViewConsensusProtocol.parseVehicleStates(vehicleStatesStr);
+        if (states.isEmpty()) {
+            System.err.println("[VERIFIER] PROPOSE_ALL: no vehicle states parsed");
+            return false;
+        }
+
+        Map<String, List<int[]>> certs = ViewConsensusProtocol.parsePerCarCerts(perCarCertsStr);
+        if (!ViewConsensusProtocol.validatePerCarCerts(states, certs)) {
+            System.err.println("[VERIFIER] PROPOSE_ALL: per-car cert validation failed");
+            return false;
+        }
+
+        // Build stateMap for schedule validation (all vehicles from vehicleStates)
+        Map<String, VehicleState> stateMap = new HashMap<>();
+        for (VehicleState vs : states) {
+            stateMap.put(vs.vehicleId, vs);
+        }
+
+        // ---- Parse schedule ----
+        OrderBag bag = OrderScheduler.parseOrderBag(orderBagStr);
+        if (bag == null) {
+            System.err.println("[VERIFIER] PROPOSE_ALL: could not parse OrderBag");
+            return false;
+        }
+
+        // ---- Check 2 & 3: No phantoms + No duplicates ----
+        Set<String> scheduled = new HashSet<>();
         for (Batch b : bag.batches) {
             for (String vid : b.vehicleIds) {
-                if (!bagged.add(vid)) {
-                    System.err.println("[VERIFIER] Duplicate vehicleId in OrderBag: " + vid);
+                if (!stateMap.containsKey(vid)) {
+                    System.err.println("[VERIFIER] PROPOSE_ALL: phantom vehicleId in schedule: " + vid);
+                    return false;
+                }
+                if (!scheduled.add(vid)) {
+                    System.err.println("[VERIFIER] PROPOSE_ALL: duplicate vehicleId in schedule: " + vid);
                     return false;
                 }
             }
         }
-        if (!bagged.equals(view.keySet())) {
-            System.err.println("[VERIFIER] OrderBag car set " + bagged
-                    + " does not match agreedView " + view.keySet());
-            return false;
-        }
 
-        // ---- Check 3: Collision Safety ----
+        // ---- Check 4: Collision safety ----
         for (Batch b : bag.batches) {
             for (int i = 0; i < b.vehicleIds.size(); i++) {
-                VehicleState vsA = view.get(b.vehicleIds.get(i));
+                VehicleState vsA = stateMap.get(b.vehicleIds.get(i));
                 for (int j = i + 1; j < b.vehicleIds.size(); j++) {
-                    VehicleState vsB = view.get(b.vehicleIds.get(j));
+                    VehicleState vsB = stateMap.get(b.vehicleIds.get(j));
                     if (vsA == null || vsB == null) {
-                        System.err.println("[VERIFIER] Unknown vehicleId in batch  rejecting");
+                        System.err.println("[VERIFIER] PROPOSE_ALL: null state in batch — rejecting");
                         return false;
                     }
                     if (!ConflictMatrix.isSafeToBatch(vsA, vsB)) {
-                        System.err.println("[VERIFIER] Conflicting pair in same batch: "
+                        System.err.println("[VERIFIER] PROPOSE_ALL: conflicting pair in same batch: "
                                 + vsA.vehicleId + " and " + vsB.vehicleId);
                         return false;
                     }
@@ -79,27 +126,46 @@ public class OrderRequestVerifier implements RequestVerifier {
             }
         }
 
-        // ---- Check 4: Same-lane queue order (compareLaneQueueOrder: front before back) ----
-        for (VehicleState behind : view.values()) {
-            for (VehicleState front : view.values()) {
+        // ---- Check 5: Same-lane queue order (front vehicle must be in earlier batch) ----
+        for (VehicleState behind : stateMap.values()) {
+            if (!scheduled.contains(behind.vehicleId)) continue;
+            for (VehicleState front : stateMap.values()) {
+                if (!scheduled.contains(front.vehicleId)) continue;
                 if (!front.lane.equals(behind.lane)) continue;
                 if (IntersectionTypes.compareLaneQueueOrder(front, behind) >= 0) continue;
-                int frontBi = batchIndexOf(bag, front.vehicleId);
-                int behindBi = batchIndexOf(bag, behind.vehicleId);
+                int frontBi  = OrderScheduler.batchIndexOf(bag, front.vehicleId);
+                int behindBi = OrderScheduler.batchIndexOf(bag, behind.vehicleId);
                 if (frontBi >= behindBi) {
-                    System.err.println("[VERIFIER] Same-lane queue violation: " + front.vehicleId
-                            + " (pos " + front.positionInLane + ", batch " + frontBi
+                    System.err.println("[VERIFIER] PROPOSE_ALL: same-lane queue violation: "
+                            + front.vehicleId + " (pos " + front.positionInLane + ", batch " + frontBi
                             + ") must be before " + behind.vehicleId + " (pos "
-                            + behind.positionInLane + ", batch " + behindBi + ")  rejecting");
+                            + behind.positionInLane + ", batch " + behindBi + ") — rejecting");
                     return false;
                 }
             }
         }
 
-        return true;
-    }
+        // ---- Check 6: Leader Rejection Rule — QUIET vehicle must not be co-scheduled ----
+        // A vehicle marked QUIET (no f+1 cyber VIEW_AGREEMENT signatures) must occupy an
+        // exclusive singleton batch. If the leader schedules it alongside any other vehicle,
+        // followers immediately reject the proposal.
+        for (Batch b : bag.batches) {
+            boolean hasQuiet = false;
+            for (String vid : b.vehicleIds) {
+                VehicleState vs = stateMap.get(vid);
+                if (vs != null && "QUIET".equals(vs.cyberStatus)) {
+                    hasQuiet = true;
+                    break;
+                }
+            }
+            if (hasQuiet && b.vehicleIds.size() > 1) {
+                System.err.println("[VERIFIER] PROPOSE_ALL: Leader Rejection Rule — QUIET vehicle "
+                        + "co-scheduled in batch of size " + b.vehicleIds.size()
+                        + ": " + b.vehicleIds + " — rejecting");
+                return false;
+            }
+        }
 
-    private int batchIndexOf(OrderBag bag, String vehicleId) {
-        return OrderScheduler.batchIndexOf(bag, vehicleId);
+        return true;
     }
 }

@@ -245,7 +245,7 @@ void V2VProxyModule::broadcastArrivalAnnouncement() {
     delete mockMsg;
 
     // Store the canonical (serialized/deserialized) version
-    // Self-store in viewState so handleArrivalAnnouncement's threshold check includes us
+    // Self-store in viewState and physicallyObservedCars (I know I am physically here)
     {
         VehicleState selfVS;
         selfVS.vehicleId    = canonicalAnn.carId;
@@ -255,6 +255,7 @@ void V2VProxyModule::broadcastArrivalAnnouncement() {
         selfVS.isAmbulance  = canonicalAnn.isAmbulance;
         viewState[myCarId]  = selfVS;
         arrivalAnnouncementsReceived.insert(myCarId);
+        physicallyObservedCars.insert(myCarId);
     }
 
     if (isByzantine && byzantineType != BYZANTINE_HONEST) {
@@ -398,190 +399,116 @@ void V2VProxyModule::handleArrivalAnnouncement(BFTMessage* bftMsg) {
     viewState[ann.carId] = vs;
     arrivalAnnouncementsReceived.insert(ann.carId);
 
-    size_t n        = viewState.size();
+    // Physical check passed — add to observed set and send echo back to announcing car
+    physicallyObservedCars.insert(ann.carId);
+    sendArrivalEcho(ann);
+
+    size_t n        = physicallyObservedCars.size();
     size_t expected = BATCH_SIZE;
     std::cout << "[ANN-RECV] Replica " << replicaId << " stored VehicleState for " << ann.carId
-              << " (have " << n << "/" << expected << " VehicleStates)\n";
+              << " (have " << n << "/" << expected << " physically observed)\n";
 
-    // ---- When all VehicleStates collected: build and broadcast VIEW_PROPOSAL ----
-    if (n == expected && currentPhase == PROPOSING_VIEW && !viewEstablished) {
-        std::cout << "[ANN-RECV] Replica " << replicaId
-                  << " has all " << expected << " VehicleStates — initiating view proposal\n";
-        initiateViewProposal();
-    }
-}
-
-std::vector<uint8_t> V2VProxyModule::serializeViewProposal(const ViewProposal& proposal) {
-    // Format: proposerId|vehicleStatesStr|timestamp|siglen|sig
-    // vehicleStatesStr: "veh0|N|1|S|0;veh1|S|1|L|0" (semicolon between cars, pipe within)
-    std::stringstream ss;
-    ss << proposal.proposerReplicaId << "|"
-       << proposal.vehicleStatesStr  << "|"
-       << proposal.proposalTimestamp << "|"
-       << proposal.signature.size() << "|";
-
-    std::string header = ss.str();
-    std::vector<uint8_t> result(header.begin(), header.end());
-    result.insert(result.end(), proposal.signature.begin(), proposal.signature.end());
-    return result;
-}
-
-V2VProxyModule::ViewProposal V2VProxyModule::deserializeViewProposal(BFTMessage* bftMsg) {
-    std::vector<uint8_t> payload(bftMsg->getPayloadArraySize());
-    for (size_t i = 0; i < payload.size(); i++) {
-        payload[i] = bftMsg->getPayload(i);
-    }
-
-    // Format: proposerId|vehicleStatesStr|timestamp|siglen|sig
-    // vehicleStatesStr contains '|' within each car record, so we can't just split('|').
-    // Parse by finding the first '|' (proposerId), then scan for the ';'-delimited vehicleStatesStr
-    // region, then the remaining fields.
-    // Easier: locate field boundaries by counting: field[0] ends at 1st '|', field[3] (siglen)
-    // is between the 3rd-from-last and 2nd-from-last '|' before the binary blob.
-    // Safest: the text header ends at the 4th '|' that belongs to our fixed fields (proposerId,
-    // vehicleStatesStr, timestamp, siglen). But vehicleStatesStr itself contains '|'.
-    // Solution: store vehicleStatesStr as field[1] by using a different delimiter.
-    // -- The vehicleStatesStr ends at the semicolon sequence; since the outer delimiter is '|'
-    //    and the inner car-field delimiter is also '|', we use a different approach:
-    //    After proposerId, the vehicleStatesStr ends at the LAST ';'-terminated segment before
-    //    the timestamp float. This is ambiguous. Instead: at serialization we ensure
-    //    vehicleStatesStr uses ';' between cars and ',' within records to avoid '|' conflicts.
-    //    BUT for now vehicleStatesStr uses '|' within records (veh0|N|1|S|0;...).
-    //    Simple parse: split on '|', then fields[1..5N] are the vehicleStates records interleaved
-    //    with ';' as car separators. The final three '|'-delimited tokens are: timestamp, siglen, sig.
-    //
-    // We adopt the simplest correct approach: scan the raw string for the pattern
-    // "proposerId|<vsStr>|<double>|<int>|<blob>" by:
-    //   1. Find first '|' → proposerId
-    //   2. Find last occurrence of "|\d+|" pattern before the blob → that's "|siglen|"
-    //   3. Everything between step 1 and the previous '|' before siglen is vsStr+"|"+timestamp
-
-    std::string s(payload.begin(), payload.end());
-    ViewProposal proposal;
-
-    // Step 1: extract proposerId
-    size_t p1 = s.find('|');
-    if (p1 == std::string::npos) return proposal;
-    proposal.proposerReplicaId = std::stoi(s.substr(0, p1));
-
-    // The rest: "<vsStr>|<timestamp>|<siglen>|<blob>"
-    // We know siglen is a small non-negative integer. Scan backwards from payload end.
-    // The binary blob starts right after the 4th '|' from right in the text part.
-    // Walk backward: find siglen first (it's the last text field before the blob).
-    // Strategy: scan for last '|<digits>|' near the end of the text area.
-    // We find: last '|' that is followed only by digits until another '|' or end.
-    size_t p_siglen = std::string::npos;
-    size_t p_ts     = std::string::npos;
-
-    // Walk backwards from the end to find |siglen|
-    for (size_t i = s.size(); i > p1 + 1; ) {
-        --i;
-        if (s[i] != '|') continue;
-        // Check if s[i+1..next_pipe] is all digits
-        size_t j = i + 1;
-        while (j < s.size() && s[j] != '|' && (s[j] >= '0' && s[j] <= '9')) ++j;
-        if (j < s.size() && s[j] == '|' && j > i + 1) {
-            // Candidate: s[i+1..j-1] is the siglen, s[j] is the pipe before the blob
-            p_siglen = i;  // position of '|' before siglen
-            // Now find the '|' before timestamp (one more '|' backwards)
-            for (size_t k = p_siglen; k > p1 + 1; ) {
-                --k;
-                if (s[k] == '|') { p_ts = k; break; }
-            }
-            break;
+    // ---- Leader: when all BATCH_SIZE cars physically observed, start cert collection timer ----
+    if (n >= expected && !certCollectionStarted && !viewEstablished
+            && amITheLeader(physicallyObservedCars)) {
+        certCollectionStarted = true;
+        certCollectionStartTime = simTime();
+        std::cout << "[V2VProxy " << replicaId << "] Leader: all " << expected
+                  << " cars physically observed — starting cert collection timer (timeout="
+                  << certCollectionTimeoutSec << "s)\n";
+        if (certCollectionTimeoutTimer && !certCollectionTimeoutTimer->isScheduled()) {
+            scheduleAt(simTime() + certCollectionTimeoutSec, certCollectionTimeoutTimer);
         }
     }
-
-    if (p_siglen == std::string::npos || p_ts == std::string::npos) return proposal;
-
-    // vehicleStatesStr is between p1+1 and p_ts
-    proposal.vehicleStatesStr = s.substr(p1 + 1, p_ts - p1 - 1);
-    proposal.proposalTimestamp = std::stod(s.substr(p_ts + 1, p_siglen - p_ts - 1));
-    int siglen = std::stoi(s.substr(p_siglen + 1));  // from siglen field start (digits only)
-
-    // Actual siglen field ends at the pipe after it
-    size_t blob_start_pipe = s.find('|', p_siglen + 1);
-    size_t offset = (blob_start_pipe != std::string::npos) ? blob_start_pipe + 1 : s.size();
-
-    if (offset < payload.size() && offset + (size_t)siglen <= payload.size()) {
-        proposal.signature.assign(payload.begin() + offset, payload.begin() + offset + siglen);
-    }
-
-    // Also populate observedCars from vehicleStatesStr (carId is first pipe-field of each record)
-    if (!proposal.vehicleStatesStr.empty()) {
-        std::vector<std::string> recs = split(proposal.vehicleStatesStr, ';');
-        for (const auto& rec : recs) {
-            size_t pp = rec.find('|');
-            if (pp != std::string::npos) {
-                proposal.observedCars.insert(rec.substr(0, pp));
-            } else if (!rec.empty()) {
-                proposal.observedCars.insert(rec);
-            }
-        }
-    }
-
-    return proposal;
 }
 
-std::vector<uint8_t> V2VProxyModule::serializeViewAgreement(const ViewAgreement& agreement) {
-    // Format: agreingReplicaId|carList|siglen|sig
+// ============================================================================
+// ARRIVAL_ECHO / ARRIVAL_CERT SERIALIZATION
+// ============================================================================
+
+// Wire format for ARRIVAL_ECHO (all text, pipe-delimited):
+//   echoingReplicaId|targetCarId|lane|positionInLane|direction|isAmbulance|epoch|signatureHashDecimal
+std::vector<uint8_t> V2VProxyModule::serializeArrivalEcho(const ArrivalEcho& echo) {
     std::stringstream ss;
-    ss << agreement.agreingReplicaId << "|";
-    
-    // Sort cars for deterministic ordering
-    std::vector<std::string> sortedCars(agreement.agreedView.begin(), agreement.agreedView.end());
-    std::sort(sortedCars.begin(), sortedCars.end());
-    
-    for (size_t i = 0; i < sortedCars.size(); i++) {
-        if (i > 0) ss << ",";
-        ss << sortedCars[i];
-    }
-    
-    ss << "|" << agreement.signature.size() << "|";
-    
-    std::string header = ss.str();
-    std::vector<uint8_t> result(header.begin(), header.end());
-    result.insert(result.end(), agreement.signature.begin(), agreement.signature.end());
-    
-    return result;
+    ss << echo.echoingReplicaId << "|"
+       << echo.targetCarId     << "|"
+       << echo.lane            << "|"
+       << echo.positionInLane  << "|"
+       << dirToStr(echo.direction) << "|"
+       << (echo.isAmbulance ? "1" : "0") << "|"
+       << echo.epoch           << "|"
+       << echo.signatureHash;
+    std::string s = ss.str();
+    return std::vector<uint8_t>(s.begin(), s.end());
 }
 
-V2VProxyModule::ViewAgreement V2VProxyModule::deserializeViewAgreement(BFTMessage* bftMsg) {
+V2VProxyModule::ArrivalEcho V2VProxyModule::deserializeArrivalEcho(BFTMessage* bftMsg) {
     std::vector<uint8_t> payload(bftMsg->getPayloadArraySize());
-    for (size_t i = 0; i < payload.size(); i++) {
-        payload[i] = bftMsg->getPayload(i);
-    }
-    
+    for (size_t i = 0; i < payload.size(); i++) payload[i] = bftMsg->getPayload(i);
     std::string s(payload.begin(), payload.end());
     std::vector<std::string> parts = split(s, '|');
-    
-    ViewAgreement agreement;
-    if (parts.size() >= 3) {
-        agreement.agreingReplicaId = std::stoi(parts[0]);
-        
-        // Parse comma-separated car list
-        if (!parts[1].empty()) {
-            std::vector<std::string> cars = split(parts[1], ',');
-            agreement.agreedView.insert(cars.begin(), cars.end());
-        }
-        
-        int siglen = std::stoi(parts[2]);
-        // Find offset of raw bytes by locating the 3rd '|' scanning forward
-        // through the text header only.  find_last_of('|') is wrong because
-        // the binary signature bytes can contain 0x7C ('|'), causing it to
-        // land inside the payload and produce an empty or corrupt signature.
-        size_t p1 = s.find('|');
-        size_t p2 = (p1 != std::string::npos) ? s.find('|', p1 + 1) : std::string::npos;
-        size_t p3 = (p2 != std::string::npos) ? s.find('|', p2 + 1) : std::string::npos;
-        size_t offset = (p3 != std::string::npos) ? p3 + 1 : s.size();
-
-        if (offset < payload.size() && offset + (size_t)siglen <= payload.size()) {
-            agreement.signature.assign(payload.begin() + offset, payload.begin() + offset + siglen);
-        }
+    ArrivalEcho echo;
+    if (parts.size() >= 8) {
+        echo.echoingReplicaId = std::stoi(parts[0]);
+        echo.targetCarId      = parts[1];
+        echo.lane             = parts[2];
+        echo.positionInLane   = std::stoi(parts[3]);
+        echo.direction        = strToDir(parts[4]);
+        echo.isAmbulance      = (parts[5] == "1");
+        echo.epoch            = std::stoi(parts[6]);
+        echo.signatureHash    = (int32_t)std::stol(parts[7]);
     }
-
-    return agreement;
+    return echo;
 }
+
+// Wire format for ARRIVAL_CERT (all text, pipe-delimited):
+//   carId|lane|positionInLane|direction|isAmbulance|epoch|replicaId1:hash1|replicaId2:hash2|...
+std::vector<uint8_t> V2VProxyModule::serializeArrivalCert(const ArrivalCert& cert) {
+    std::stringstream ss;
+    ss << cert.carId           << "|"
+       << cert.lane            << "|"
+       << cert.positionInLane  << "|"
+       << dirToStr(cert.direction) << "|"
+       << (cert.isAmbulance ? "1" : "0") << "|"
+       << cert.epoch;
+    for (const auto& echo : cert.echoes) {
+        ss << "|" << echo.echoingReplicaId << ":" << echo.signatureHash;
+    }
+    std::string s = ss.str();
+    return std::vector<uint8_t>(s.begin(), s.end());
+}
+
+V2VProxyModule::ArrivalCert V2VProxyModule::deserializeArrivalCert(BFTMessage* bftMsg) {
+    std::vector<uint8_t> payload(bftMsg->getPayloadArraySize());
+    for (size_t i = 0; i < payload.size(); i++) payload[i] = bftMsg->getPayload(i);
+    std::string s(payload.begin(), payload.end());
+    std::vector<std::string> parts = split(s, '|');
+    ArrivalCert cert;
+    if (parts.size() < 6) return cert;
+    cert.carId          = parts[0];
+    cert.lane           = parts[1];
+    cert.positionInLane = std::stoi(parts[2]);
+    cert.direction      = strToDir(parts[3]);
+    cert.isAmbulance    = (parts[4] == "1");
+    cert.epoch          = std::stoi(parts[5]);
+    for (size_t i = 6; i < parts.size(); i++) {
+        size_t colon = parts[i].find(':');
+        if (colon == std::string::npos) continue;
+        ArrivalEcho echo;
+        echo.echoingReplicaId = std::stoi(parts[i].substr(0, colon));
+        echo.signatureHash    = (int32_t)std::stol(parts[i].substr(colon + 1));
+        echo.targetCarId      = cert.carId;
+        echo.lane             = cert.lane;
+        echo.positionInLane   = cert.positionInLane;
+        echo.direction        = cert.direction;
+        echo.isAmbulance      = cert.isAmbulance;
+        echo.epoch            = cert.epoch;
+        cert.echoes.push_back(echo);
+    }
+    return cert;
+}
+
+
 
 // ============================================================================
 // READYQC SERIALIZATION (Phase 2)
@@ -715,8 +642,11 @@ std::set<std::string> V2VProxyModule::getVisibleVehicles(double maxRange) {
 }
 
 // Build the canonical semicolon-pipe vehicleStates string from the local viewState map.
-// Format: "veh0|N|1|S|0;veh1|S|1|L|0;veh2|W|2|R|1"  (sorted by vehicleId for determinism)
-std::string V2VProxyModule::buildVehicleStatesStr() const {
+// 5-field format (no certs): "veh0|N|1|S|0;veh1|S|1|L|0;veh2|W|2|R|1"
+// 6-field format (certs provided): "veh0|N|1|S|0|SIGNED;veh1|S|1|L|0|QUIET;..."
+//   A vehicle is SIGNED iff its carId appears as a key in the certs map.
+//   All others are QUIET (physically present but could not produce a valid ARRIVAL_CERT).
+std::string V2VProxyModule::buildVehicleStatesStr(const std::map<std::string, ArrivalCert>* certs) const {
     std::vector<std::pair<std::string, VehicleState>> sorted(viewState.begin(), viewState.end());
     std::sort(sorted.begin(), sorted.end(),
               [](const auto& a, const auto& b) { return a.first < b.first; });
@@ -729,124 +659,183 @@ std::string V2VProxyModule::buildVehicleStatesStr() const {
                + std::to_string(vs.positionInLane) + "|"
                + dirToStr(vs.direction) + "|"
                + (vs.isAmbulance ? "1" : "0");
+        if (certs != nullptr) {
+            bool isSigned = (certs->count(vs.vehicleId) > 0);
+            result += "|";
+            result += (isSigned ? "SIGNED" : "QUIET");
+        }
     }
     return result;
 }
 
-std::vector<uint8_t> V2VProxyModule::signViewProposal(const std::set<std::string>& viewSet) {
-    // NEW: sign the vehicleStatesStr (not just carId list) to cover VehicleState data.
-    // Input: vehicleStatesStr + ":" + signerReplicaId
-    // Falls back to carId-list signing when viewState is empty (e.g. early VIEW_PROPOSAL from old code).
-    std::string toSign;
-    std::string vsStr = buildVehicleStatesStr();
-    if (!vsStr.empty()) {
-        toSign = vsStr + ":" + std::to_string(replicaId);
-    } else {
-        // Fallback: legacy carId-list format
-        for (const std::string& carId : viewSet) {
-            if (!toSign.empty()) toSign += ",";
-            toSign += carId;
-        }
-        toSign += ":" + std::to_string(replicaId);
-    }
+// Use the AGREED view (not live visibility) so all replicas elect the same leader.
 
-    int32_t hash = computeXXHash32(toSign);
-    std::vector<uint8_t> sig(sizeof(int32_t));
-    std::memcpy(sig.data(), &hash, sizeof(int32_t));
+// ============================================================================
+// ARRIVAL_ECHO / ARRIVAL_CERT HANDLERS
+// ============================================================================
 
-    std::cout << "[VIEW_SIGN] Replica " << replicaId << " signed vehicleStates hash=" << hash << "\n";
-    return sig;
+void V2VProxyModule::sendArrivalEcho(const ArrivalAnnouncement& ann) {
+    if (zombieFilter()) return;
+    std::string myCarId = "veh" + std::to_string(replicaId);
+
+    // Compute signature: XXHash32(targetCarId:lane:pos:dir:isAmb:echoingReplicaId)
+    std::string toSign = ann.carId + ":" + ann.lane + ":"
+        + std::to_string(ann.positionInLane) + ":"
+        + (ann.direction == DIR_LEFT ? "L" : ann.direction == DIR_RIGHT ? "R" : "S")
+        + ":" + (ann.isAmbulance ? "1" : "0")
+        + ":" + std::to_string(replicaId);
+    int32_t hashVal = computeXXHash32(toSign);
+
+    ArrivalEcho echo;
+    echo.echoingReplicaId = replicaId;
+    echo.targetCarId      = ann.carId;
+    echo.lane             = ann.lane;
+    echo.positionInLane   = ann.positionInLane;
+    echo.direction        = ann.direction;
+    echo.isAmbulance      = ann.isAmbulance;
+    echo.epoch            = ann.epoch;
+    echo.signatureHash    = hashVal;
+
+    std::vector<uint8_t> payload = serializeArrivalEcho(echo);
+    int targetReplicaId = extractReplicaIdFromCarId(ann.carId);
+    sendBFTMessage(replicaId, targetReplicaId, payload, 4);  // msgType=4 ARRIVAL_ECHO (unicast)
+    std::cout << "[ECHO-SEND] Replica " << replicaId << " → " << ann.carId
+              << " ARRIVAL_ECHO hash=" << hashVal << "\n";
 }
 
+void V2VProxyModule::handleArrivalEcho(BFTMessage* bftMsg) {
+    if (zombieFilter()) return;
+    ArrivalEcho echo = deserializeArrivalEcho(bftMsg);
+    std::string myCarId = "veh" + std::to_string(replicaId);
 
-void V2VProxyModule::initiateViewProposal() {
-    // Called when all BATCH_SIZE ARRIVAL_ANNOUNCEs are collected (or IDLE → PROPOSING_VIEW at arrival).
-    if (currentPhase != PROPOSING_VIEW) {
-        std::cout << "[V2VProxy " << replicaId << "] Cannot initiate view proposal - phase="
-                  << currentPhase << " (expected PROPOSING_VIEW)\n";
+    // Only process echoes for MY own announcement
+    if (echo.targetCarId != myCarId) return;
+    if (certBroadcast) return;  // already sent my cert
+
+    auto& echoes = myReceivedEchoes[myCarId];
+
+    // Dedup: one echo per echoingReplicaId
+    for (const auto& e : echoes) {
+        if (e.echoingReplicaId == echo.echoingReplicaId) return;
+    }
+
+    echoes.push_back(echo);
+    std::cout << "[ECHO-RECV] Replica " << replicaId << " received echo from replica "
+              << echo.echoingReplicaId << " (" << echoes.size() << " so far)\n";
+
+    // Check if we have f+1 echoes. Use BATCH_SIZE-based f.
+    int f = (BATCH_SIZE - 1) / 3;
+    int required = f + 1;
+
+    if ((int)echoes.size() >= required) {
+        certBroadcast = true;
+        // Assemble ARRIVAL_CERT from my own viewState entry
+        ArrivalCert cert;
+        cert.carId = myCarId;
+        if (viewState.count(myCarId)) {
+            const VehicleState& selfVS = viewState.at(myCarId);
+            cert.lane           = selfVS.lane;
+            cert.positionInLane = selfVS.positionInLane;
+            cert.direction      = selfVS.direction;
+            cert.isAmbulance    = selfVS.isAmbulance;
+        }
+        cert.epoch  = currentEpoch;
+        cert.echoes = echoes;
+        std::cout << "[CERT-ASSEMBLE] Replica " << replicaId << " assembled ARRIVAL_CERT with "
+                  << cert.echoes.size() << " echoes — broadcasting\n";
+        broadcastArrivalCert(cert);
+    }
+}
+
+void V2VProxyModule::broadcastArrivalCert(const ArrivalCert& cert) {
+    if (zombieFilter()) return;
+    std::vector<uint8_t> payload = serializeArrivalCert(cert);
+    sendBFTMessage(replicaId, -1, payload, 5);  // msgType=5 ARRIVAL_CERT (broadcast)
+    std::cout << "[CERT-BROADCAST] Replica " << replicaId << " broadcast ARRIVAL_CERT for "
+              << cert.carId << "\n";
+
+    // OMNeT++ modules do NOT receive their own channel broadcasts.
+    // Self-store so we (the sender) also have our cert in collectedCerts.
+    if (!collectedCerts.count(cert.carId)) {
+        collectedCerts[cert.carId] = cert;
+        std::cout << "[CERT-STORED-SELF] Replica " << replicaId << " self-stored ARRIVAL_CERT for "
+                  << cert.carId << " (" << collectedCerts.size() << "/"
+                  << physicallyObservedCars.size() << " certs)\n";
+        // If we are the leader and this was the last missing cert, submit immediately.
+        if (amITheLeader(physicallyObservedCars) && certCollectionStarted && !viewEstablished) {
+            if (collectedCerts.size() >= physicallyObservedCars.size()) {
+                if (certCollectionTimeoutTimer && certCollectionTimeoutTimer->isScheduled())
+                    cancelEvent(certCollectionTimeoutTimer);
+                viewEstablished = true;
+                std::cout << "[V2VProxy " << replicaId << "] ===== ALL CERTS COLLECTED (via self-store): SUBMITTING TO BFT =====\n";
+                submitViewToBFTConsensus();
+            }
+        }
+    }
+}
+
+void V2VProxyModule::handleArrivalCert(BFTMessage* bftMsg) {
+    if (zombieFilter()) return;
+    ArrivalCert cert = deserializeArrivalCert(bftMsg);
+
+    if (!validateArrivalCert(cert)) {
+        std::cout << "[CERT-INVALID] Replica " << replicaId << " INVALID ARRIVAL_CERT from "
+                  << cert.carId << " — dropping\n";
         return;
     }
 
-    std::cout << "[V2VProxy " << replicaId << "] ===== PHASE 1b: BROADCASTING VIEW_PROPOSAL =====\n";
+    if (collectedCerts.count(cert.carId)) return;  // dedup
+    collectedCerts[cert.carId] = cert;
+    std::cout << "[CERT-STORED] Replica " << replicaId << " stored ARRIVAL_CERT for "
+              << cert.carId << " (" << collectedCerts.size() << "/"
+              << physicallyObservedCars.size() << " certs)\n";
 
-    // Build the vehicleStates string from the collected viewState map
-    std::string vsStr = buildVehicleStatesStr();
-
-    // Collect car IDs for observedCars field
-    std::set<std::string> carIds;
-    for (const auto& kv : viewState) carIds.insert(kv.first);
-
-    std::cout << "[V2VProxy " << replicaId << "] vehicleStatesStr: " << vsStr << "\n";
-
-    myViewProposal.proposerReplicaId = replicaId;
-    myViewProposal.vehicleStatesStr  = vsStr;
-    myViewProposal.observedCars      = carIds;
-    myViewProposal.proposalTimestamp = simTime().dbl();
-    myViewProposal.signature         = signViewProposal(carIds);  // signs vsStr + replicaId
-
-    broadcastViewProposal();
-    currentPhase = VIEW_AGREEMENT;
-}
-
-void V2VProxyModule::broadcastViewProposal() {
-     // ZOMBIE FILTER: Departed cars don't broadcast views
-    if (zombieFilter()) return;
-    
-    
-    
-    std::cout << "[V2VProxy " << replicaId << "] Broadcasting view proposal via V2V..." << "\n";
-    
-    std::vector<uint8_t> payload = serializeViewProposal(myViewProposal);
-    sendBFTMessage(replicaId, -1, payload, 4);  // messageType=4 (VIEW_PROPOSAL)
-    
-    std::cout << "[V2VProxy " << replicaId << "] Broadcasted view with " 
-              << myViewProposal.observedCars.size() << " cars" << "\n";
-}
-
-void V2VProxyModule::handleViewProposal(BFTMessage* bftMsg) {
-    
-    // ZOMBIE FILTER: Departed cars don't accept view proposals
-    if (zombieFilter()) return;
-    
-    ViewProposal proposal = deserializeViewProposal(bftMsg);
-    
-    std::cout << "[V2VProxy " << replicaId << "] Received view proposal from replica " 
-              << proposal.proposerReplicaId << "\n";
-    std::cout << "[V2VProxy " << replicaId << "]   Their view: {";
-    for (const auto& car : proposal.observedCars) {
-        std::cout << car << " ";
-    }
-    std::cout << "}" << "\n";
-    
-    // Build my vehicleStates string and compare to the proposal
-    std::string myVsStr = buildVehicleStatesStr();
-
-    std::cout << "[V2VProxy " << replicaId << "]   My vehicleStatesStr: " << myVsStr << "\n";
-    std::cout << "[V2VProxy " << replicaId << "]   Proposal vehicleStatesStr: " << proposal.vehicleStatesStr << "\n";
-
-    if (!proposal.vehicleStatesStr.empty() && proposal.vehicleStatesStr == myVsStr) {
-        std::cout << "[V2VProxy " << replicaId << "] AGREEMENT: vehicleStates match! Sending V2V signature...\n";
-
-        // Must match Java verifyViewSignature: XXHash32(vehicleStatesStr + ":" + signingReplicaId)
-        std::string toSign = proposal.vehicleStatesStr + ":" + std::to_string(replicaId);
-        int32_t hash = computeXXHash32(toSign);
-        std::vector<uint8_t> sig(sizeof(int32_t));
-        std::memcpy(sig.data(), &hash, sizeof(int32_t));
-
-        ViewAgreement agreement;
-        agreement.agreingReplicaId = replicaId;
-        agreement.agreedView       = proposal.observedCars;
-        agreement.signature        = sig;
-
-        std::vector<uint8_t> payload = serializeViewAgreement(agreement);
-        sendBFTMessage(replicaId, proposal.proposerReplicaId, payload, 5);
-    } else {
-        std::cout << "[V2VProxy " << replicaId << "] DISAGREEMENT: vehicleStates don't match (have "
-                  << viewState.size() << "/" << BATCH_SIZE << " VehicleStates). Not signing.\n";
+    // Leader: check if all physically observed cars now have certs
+    if (amITheLeader(physicallyObservedCars) && certCollectionStarted && !viewEstablished) {
+        if (collectedCerts.size() >= physicallyObservedCars.size()) {
+            if (certCollectionTimeoutTimer && certCollectionTimeoutTimer->isScheduled()) {
+                cancelEvent(certCollectionTimeoutTimer);
+            }
+            viewEstablished = true;
+            std::cout << "[V2VProxy " << replicaId << "] ===== ALL CERTS COLLECTED: SUBMITTING TO BFT =====\n";
+            submitViewToBFTConsensus();
+        }
     }
 }
 
-// Use the AGREED view (not live visibility) so all replicas elect the same leader.
+bool V2VProxyModule::validateArrivalCert(const ArrivalCert& cert) {
+    int f = (BATCH_SIZE - 1) / 3;
+    int required = f + 1;
+    if ((int)cert.echoes.size() < required) {
+        std::cout << "[CERT-VALIDATE] " << cert.carId << " has " << cert.echoes.size()
+                  << " echoes, need " << required << "\n";
+        return false;
+    }
+
+    std::set<int> seenEchoers;
+    int validCount = 0;
+    for (const auto& echo : cert.echoes) {
+        if (!seenEchoers.insert(echo.echoingReplicaId).second) continue;  // dedup
+        // Recompute expected signature
+        std::string dirStr = (cert.direction == DIR_LEFT ? "L" :
+                              cert.direction == DIR_RIGHT ? "R" : "S");
+        std::string toSign = cert.carId + ":" + cert.lane + ":"
+            + std::to_string(cert.positionInLane) + ":"
+            + dirStr + ":"
+            + (cert.isAmbulance ? "1" : "0") + ":"
+            + std::to_string(echo.echoingReplicaId);
+        int32_t expected = computeXXHash32(toSign);
+        if (expected == echo.signatureHash) validCount++;
+    }
+
+    if (validCount < required) {
+        std::cout << "[CERT-VALIDATE] " << cert.carId << " only " << validCount
+                  << " valid sigs (need " << required << ")\n";
+        return false;
+    }
+    return true;
+}
+
 int V2VProxyModule::getCurrentViewLeader(const std::set<std::string>& agreedView) {
     if (agreedView.empty()) return -1;
     
@@ -868,118 +857,47 @@ bool V2VProxyModule::amITheLeader(const std::set<std::string>& agreedView) {
     return (getCurrentViewLeader(agreedView) == replicaId);
 }
 
-void V2VProxyModule::handleViewAgreement(BFTMessage* bftMsg) {
-    ViewAgreement agreement = deserializeViewAgreement(bftMsg);
-    
-    // 1. Get a reference to the specific vote list for this view
-    auto& votes = viewVotes[agreement.agreedView];
-
-    // 2. Check if this specific replica has already voted for this view
-    bool alreadyVoted = false;
-    for (const auto& existingVote : votes) {
-        if (existingVote.agreingReplicaId == agreement.agreingReplicaId) {
-            alreadyVoted = true;
-            break; 
-        }
-    }
-
-    // 3. Only proceed if this is a new, unique voter
-    if (alreadyVoted) {
-        std::cout << "[V2VProxy " << replicaId << "] IGNORING duplicate V2V agreement from replica " 
-                  << agreement.agreingReplicaId << "\n";
-        return;
-    }
-
-    // 4. Validate signature BEFORE counting — a vote with an empty/malformed
-    //    signature will be skipped during serialization, so counting it here
-    //    would make voteCount drift above the actual number of sigs Java receives.
-    if (agreement.signature.size() < 4) {
-        std::cout << "[V2VProxy " << replicaId << "] IGNORING vote from replica "
-                  << agreement.agreingReplicaId << " — signature.size()="
-                  << agreement.signature.size() << " (need >=4)" << "\n";
-        return;
-    }
-
-    // 5. Record the unique, valid vote
-    votes.push_back(agreement);
-
-    int voteCount = votes.size();
-    std::cout << "[V2VProxy " << replicaId << "] Received NEW valid V2V agreement from " 
-              << agreement.agreingReplicaId << ". Valid votes: " << voteCount << "\n";
-    
-    // 5. Check if we have f+1 V2V agreements on this view
-    // std::set<std::string> myView = getVisibleVehicles(300.0);
-    int viewSize = agreement.agreedView.size();
-    int f = (viewSize - 1) / 3;
-
-    int required = f + 1;
-    std::cout << "[V2VProxy " << replicaId << "] NEW agreement from " 
-              << agreement.agreingReplicaId << ". Bucket for this exact view has: " 
-              << voteCount << "/" << required << " votes. (View Size: " << viewSize << ")" << "\n";
-    
-    if (voteCount >= required && !viewEstablished) {
-        viewSignatureCollectionEndTime = simTime();
-        viewEstablished = true;
-
-        std::cout << "[V2VProxy " << replicaId << "] ===== PHASE 1c: SUBMITTING TO BFT CONSENSUS =====" << "\n";
-        std::cout << "[V2VProxy " << replicaId << "] Collected f+1=" << required 
-                  << " V2V signatures for view: {";
-        for (const auto& car : agreement.agreedView) {
-            std::cout << car << " ";
-        }
-        std::cout << "}" << "\n";
-
-       //submitViewToBFTConsensus(agreement.agreedView, votes);
-
-        // Use the AGREED view (not live visibility) to elect the leader deterministically.
-        // // All replicas with the same agreedView will compute the same leader.
-        if (amITheLeader(agreement.agreedView)) {
-            std::cout << "[V2VProxy " << replicaId << "] ===== PHASE 1c: LEADER SUBMITTING TO BFT =====" << "\n";
-            submitViewToBFTConsensus(agreement.agreedView, votes);
-        } else {
-            std::cout << "[V2VProxy " << replicaId << "] I am a follower. Waiting for BFT delivery via Java callback." << "\n";
-        }
-    }
-}
-
-void V2VProxyModule::submitViewToBFTConsensus(const std::set<std::string>& view,
-                                                const std::vector<ViewAgreement>& v2vSigs) {
+void V2VProxyModule::submitViewToBFTConsensus() {
     viewConsensusStartTime = simTime();
+    proposeAllSubmitTime = simTime();
     realViewConsensusStart = std::chrono::high_resolution_clock::now();
-    std::cout << "[V2VProxy " << replicaId << "] Submitting view to BFT-SMaRt consensus...\n";
-    std::cout << "[METRICS " << replicaId << "] View_Consensus_Start: " << viewConsensusStartTime << "\n";
+    std::cout << "[V2VProxy " << replicaId << "] Submitting PROPOSE_ALL to BFT-SMaRt (per-car cert protocol)...\n";
+    std::cout << "[METRICS " << replicaId << "] ProposeAll_Submit_Time: " << proposeAllSubmitTime << "\n";
 
-    // New wire format: "VIEW_PROPOSE:<proposerId>:<vehicleStatesStr>:<viewSignatures>"
-    // vehicleStatesStr: "veh0|N|1|S|0;veh1|S|1|L|0;..."
-    // viewSignatures:   "replicaId,XXHash32Decimal|replicaId,XXHash32Decimal|..."
-    //   XXHash32 input: vehicleStatesStr + ":" + signingReplicaId (matches Java verifyViewSignature)
+    // Wire format: "PROPOSE_ALL:<proposerId>:<vehicleStatesStr>:<perCarCerts>"
+    // vehicleStatesStr: "veh0|N|1|S|0|SIGNED;veh1|S|1|L|0|QUIET;..."
+    // perCarCerts:      "veh0~r1,hash1|r2,hash2;veh1~r0,hash0|r1,hash1"
+    //   (carId ~ signerReplicaId,xxhashDecimal | ... ; nextCar ...)
+    // Java leader appends the computed schedule before invoking ordered consensus.
 
-    std::string vsStr = buildVehicleStatesStr();
+    // Build vehicleStatesStr: SIGNED = has valid cert, QUIET = no cert
+    std::string vsStr = buildVehicleStatesStr(&collectedCerts);
 
-    std::stringstream ss;
-    ss << "VIEW_PROPOSE:" << replicaId << ":" << vsStr << ":";
-
-    // Append collected VIEW_AGREEMENT signatures
-    bool firstSig = true;
-    for (const ViewAgreement& sig : v2vSigs) {
-        if (sig.signature.size() >= 4) {
-            if (!firstSig) ss << "|";
-            int32_t hashValue;
-            std::memcpy(&hashValue, sig.signature.data(), sizeof(int32_t));
-            ss << sig.agreingReplicaId << "," << hashValue;
+    // Build per-car certs string (only SIGNED cars have certs)
+    std::string perCarCertsStr;
+    bool firstCar = true;
+    for (const auto& kv : collectedCerts) {
+        if (!firstCar) perCarCertsStr += ";";
+        firstCar = false;
+        perCarCertsStr += kv.first + "~";  // carId~
+        bool firstSig = true;
+        for (const auto& echo : kv.second.echoes) {
+            if (!firstSig) perCarCertsStr += "|";
             firstSig = false;
-        } else {
-            std::cerr << "[V2VProxy " << replicaId << "] WARNING: skipping sig from replica "
-                      << sig.agreingReplicaId << " (size=" << sig.signature.size() << ")\n";
+            perCarCertsStr += std::to_string(echo.echoingReplicaId)
+                            + "," + std::to_string(echo.signatureHash);
         }
     }
 
-    std::string request = ss.str();
-    std::cout << "[V2VProxy " << replicaId << "] BFT VIEW_PROPOSE: " << request << "\n";
+    std::string request = "PROPOSE_ALL:" + std::to_string(replicaId)
+                        + ":" + vsStr
+                        + ":" + perCarCertsStr;
+
+    std::cout << "[V2VProxy " << replicaId << "] BFT PROPOSE_ALL: " << request << "\n";
 
     if (!triggerJoinViaJNI(request)) {
         std::cerr << "[V2VProxy " << replicaId << "] ERROR: Failed to submit view to BFT — storing for retry when Java ready\n";
-        pendingViewProposalRequest = request;  // will be retried by checkJavaReadyTimer
+        pendingProposeAllRequest = request;  // will be retried by checkJavaReadyTimer
     }
 }
 

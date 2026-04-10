@@ -157,7 +157,7 @@ void V2VProxyModule::resetForNextRound() {
     
     // Reset other flags
     viewEstablished = false;
-    pendingViewProposalRequest.clear();
+    pendingProposeAllRequest.clear();
     hasRequestedCrossing = false;
     waitingForConsensus = false;
 
@@ -174,6 +174,15 @@ void V2VProxyModule::resetForNextRound() {
 
 
 
+    // Reset per-car cert collection state
+    myReceivedEchoes.clear();
+    collectedCerts.clear();
+    physicallyObservedCars.clear();
+    certCollectionStarted = false;
+    certBroadcast = false;
+    if (certCollectionTimeoutTimer && certCollectionTimeoutTimer->isScheduled()) {
+        cancelEvent(certCollectionTimeoutTimer);
+    }
     if (orderDelayTimer && orderDelayTimer->isScheduled()) {
         cancelEvent(orderDelayTimer);
     }
@@ -191,7 +200,6 @@ void V2VProxyModule::resetForNextRound() {
     expectedToGo.clear();
     confirmedDeparted.clear();
 
-    viewVotes.clear();
     shouldFlush = false;
 
     // Reset per-round timing metrics so next round starts with clean slate
@@ -205,8 +213,11 @@ void V2VProxyModule::resetForNextRound() {
     viewConsensusEndTime = 0;
     orderConsensusStartTime = 0;
     orderConsensusEndTime = 0;
+    proposeAllSubmitTime = 0;
     orderDecisionCallbackSeen = false;
     lastOrderBftRequestRttMs = -1.0;
+    lastProposeAllConsensusWallSec = -1.0;
+    lastProposeAllConsensusEpoch = -1;
     consensusStartTime = 0;
 
     flushReliabilityQueue();

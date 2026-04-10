@@ -11,10 +11,11 @@ namespace veins;
 // messageType values:
 // 0 = BFT_CONSENSUS       - Existing BFT-SMaRt protocol messages
 // 1 = ARRIVAL_ANNOUNCE    - Car broadcasts arrival claim
-// 2 = WITNESS_RESPONSE    - Neighbor sends witness signature
-// 3 = READYQC_COMPLETE    - Car broadcasts completed ReadyQC
-// 4 = VIEW_PROPOSAL       - Propose set of cars with valid ReadyQCs
-// 5 = ORDER_PROPOSAL      - Propose ordering based on verifiedArrival
+// 2 = WITNESS_RESPONSE    - (legacy, unused)
+// 3 = READYQC_COMPLETE    - (legacy, unused)
+// 4 = ARRIVAL_ECHO        - Replica echoes back to announcing car (physical check passed)
+// 5 = ARRIVAL_CERT        - Car broadcasts f+1-echo certificate to all replicas
+// 7 = EXECUTING           - Batch crossing notification, locks new arrivals
 
 // Message carrying BFT-SMaRt protocol data over V2V
 packet BFTMessage extends BaseFrame1609_4 {

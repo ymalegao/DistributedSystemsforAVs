@@ -52,7 +52,7 @@ PYEOF
 )
   if [[ -n "$USAGE" ]]; then
     # POST to MCP graph server (always running, reliable)
-    MCP_PORT=$(cat "/home/yash/DistributedSystemsforAVs/.dual-graph/mcp_port" 2>/dev/null || echo "8080")
+    MCP_PORT=$(cat "/home/yash/DistributedSystemsforAVs/.dual-graph/run/claude/mcp_port" 2>/dev/null || echo "8080")
     curl -sf -X POST "http://localhost:$MCP_PORT/log"       -H "Content-Type: application/json"       -d "$USAGE"       >/dev/null 2>&1 || true
     # Also POST to token-counter-mcp dashboard if available
     PORT_FILE="$HOME/.claude/token-counter/dashboard-port.txt"

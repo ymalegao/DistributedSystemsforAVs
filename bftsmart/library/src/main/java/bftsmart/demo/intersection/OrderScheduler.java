@@ -168,30 +168,42 @@ final class OrderScheduler {
             batch.vehicleIds.add(head.vehicleId);
             placed.add(head.vehicleId);
 
-            boolean grew;
-            do {
-                grew = false;
-                for (VehicleState candidate : workQueue) {
-                    if (placed.contains(candidate.vehicleId)) {
-                        continue;
-                    }
-                    if (!allSameLaneFrontPlaced(candidate, view, placed)) {
-                        continue;
-                    }
-                    boolean safe = true;
-                    for (String inBatch : batch.vehicleIds) {
-                        if (!ConflictMatrix.isSafeToBatch(view.get(inBatch), candidate)) {
-                            safe = false;
-                            break;
+            // QUIET vehicles must be isolated in their own exclusive batch.
+            // Only SIGNED vehicles may be co-scheduled via the greedy packer.
+            boolean headIsQuiet = "QUIET".equals(head.cyberStatus);
+            if (!headIsQuiet) {
+                boolean grew;
+                do {
+                    grew = false;
+                    for (VehicleState candidate : workQueue) {
+                        if (placed.contains(candidate.vehicleId)) {
+                            continue;
+                        }
+                        if (!allSameLaneFrontPlaced(candidate, view, placed)) {
+                            continue;
+                        }
+                        // Never co-batch a QUIET vehicle with any other vehicle
+                        if ("QUIET".equals(candidate.cyberStatus)) {
+                            continue;
+                        }
+                        boolean safe = true;
+                        for (String inBatch : batch.vehicleIds) {
+                            if (!ConflictMatrix.isSafeToBatch(view.get(inBatch), candidate)) {
+                                safe = false;
+                                break;
+                            }
+                        }
+                        if (safe) {
+                            batch.vehicleIds.add(candidate.vehicleId);
+                            placed.add(candidate.vehicleId);
+                            grew = true;
                         }
                     }
-                    if (safe) {
-                        batch.vehicleIds.add(candidate.vehicleId);
-                        placed.add(candidate.vehicleId);
-                        grew = true;
-                    }
-                }
-            } while (grew);
+                } while (grew);
+            } else {
+                System.out.println("[LEADER] QUIET vehicle " + head.vehicleId
+                        + " assigned exclusive singleton batch (Exclusive Fallback).");
+            }
 
             bag.batches.add(batch);
         }

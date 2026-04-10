@@ -86,7 +86,15 @@ public class ServerViewController extends ViewController {
         this.tomLayer = tomLayer;
     }
 
-    
+    /**
+     * Returns the current BFT leader process ID, or -1 if not yet initialized.
+     */
+    public int getCurrentLeader() {
+        if (tomLayer == null) return -1;
+        return tomLayer.execManager.getCurrentLeader();
+    }
+
+
     public boolean isInCurrentView() {
         return this.currentView.isMember(getStaticConf().getProcessId());
     }

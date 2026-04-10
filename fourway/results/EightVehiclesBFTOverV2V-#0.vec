@@ -1,8 +1,8 @@
 version 3
-run EightVehiclesBFTOverV2V-0-20260403-23:07:08-298047
+run EightVehiclesBFTOverV2V-0-20260407-08:52:06-1202460
 attr configname EightVehiclesBFTOverV2V
-attr datetime 20260403-23:07:08
-attr datetimef 20260403-230708
+attr datetime 20260407-08:52:06
+attr datetimef 20260407-085206
 attr experiment EightVehiclesBFTOverV2V
 attr inifile omnetpp.ini
 attr iterationvars ""
@@ -10,7 +10,7 @@ attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network fourWay
-attr processid 298047
+attr processid 1202460
 attr repetition 0
 attr replication #0
 attr resultdir results
@@ -43,7 +43,7 @@ config *.node[*].appl.stopDistance 50m
 config *.node[*].appl.intersectionWidth 15m
 config *.node[*].appl.avgSpeed 14mps
 config *.node[*].appl.safetyGap 1.5s
-config *.node[*].appl.stopSignTimeoutSec 3.0s
+config *.node[*].appl.stopSignTimeoutSec 10.0s
 config *.node[*].appl.gatewayHost "\"\""
 config *.node[*].appl.gatewayPort 0
 config *.node[*].appl.carId "\"\""

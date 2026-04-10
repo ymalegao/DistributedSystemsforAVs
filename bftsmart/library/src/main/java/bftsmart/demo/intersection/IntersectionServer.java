@@ -29,10 +29,10 @@ import java.io.ObjectOutput;
 import java.io.ObjectOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.Security;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -45,11 +45,19 @@ import java.util.concurrent.TimeoutException;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 
 /**
- * BFT replicated service for the active VIEW/ORDER intersection protocol.
+ * BFT replicated service for the single-round PROPOSE_ALL intersection protocol.
+ *
+ * The C++ proposer sends one packet:
+ *   PROPOSE_ALL:<proposerId>:<vehicleStatesStr>:<perCarCerts>
+ *
+ * The Java leader appends the computed schedule and submits a single invokeOrdered call:
+ *   PROPOSE_ALL:<proposerId>:<vehicleStatesStr>:<perCarCerts>:<orderBagStr>
+ *
+ * OrderRequestVerifier validates per-car ARRIVAL_CERT signatures (f+1 per SIGNED car)
+ * and the proposed schedule before every follower votes. On delivery, all replicas call notifyOrderDecided.
  */
 public final class IntersectionServer extends DefaultRecoverable {
     private static final Map<Integer, IntersectionServer> readyServers = new ConcurrentHashMap<>();
-    private static final int BATCH_SIZE = 16;
     private static final int CONSENSUS_REQUEST_TIMEOUT_SEC = 3600;
 
     private long roundNumber = 0;
@@ -60,31 +68,24 @@ public final class IntersectionServer extends DefaultRecoverable {
     private final Set<Integer> departedReplicas = new HashSet<>();
     private final Object departedLock = new Object();
 
-    private volatile boolean orderProposeSubmitted = false;
-    private volatile boolean viewPhaseComplete = false;
-    private volatile boolean orderPhaseComplete = false;
-    private volatile int lastLoggedViewCid = -1;
+    private volatile boolean proposeAllSubmitted = false;
     volatile Map<String, VehicleState> agreedViewState = null;
 
     private ServiceProxy localClientProxy = null;
-    private long viewConsensusStartWall;
-    private long viewConsensusEndWall;
-    private long orderConsensusStartWall;
-    private long orderConsensusEndWall;
+    private long consensusStartWall;
 
-    /** Notify C++ that wipeAndReinit completed; C++ will then command re-announce. */
+    /** Notify C++ that wipeAndReinit completed; C++ will command re-announce. */
     private native void notifyWipeComplete(int processId);
 
-    /** Notify C++ that VIEW consensus completed. */
+    /** Notify C++ of the single-round PROPOSE_ALL wall-clock consensus latency. */
+    private native void notifyProposeAllConsensusMetric(int replicaId, int epoch, double wallSeconds);
+
+    /** Kept for JNI registration compatibility (not called in the single-round protocol). */
     private native void notifyViewAgreed(int replicaId, String viewMembers);
 
     /** Notify C++ that ORDER consensus completed. */
     private native void notifyOrderDecided(int replicaId, String orderDecision);
 
-    /**
-     * Deprecated compatibility callback kept so the JNI registration still matches
-     * the native bridge, even though the active protocol does not use GO delays.
-     */
     @SuppressWarnings("unused")
     private native void notifyVehicleCanGo(int replicaId, double delaySeconds);
 
@@ -157,19 +158,12 @@ public final class IntersectionServer extends DefaultRecoverable {
         }
     }
 
-    /**
-     * Check if a replica is departed (zombie).
-     */
     public boolean isReplicaDeparted(int replicaId) {
         synchronized (departedLock) {
             return departedReplicas.contains(replicaId);
         }
     }
 
-    /**
-     * Batch size updates are informational now; the active protocol derives quorum
-     * from the view carried in each request.
-     */
     public void updateBatchSize(int batchSize) {
         int faultTolerance = Math.max(0, (batchSize - 1) / 3);
         System.out.println("[BATCH] Updated active batch size hint: " + batchSize);
@@ -178,7 +172,7 @@ public final class IntersectionServer extends DefaultRecoverable {
     }
 
     /**
-     * Called by OMNeT++ via JNI with VIEW_PROPOSE or ORDER_PROPOSE request.
+     * Called by OMNeT++ via JNI with the PROPOSE_ALL request.
      */
     public void triggerConsensusRequest(String request) {
         System.out.println("[IntersectionServer " + processId + "] triggerConsensusRequest: " + request);
@@ -197,7 +191,13 @@ public final class IntersectionServer extends DefaultRecoverable {
     }
 
     /**
-     * Send consensus request (VIEW_PROPOSE or ORDER_PROPOSE) and handle response.
+     * Send a single PROPOSE_ALL through BFT-SMaRt.
+     *
+     * Incoming from C++:
+     *   PROPOSE_ALL:<proposerId>:<vehicleStatesStr>:<perCarCerts>
+     *
+     * This method appends the computed schedule and calls invokeOrdered once:
+     *   PROPOSE_ALL:<proposerId>:<vehicleStatesStr>:<perCarCerts>:<orderBagStr>
      */
     private void sendConsensusRequest(String request) {
         if (this.localClientProxy == null) {
@@ -220,32 +220,57 @@ public final class IntersectionServer extends DefaultRecoverable {
             return;
         }
 
-        if (request.contains("ORDER_PROPOSE")) {
-            if (orderProposeSubmitted) {
-                System.out.println("[SERVER " + processId
-                        + "] ORDER_PROPOSE already submitted this round; skipping duplicate.");
-                return;
+        if (proposeAllSubmitted) {
+            System.out.println("[SERVER " + processId
+                    + "] PROPOSE_ALL already submitted this round; skipping duplicate.");
+            return;
+        }
+        proposeAllSubmitted = true;
+
+        // Split C++ packet: PROPOSE_ALL:<proposerId>:<vehicleStatesStr>:<perCarCerts>
+        // vehicleStatesStr and perCarCerts contain no ':', so limit=4 is safe.
+        String[] top = request.split(":", 4);
+        if (top.length < 4 || !"PROPOSE_ALL".equals(top[0])) {
+            System.err.println("[SERVER " + processId + "] Unexpected request format: " + request);
+            proposeAllSubmitted = false;
+            return;
+        }
+        String proposerStr      = top[1];
+        String vehicleStatesStr = top[2];
+        String perCarCertsStr   = top[3];
+
+        // Build view map (filter departed vehicles)
+        List<VehicleState> states = ViewConsensusProtocol.parseVehicleStates(vehicleStatesStr);
+        Map<String, VehicleState> viewMap = new LinkedHashMap<>();
+        for (VehicleState vs : states) {
+            int rid = Integer.parseInt(vs.vehicleId.substring(3));
+            if (!isReplicaDeparted(rid)) {
+                viewMap.put(vs.vehicleId, vs);
             }
-            orderProposeSubmitted = true;
         }
 
-        System.out.println("[SERVER " + this.processId + "] >>> Calling invokeOrdered...");
+        // Leader computes the deterministic schedule
+        int epoch = (int) roundNumber;
+        OrderBag bag = OrderScheduler.buildProposal(viewMap, epoch, waitRegistry);
+        String schedulePart = OrderScheduler.serializeOrderBagForBFT(bag);
+
+        // Full message for BFT-SMaRt ordered consensus:
+        // PROPOSE_ALL:<proposerId>:<vehicleStatesStr>:<perCarCerts>:<orderBagStr>
+        String fullRequest = "PROPOSE_ALL:" + proposerStr + ":" + vehicleStatesStr + ":"
+                + perCarCertsStr + ":" + schedulePart;
+
+        System.out.println("[SERVER " + processId + "] >>> Calling invokeOrdered for PROPOSE_ALL...");
+        bftsmart.communication.V2V.ReliableV2VMessaging.globalResetV2V(null);
+        consensusStartWall = System.currentTimeMillis();
+        System.out.println("[INVOKE_START " + processId + "] wall_offset="
+                + (System.currentTimeMillis() - experimentStartWall) + "ms");
 
         try {
-            if (request.contains("VIEW_PROPOSE")) {
-                bftsmart.communication.V2V.ReliableV2VMessaging.globalResetV2V(null);
-                viewConsensusStartWall = System.currentTimeMillis();
-                System.out.println("[INVOKE_START " + processId + "] wall_offset="
-                        + (System.currentTimeMillis() - experimentStartWall) + "ms");
-            }
-            if (request.contains("ORDER_PROPOSE")) {
-                orderConsensusStartWall = System.currentTimeMillis();
-            }
-
             long proxyStart = System.nanoTime();
             byte[] reply;
             try {
-                reply = invokeOrderedWithTimeout(this.localClientProxy, request.getBytes(StandardCharsets.UTF_8));
+                reply = invokeOrderedWithTimeout(this.localClientProxy,
+                        fullRequest.getBytes(StandardCharsets.UTF_8));
             } catch (NullPointerException npe) {
                 System.err.println("[SERVER " + processId
                         + "] Netty NPE on stale proxy; nulling for fresh creation on next request.");
@@ -254,47 +279,30 @@ public final class IntersectionServer extends DefaultRecoverable {
                 } catch (Exception ignored) {
                 }
                 this.localClientProxy = null;
+                proposeAllSubmitted = false;
                 return;
             }
             long proxyEnd = System.nanoTime();
             System.out.println("[PROFILING " + processId + "] proxy.invokeOrdered took: "
                     + ((proxyEnd - proxyStart) / 1_000_000.0) + " ms");
+
+            long consensusEndWall = System.currentTimeMillis();
+            double consensusWallSeconds = (consensusEndWall - consensusStartWall) / 1000.0;
+            System.out.println("[BFTCONSENSUS " + processId + "] PROPOSE_ALL consensus time epoch="
+                    + epoch + ": " + (consensusEndWall - consensusStartWall) + "ms");
+            try {
+                notifyProposeAllConsensusMetric(processId, epoch, consensusWallSeconds);
+            } catch (UnsatisfiedLinkError e) {
+                System.err.println("[BFTCONSENSUS] JNI notifyProposeAllConsensusMetric unavailable: "
+                        + e.getMessage());
+            }
+
             if (reply == null) {
                 return;
             }
 
-            if (request.contains("VIEW_PROPOSE")) {
-                viewConsensusEndWall = System.currentTimeMillis();
-                System.out.println("[BFTCONSENSUS " + this.processId + "] View consensus time epoch="
-                        + roundNumber + ": " + (viewConsensusEndWall - viewConsensusStartWall) + "ms");
-            }
-
             String replyStr = new String(reply, StandardCharsets.UTF_8);
-            System.out.println("[SERVER " + this.processId + "] Consensus reply: " + replyStr);
-
-            if (replyStr.startsWith("VIEW_AGREED:")) {
-                String viewStr = replyStr.substring("VIEW_AGREED:".length());
-                if (viewStr.isEmpty()) {
-                    viewStr = "[]";
-                }
-                System.out.println("Processing request. Active View: " + viewStr);
-                try {
-                    notifyViewAgreed(this.processId, viewStr);
-                    System.out.println("[VIEW] Notified C++ of agreed view for replica " + this.processId);
-                } catch (UnsatisfiedLinkError e) {
-                    System.err.println("[VIEW] Warning: Could not notify C++ (JNI not available): "
-                            + e.getMessage());
-                }
-            } else if (replyStr.startsWith("veh")) {
-                System.out.println("[SERVER " + processId
-                        + "] ORDER reply observed; batch execution is driven by JNI delivery callbacks.");
-            } else if (replyStr.contains("BUFFERING")) {
-                System.out.println("[SERVER " + processId + "] Still buffering: " + replyStr);
-            } else if (replyStr.contains("VOTING_ONLY")) {
-                System.out.println("[SERVER " + processId + "] Not in view, voting only");
-            } else {
-                System.out.println("[SERVER " + processId + "] Unexpected reply: " + replyStr);
-            }
+            System.out.println("[SERVER " + processId + "] Consensus reply: " + replyStr);
 
         } catch (Exception e) {
             System.err.println("[SERVER " + processId + "] Error in consensus request: " + e.getMessage());
@@ -309,9 +317,6 @@ public final class IntersectionServer extends DefaultRecoverable {
         }
     }
 
-    /**
-     * Call proxy.invokeOrdered with a timeout.
-     */
     private byte[] invokeOrderedWithTimeout(ServiceProxy proxy, byte[] requestBytes)
             throws NullPointerException {
         ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -344,39 +349,8 @@ public final class IntersectionServer extends DefaultRecoverable {
         return "ERROR: Unordered requests not supported".getBytes(StandardCharsets.UTF_8);
     }
 
-    /**
-     * Called by the leader thread spawned from VIEW consensus delivery to submit
-     * ORDER_PROPOSE via localClientProxy.
-     */
-    private void submitOrderPropose(Map<String, VehicleState> view, int epoch) {
-        try {
-            OrderBag bag = OrderScheduler.buildProposal(view, epoch, waitRegistry);
-            String payload = "ORDER_PROPOSE:" + OrderScheduler.serializeOrderBagForBFT(bag);
-            System.out.println("[LEADER] Submitting ORDER_PROPOSE: " + payload);
-
-            if (localClientProxy == null) {
-                int clientId = this.processId + 1000;
-                localClientProxy = new ServiceProxy(clientId);
-                Thread.sleep(80);
-            }
-            long orderStartWall = System.currentTimeMillis();
-            byte[] result = localClientProxy.invokeOrdered(payload.getBytes(StandardCharsets.UTF_8));
-            long orderEndWall = System.currentTimeMillis();
-            System.out.println("[BFTCONSENSUS " + this.processId + "] Order consensus time epoch="
-                    + epoch + ": " + (orderEndWall - orderStartWall) + "ms");
-            if (result != null) {
-                System.out.println("[LEADER] ORDER_PROPOSE completed, reply="
-                        + new String(result, StandardCharsets.UTF_8));
-            }
-        } catch (Exception e) {
-            System.err.println("[LEADER] submitOrderPropose failed: " + e.getMessage());
-        }
-    }
-
     private void resetForNextRound() {
-        viewPhaseComplete = false;
-        orderPhaseComplete = false;
-        orderProposeSubmitted = false;
+        proposeAllSubmitted = false;
         agreedViewState = null;
         roundNumber++;
         System.out.println("[RESET] ===== STARTING ROUND " + roundNumber + " =====");
@@ -434,7 +408,6 @@ public final class IntersectionServer extends DefaultRecoverable {
     public byte[][] appExecuteBatch(byte[][] commands, MessageContext[] msgCtxs, boolean fromConsensus) {
         long appStartTime = System.nanoTime();
         byte[][] replies = new byte[commands.length][];
-        roundNumber++;
         boolean triggerRoundReset = false;
 
         try {
@@ -447,143 +420,85 @@ public final class IntersectionServer extends DefaultRecoverable {
                 decoded[i] = parseCommand(reqStr);
             }
 
-            for (Cmd cmd : decoded) {
-                if (viewPhaseComplete || cmd.type != Cmd.Type.VIEW_PROPOSE) {
-                    continue;
-                }
-                if (cmd.payload == null || cmd.payload.equals("NONE") || isReplicaDeparted(processId)) {
-                    continue;
-                }
-
-                try {
-                    String[] parts = cmd.payload.split(":", 3);
-                    if (parts.length < 3) {
-                        continue;
-                    }
-
-                    ViewProposal proposal = new ViewProposal();
-                    proposal.proposerReplicaId = Integer.parseInt(parts[0].trim());
-                    proposal.vehicleStates = ViewConsensusProtocol.parseVehicleStates(parts[1]);
-                    proposal.v2vSignatures = ViewConsensusProtocol.parseViewSignatures(parts[2]);
-
-                    if (!ViewConsensusProtocol.validateViewProposal(proposal)) {
-                        continue;
-                    }
-
-                    Map<String, VehicleState> newViewState = new LinkedHashMap<>();
-                    for (VehicleState vehicleState : proposal.vehicleStates) {
-                        int replicaId = Integer.parseInt(vehicleState.vehicleId.substring(3));
-                        if (!isReplicaDeparted(replicaId)) {
-                            newViewState.put(vehicleState.vehicleId, vehicleState);
-                        }
-                    }
-
-                    this.agreedViewState = newViewState;
-                    this.viewPhaseComplete = true;
-
-                    String resultString = String.join(",", new TreeSet<>(newViewState.keySet()));
-                    System.out.println("[SERVER] VIEW CONSENSUS REACHED. Cars=" + resultString);
-                    System.out.println("[SERVER] wall_offset="
-                            + (System.currentTimeMillis() - experimentStartWall) + "ms");
-
-                    try {
-                        notifyViewAgreed(this.processId, resultString);
-                    } catch (UnsatisfiedLinkError e) {
-                        System.err.println("[VIEW] JNI notifyViewAgreed unavailable: " + e.getMessage());
-                    }
-
-                    final Map<String, VehicleState> frozenView = Collections.unmodifiableMap(newViewState);
-                    final int frozenEpoch = (int) roundNumber;
-                    int minId = newViewState.keySet().stream()
-                            .mapToInt(id -> Integer.parseInt(id.substring(3)))
-                            .min()
-                            .orElse(-1);
-                    if (this.processId == minId) {
-                        new Thread(() -> {
-                            try {
-                                Thread.sleep(this.processId * 2L + 20L);
-                                submitOrderPropose(frozenView, frozenEpoch);
-                            } catch (Exception ex) {
-                                System.err.println("[ORDER] Leader ORDER_PROPOSE thread failed: "
-                                        + ex.getMessage());
-                            }
-                        }, "order-propose-" + processId).start();
-                    }
-
-                    break;
-                } catch (Exception e) {
-                    System.err.println("[VIEW] Error parsing VIEW_PROPOSE in scan phase: " + e.getMessage());
-                }
-            }
-
             for (int i = 0; i < commands.length; i++) {
                 Cmd cmd = decoded[i];
                 String reply;
 
                 switch (cmd.type) {
-                    case VIEW_PROPOSE:
-                        long viewSimMs = SimulationClock.currentTimeMillis();
-                        int viewCid = -1;
-                        if (msgCtxs != null && i < msgCtxs.length && msgCtxs[i] != null) {
-                            viewCid = msgCtxs[i].getConsensusId();
-                        }
-                        if (viewCid != lastLoggedViewCid) {
-                            System.out.println("[VIEW_CID " + processId + "] consensus_id=" + viewCid
-                                    + " epoch=" + roundNumber + " at t=" + viewSimMs + "ms");
-                            lastLoggedViewCid = viewCid;
-                        }
-
+                    case PROPOSE_ALL: {
                         if (isReplicaDeparted(processId)) {
                             reply = "DEPARTED";
-                        } else if (viewPhaseComplete && agreedViewState != null) {
-                            reply = "VIEW_AGREED:" + String.join(",", new TreeSet<>(agreedViewState.keySet()));
-                        } else {
-                            reply = "VIEW_REJECTED:No_Valid_Evidence";
+                            break;
                         }
-                        break;
 
-                    case ORDER_PROPOSE:
-                        if (isReplicaDeparted(processId)) {
-                            reply = "DEPARTED";
-                        } else if (viewPhaseComplete && !orderPhaseComplete) {
-                            OrderBag bag = OrderScheduler.parseOrderBag(cmd.payload);
-                            if (bag != null) {
-                                this.orderPhaseComplete = true;
-                                triggerRoundReset = true;
+                        // payload: "<proposerId>:<vehicleStatesStr>:<perCarCerts>:<orderBagStr>"
+                        // vehicleStatesStr and perCarCerts have no ':', so limit=4 is safe.
+                        String[] parts = cmd.payload != null ? cmd.payload.split(":", 4) : new String[0];
+                        if (parts.length < 4) {
+                            reply = "ERROR:Malformed PROPOSE_ALL payload";
+                            break;
+                        }
 
-                                String batchDecision = OrderScheduler.serializeOrderBagForJNI(bag);
-                                System.out.println("[ORDER] Committed OrderBag epoch=" + bag.epoch
-                                        + " batches=" + bag.batches.size()
-                                        + " decision=" + batchDecision);
+                        String vehicleStatesStr = parts[1];
+                        String orderBagStr      = parts[3]; // epoch:veh0:0;veh1:0;...
 
-                                try {
-                                    notifyOrderDecided(processId, batchDecision);
-                                } catch (UnsatisfiedLinkError e) {
-                                    System.err.println("[ORDER] JNI notifyOrderDecided unavailable: "
-                                            + e.getMessage());
-                                }
-                                if (agreedViewState != null) {
-                                    for (String vehicleId : agreedViewState.keySet()) {
-                                        int replicaId = Integer.parseInt(vehicleId.substring(3));
-                                        if (replicaId == processId) {
-                                            continue;
-                                        }
-                                        try {
-                                            notifyOrderDecided(replicaId, batchDecision);
-                                        } catch (UnsatisfiedLinkError ignored) {
-                                        }
-                                    }
-                                }
-                                reply = batchDecision;
-                            } else {
-                                reply = "ERROR:Could not parse OrderBag";
+                        // Build agreed view (filter departed vehicles)
+                        List<VehicleState> states = ViewConsensusProtocol.parseVehicleStates(vehicleStatesStr);
+                        Map<String, VehicleState> newViewState = new LinkedHashMap<>();
+                        for (VehicleState vs : states) {
+                            int rid = Integer.parseInt(vs.vehicleId.substring(3));
+                            if (!isReplicaDeparted(rid)) {
+                                newViewState.put(vs.vehicleId, vs);
                             }
-                        } else if (orderPhaseComplete) {
-                            reply = "ORDER_ALREADY_DECIDED";
-                        } else {
-                            reply = "ERROR:View not complete yet";
                         }
+                        this.agreedViewState = newViewState;
+
+                        // Parse and execute the committed schedule
+                        OrderBag bag = OrderScheduler.parseOrderBag(orderBagStr);
+                        if (bag == null) {
+                            reply = "ERROR:Could not parse OrderBag";
+                            break;
+                        }
+
+                        triggerRoundReset = true;
+                        String batchDecision = OrderScheduler.serializeOrderBagForJNI(bag);
+
+                        int consensusId = -1;
+                        if (msgCtxs != null && i < msgCtxs.length && msgCtxs[i] != null) {
+                            consensusId = msgCtxs[i].getConsensusId();
+                        }
+                        System.out.println("[ORDER] Committed PROPOSE_ALL consensus_id=" + consensusId
+                                + " epoch=" + bag.epoch
+                                + " batches=" + bag.batches.size()
+                                + " decision=" + batchDecision);
+                        System.out.println("[SERVER] Cars=" + String.join(",",
+                                new TreeSet<>(newViewState.keySet()))
+                                + " wall_offset=" + (System.currentTimeMillis() - experimentStartWall) + "ms");
+
+                        // Notify this replica's vehicle
+                        try {
+                            notifyOrderDecided(processId, batchDecision);
+                        } catch (UnsatisfiedLinkError e) {
+                            System.err.println("[ORDER] JNI notifyOrderDecided unavailable: " + e.getMessage());
+                        }
+                        // Notify other vehicles managed by this JVM process
+                        for (String vehicleId : newViewState.keySet()) {
+                            int rid = Integer.parseInt(vehicleId.substring(3));
+                            if (rid == processId) continue;
+                            try {
+                                notifyOrderDecided(rid, batchDecision);
+                            } catch (UnsatisfiedLinkError ignored) {
+                            }
+                        }
+
+                        // Update wait registry for fairness tracking
+                        for (String vehicleId : newViewState.keySet()) {
+                            waitRegistry.merge(vehicleId, 1, Integer::sum);
+                        }
+
+                        reply = batchDecision;
                         break;
+                    }
 
                     default:
                         reply = "ERROR:UNKNOWN COMMAND: " + cmd.type;
@@ -594,9 +509,7 @@ public final class IntersectionServer extends DefaultRecoverable {
             }
 
             double appTimeMs = (System.nanoTime() - appStartTime) / 1_000_000.0;
-            if (appTimeMs < 0) {
-                System.out.println("[PROFILE] appExecuteBatch timer underflow");
-            }
+            System.out.println("[PROFILE] appExecuteBatch took " + appTimeMs + "ms");
             if (triggerRoundReset) {
                 resetForNextRound();
             }
@@ -609,8 +522,7 @@ public final class IntersectionServer extends DefaultRecoverable {
 
     private static final class Cmd {
         enum Type {
-            VIEW_PROPOSE,
-            ORDER_PROPOSE
+            PROPOSE_ALL
         }
 
         Type type;
@@ -643,13 +555,11 @@ public final class IntersectionServer extends DefaultRecoverable {
         try (ObjectInput in = new ObjectInputStream(new ByteArrayInputStream(state))) {
             agreedViewState = (Map<String, VehicleState>) in.readObject();
             Map<String, Integer> restoredWaitRegistry = (Map<String, Integer>) in.readObject();
-            viewPhaseComplete = in.readBoolean();
-            orderPhaseComplete = in.readBoolean();
             roundNumber = in.readLong();
 
             waitRegistry.clear();
             waitRegistry.putAll(restoredWaitRegistry);
-            orderProposeSubmitted = orderPhaseComplete;
+            proposeAllSubmitted = false;
 
             System.out.println("[STATE] Snapshot installed. agreedView="
                     + (agreedViewState != null ? agreedViewState.size() : 0)
@@ -659,9 +569,7 @@ public final class IntersectionServer extends DefaultRecoverable {
             System.err.println("[ERROR] Error deserializing state: " + e.getMessage());
             agreedViewState = null;
             waitRegistry.clear();
-            viewPhaseComplete = false;
-            orderPhaseComplete = false;
-            orderProposeSubmitted = false;
+            proposeAllSubmitted = false;
             roundNumber = 0;
         }
     }
@@ -672,8 +580,6 @@ public final class IntersectionServer extends DefaultRecoverable {
                 ObjectOutput out = new ObjectOutputStream(bos)) {
             out.writeObject(agreedViewState);
             out.writeObject(new HashMap<>(waitRegistry));
-            out.writeBoolean(viewPhaseComplete);
-            out.writeBoolean(orderPhaseComplete);
             out.writeLong(roundNumber);
             out.flush();
             System.out.println("[STATE] Snapshot taken. agreedView="

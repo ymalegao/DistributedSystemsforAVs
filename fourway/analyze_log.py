@@ -155,6 +155,17 @@ RE_BFTCONS_ORDER = re.compile(
 RE_BYZANTINE_INJECTION = re.compile(
     r'\[BYZANTINE INJECTION\] Replica (\d+) CID=(\d+) intentionally broadcasting corrupted consensus hash')
 
+# Single-round PROPOSE_ALL protocol
+RE_BFTCONS_PROPOSE_ALL = re.compile(
+    r'\[BFTCONSENSUS (\d+)\] PROPOSE_ALL consensus time epoch=(\d+): ([\d.]+)ms')
+
+# Pre-computed summary metrics (written by --save-to or the C++ side)
+RE_RUN_METRIC       = re.compile(r'\[RUN-METRICS\] ([\w_]+):\s*([-\d.]+)')
+RE_ROUND_METRIC_CAR = re.compile(
+    r'\[ROUND-METRICS\] Epoch (\d+) Arrival_To_Resume_Time (veh\d+):\s*([\d.]+) seconds')
+RE_ROUND_METRIC_KEY = re.compile(
+    r'\[ROUND-METRICS\] Epoch (\d+) ([A-Za-z_][\w_]*):\s*([-\d.]+)')
+
 # ── Data stores ─────────────────────────────────────────────────────────────
 round_metrics = defaultdict(dict)      # epoch → {metric_name: value}
 view_starts   = defaultdict(list)      # replica → [sim_time, ...]
@@ -212,6 +223,10 @@ java_order_consensus_wall_raw = defaultdict(list)  # raw epoch -> [seconds, ...]
 byzantine_by_epoch   = defaultdict(int)    # epoch -> count of [BYZANTINE INJECTION] events
 byzantine_by_replica = defaultdict(int)    # replica -> count
 byzantine_total      = 0                   # across the whole run
+
+# Pre-computed summary metrics read back from saved logs
+run_metrics           = {}                 # key -> float  (from [RUN-METRICS] lines)
+propose_all_wall_raw  = defaultdict(list)  # raw_epoch -> [seconds, ...]
 
 def percentile(values, q):
     if not values:
@@ -495,6 +510,35 @@ with open(LOG_FILE, "r", errors="replace") as f:
             byzantine_by_replica[replica] += 1
             continue
 
+        # Single-round PROPOSE_ALL consensus latency (Java BFT layer)
+        m = RE_BFTCONS_PROPOSE_ALL.search(line)
+        if m:
+            raw_epoch = int(m.group(2))
+            propose_all_wall_raw[raw_epoch].append(float(m.group(3)) / 1000.0)
+            continue
+
+        # [RUN-METRICS] summary lines (read back from saved log files)
+        m = RE_RUN_METRIC.search(line)
+        if m:
+            run_metrics[m.group(1)] = float(m.group(2))
+            continue
+
+        # Per-car [ROUND-METRICS] Arrival_To_Resume_Time
+        m = RE_ROUND_METRIC_CAR.search(line)
+        if m:
+            epoch, car_id, val = int(m.group(1)), m.group(2), float(m.group(3))
+            car_metrics[car_id].setdefault("epoch", epoch)
+            go_decision_epoch.setdefault(car_id, epoch)
+            car_metrics[car_id]["arrival_to_resume"] = val
+            continue
+
+        # General [ROUND-METRICS] Epoch N Key: value (catch remaining epoch-keyed lines)
+        m = RE_ROUND_METRIC_KEY.search(line)
+        if m:
+            epoch, key, val = int(m.group(1)), m.group(2), float(m.group(3))
+            round_metrics[epoch].setdefault(key, val)
+            continue
+
 print("Done.\n")
 byzantine_total = sum(byzantine_by_epoch.values())
 
@@ -520,6 +564,12 @@ for raw_epoch, samples in java_order_consensus_wall_raw.items():
         continue
     epoch = normalize_java_epoch(raw_epoch)
     round_metrics[epoch]["Order_Consensus_Wall"] = statistics.mean(samples)
+
+for raw_epoch, samples in propose_all_wall_raw.items():
+    if not samples:
+        continue
+    epoch = normalize_java_epoch(raw_epoch)
+    round_metrics[epoch]["ProposeAll_Consensus_Wall"] = statistics.mean(samples)
 
 for epoch in range(N_EPOCHS):
     rm = round_metrics.get(epoch, {})
@@ -612,6 +662,7 @@ def write_metrics_json(path):
     for ep in range(N_EPOCHS):
         n = EPOCH_N[ep]
         rm = round_metrics.get(ep, {})
+        propose_all_lat = rm.get("ProposeAll_Consensus_Wall")
         view_lat  = rm.get("View_Consensus_Wall") or rm.get("View_Consensus_Latency_4Cars")
         order_lat = rm.get("Order_Consensus_Wall") or rm.get("Order_Consensus_Latency_4Cars")
         tp = epoch_throughput.get(ep)
@@ -623,14 +674,16 @@ def write_metrics_json(path):
         epochs_out.append({
             "epoch": ep,
             "n_replicas": n,
+            "propose_all_consensus_latency_s": propose_all_lat,
             "view_consensus_latency_s": view_lat,
             "order_consensus_latency_s": order_lat,
             "combined_consensus_latency_s": (view_lat + order_lat) if view_lat and order_lat else None,
             "throughput_s_per_veh": tp,
+            "throughput_veh_per_s": (1.0 / tp) if tp not in (None, 0) else None,
             "wait_normal_s": _stat(wn),
             "wait_ambulance_s": _stat(wa),
             "byzantine_injections": byz,
-            "consensus_success": bool(order_lat),
+            "consensus_success": bool(propose_all_lat or order_lat),
             "avg_messages_sent_per_replica": (sum(msgs_sent) / len(msgs_sent)) if msgs_sent else None,
             "avg_messages_recv_per_replica": (sum(msgs_recv) / len(msgs_recv)) if msgs_recv else None,
             "stop_sign_failures": epoch_failures.get(ep, 0),
@@ -659,6 +712,7 @@ def write_metrics_json(path):
         "cars": CARS,
         "epochs": N_EPOCHS,
         "throughput_s_per_veh": throughput,
+        "throughput_veh_per_s": throughput_vps,
         "throughput_formula": "(last_depart - first_depart) / n_cars",
         "wait_all_s": _stat(all_waits),
         "wait_normal_s": _stat(normal_waits),
@@ -669,6 +723,11 @@ def write_metrics_json(path):
             if normal_waits and ambulance_waits else None,
         "ambulance_priority_ratio": (statistics.mean(ambulance_waits) / statistics.mean(normal_waits))
             if normal_waits and ambulance_waits and statistics.mean(normal_waits) != 0 else None,
+        "propose_all_consensus_latency_s": _stat([
+            round_metrics[ep]["ProposeAll_Consensus_Wall"]
+            for ep in range(N_EPOCHS)
+            if round_metrics.get(ep, {}).get("ProposeAll_Consensus_Wall", 0) > 0
+        ]),
         "view_consensus_latency_s": _stat(view_consensus_wall_all or view_consensus_lat_all),
         "order_consensus_latency_s": _stat(order_consensus_wall_all or order_consensus_lat_all),
         "combined_consensus_latency_s": _stat(combined_consensus_wall_all or combined_consensus_lat_all),
@@ -906,14 +965,18 @@ for epoch in range(N_EPOCHS):
     if reset_to_ve:
         col = RED if reset_to_ve > 2.0 else (YEL if reset_to_ve > 1.0 else GRN)
         print(f"  Reset→VIEW_END:{col} {reset_to_ve:.4f}s{RESET}")
-    if view_wall is not None and view_wall > 0:
-        print(f"  VIEW consensus latency:  {color_vs_golden(view_wall, gold.get('view'))}  (wall/Java)")
-    elif view_lat is not None and view_lat > 0:
-        print(f"  VIEW delivery latency:   {color_vs_golden(view_lat, gold.get('view'))}  (sim/native)")
-    if order_wall is not None and order_wall > 0:
-        print(f"  ORDER consensus latency: {color_vs_golden(order_wall, gold.get('order'))}  (wall/Java)")
-    elif order_lat is not None and order_lat > 0:
-        print(f"  ORDER delivery latency:  {color_vs_golden(order_lat, gold.get('order'))}  (sim/native)")
+    propose_all_wall = rm.get("ProposeAll_Consensus_Wall")
+    if propose_all_wall is not None and propose_all_wall > 0:
+        print(f"  PROPOSE_ALL latency:     {CYN}{propose_all_wall:.4f}s{RESET}  (wall/Java, single round)")
+    else:
+        if view_wall is not None and view_wall > 0:
+            print(f"  VIEW consensus latency:  {color_vs_golden(view_wall, gold.get('view'))}  (wall/Java)")
+        elif view_lat is not None and view_lat > 0:
+            print(f"  VIEW delivery latency:   {color_vs_golden(view_lat, gold.get('view'))}  (sim/native)")
+        if order_wall is not None and order_wall > 0:
+            print(f"  ORDER consensus latency: {color_vs_golden(order_wall, gold.get('order'))}  (wall/Java)")
+        elif order_lat is not None and order_lat > 0:
+            print(f"  ORDER delivery latency:  {color_vs_golden(order_lat, gold.get('order'))}  (sim/native)")
     if bft_rtt:
         print(f"  ORDER BFT RTT: {bft_rtt:.3f}s  (submitter wall-clock)")
 
@@ -1033,8 +1096,13 @@ for epoch in range(N_EPOCHS):
             note = f"{GRN}Within 50ms of golden — OK{RESET}"
         print(f"  Epoch {epoch} (n={n}): excess={excess:+.3f}s  {note}")
     elif not olat:
-        print(f"  Epoch {epoch} (n={n}): {RED}no ORDER data — epoch did not complete{RESET}")
-        bottleneck_found = True
+        # Check for single-round PROPOSE_ALL protocol
+        pa_wall = round_metrics.get(epoch, {}).get("ProposeAll_Consensus_Wall")
+        if pa_wall:
+            print(f"  Epoch {epoch} (n={n}): {GRN}PROPOSE_ALL single round {pa_wall:.4f}s — ✓ one-round protocol confirmed{RESET}")
+        else:
+            print(f"  Epoch {epoch} (n={n}): {RED}no ORDER data — epoch did not complete{RESET}")
+            bottleneck_found = True
 
 if not bottleneck_found:
     print(f"  {GRN}All epochs within 50ms of golden — no obvious bottleneck{RESET}")
@@ -1075,6 +1143,7 @@ depart_times = sorted(
 )
 if len(depart_times) >= 2:
     throughput = (depart_times[-1] - depart_times[0]) / len(depart_times)
+throughput_vps = (1.0 / throughput) if throughput not in (None, 0) else None
 missing_departure = [
     car_id for car_id, m in sorted(car_metrics.items(), key=lambda kv: int(kv[0][3:]))
     if m.get("stop_time") is not None and m.get("depart_time") is None
@@ -1085,8 +1154,16 @@ print(f"{BOLD}Paper-Friendly Summary Metrics{RESET}")
 print(f"{'─' * 72}")
 if throughput is not None:
     print(f"  Throughput (user definition): {throughput:.6f}s per vehicle")
+    if throughput_vps is not None:
+        print(f"  Throughput (standard):        {throughput_vps:.6f} vehicles/s")
     print(f"    Formula: (last leave - first leave) / cars = "
           f"({depart_times[-1]:.4f} - {depart_times[0]:.4f}) / {len(depart_times)}")
+elif "Throughput_User_Definition" in run_metrics:
+    throughput = run_metrics["Throughput_User_Definition"]
+    throughput_vps = (1.0 / throughput) if throughput not in (None, 0) else None
+    print(f"  Throughput (user definition): {throughput:.6f}s per vehicle  {CYN}[from [RUN-METRICS]]{RESET}")
+    if throughput_vps is not None:
+        print(f"  Throughput (standard):        {throughput_vps:.6f} vehicles/s  {CYN}[derived]{RESET}")
 else:
     print(f"  Throughput (user definition): {YEL}N/A{RESET} "
           f"(need per-car depart_time metrics in the log)")
@@ -1094,11 +1171,19 @@ if missing_departure:
     print(f"  Missing leave timestamps:         {', '.join(missing_departure)}")
     print(f"    This log predates the new [CAR-METRICS] departure line or the native side was not rebuilt.")
 
-print(f"  Wait@intersection, all cars:      {fmt_stat(all_waits)}")
-print(f"  Wait@intersection, normal cars:   {fmt_stat(normal_waits)}")
-print(f"  Wait@intersection, ambulance:     {fmt_stat(ambulance_waits)}")
-print(f"  Arrival→resume, all cars:         {fmt_stat(arrival_to_resume_all)}")
-print(f"  Resume→leave, all cars:           {fmt_stat(resume_to_depart_all)}")
+def _fmt_or_run(values, run_key, label):
+    if values:
+        print(f"  {label}: {fmt_stat(values)}")
+    elif run_key in run_metrics:
+        print(f"  {label}: {run_metrics[run_key]:.4f}s  {CYN}[from [RUN-METRICS]]{RESET}")
+    else:
+        print(f"  {label}: N/A")
+
+_fmt_or_run(all_waits,            "Wait_Intersection_All_Mean",      "Wait@intersection, all cars     ")
+_fmt_or_run(normal_waits,         "Wait_Intersection_Normal_Mean",   "Wait@intersection, normal cars  ")
+_fmt_or_run(ambulance_waits,      "Wait_Intersection_Ambulance_Mean","Wait@intersection, ambulance    ")
+_fmt_or_run(arrival_to_resume_all,"Arrival_To_Resume_Mean",          "Arrival→resume, all cars        ")
+_fmt_or_run(resume_to_depart_all, "Resume_To_Depart_Mean",           "Resume→leave, all cars          ")
 
 view_consensus_lat_all = [
     round_metrics[ep]["View_Consensus_Latency_4Cars"]
@@ -1146,8 +1231,12 @@ fairness_all = jains_fairness(all_waits)
 fairness_normal = jains_fairness(normal_waits)
 if fairness_all is not None:
     print(f"  Jain fairness index (all waits):  {fairness_all:.4f}")
+elif "Jains_Fairness_All" in run_metrics:
+    print(f"  Jain fairness index (all waits):  {run_metrics['Jains_Fairness_All']:.4f}  {CYN}[from [RUN-METRICS]]{RESET}")
 if fairness_normal is not None:
     print(f"  Jain fairness index (normal):     {fairness_normal:.4f}")
+elif "Jains_Fairness_Normal" in run_metrics:
+    print(f"  Jain fairness index (normal):     {run_metrics['Jains_Fairness_Normal']:.4f}  {CYN}[from [RUN-METRICS]]{RESET}")
 if normal_waits and ambulance_waits:
     amb_mean = statistics.mean(ambulance_waits)
     norm_mean = statistics.mean(normal_waits)
@@ -1156,6 +1245,10 @@ if normal_waits and ambulance_waits:
     print(f"  Ambulance priority gain:          "
           f"ambulance_mean={amb_mean:.4f}s vs normal_mean={norm_mean:.4f}s "
           f"(delta={delta:+.4f}s, ratio={ratio:.4f})")
+elif "Ambulance_Priority_Gain" in run_metrics:
+    gain  = run_metrics["Ambulance_Priority_Gain"]
+    ratio = run_metrics.get("Ambulance_Priority_Ratio", float('nan'))
+    print(f"  Ambulance priority gain:          {gain:.4f}s (ratio={ratio:.4f})  {CYN}[from [RUN-METRICS]]{RESET}")
 
 # ── Per-epoch breakdown: wait + throughput ────────────────────────────────────
 print(f"\n{'=' * 72}")
@@ -1164,33 +1257,47 @@ print(f"{'─' * 72}")
 print(f"  {'Epoch':>5}  {'N':>4}  {'Throughput':>12}  {'WaitNorm(mean)':>16}  {'WaitAmb(mean)':>15}  {'Byzantine':>10}")
 for ep in range(N_EPOCHS):
     n = EPOCH_N[ep]
-    tp = epoch_throughput.get(ep)
+    rm_ep = round_metrics.get(ep, {})
+    tp = epoch_throughput.get(ep) or rm_ep.get("Throughput_User_Definition")
     tp_str = f"{tp:.4f}s/veh" if tp is not None else "N/A"
     wn = epoch_wait_normal.get(ep, [])
     wa = epoch_wait_ambulance.get(ep, [])
-    wn_str = f"{statistics.mean(wn):.4f}s" if wn else "N/A"
-    wa_str = f"{statistics.mean(wa):.4f}s" if wa else "N/A"
-    byz = byzantine_by_epoch.get(ep, 0)
+    wn_val = statistics.mean(wn) if wn else rm_ep.get("Wait_Normal_Mean")
+    wa_val = statistics.mean(wa) if wa else rm_ep.get("Wait_Ambulance_Mean")
+    wn_str = f"{wn_val:.4f}s" if wn_val is not None else "N/A"
+    wa_str = f"{wa_val:.4f}s" if wa_val is not None else "N/A"
+    byz = byzantine_by_epoch.get(ep, 0) or int(run_metrics.get(f"Byzantine_Injections_Epoch{ep}", 0))
     byz_col = RED if byz > 0 else GRN
     print(f"  {ep:>5}  {n:>4}  {tp_str:>12}  {wn_str:>16}  {wa_str:>15}  {byz_col}{byz:>10}{RESET}")
 
 # ── Byzantine Fault Analysis ─────────────────────────────────────────────────
-if byzantine_total > 0:
+byz_total_display = byzantine_total or int(run_metrics.get("Byzantine_Injections_Total", 0))
+if byz_total_display > 0:
     print(f"\n{'=' * 72}")
     print(f"{BOLD}Byzantine Fault Analysis{RESET}")
     print(f"{'─' * 72}")
-    print(f"  Total Byzantine hash corruptions: {RED}{byzantine_total}{RESET}")
-    print(f"  {'Epoch':>5}  {'Injections':>12}")
-    for ep in sorted(byzantine_by_epoch):
-        print(f"  {ep:>5}  {byzantine_by_epoch[ep]:>12}")
-    print(f"  {'Replica':>8}  {'Injections':>12}")
-    for rep in sorted(byzantine_by_replica):
-        print(f"  {rep:>8}  {byzantine_by_replica[rep]:>12}")
-    print(f"  {GRN}Consensus correctness: all epochs completed → BFT safety upheld{RESET}"
-          if all(round_metrics.get(ep, {}).get("Order_Consensus_Wall") or
-                 round_metrics.get(ep, {}).get("Order_Consensus_Latency_4Cars")
-                 for ep in range(N_EPOCHS))
-          else f"  {RED}WARNING: some epochs did not complete — check above for details{RESET}")
+    print(f"  Total Byzantine hash corruptions: {RED}{byz_total_display}{RESET}")
+    byz_by_ep = {ep: (byzantine_by_epoch.get(ep, 0) or
+                      int(run_metrics.get(f"Byzantine_Injections_Epoch{ep}", 0)))
+                 for ep in range(N_EPOCHS)}
+    if any(byz_by_ep.values()):
+        print(f"  {'Epoch':>5}  {'Injections':>12}")
+        for ep in range(N_EPOCHS):
+            if byz_by_ep[ep]:
+                print(f"  {ep:>5}  {byz_by_ep[ep]:>12}")
+    if byzantine_by_replica:
+        print(f"  {'Replica':>8}  {'Injections':>12}")
+        for rep in sorted(byzantine_by_replica):
+            print(f"  {rep:>8}  {byzantine_by_replica[rep]:>12}")
+    consensus_ok = all(
+        round_metrics.get(ep, {}).get("Order_Consensus_Wall") or
+        round_metrics.get(ep, {}).get("Order_Consensus_Latency_4Cars") or
+        round_metrics.get(ep, {}).get("ProposeAll_Consensus_Wall")
+        for ep in range(N_EPOCHS))
+    if consensus_ok:
+        print(f"  {GRN}Consensus correctness: all epochs completed → BFT safety upheld{RESET}")
+    else:
+        print(f"  {RED}WARNING: some epochs did not complete — check above for details{RESET}")
 
 csv_path  = os.path.join(PLOTS_DIR, "car_metrics.csv")
 json_path = os.path.join(PLOTS_DIR, "metrics.json")
@@ -1236,88 +1343,83 @@ if SAVE_TO:
     idx  = len(existing)
     dest = os.path.join(SAVE_TO, f"{CARS}veh_{idx}.log")
 
-    # Write only the [ROUND-METRICS] lines (tiny file, not the full 93MB log)
+    def _first_present(ep, *keys):
+        rm = round_metrics.get(ep, {})
+        for key in keys:
+            if key in rm:
+                return rm[key]
+        return None
+
+    # Write a canonical metrics summary with one line per metric.
     with open(dest, 'w') as f:
-        # Pass 1: emit ROUND-METRICS lines already present in the source log
-        with open(LOG_FILE, "r", errors="replace") as src:
-            for line in src:
-                if '[ROUND-METRICS]' in line:
-                    m = RE_ROUND_METRIC.search(line)
-                    if m:
-                        metric = m.group(2)
-                        value = float(m.group(3))
-                        if metric in {"View_Consensus_Latency_4Cars", "Order_Consensus_Latency_4Cars"} and value <= 0:
-                            continue
-                    f.write(line if line.endswith('\n') else line + '\n')
-
-        # Pass 2: append only metrics that C++ did NOT already emit
-        def _emit(ep, key, line):
-            """Write line only if key is absent from the already-parsed round_metrics."""
-            if key not in round_metrics.get(ep, {}):
-                f.write(line)
-
         for ep in range(N_EPOCHS):
             rm = round_metrics.get(ep, {})
             view_lat = rm.get("View_Consensus_Latency_4Cars")
             order_lat = rm.get("Order_Consensus_Latency_4Cars")
             view_wall = rm.get("View_Consensus_Wall")
             order_wall = rm.get("Order_Consensus_Wall")
-            if view_lat is not None:
-                _emit(ep, "View_Consensus_Latency_4Cars",
-                      f"[ROUND-METRICS] Epoch {ep} Avg_View_Consensus_Latency_4Cars: "
-                      f"{view_lat:.6f} seconds\n")
-            if order_lat is not None:
-                _emit(ep, "Order_Consensus_Latency_4Cars",
-                      f"[ROUND-METRICS] Epoch {ep} Avg_Order_Consensus_Latency_4Cars: "
-                      f"{order_lat:.6f} seconds\n")
-            if view_lat is not None and order_lat is not None:
-                _emit(ep, "Combined_Consensus_Latency",
-                      f"[ROUND-METRICS] Epoch {ep} Avg_Combined_Consensus_Latency: "
-                      f"{(view_lat + order_lat):.6f} seconds\n")
-            if view_wall is not None:
-                _emit(ep, "View_Consensus_Wall",
-                      f"[ROUND-METRICS] Epoch {ep} Avg_View_Consensus_Wall: "
-                      f"{view_wall:.6f} seconds\n")
-            if order_wall is not None:
-                _emit(ep, "Order_Consensus_Wall",
-                      f"[ROUND-METRICS] Epoch {ep} Avg_Order_Consensus_Wall: "
-                      f"{order_wall:.6f} seconds\n")
-            if view_wall is not None and order_wall is not None:
-                _emit(ep, "Combined_Consensus_Wall",
-                      f"[ROUND-METRICS] Epoch {ep} Avg_Combined_Consensus_Wall: "
-                      f"{(view_wall + order_wall):.6f} seconds\n")
+            propose_all_wall = rm.get("ProposeAll_Consensus_Wall")
+            if propose_all_wall is not None and propose_all_wall > 0:
+                f.write(f"[ROUND-METRICS] Epoch {ep} Avg_ProposeAll_Consensus_Wall: "
+                        f"{propose_all_wall:.6f} seconds\n")
+            else:
+                if view_lat is not None and view_lat > 0:
+                    f.write(f"[ROUND-METRICS] Epoch {ep} Avg_View_Consensus_Latency_4Cars: "
+                            f"{view_lat:.6f} seconds\n")
+                if order_lat is not None and order_lat > 0:
+                    f.write(f"[ROUND-METRICS] Epoch {ep} Avg_Order_Consensus_Latency_4Cars: "
+                            f"{order_lat:.6f} seconds\n")
+                if view_lat is not None and view_lat > 0 and order_lat is not None and order_lat > 0:
+                    f.write(f"[ROUND-METRICS] Epoch {ep} Avg_Combined_Consensus_Latency: "
+                            f"{(view_lat + order_lat):.6f} seconds\n")
+                if view_wall is not None and view_wall > 0:
+                    f.write(f"[ROUND-METRICS] Epoch {ep} Avg_View_Consensus_Wall: "
+                            f"{view_wall:.6f} seconds\n")
+                if order_wall is not None and order_wall > 0:
+                    f.write(f"[ROUND-METRICS] Epoch {ep} Avg_Order_Consensus_Wall: "
+                            f"{order_wall:.6f} seconds\n")
+                if view_wall is not None and view_wall > 0 and order_wall is not None and order_wall > 0:
+                    f.write(f"[ROUND-METRICS] Epoch {ep} Avg_Combined_Consensus_Wall: "
+                            f"{(view_wall + order_wall):.6f} seconds\n")
 
             # Per-car durations (one line per car) so downstream scripts can build CDFs.
             # These are lifecycle timings, not consensus latency.
             per_car = epoch_total_dur_by_car.get(ep, {})
             if per_car:
                 for car_id, dur in sorted(per_car.items(), key=lambda kv: int(kv[0][3:])):
-                    _emit(ep, f"Arrival_To_Resume_Time_{car_id}",
-                          f"[ROUND-METRICS] Epoch {ep} Arrival_To_Resume_Time {car_id}: "
-                          f"{dur:.6f} seconds\n")
+                    f.write(f"[ROUND-METRICS] Epoch {ep} Arrival_To_Resume_Time {car_id}: "
+                            f"{dur:.6f} seconds\n")
 
-            if epoch_messages_sent[ep]:
+            if epoch_messages_sent[ep] and epoch_messages_recv[ep]:
                 avg_sent = sum(epoch_messages_sent[ep]) / len(epoch_messages_sent[ep])
-                avg_recv = (sum(epoch_messages_recv[ep]) / len(epoch_messages_recv[ep])
-                            if epoch_messages_recv[ep] else 0)
-                _emit(ep, "Messages_Sent_PerReplica",
-                      f"[ROUND-METRICS] Epoch {ep} Avg_Messages_Sent_PerReplica: "
-                      f"{avg_sent:.3f} (count={len(epoch_messages_sent[ep])})\n")
-                _emit(ep, "Messages_Received_PerReplica",
-                      f"[ROUND-METRICS] Epoch {ep} Avg_Messages_Received_PerReplica: "
-                      f"{avg_recv:.3f} (count={len(epoch_messages_recv[ep])})\n")
+                avg_recv = sum(epoch_messages_recv[ep]) / len(epoch_messages_recv[ep])
+                f.write(f"[ROUND-METRICS] Epoch {ep} Avg_Messages_Sent_PerReplica: "
+                        f"{avg_sent:.3f} (count={len(epoch_messages_sent[ep])})\n")
+                f.write(f"[ROUND-METRICS] Epoch {ep} Avg_Messages_Received_PerReplica: "
+                        f"{avg_recv:.3f} (count={len(epoch_messages_recv[ep])})\n")
+            else:
+                avg_sent = _first_present(ep, "Avg_Messages_Sent_PerReplica", "Messages_Sent_PerReplica")
+                avg_recv = _first_present(ep, "Avg_Messages_Received_PerReplica", "Messages_Received_PerReplica")
+                if avg_sent is not None:
+                    f.write(f"[ROUND-METRICS] Epoch {ep} Avg_Messages_Sent_PerReplica: {avg_sent:.3f}\n")
+                if avg_recv is not None:
+                    f.write(f"[ROUND-METRICS] Epoch {ep} Avg_Messages_Received_PerReplica: {avg_recv:.3f}\n")
             if epoch_total_dur[ep]:
                 avg_dur = sum(epoch_total_dur[ep]) / len(epoch_total_dur[ep])
-                _emit(ep, "Arrival_To_Resume_Time",
-                      f"[ROUND-METRICS] Epoch {ep} Avg_Arrival_To_Resume_Time: "
-                      f"{avg_dur:.6f} seconds (goCars={len(epoch_total_dur[ep])})\n")
-            fail_val = epoch_failures.get(ep, 0)
-            _emit(ep, "StopSign_Failures",
-                  f"[ROUND-METRICS] Epoch {ep} Avg_StopSign_Failures: "
-                  f"{float(fail_val):.3f} (count)\n")
+                f.write(f"[ROUND-METRICS] Epoch {ep} Avg_Arrival_To_Resume_Time: "
+                        f"{avg_dur:.6f} seconds (goCars={len(epoch_total_dur[ep])})\n")
+            fail_val = epoch_failures.get(ep)
+            if fail_val is None:
+                fail_val = _first_present(ep, "Avg_StopSign_Failures", "StopSign_Failures")
+            if fail_val is None:
+                fail_val = 0
+            f.write(f"[ROUND-METRICS] Epoch {ep} Avg_StopSign_Failures: "
+                    f"{float(fail_val):.3f} (count)\n")
 
         if throughput is not None:
             f.write(f"[RUN-METRICS] Throughput_User_Definition: {throughput:.6f} seconds_per_vehicle\n")
+        if throughput_vps is not None:
+            f.write(f"[RUN-METRICS] Throughput_Vehicles_Per_Second: {throughput_vps:.6f} vehicles_per_second\n")
         if all_waits:
             f.write(f"[RUN-METRICS] Wait_Intersection_All_Mean: {statistics.mean(all_waits):.6f} seconds\n")
             f.write(f"[RUN-METRICS] Wait_Intersection_All_P95: {percentile(all_waits, 0.95):.6f} seconds\n")
@@ -1352,6 +1454,8 @@ if SAVE_TO:
             tp = epoch_throughput.get(ep)
             if tp is not None:
                 f.write(f"[ROUND-METRICS] Epoch {ep} Throughput_User_Definition: {tp:.6f} seconds_per_vehicle\n")
+                if tp != 0:
+                    f.write(f"[ROUND-METRICS] Epoch {ep} Throughput_Vehicles_Per_Second: {(1.0 / tp):.6f} vehicles_per_second\n")
             wn = epoch_wait_normal.get(ep, [])
             wa = epoch_wait_ambulance.get(ep, [])
             if wn:

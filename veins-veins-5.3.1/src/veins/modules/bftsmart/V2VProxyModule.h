@@ -23,7 +23,7 @@ class VEINS_API V2VProxyModule : public DemoBaseApplLayer {
 public:
     V2VProxyModule();
     ~V2VProxyModule() override;
-    static const int BATCH_SIZE = 16;
+    static const int BATCH_SIZE = 4;
 
     simtime_t consensusStartTime;
     
@@ -32,6 +32,7 @@ public:
     simtime_t viewConsensusEndTime;
     simtime_t orderConsensusStartTime;
     simtime_t orderConsensusEndTime;
+    simtime_t proposeAllSubmitTime;
     simtime_t orderCollectionWindowStart;
     simtime_t orderCollectionWindowEnd;
     // OMNeT++ lifecycle
@@ -57,6 +58,7 @@ public:
     void parseAndNotifyDecision(const std::string& decision);
     void flushReliabilityQueue();
     void onViewAgreed(const std::set<std::string>& agreedView);
+    void recordProposeAllConsensusMetric(int epoch, double wallSeconds);
     void resetForNextRound();
     void handleWipeComplete();  // Called by notifyWipeComplete JNI callback
 
@@ -93,6 +95,8 @@ protected:
     std::chrono::time_point<std::chrono::high_resolution_clock> realOrderConsensusEnd;
     bool orderDecisionCallbackSeen = false;
     double lastOrderBftRequestRttMs = -1.0;
+    double lastProposeAllConsensusWallSec = -1.0;
+    int lastProposeAllConsensusEpoch = -1;
 
 
     void handleSelfMsg(cMessage* msg) override;
@@ -113,19 +117,27 @@ protected:
     // Java callback - delivers message to Java
     void deliverMessageToJava(int fromReplicaId, const uint8_t* data, int dataLen);
 
-    // View Consensus structures (NEW - Phase 1)
-    struct ViewProposal {
-        int proposerReplicaId;
-        std::set<std::string> observedCars;  // Cars I can see via TraCI
-        std::string vehicleStatesStr;        // Serialized VehicleStates: "veh0|N|1|S|0;veh1|S|1|L|0"
-        double proposalTimestamp;
-        std::vector<uint8_t> signature;  // Self-signed proposal (covers vehicleStatesStr)
+    // Per-car ARRIVAL_ECHO / ARRIVAL_CERT structures (Phase 1 reliable broadcast)
+    struct ArrivalEcho {
+        int echoingReplicaId;     // Who is sending the echo
+        std::string targetCarId;  // Which car's announcement is being echoed
+        std::string lane;         // Cardinal lane as physically verified by this replica
+        int positionInLane;
+        Direction direction;
+        bool isAmbulance;
+        int epoch;
+        // XXHash32(targetCarId:lane:pos:dir:isAmb:echoingReplicaId) as int32 decimal in wire format
+        int32_t signatureHash;    // 0 if invalid
     };
 
-    struct ViewAgreement {
-        int agreingReplicaId;
-        std::set<std::string> agreedView;  // The view I'm signing
-        std::vector<uint8_t> signature;     // Signature over hash(view set)
+    struct ArrivalCert {
+        std::string carId;
+        std::string lane;
+        int positionInLane;
+        Direction direction;
+        bool isAmbulance;
+        int epoch;
+        std::vector<ArrivalEcho> echoes;  // f+1 echo signatures from distinct replicas
     };
 
     struct ArrivalAnnouncement {
@@ -160,10 +172,13 @@ protected:
     int currentEpoch = 0;
 
 
-    // View consensus state
-    ViewProposal myViewProposal;  // My proposed view
-    std::map<std::set<std::string>, std::vector<ViewAgreement>> viewVotes;  // view -> signatures
-    std::set<std::string> establishedView;  // View that got f+1 signatures
+    // Per-car cert collection state
+    std::map<std::string, std::vector<ArrivalEcho>> myReceivedEchoes;  // carId -> echoes for MY own announcement
+    std::map<std::string, ArrivalCert> collectedCerts;                 // carId -> cert (stored on all replicas)
+    std::set<std::string> physicallyObservedCars;                      // cars verified via TraCI physical check
+    bool certCollectionStarted = false;
+    bool certBroadcast = false;           // true once I have broadcast my own ARRIVAL_CERT
+    std::set<std::string> establishedView;  // View that got consensus
     bool viewEstablished = false;
 
     // Neighbor tracking
@@ -185,18 +200,16 @@ protected:
         BYZANTINE_EQUIVOCATOR = 3,  // Sends different epoch to different peers (unicast)
     };
 
-    // Consensus phases (CORRECTED ORDER)
+    // Consensus phases
     enum ConsensusPhase {
         IDLE,
-        PROPOSING_VIEW,     // Phase 1a: Each car proposes who they can see
-        VIEW_AGREEMENT,     // Phase 1b: Collecting f+1 V2V agreement signatures
-        VIEW_CONSENSUS,     // Phase 1c: Waiting for BFT consensus on view
-        ORDER_CONSENSUS,    // Phase 3: BFT agreeing on traversal order
-        WAITING_FOR_CLEARANCE, // Phase 4: Waiting for clearance from intersection controller
-        PULLING_FORWARD,      // Phase 5: Pulling forward to stop line
-        EXECUTING,           // Cars crossing intersection
-
-        DEPARTED,            //NEW: Car has crossed intersection (zombie mode)
+        PROPOSING_VIEW,        // Cars send ARRIVAL_ANNOUNCE; replicas echo; cars assemble certs
+        VIEW_CONSENSUS,        // Waiting for BFT PROPOSE_ALL consensus
+        ORDER_CONSENSUS,       // (unused in single-round protocol; kept for compat)
+        WAITING_FOR_CLEARANCE, // Waiting for clearance from intersection controller
+        PULLING_FORWARD,       // Pulling forward to stop line
+        EXECUTING,             // Cars crossing intersection
+        DEPARTED,              // Car has crossed intersection (zombie mode)
     };
     ConsensusPhase currentPhase = IDLE;
     std::set<std::string> agreedView;
@@ -204,7 +217,12 @@ protected:
 
     // Timers
     cMessage* viewConsensusTimer = nullptr;
-    
+    /** Fires if not all ARRIVAL_CERTs are collected within certCollectionTimeoutSec.
+     *  On expiry the leader force-submits PROPOSE_ALL; cars without certs are QUIET
+     *  and will receive exclusive-slot scheduling by OrderScheduler. */
+    cMessage* certCollectionTimeoutTimer = nullptr;
+    double certCollectionTimeoutSec = 1.5;  // seconds (simulated); configurable via .ned
+
 
 private:
     // Configuration
@@ -256,16 +274,15 @@ private:
     std::set<std::string> confirmedDeparted; // Cars confirmed past the junction (TraCI), not radio range
     simtime_t clearanceStartTime = 0;        // When we started waiting for clearance
     double CLEARANCE_TIMEOUT = 60.0;           // Max wait for clearance after ORDER delivery (seconds)
-    simtime_t viewSignatureCollectionStartTime = 0;  
-    simtime_t viewSignatureCollectionEndTime = 0;  
-    simtime_t orderSignatureCollectionStartTime = 0;  
-    simtime_t orderSignatureCollectionEndTime = 0; 
+    simtime_t certCollectionStartTime = 0;
+    simtime_t orderSignatureCollectionStartTime = 0;
+    simtime_t orderSignatureCollectionEndTime = 0;
     
     bool orderDecisionReceived = false;      // stop retries when Java notifies decision
     bool delayedOrderSubmitScheduled = false; // true while a delayed ORDER submit is pending
 
     double orderDelayGap = 0.0;              // Optional delay between VIEW complete and ORDER submit (seconds)
-    std::string pendingViewProposalRequest;  // VIEW_PROPOSE request to retry when Java becomes ready
+    std::string pendingProposeAllRequest;    // PROPOSE_ALL request to retry when Java becomes ready
     std::string pendingOrderPayload;         // Serialized ORDER payload awaiting delayed submit
     int pendingOrderEpoch = -1;              // Epoch associated with pendingOrderPayload
     int pendingOrderViewHash = 0;            // View hash associated with pendingOrderPayload
@@ -351,18 +368,21 @@ private:
     std::vector<uint8_t> signArrivalClaim(const ArrivalAnnouncement& announcement);
 
     // Serialization functions
-    std::vector<uint8_t> serializeViewProposal(const ViewProposal& proposal);
-    ViewProposal deserializeViewProposal(BFTMessage* bftMsg);
-    std::vector<uint8_t> serializeViewAgreement(const ViewAgreement& agreement);
-    ViewAgreement deserializeViewAgreement(BFTMessage* bftMsg);
-    
+    std::vector<uint8_t> serializeArrivalEcho(const ArrivalEcho& echo);
+    ArrivalEcho deserializeArrivalEcho(BFTMessage* bftMsg);
+    std::vector<uint8_t> serializeArrivalCert(const ArrivalCert& cert);
+    ArrivalCert deserializeArrivalCert(BFTMessage* bftMsg);
+
     std::vector<uint8_t> serializeArrivalAnnouncement(const ArrivalAnnouncement& ann);
     V2VProxyModule::ArrivalAnnouncement deserializeArrivalAnnouncement(BFTMessage* bftMsg);
 
     // Message handlers
-    void handleViewProposal(BFTMessage* bftMsg);
-    void handleViewAgreement(BFTMessage* bftMsg);
     void handleArrivalAnnouncement(BFTMessage* bftMsg);
+    void sendArrivalEcho(const ArrivalAnnouncement& ann);
+    void handleArrivalEcho(BFTMessage* bftMsg);
+    void broadcastArrivalCert(const ArrivalCert& cert);
+    void handleArrivalCert(BFTMessage* bftMsg);
+    bool validateArrivalCert(const ArrivalCert& cert);
 
     // Batch execution (new)
     void executeBatch(int batchIndex);
@@ -376,12 +396,9 @@ private:
     void handleBFTMessage(BFTMessage* bftMsg);
     void handlepreConsensusMessages(BFTMessage* bftMsg);
 
-    // Three-phase consensus (CORRECTED)
-    void initiateViewProposal();          // Phase 1a: Detect visible cars
-    void broadcastViewProposal();         // Phase 1b: Collect V2V agreements
-    void submitViewToBFTConsensus(const std::set<std::string>& view, 
-                                   const std::vector<ViewAgreement>& v2vSigs);  // Phase 1c: BFT consensus
-    void broadcastArrivalAnnouncement();  // Phase 2: Announce arrival for witnessing
+    // Protocol functions
+    void submitViewToBFTConsensus();      // Submit PROPOSE_ALL with per-car certs to BFT
+    void broadcastArrivalAnnouncement();  // Announce arrival; others echo; we collect cert
 
     bool triggerJoinViaJNI(const std::string& request);
     bool triggerGlobalResetViaJNI(const std::vector<int>& departedReplicas);
@@ -389,8 +406,10 @@ private:
     
     // View detection (uses TraCI sensors)
     std::set<std::string> getVisibleVehicles(double maxRange);
-    std::vector<uint8_t> signViewProposal(const std::set<std::string>& viewSet);
-    std::string buildVehicleStatesStr() const;  // Serialize viewState to "veh0|N|1|S|0;..." format
+    /** Serialize viewState to 5-field "veh0|N|1|S|0;..." format (no cyberStatus).
+     *  Pass certs != nullptr to append the 6th cyberStatus field (SIGNED|QUIET):
+     *  a vehicle is SIGNED iff its carId appears in the certs map. */
+    std::string buildVehicleStatesStr(const std::map<std::string, ArrivalCert>* certs = nullptr) const;
 
     // Byzantine fault injection
     bool isByzantine = false;
@@ -416,7 +435,6 @@ private:
 };
 
 } // namespace veins
-
 
 
 

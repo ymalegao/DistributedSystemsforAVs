@@ -535,6 +535,8 @@ extern "C" {
 extern "C" {
     JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyViewAgreed
         (JNIEnv*, jobject, jint, jstring);
+    JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyProposeAllConsensusMetric
+        (JNIEnv*, jobject, jint, jint, jdouble);
     JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyVehicleCanGo
         (JNIEnv*, jobject, jint, jdouble);
     JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyWipeComplete
@@ -613,17 +615,18 @@ bool V2VProxyModule::registerJNINativeMethods(JNIEnv* env)
         {const_cast<char*>("notifyVehicleCanGo"),    const_cast<char*>("(ID)V"),                (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyVehicleCanGo},
         {const_cast<char*>("notifyViewAgreed"),      const_cast<char*>("(ILjava/lang/String;)V"),(void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyViewAgreed},
         {const_cast<char*>("notifyOrderDecided"),    const_cast<char*>("(ILjava/lang/String;)V"),(void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyOrderDecided},
+        {const_cast<char*>("notifyProposeAllConsensusMetric"), const_cast<char*>("(IID)V"),     (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyProposeAllConsensusMetric},
         {const_cast<char*>("notifyWipeComplete"),    const_cast<char*>("(I)V"),                 (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyWipeComplete}
     };
 
-    if (env->RegisterNatives(intersectionServerClass, serverMethods, 4) != 0) {
+    if (env->RegisterNatives(intersectionServerClass, serverMethods, 5) != 0) {
         std::cerr << "[V2VProxy] ERROR: Failed to register IntersectionServer native methods" << "\n";
         env->ExceptionDescribe();
         env->ExceptionClear();
         return false;
     }
 
-    std::cout << "[V2VProxy] Successfully registered 4 IntersectionServer JNI native methods" << "\n";
+    std::cout << "[V2VProxy] Successfully registered 5 IntersectionServer JNI native methods" << "\n";
     return true;
 
 

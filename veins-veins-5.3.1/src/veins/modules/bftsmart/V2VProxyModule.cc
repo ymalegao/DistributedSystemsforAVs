@@ -28,12 +28,8 @@ int32_t computeXXHash32(const std::string& str);
 
 static int completedConsensusCount = 0;
 static bool logged100m = false;
-static std::map<int, std::map<int, double>> orderLatencyByEpochAndReplica;
-static std::set<int> printedOrderLatencyAvgEpochs;
-static std::map<int, std::map<int, double>> orderBftRttByEpochAndReplica;
-static std::set<int> printedOrderBftRttAvgEpochs;
-static std::map<int, std::map<int, double>> viewLatencyByEpochAndReplica;
-static std::set<int> printedViewLatencyAvgEpochs;
+static std::map<int, std::map<int, double>> proposeAllWallByEpochAndReplica;
+static std::set<int> printedProposeAllWallAvgEpochs;
 static std::map<int, int> stopSignFailuresByEpoch;
 static std::map<int, std::map<int,int>>    messagesSentByEpochAndReplica;
 static std::map<int, std::map<int,int>>    messagesRecvByEpochAndReplica;
@@ -74,15 +70,18 @@ V2VProxyModule::V2VProxyModule()
     , checkPositionTimer(nullptr)
     , consensusTimeoutTimer(nullptr)
     , stopSignTimeoutTimer(nullptr)
+    , certCollectionTimeoutTimer(nullptr)
     , shouldFlush(false)
     , consensusTimeoutSec(80.0)  // Default 40 seconds
     , stopSignTimeoutSec(10.0)
+    , certCollectionTimeoutSec(1.5)
     , MAX_MESSAGES_PER_TICK(BATCH_SIZE)  // Will be updated by notifyJavaNewBatchSize() when BFT group size is known
     , consensusStartTime(0)
     , viewConsensusStartTime(0)
     , viewConsensusEndTime(0)
     , orderConsensusStartTime(0)
     , orderConsensusEndTime(0)
+    , proposeAllSubmitTime(0)
     , orderDelayTimer(nullptr)
     , orderDecisionReceived(false)
     , delayedOrderSubmitScheduled(false)
@@ -91,6 +90,14 @@ V2VProxyModule::V2VProxyModule()
     , pendingOrderViewHash(0)
 {
 
+}
+
+void V2VProxyModule::recordProposeAllConsensusMetric(int epoch, double wallSeconds)
+{
+    std::lock_guard<std::mutex> lock(jniMutex);
+    lastProposeAllConsensusEpoch = epoch;
+    lastProposeAllConsensusWallSec = wallSeconds;
+    proposeAllWallByEpochAndReplica[epoch][replicaId] = wallSeconds;
 }
 
 V2VProxyModule::~V2VProxyModule()
@@ -102,6 +109,7 @@ V2VProxyModule::~V2VProxyModule()
     cancelAndDelete(checkPositionTimer);
     cancelAndDelete(consensusTimeoutTimer);
     cancelAndDelete(stopSignTimeoutTimer);
+    cancelAndDelete(certCollectionTimeoutTimer);
     cancelAndDelete(checkJavaReadyTimer);
     cancelAndDelete(retxCheckTimer);   
     cancelAndDelete(orderDelayTimer);
@@ -213,6 +221,8 @@ void V2VProxyModule::initialize(int stage)
         // Create timer for consensus timeout fallback
         consensusTimeoutTimer = new cMessage("consensusTimeout");
         stopSignTimeoutTimer = new cMessage("stopSignTimeout");
+        certCollectionTimeoutTimer = new cMessage("certCollectionTimeout");
+        certCollectionTimeoutSec = par("certCollectionTimeoutSec").doubleValue();
 
         orderDelayTimer = new cMessage("orderDelaySubmit");
 
@@ -362,8 +372,8 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                     lastOrderBftRequestRttMs = -1.0;
                 }
                 const bool hasViewSignatureCollection =
-                    viewSignatureCollectionStartTime > 0 &&
-                    viewSignatureCollectionEndTime >= viewSignatureCollectionStartTime;
+                    certCollectionStartTime > 0 &&
+                    certCollectionStartTime >= certCollectionStartTime;
                 const bool hasViewConsensusSim =
                     viewConsensusStartTime > 0 &&
                     viewConsensusEndTime >= viewConsensusStartTime;
@@ -408,105 +418,58 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                 };
                 const double durViewV2vSig =
                     hasViewSignatureCollection
-                        ? (viewSignatureCollectionEndTime - viewSignatureCollectionStartTime).dbl()
+                        ? (certCollectionStartTime - certCollectionStartTime).dbl()
                         : -1.0;
                 const double gapV2vToViewBft =
-                    (hasViewConsensusSim && viewSignatureCollectionEndTime > 0
-                     && viewConsensusStartTime >= viewSignatureCollectionEndTime)
-                        ? (viewConsensusStartTime - viewSignatureCollectionEndTime).dbl()
+                    (hasViewConsensusSim && certCollectionStartTime > 0
+                     && viewConsensusStartTime >= certCollectionStartTime)
+                        ? (viewConsensusStartTime - certCollectionStartTime).dbl()
                         : -1.0;
-                const double durViewBftSim = hasViewConsensusSim ? viewConsensusDuration.dbl() : -1.0;
-                const double durOrderBftSim = hasOrderConsensusSim ? orderConsensusDuration.dbl() : -1.0;
+                const bool hasLocalProposeAllWall =
+                    lastProposeAllConsensusEpoch == currentEpoch && lastProposeAllConsensusWallSec > 0.0;
                 const double durStopToDecisionSim =
                     hasStopToDecisionPipeline ? stopToDecisionDuration.dbl() : -1.0;
                 
                 std::cout << "\n========== CONSENSUS METRICS (Replica " << replicaId << ") epoch=" << currentEpoch
                           << " ==========" << "\n";
                 std::cout << "[PHASE_SUMMARY " << replicaId << "] "
-                          << "V2V_VIEW_SIG=" << fmtPhaseSec(durViewV2vSig)
-                          << " gap_to_VIEW_BFT=" << fmtPhaseSec(gapV2vToViewBft)
-                          << " VIEW_BFT(sim)=" << fmtPhaseSec(durViewBftSim)
-                          << " ORDER_BFT(sim)=" << fmtPhaseSec(durOrderBftSim)
+                          << "Cert_Collection=" << fmtPhaseSec(durViewV2vSig)
+                          << " gap_to_PROPOSE_ALL=" << fmtPhaseSec(gapV2vToViewBft)
+                          << " PROPOSE_ALL_BFT(wall)="
+                          << (hasLocalProposeAllWall ? fmtPhaseSec(lastProposeAllConsensusWallSec) : std::string("N/A"))
                           << " stop_to_decision(sim)=" << fmtPhaseSec(durStopToDecisionSim)
                           << "\n";
 
-                // View Signature Collection Metrics
-                // View Consensus Metrics
                 std::cout << "[METRICS " << replicaId << "] === VIEW SIGNATURE COLLECTION (V2V f+1) ===" << "\n";
-                std::cout << "[METRICS " << replicaId << "] View_Signature_Collection_Start: " << viewSignatureCollectionStartTime << "\n";
-                std::cout << "[METRICS " << replicaId << "] View_Signature_Collection_End: " << viewSignatureCollectionEndTime << "\n";
-                std::cout << "[METRICS " << replicaId << "] View_Signature_Collection_Duration: " << fmtPhaseSec(durViewV2vSig) << "\n";
+                std::cout << "[METRICS " << replicaId << "] Cert_Collection_Start: " << certCollectionStartTime << "\n";
+                std::cout << "[METRICS " << replicaId << "] Cert_Collection_End: " << certCollectionStartTime << "\n";
+                std::cout << "[METRICS " << replicaId << "] Cert_Collection_Duration: " << fmtPhaseSec(durViewV2vSig) << "\n";
 
-                std::cout << "[METRICS " << replicaId << "] === VIEW CONSENSUS (BFT VIEW_PROPOSE → delivery) ===" << "\n";
-                std::cout << "[METRICS " << replicaId << "] View_Consensus_Start: " << fmtSimInstant(viewConsensusStartTime) << "\n";
-                std::cout << "[METRICS " << replicaId << "] View_Consensus_End:   " << fmtSimInstant(viewConsensusEndTime) << "\n";
-                std::cout << "[METRICS " << replicaId << "] View_Consensus_Latency: " << fmtPhaseSec(durViewBftSim) << "\n";
-
-                if (hasViewConsensusSim) {
-                    viewLatencyByEpochAndReplica[currentEpoch][replicaId] = viewConsensusDuration.dbl();
-                    const auto& epochViewLatencies = viewLatencyByEpochAndReplica[currentEpoch];
-                    if (epochViewLatencies.size() >= 4 && printedViewLatencyAvgEpochs.count(currentEpoch) == 0) {
-                        double sumLatency = 0.0;
-                        for (const auto& kv : epochViewLatencies) {
-                            sumLatency += kv.second;
-                        }
-                        double avgLatency = sumLatency / epochViewLatencies.size();
-                        printedViewLatencyAvgEpochs.insert(currentEpoch);
-                        std::cout << "[ROUND-METRICS] Epoch " << currentEpoch
-                                  << " Avg_View_Consensus_Latency_4Cars: " << avgLatency
-                                  << " seconds (replicasCounted=" << epochViewLatencies.size() << ")" << "\n";
+                std::cout << "[METRICS " << replicaId << "] === PROPOSE_ALL CONSENSUS (single round BFT) ===" << "\n";
+                std::cout << "[METRICS " << replicaId << "] ProposeAll_Submit_Time: " << fmtSimInstant(proposeAllSubmitTime) << "\n";
+                std::cout << "[METRICS " << replicaId << "] ProposeAll_Delivery_Time: " << fmtSimInstant(orderConsensusEndTime) << "\n";
+                std::cout << "[METRICS " << replicaId << "] ProposeAll_Consensus_Wall: "
+                          << (hasLocalProposeAllWall ? fmtPhaseSec(lastProposeAllConsensusWallSec) : std::string("N/A"))
+                          << "\n";
+                std::cout << "[METRICS " << replicaId << "] ProposeAll_Consensus_Submitter: "
+                          << (hasLocalProposeAllWall ? "YES" : "NO") << "\n";
+                if (hasLocalProposeAllWall && printedProposeAllWallAvgEpochs.count(currentEpoch) == 0) {
+                    const auto& epochWall = proposeAllWallByEpochAndReplica[currentEpoch];
+                    double sumWall = 0.0;
+                    for (const auto& kv : epochWall) {
+                        sumWall += kv.second;
                     }
-                }
-
-                // Order Consensus Metrics
-                std::cout << "[METRICS " << replicaId << "] === ORDER CONSENSUS (BFT ORDER_PROPOSE → decision) ===" << "\n";
-                std::cout << "[METRICS " << replicaId << "] Order_Consensus_Start: " << fmtSimInstant(orderConsensusStartTime) << "\n";
-                std::cout << "[METRICS " << replicaId << "] Order_Consensus_End:   " << fmtSimInstant(orderConsensusEndTime) << "\n";
-                std::cout << "[METRICS " << replicaId << "] Order_Consensus_Latency: " << fmtPhaseSec(durOrderBftSim) << "\n";
-                if (lastOrderBftRequestRttMs >= 0.0) {
-                    std::cout << "[METRICS " << replicaId
-                              << "] Order_BFT_Request_RTT: " << (lastOrderBftRequestRttMs / 1000.0)
-                              << " seconds" << "\n";
-                } else {
-                    std::cout << "[METRICS " << replicaId
-                              << "] Order_BFT_Request_RTT: N/A (no local ORDER submit)" << "\n";
+                    const double avgWall = sumWall / epochWall.size();
+                    printedProposeAllWallAvgEpochs.insert(currentEpoch);
+                    std::cout << "[ROUND-METRICS] Epoch " << currentEpoch
+                              << " Avg_ProposeAll_Consensus_Wall: " << avgWall
+                              << " seconds (submittersCounted=" << epochWall.size() << ")" << "\n";
                 }
                 
                 std::cout << "[METRICS " << replicaId << "] === PIPELINE (stop → ORDER decision) ===" << "\n";
                 std::cout << "[METRICS " << replicaId << "] Stop_To_OrderDecision_Start: " << fmtSimInstant(consensusStartTime) << "\n";
                 std::cout << "[METRICS " << replicaId << "] Stop_To_OrderDecision_End:   " << fmtSimInstant(orderConsensusEndTime) << "\n";
                 std::cout << "[METRICS " << replicaId << "] Stop_To_OrderDecision_Time: " << fmtPhaseSec(durStopToDecisionSim) << "\n";
-
-                if (hasOrderConsensusSim) {
-                    orderLatencyByEpochAndReplica[currentEpoch][replicaId] = orderConsensusDuration.dbl();
-                    const auto& epochLatencies = orderLatencyByEpochAndReplica[currentEpoch];
-                    if (epochLatencies.size() >= 4 && printedOrderLatencyAvgEpochs.count(currentEpoch) == 0) {
-                        double sumLatency = 0.0;
-                        for (const auto& kv : epochLatencies) {
-                            sumLatency += kv.second;
-                        }
-                        double avgLatency = sumLatency / epochLatencies.size();
-                        printedOrderLatencyAvgEpochs.insert(currentEpoch);
-                        std::cout << "[ROUND-METRICS] Epoch " << currentEpoch
-                                  << " Avg_Order_Consensus_Latency_4Cars: " << avgLatency
-                                  << " seconds (replicasCounted=" << epochLatencies.size() << ")" << "\n";
-                    }
-                }
-                if (lastOrderBftRequestRttMs >= 0.0) {
-                    orderBftRttByEpochAndReplica[currentEpoch][replicaId] = lastOrderBftRequestRttMs / 1000.0;
-                }
-                const auto& epochBftRtt = orderBftRttByEpochAndReplica[currentEpoch];
-                if (!epochBftRtt.empty() && printedOrderBftRttAvgEpochs.count(currentEpoch) == 0) {
-                    double sumRtt = 0.0;
-                    for (const auto& kv : epochBftRtt) {
-                        sumRtt += kv.second;
-                    }
-                    double avgRtt = sumRtt / epochBftRtt.size();
-                    printedOrderBftRttAvgEpochs.insert(currentEpoch);
-                    std::cout << "[ROUND-METRICS] Epoch " << currentEpoch
-                              << " Avg_Order_BFT_Request_RTT_Submitter: " << avgRtt
-                              << " seconds (submittersCounted=" << epochBftRtt.size() << ")" << "\n";
-                }
                 
                 // Vehicle timing
                 simtime_t scheduledResumeTime = orderConsensusEndTime + delay;
@@ -789,7 +752,7 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                 // VIEW_PROPOSAL is sent after all BATCH_SIZE announcements are collected.
                 currentPhase = PROPOSING_VIEW;  // signals handleArrivalAnnouncement to trigger view proposal
                 broadcastArrivalAnnouncement();
-                viewSignatureCollectionStartTime = simTime(); 
+                certCollectionStartTime = simTime(); 
                 
                 joinTriggered = true;
                 stopTime = simTime();
@@ -839,10 +802,10 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
         }
 
         // Retry a pending VIEW_PROPOSE if Java became ready between attempts
-        if (!pendingViewProposalRequest.empty() && javaReady) {
+        if (!pendingProposeAllRequest.empty() && javaReady) {
             std::cout << "[V2VProxy " << replicaId << "] Retrying pending VIEW_PROPOSE from checkPosition\n";
-            if (triggerJoinViaJNI(pendingViewProposalRequest)) {
-                pendingViewProposalRequest.clear();
+            if (triggerJoinViaJNI(pendingProposeAllRequest)) {
+                pendingProposeAllRequest.clear();
             }
         }
 
@@ -877,10 +840,10 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                 std::cout << "[V2VProxy " << replicaId << "] *** JAVA READY at t="<< simTime() << " ***" << "\n";
 
                 // Retry a VIEW_PROPOSE that failed earlier because Java wasn't ready yet
-                if (!pendingViewProposalRequest.empty()) {
+                if (!pendingProposeAllRequest.empty()) {
                     std::cout << "[V2VProxy " << replicaId << "] Retrying pending VIEW_PROPOSE\n";
-                    if (triggerJoinViaJNI(pendingViewProposalRequest)) {
-                        pendingViewProposalRequest.clear();
+                    if (triggerJoinViaJNI(pendingProposeAllRequest)) {
+                        pendingProposeAllRequest.clear();
                     }
                     // If it still fails, it will be retried again next tick
                 }
@@ -911,6 +874,30 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
         return;
     } 
     
+    if (msg == certCollectionTimeoutTimer) {
+        // Exclusive Fallback: not all ARRIVAL_CERTs received within certCollectionTimeoutSec.
+        // Force-submit PROPOSE_ALL with whatever certs exist; uncertified cars become QUIET.
+        if (viewEstablished) {
+            return;  // Already reached quorum normally — nothing to do.
+        }
+        if (zombieFilter()) return;
+
+        std::cout << "[V2VProxy " << replicaId << "] *** CERT-COLLECTION TIMEOUT *** after "
+                  << certCollectionTimeoutSec << "s — forcing PROPOSE_ALL with QUIET vehicles ("
+                  << collectedCerts.size() << "/" << physicallyObservedCars.size() << " certs)\n";
+
+        if (physicallyObservedCars.empty()) {
+            std::cout << "[V2VProxy " << replicaId << "] certCollection timeout: no physical observations, nothing to submit\n";
+            return;
+        }
+
+        viewEstablished = true;
+        certCollectionStartTime = simTime();
+        std::cout << "[V2VProxy " << replicaId << "] ===== EXCLUSIVE FALLBACK: LEADER FORCE-SUBMITTING TO BFT =====\n";
+        submitViewToBFTConsensus();
+        return;
+    }
+
     if (msg == consensusTimeoutTimer) {
         std::cout << "[V2VProxy " << replicaId << "] *** CONSENSUS TIMEOUT *** No quorum reached after "
                   << consensusTimeoutSec << "s" << "\n";

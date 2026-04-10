@@ -22,6 +22,13 @@ void V2VProxyModule::handleWipeComplete() {
     viewState.clear();
     arrivalAnnouncementsReceived.clear();
     viewEstablished = false;
+    myReceivedEchoes.clear();
+    collectedCerts.clear();
+    physicallyObservedCars.clear();
+    certCollectionStarted = false;
+    certBroadcast = false;
+    if (certCollectionTimeoutTimer && certCollectionTimeoutTimer->isScheduled())
+        cancelEvent(certCollectionTimeoutTimer);
     currentEpoch++;
     currentPhase = IDLE;
     intersectionLocked = false;

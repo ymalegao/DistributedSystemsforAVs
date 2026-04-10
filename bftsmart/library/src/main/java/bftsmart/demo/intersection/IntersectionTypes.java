@@ -50,6 +50,8 @@ final class VehicleState implements Serializable {
     int positionInLane;
     String direction;
     boolean isAmbulance;
+    /** "SIGNED" if this vehicle's replica sent a VIEW_AGREEMENT vote; "QUIET" otherwise. */
+    String cyberStatus = "SIGNED";
 }
 
 final class Batch implements Serializable {

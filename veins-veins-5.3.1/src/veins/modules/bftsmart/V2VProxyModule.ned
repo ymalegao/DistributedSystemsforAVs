@@ -34,6 +34,12 @@ simple V2VProxyModule extends DemoBaseApplLayer
         double avgSpeed @unit(mps) = default(10mps);       // Average vehicle speed (m/s)
         double safetyGap @unit(s) = default(2s);           // Safety buffer between cars
 
+        // Cert-collection timeout (Exclusive Fallback mechanism).
+        // The leader waits this long for ARRIVAL_CERTs from all physically-observed cars.
+        // Cars that fail to provide a valid cert before this deadline receive QUIET status
+        // and are isolated into exclusive singleton batches by OrderScheduler.
+        double certCollectionTimeoutSec @unit(s) = default(1.5s);
+
         // Consensus timeout (fallback if BFT fails to reach quorum)
         // After this timeout, vehicles resume without coordination
         double consensusTimeoutSec @unit(s) = default(40s);

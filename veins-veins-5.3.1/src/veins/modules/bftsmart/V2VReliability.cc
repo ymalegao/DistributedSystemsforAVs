@@ -210,24 +210,20 @@ void V2VProxyModule::sendBFTMessage(int fromReplicaId, int toReplicaId, const st
     std::cout << "[V2V-BROADCAST] Replica " << replicaId << ": Packet created, broadcasting to LAddress::L2BROADCAST()" << "\n";
 
     // STAGGER STRATEGY (message-type specific for stability + low latency):
-    // - VIEW_PROPOSAL (4): tiny jitter only — replicas must sample the car-set simultaneously.
-    // - VIEW_AGREEMENT (5): per-replica slot + tiny jitter — stagger replies to proposer.
+    // - ARRIVAL_ECHO (4): per-replica slot stagger so simultaneous echoes don't collide.
+    // - ARRIVAL_CERT (5): tiny jitter only — each car broadcasts cert independently.
     // - WITNESS_RESPONSE (2): per-replica slot stagger (witnessSlotSec) to prevent all
     //   15 responses to a given car from colliding in a tight ackJitter window.
-    // - READYQC_ACK (6): jitter-only — fast ACK return path.
-    // - BFT consensus (0), arrival announcement (1), READYQC_COMPLETE (3): deterministic
-    //   slot stagger (tighter 3ms slot) to avoid collisions while reducing tail delay.
+    // - BFT consensus (0), arrival announcement (1): deterministic slot stagger.
     double delay;
     if (messageType == 4) {
-        // VIEW_PROPOSAL: tiny jitter only — all replicas must sample the car-set
-        // at nearly the same sim-time so their views agree.
-        delay = uniform(par("viewJitterMin").doubleValue(), par("viewJitterMax").doubleValue());
-    } else if (messageType == 5) {
-        // VIEW_AGREEMENT: per-replica slot stagger so 15 simultaneous replies
-        // don't all collide at the proposer.  View is already sampled at proposal
-        // receipt, so staggering the reply is safe.
+        // ARRIVAL_ECHO: per-replica slot stagger — echoes from all replicas go back to
+        // announcing car; stagger avoids all arriving at once.
         delay = replicaId * par("viewAgreementSlotSec").doubleValue()
                 + uniform(par("viewJitterMin").doubleValue(), par("viewJitterMax").doubleValue());
+    } else if (messageType == 5) {
+        // ARRIVAL_CERT: tiny jitter — each car broadcasts its own cert independently.
+        delay = uniform(par("viewJitterMin").doubleValue(), par("viewJitterMax").doubleValue());
     } else if (messageType == 2) {
         // WITNESS_RESPONSE: per-replica slot stagger so all 15 responses to a given car
         // don't pile up in a 1.5ms ackJitter window and collide on the 802.11p channel.
@@ -479,13 +475,13 @@ void V2VProxyModule::handlepreConsensusMessages(BFTMessage* bftMsg) {
             std::cout << " (ARRIVAL_ANNOUNCE)" << "\n";
             handleArrivalAnnouncement(bftMsg);
             break;
-        case 4:  // VIEW_PROPOSAL (Phase 1b - V2V agreement)
-            std::cout << " (VIEW_PROPOSAL)" << "\n";
-            handleViewProposal(bftMsg);
+        case 4:  // ARRIVAL_ECHO — replica echoes back to announcing car
+            std::cout << " (ARRIVAL_ECHO)" << "\n";
+            handleArrivalEcho(bftMsg);
             break;
-        case 5:  // VIEW_AGREEMENT (Phase 1b - V2V signatures)
-            std::cout << " (VIEW_AGREEMENT)" << "\n";
-            handleViewAgreement(bftMsg);
+        case 5:  // ARRIVAL_CERT — car broadcasts f+1-echo certificate
+            std::cout << " (ARRIVAL_CERT)" << "\n";
+            handleArrivalCert(bftMsg);
             break;
         case 7:  // EXECUTING — batch crossing, locks new arrivals
             std::cout << " (EXECUTING)" << "\n";
