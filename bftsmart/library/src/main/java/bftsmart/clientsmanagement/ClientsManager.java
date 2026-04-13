@@ -457,6 +457,30 @@ public class ClientsManager {
      * Caller must call lock() and unlock() on clientData.clientLock
      * @param clientData the clientData associated with the client
      */
+    /**
+     * Resets the alreadyProposed flag on all pending requests across all clients.
+     * Must be called before createPropose() during view-change recovery so that
+     * requests whose first propose was dropped (e.g. by a silent Byzantine leader)
+     * are included in the new leader's batch.
+     */
+    public void resetAlreadyProposed() {
+        clientsLock.lock();
+        try {
+            for (ClientData cd : clientsData.values()) {
+                cd.clientLock.lock();
+                try {
+                    for (TOMMessage m : cd.getPendingRequests()) {
+                        m.alreadyProposed = false;
+                    }
+                } finally {
+                    cd.clientLock.unlock();
+                }
+            }
+        } finally {
+            clientsLock.unlock();
+        }
+    }
+
 	private void clearPendingRequests(ClientData clientData) {
         for(TOMMessage m : clientData.getPendingRequests()) {
             if(timer != null) {

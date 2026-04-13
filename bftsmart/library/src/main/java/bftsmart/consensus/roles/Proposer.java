@@ -51,10 +51,18 @@ public class Proposer {
      * @param value Value to be proposed
      */
     public void startConsensus(int cid, byte[] value) {
-        //******* EDUARDO BEGIN **************//
-        System.out.println("[PHASE_TIMER] CID=" + cid + " replica=" + controller.getStaticConf().getProcessId() + " PROPOSE_SENT wall_ms=" + System.currentTimeMillis());
-        communication.send(this.controller.getCurrentViewAcceptors(),
-                factory.createPropose(cid, 0, value));
-        //******* EDUARDO END **************//
+        int me = controller.getStaticConf().getProcessId();
+        System.out.println("[PHASE_TIMER] CID=" + cid + " replica=" + me + " PROPOSE_SENT wall_ms=" + System.currentTimeMillis());
+
+        if (controller.getStaticConf().isByzantineNode(me)) {
+            // Silent Byzantine leader: suppress the PROPOSE entirely.
+            // Every follower will time out waiting for the PRE-PREPARE and broadcast
+            // a STOP message, installing the next regency with a new honest leader.
+            System.out.println("[BYZANTINE SILENT LEADER] Replica " + me
+                    + " CID=" + cid + " dropping PROPOSE — all followers will timeout → view change");
+        } else {
+            communication.send(this.controller.getCurrentViewAcceptors(),
+                    factory.createPropose(cid, 0, value));
+        }
     }
 }

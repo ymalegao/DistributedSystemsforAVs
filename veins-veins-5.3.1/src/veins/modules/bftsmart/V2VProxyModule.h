@@ -23,7 +23,7 @@ class VEINS_API V2VProxyModule : public DemoBaseApplLayer {
 public:
     V2VProxyModule();
     ~V2VProxyModule() override;
-    static const int BATCH_SIZE = 4;
+    static const int BATCH_SIZE = 16;
 
     simtime_t consensusStartTime;
     
@@ -357,6 +357,8 @@ private:
     struct VerificationResult {
         bool isValid;
         std::string reason;
+        std::string actualLaneId;   // TraCI lane ID regardless of isValid
+        double actualPosition = 0;  // TraCI lane position regardless of isValid
     };
     VerificationResult verifyCarPosition(const std::string& carId,
         const std::string& claimedLane,

@@ -8,6 +8,12 @@ Tracks the active VIEW/ORDER protocol and per-car lifecycle metrics, including:
   - arrival -> resume and arrival -> leave timing
   - throughput using the user-defined formula
   - ambulance vs normal vehicle comparisons
+
+Batch / plotting workflow (same base --save-to, e.g. benchmarks/Priority4cars):
+  python analyze_log.py combined.log --save-to benchmarks/Priority4cars --scenario 1 --cars 4
+  # writes benchmarks/Priority4cars/no_amb/4veh_0.json (then 4veh_1.json, ...)
+  # --scenario: 1=no ambulance, 2=honest ambulance, 3=Byz followers, 4=Byz leader
+  # plot_wait_time_cdf.py pools all matching Nveh_*.json per folder.
 """
 
 import sys
@@ -27,6 +33,13 @@ _parser.add_argument("log_file", nargs="?", default="/tmp/bft-all-replicas.log",
                      help="Path to combined replica log (default: /tmp/bft-all-replicas.log)")
 _parser.add_argument("--save-to", metavar="DIR",
                      help="Copy metrics into DIR as <N>veh_<i>.log for later batch analysis")
+_parser.add_argument(
+    "--scenario", type=int, choices=[1, 2, 3, 4], default=None,
+    metavar="N",
+    help="Save under a scenario subfolder (requires --save-to): "
+         "1=no ambulance, 2=honest ambulance, 3=ambulance+Byzantine followers, "
+         "4=ambulance+Byzantine leader. Use same base DIR and --cars for each run; "
+         "plot_wait_time_cdf.py pools all matching <N>veh_*.json in that folder.")
 _parser.add_argument("--cars", type=int, default=None,
                      help="Total cars/replicas in the scenario (e.g. 12 or 16). "
                           "If omitted, inferred from --save-to path or defaults to 16.")
@@ -36,17 +49,43 @@ _parser.add_argument("--verbose", action="store_true",
                      help="Show legacy deep-diagnostic sections (QC/witness/ACK internals).")
 _args = _parser.parse_args()
 
+# Scenario subdirs (match plot_wait_time_cdf.DEFAULT_BAR_SERIES globs)
+SCENARIO_SUBDIR = {
+    1: "no_amb",
+    2: "amb_honest",
+    3: "amb_byz_follower",
+    4: "amb_byz_leader",
+}
+SCENARIO_LABEL = {
+    1: "no ambulance",
+    2: "honest ambulance",
+    3: "ambulance + Byzantine followers",
+    4: "ambulance + Byzantine leader",
+}
+
 LOG_FILE = _args.log_file
-SAVE_TO  = _args.save_to
+SAVE_TO = _args.save_to
+if _args.scenario is not None:
+    if not SAVE_TO:
+        print("analyze_log: --scenario requires --save-to <base_dir>", file=sys.stderr)
+        sys.exit(2)
+    SAVE_TO = os.path.join(SAVE_TO, SCENARIO_SUBDIR[_args.scenario])
 PLOTS_DIR = _args.plots_dir or os.path.dirname(os.path.abspath(LOG_FILE)) or "."
 
 def _infer_cars_from_save_to(save_to: str | None) -> int | None:
     if not save_to:
         return None
     # Try a few common naming conventions:
+    # - ".../Priority12cars/..." or ".../Priority16cars/no_amb/..."
     # - ".../12veh_0.log" or folder ".../12vehRuns"
     # - ".../2phase12Honest" or ".../phase12..."
-    hay = save_to
+    hay = os.path.abspath(save_to)
+    m = re.search(r"Priority\s*(\d+)\s*cars?", hay, flags=re.IGNORECASE)
+    if m:
+        try:
+            return int(m.group(1))
+        except ValueError:
+            pass
     patterns = [
         r'(\d+)\s*veh',
         r'phase\s*(\d+)',
@@ -223,6 +262,11 @@ java_order_consensus_wall_raw = defaultdict(list)  # raw epoch -> [seconds, ...]
 byzantine_by_epoch   = defaultdict(int)    # epoch -> count of [BYZANTINE INJECTION] events
 byzantine_by_replica = defaultdict(int)    # replica -> count
 byzantine_total      = 0                   # across the whole run
+
+# Per-replica message counts and fallback tracking
+replica_messages_sent    = {}   # replica -> messages_sent count (last value seen)
+replica_messages_recv    = {}   # replica -> messages_received count (last value seen)
+replica_stopsign_timeout = set()  # replica IDs that hit StopSign_Timeout (used fallback)
 
 # Pre-computed summary metrics read back from saved logs
 run_metrics           = {}                 # key -> float  (from [RUN-METRICS] lines)
@@ -441,6 +485,7 @@ with open(LOG_FILE, "r", errors="replace") as f:
             rep, val = int(m.group(1)), int(m.group(2))
             ep = replica_epoch.get(rep, current_gossip_epoch)
             epoch_messages_sent[ep].append(val)
+            replica_messages_sent[rep] = val
             continue
 
         m = RE_MESSAGES_RECEIVED.search(line)
@@ -448,6 +493,7 @@ with open(LOG_FILE, "r", errors="replace") as f:
             rep, val = int(m.group(1)), int(m.group(2))
             ep = replica_epoch.get(rep, current_gossip_epoch)
             epoch_messages_recv[ep].append(val)
+            replica_messages_recv[rep] = val
             continue
 
         m = RE_ARRIVAL_TIME.search(line)
@@ -473,6 +519,7 @@ with open(LOG_FILE, "r", errors="replace") as f:
             rep = int(m.group(1))
             ep = replica_epoch.get(rep, current_gossip_epoch)
             epoch_failures[ep] += 1
+            replica_stopsign_timeout.add(rep)
             continue
 
         m = RE_CAR_METRICS.search(line)
@@ -598,6 +645,37 @@ for rep, stop_t in replica_stop_time.items():
 for rep, resume_t in replica_resume_time.items():
     car_metrics[f"veh{rep}"]["resume_time"] = resume_t
 
+# Per-car message counts, fallback flag, delivery ratio, and BFT decision time
+for rep, sent in replica_messages_sent.items():
+    car_metrics[f"veh{rep}"]["messages_sent"] = sent
+for rep, recv in replica_messages_recv.items():
+    car_metrics[f"veh{rep}"]["messages_received"] = recv
+for rep in replica_stopsign_timeout:
+    car_metrics[f"veh{rep}"]["used_fallback"] = True
+
+for car_id, metrics in car_metrics.items():
+    rep  = int(car_id[3:])
+    sent = metrics.get("messages_sent")
+    recv = metrics.get("messages_received")
+    ep   = metrics.get("epoch")
+    n    = EPOCH_N.get(ep, 0) if isinstance(ep, int) else 0
+    if sent is not None and recv is not None and n > 1:
+        expected = sent * (n - 1)
+        ratio = recv / expected if expected > 0 else None
+        metrics["delivery_ratio"] = ratio
+        metrics["estimated_loss_rate"] = (1.0 - ratio) if ratio is not None else None
+    # BFT decision time = consensus latency for the epoch this car was decided in
+    if isinstance(ep, int):
+        rm = round_metrics.get(ep, {})
+        pa = rm.get("ProposeAll_Consensus_Wall")
+        vw = rm.get("View_Consensus_Wall") or 0
+        ow = rm.get("Order_Consensus_Wall") or 0
+        if pa and pa > 0:
+            metrics["propose_all_consensus_wall_s"] = pa
+            metrics["bft_decision_time_s"] = pa
+        elif (vw + ow) > 0:
+            metrics["bft_decision_time_s"] = vw + ow
+
 # Per-epoch throughput: (last_depart - first_depart) / n_cars_in_epoch
 # Uses the depart_times of cars assigned to each epoch.
 epoch_depart_times = defaultdict(list)   # epoch -> sorted depart_times
@@ -704,10 +782,36 @@ def write_metrics_json(path):
             "arrival_to_resume_s": m.get("arrival_to_resume"),
             "resume_to_depart_s": m.get("resume_to_depart"),
             "arrival_to_depart_s": m.get("arrival_to_depart"),
+            # Message-level metrics (matches RAFT messages_sent/received)
+            "messages_sent": m.get("messages_sent"),
+            "messages_received": m.get("messages_received"),
+            # delivery_ratio = received / (sent * (N-1)); heuristic for message loss
+            "delivery_ratio": m.get("delivery_ratio"),
+            "estimated_loss_rate": m.get("estimated_loss_rate"),
+            # Fallback: True if this vehicle hit a StopSign_Timeout
+            "used_fallback": m.get("used_fallback", False),
+            # BFT consensus latency for the epoch this car was decided in.
+            # propose_all_consensus_wall_s: set when PROPOSE_ALL single-round protocol ran
+            # (all cars in the same epoch share this value; directly comparable to RAFT raft_decision_time)
+            "propose_all_consensus_wall_s": m.get("propose_all_consensus_wall_s"),
+            "bft_decision_time_s": m.get("bft_decision_time_s"),
         })
 
     fa = jains_fairness(all_waits)
     fn = jains_fairness(normal_waits)
+
+    # Run-level delivery and fallback metrics (mirrors RAFT delivery_ratio / fallback_rate)
+    _all_dr = [m["delivery_ratio"] for m in car_metrics.values()
+               if m.get("delivery_ratio") is not None]
+    _run_dr = statistics.mean(_all_dr) if _all_dr else None
+    _run_lr = (1.0 - _run_dr) if _run_dr is not None else None
+    _fallback_n = sum(1 for m in car_metrics.values() if m.get("used_fallback", False))
+    _run_fallback_rate = _fallback_n / CARS if CARS > 0 else None
+
+    # Run-level BFT decision time (per-car bft_decision_time_s values across all epochs)
+    _bft_dt_all = [m["bft_decision_time_s"] for m in car_metrics.values()
+                   if m.get("bft_decision_time_s") is not None]
+
     overall = {
         "cars": CARS,
         "epochs": N_EPOCHS,
@@ -731,11 +835,20 @@ def write_metrics_json(path):
         "view_consensus_latency_s": _stat(view_consensus_wall_all or view_consensus_lat_all),
         "order_consensus_latency_s": _stat(order_consensus_wall_all or order_consensus_lat_all),
         "combined_consensus_latency_s": _stat(combined_consensus_wall_all or combined_consensus_lat_all),
+        # BFT decision time per vehicle (consensus latency assigned to each car's epoch)
+        "bft_decision_time_s": _stat(_bft_dt_all),
         "total_byzantine_injections": byzantine_total,
         "byzantine_by_epoch": dict(byzantine_by_epoch),
         "byzantine_by_replica": dict(byzantine_by_replica),
         "arrival_to_resume_s": _stat(arrival_to_resume_all),
         "resume_to_depart_s": _stat(resume_to_depart_all),
+        # Delivery and fallback metrics (same definitions as RAFT counterpart)
+        # delivery_ratio = received / (sent * (N-1)); heuristic for message loss
+        "delivery_ratio": _run_dr,
+        "estimated_loss_rate": _run_lr,
+        # fallback_rate = fraction of vehicles that hit StopSign_Timeout this run
+        "fallback_rate": _run_fallback_rate,
+        "fallback_count": _fallback_n,
     }
 
     out = {"overall": overall, "per_epoch": epochs_out, "per_car": cars_out}
@@ -1449,6 +1562,18 @@ if SAVE_TO:
             byz = byzantine_by_epoch.get(ep, 0)
             f.write(f"[RUN-METRICS] Byzantine_Injections_Epoch{ep}: {byz}\n")
 
+        # Delivery ratio and fallback rate (comparable to RAFT counterparts)
+        _all_dr = [m["delivery_ratio"] for m in car_metrics.values()
+                   if m.get("delivery_ratio") is not None]
+        if _all_dr:
+            _run_dr = statistics.mean(_all_dr)
+            f.write(f"[RUN-METRICS] Delivery_Ratio: {_run_dr:.6f}\n")
+            f.write(f"[RUN-METRICS] Estimated_Loss_Rate: {1.0 - _run_dr:.6f}\n")
+        _fallback_n = sum(1 for m in car_metrics.values() if m.get("used_fallback", False))
+        f.write(f"[RUN-METRICS] Fallback_Count: {_fallback_n}\n")
+        if CARS > 0:
+            f.write(f"[RUN-METRICS] Fallback_Rate: {_fallback_n / CARS:.6f}\n")
+
         # Per-epoch throughput and wait
         for ep in range(N_EPOCHS):
             tp = epoch_throughput.get(ep)
@@ -1470,3 +1595,8 @@ if SAVE_TO:
     saved_size = os.path.getsize(dest)
     print(f"Log saved → {dest}  (run #{idx}, {saved_size} bytes — round/run metrics summary)")
     print(f"JSON saved → {os.path.join(SAVE_TO, f'{CARS}veh_{idx}.json')}")
+    if _args.scenario is not None:
+        print(
+            f"Scenario {_args.scenario} ({SCENARIO_LABEL[_args.scenario]}): "
+            f"pool these files in plot_wait_time_cdf (glob {CARS}veh_*.json under this folder)."
+        )

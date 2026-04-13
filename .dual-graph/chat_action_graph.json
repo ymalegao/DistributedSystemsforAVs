@@ -1,0 +1,377 @@
+{
+  "nodes": [
+    {
+      "id": "query:bft metrics analysis script per vehicle json output",
+      "type": "query",
+      "meta": {
+        "text": "BFT metrics analysis script per-vehicle JSON output ambulance wait time Byzantine injections"
+      }
+    },
+    {
+      "id": "fourway/analyze_log.py",
+      "type": "file"
+    },
+    {
+      "id": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+      "type": "file"
+    },
+    {
+      "id": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js::disableScript",
+      "type": "file"
+    },
+    {
+      "id": "bftsmart/library/docs/javadoc/script.js",
+      "type": "file"
+    },
+    {
+      "id": "fourway/benchmarks/analyze_two_phase.py::plot_multi_metrics",
+      "type": "file"
+    },
+    {
+      "id": "query:metrics per vehicle output json byzantine ambulance",
+      "type": "query",
+      "meta": {
+        "text": "metrics per-vehicle output JSON Byzantine ambulance"
+      }
+    },
+    {
+      "id": "query:ambulance wait time metrics",
+      "type": "query",
+      "meta": {
+        "text": "ambulance wait time metrics"
+      }
+    },
+    {
+      "id": "action:edit:1776029455",
+      "type": "action",
+      "meta": {
+        "summary": "Added per-car metrics to JSON output: messages_sent/received, delivery_ratio, estimated_loss_rate, used_fallback, propose_all_consensus_wall_s, bft_decision_time_s. Added run-level delivery_ratio, estimated_loss_rate, fallback_rate to overall JSON. Added RUN-METRICS lines for batch log files."
+      }
+    },
+    {
+      "id": "query:reliablev2vmessaging retransmission flush cancel pending messages after consensus",
+      "type": "query",
+      "meta": {
+        "text": "ReliableV2VMessaging retransmission flush cancel pending messages after consensus"
+      }
+    },
+    {
+      "id": "bftsmart/metricParser.py::generate_plots",
+      "type": "file"
+    },
+    {
+      "id": "fourway/analyze_log.py::all_per_epoch",
+      "type": "file"
+    },
+    {
+      "id": "fourway/benchmarks/analyze_benchmarks.py::main",
+      "type": "file"
+    },
+    {
+      "id": "fourway/benchmarks/analyze_benchmarks_v2.py::main",
+      "type": "file"
+    },
+    {
+      "id": "action:edit:1776031320",
+      "type": "action",
+      "meta": {
+        "summary": "Cancel retxCheckTimer immediately when ORDER consensus decision arrives on main thread (pendingCancelOrderTimer block), eliminating retransmit bursts between decision and resumeVehicle that inflate Messages_Sent and skew delivery_ratio."
+      }
+    },
+    {
+      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+      "type": "file"
+    },
+    {
+      "id": "query:cdf plot steppy wait time data points",
+      "type": "query",
+      "meta": {
+        "text": "CDF plot steppy n=4 wait time data points"
+      }
+    },
+    {
+      "id": "fourway/analyze_log.py::save_waittime_by_car_plot",
+      "type": "file"
+    },
+    {
+      "id": "fourway/benchmarks/analyze_two_phase.py",
+      "type": "file"
+    },
+    {
+      "id": "fourway/benchmarks/ambulanceWaitTime.py",
+      "type": "file"
+    },
+    {
+      "id": "fourway/benchmarks/analyze_benchmarks_v2.py::parse_collision_data",
+      "type": "file"
+    },
+    {
+      "id": "query:cdf plot steppy data points",
+      "type": "query",
+      "meta": {
+        "text": "CDF plot steppy data points n=4"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "query:bft metrics analysis script per vehicle json output",
+      "to": "fourway/analyze_log.py",
+      "rel": "retrieved",
+      "ts": 1776028944
+    },
+    {
+      "from": "query:bft metrics analysis script per vehicle json output",
+      "to": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+      "rel": "retrieved",
+      "ts": 1776028944
+    },
+    {
+      "from": "query:bft metrics analysis script per vehicle json output",
+      "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js::disableScript",
+      "rel": "retrieved",
+      "ts": 1776028944
+    },
+    {
+      "from": "query:bft metrics analysis script per vehicle json output",
+      "to": "bftsmart/library/docs/javadoc/script.js",
+      "rel": "retrieved",
+      "ts": 1776028944
+    },
+    {
+      "from": "query:bft metrics analysis script per vehicle json output",
+      "to": "fourway/benchmarks/analyze_two_phase.py::plot_multi_metrics",
+      "rel": "retrieved",
+      "ts": 1776028944
+    },
+    {
+      "from": "query:metrics per vehicle output json byzantine ambulance",
+      "to": "fourway/analyze_log.py",
+      "rel": "read",
+      "ts": 1776028955,
+      "meta": {
+        "mode": "query_excerpt"
+      }
+    },
+    {
+      "from": "query:ambulance wait time metrics",
+      "to": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+      "rel": "read",
+      "ts": 1776028957,
+      "meta": {
+        "mode": "symbol_excerpt"
+      }
+    },
+    {
+      "from": "action:edit:1776029455",
+      "to": "fourway/analyze_log.py",
+      "rel": "edited",
+      "ts": 1776029455
+    },
+    {
+      "from": "query:reliablev2vmessaging retransmission flush cancel pending messages after consensus",
+      "to": "bftsmart/metricParser.py::generate_plots",
+      "rel": "retrieved",
+      "ts": 1776030686
+    },
+    {
+      "from": "query:reliablev2vmessaging retransmission flush cancel pending messages after consensus",
+      "to": "fourway/analyze_log.py::all_per_epoch",
+      "rel": "retrieved",
+      "ts": 1776030686
+    },
+    {
+      "from": "query:reliablev2vmessaging retransmission flush cancel pending messages after consensus",
+      "to": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+      "rel": "retrieved",
+      "ts": 1776030686
+    },
+    {
+      "from": "query:reliablev2vmessaging retransmission flush cancel pending messages after consensus",
+      "to": "fourway/benchmarks/analyze_benchmarks.py::main",
+      "rel": "retrieved",
+      "ts": 1776030686
+    },
+    {
+      "from": "query:reliablev2vmessaging retransmission flush cancel pending messages after consensus",
+      "to": "fourway/benchmarks/analyze_benchmarks_v2.py::main",
+      "rel": "retrieved",
+      "ts": 1776030686
+    },
+    {
+      "from": "action:edit:1776031320",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+      "rel": "edited",
+      "ts": 1776031320
+    },
+    {
+      "from": "query:cdf plot steppy wait time data points",
+      "to": "fourway/analyze_log.py::save_waittime_by_car_plot",
+      "rel": "retrieved",
+      "ts": 1776120529
+    },
+    {
+      "from": "query:cdf plot steppy wait time data points",
+      "to": "fourway/benchmarks/analyze_two_phase.py",
+      "rel": "retrieved",
+      "ts": 1776120529
+    },
+    {
+      "from": "query:cdf plot steppy wait time data points",
+      "to": "fourway/benchmarks/ambulanceWaitTime.py",
+      "rel": "retrieved",
+      "ts": 1776120529
+    },
+    {
+      "from": "query:cdf plot steppy wait time data points",
+      "to": "bftsmart/metricParser.py::generate_plots",
+      "rel": "retrieved",
+      "ts": 1776120529
+    },
+    {
+      "from": "query:cdf plot steppy wait time data points",
+      "to": "fourway/benchmarks/analyze_benchmarks_v2.py::parse_collision_data",
+      "rel": "retrieved",
+      "ts": 1776120529
+    },
+    {
+      "from": "query:cdf plot steppy data points",
+      "to": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+      "rel": "read",
+      "ts": 1776120539,
+      "meta": {
+        "mode": "symbol_excerpt"
+      }
+    }
+  ],
+  "files": {
+    "fourway/analyze_log.py": {
+      "query_terms": [
+        "metrics",
+        "per",
+        "vehicle",
+        "output",
+        "json",
+        "byzantine",
+        "ambulance"
+      ],
+      "cached_content": "#!/usr/bin/env python3\n\"\"\"\nBFT-SMaRt V2V Intersection Log Analyzer.\n\nTracks the active VIEW/ORDER protocol and per-car lifecycle metrics, including:\n  - VIEW / ORDER latency breakdowns\n  - wait time at the intersection (stop -> leave)\n  - arrival -> resume and arrival -> leave timing\n  - throughput ",
+      "cached_chars": 20000,
+      "cached_tokens_est": 5000,
+      "last_action": "edited",
+      "last_ts": "2026-04-12T21:30:55.344106+00:00",
+      "edited_count": 1
+    },
+    "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path": {
+      "query_terms": [
+        "cdf",
+        "plot",
+        "steppy",
+        "data",
+        "points"
+      ],
+      "cached_content": "def resolve_log_path(base_dir, n, config):\n    \"\"\"Find the correct log path for a given n/config despite naming variations.\"\"\"\n    priority_dir = os.path.join(base_dir, f\"Priority{n}cars\")\n    if not os.path.isdir(priority_dir):\n        return None\n\n    candidates_by_config = {\n        \"NoAmbulanceH",
+      "cached_chars": 7158,
+      "cached_tokens_est": 1789,
+      "last_action": "read",
+      "last_ts": 1776120539
+    },
+    "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc": {
+      "last_action": "edited",
+      "last_ts": "2026-04-12T22:02:00.813673+00:00",
+      "edited_count": 1
+    }
+  },
+  "actions": [
+    {
+      "ts": 1776028944,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "BFT metrics analysis script per-vehicle JSON output ambulance wait time Byzantine injections"
+      }
+    },
+    {
+      "ts": 1776028944,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "BFT metrics analysis script per-vehicle JSON output ambulance wait time Byzantine injections"
+      }
+    },
+    {
+      "ts": 1776029455,
+      "kind": "register_edit",
+      "payload": {
+        "kind": "register_edit"
+      }
+    },
+    {
+      "ts": 1776030686,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "ReliableV2VMessaging retransmission flush cancel pending messages after consensus"
+      }
+    },
+    {
+      "ts": 1776030686,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "ReliableV2VMessaging retransmission flush cancel pending messages after consensus"
+      }
+    },
+    {
+      "ts": 1776031320,
+      "kind": "register_edit",
+      "payload": {
+        "kind": "register_edit"
+      }
+    },
+    {
+      "ts": 1776120529,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "CDF plot steppy n=4 wait time data points"
+      }
+    },
+    {
+      "ts": 1776120529,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "CDF plot steppy n=4 wait time data points"
+      }
+    },
+    {
+      "ts": 1776120537,
+      "kind": "read_blocked_reuse_gate",
+      "payload": {
+        "kind": "read_blocked_reuse_gate",
+        "file": "fourway/benchmarks/ambulanceWaitTime.py",
+        "query": "CDF plot steppy data points n=4",
+        "mode": "reuse_gate_blocked"
+      }
+    }
+  ],
+  "decisions": [
+    {
+      "ts": 1776029455,
+      "summary": "Added per-car metrics to JSON output: messages_sent/received, delivery_ratio, estimated_loss_rate, used_fallback, propose_all_consensus_wall_s, bft_decision_time_s. Added run-level delivery_ratio, estimated_loss_rate, fallback_rate to overall JSON. Added RUN-METRICS lines for batch log files.",
+      "files": [
+        "fourway/analyze_log.py"
+      ],
+      "scope": "file"
+    },
+    {
+      "ts": 1776031320,
+      "summary": "Cancel retxCheckTimer immediately when ORDER consensus decision arrives on main thread (pendingCancelOrderTimer block), eliminating retransmit bursts between decision and resumeVehicle that inflate Messages_Sent and skew delivery_ratio.",
+      "files": [
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
+      ],
+      "scope": "file"
+    }
+  ]
+}

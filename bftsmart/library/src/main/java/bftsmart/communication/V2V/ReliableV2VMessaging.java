@@ -530,6 +530,18 @@ public class ReliableV2VMessaging {
         int senderId = envelope.fromReplicaId;
         long seq = envelope.sequenceNum;
         final boolean isBroadcast = envelope.isBroadcast || ((seq & BROADCAST_SEQ_FLAG) != 0);
+
+        // C++ always broadcasts all messages (even intended unicasts) to every replica.
+        // For unicast DATA messages, only the intended recipient should track sequence
+        // numbers and deliver to BFT-SMaRt. Other replicas must drop the envelope;
+        // otherwise their per-sender expectedSeqNums counters drift out of sync and
+        // the intended recipient later sees its real unicast (e.g. STOPDATA) as a
+        // DUPLICATE because expectedSeqNums[sender] was already incremented by a
+        // unicast addressed to a different replica.
+        if (!isBroadcast && envelope.toReplicaId != myReplicaId && envelope.toReplicaId != -1) {
+            System.out.println("        -> Unicast to " + envelope.toReplicaId + " (not us=" + myReplicaId + "), dropping");
+            return;
+        }
         long expected;
         long seqForOrdering;
         if (isBroadcast) {

@@ -166,9 +166,12 @@ public class Synchronizer {
                 out.close();
                 bos.close();
 
-                // send STOP-message                
+                // send STOP-message
                 logger.info("Sending STOP message to install regency " + regency + " with " + (messages != null ? messages.size() : 0) + " request(s) to relay");
-                
+                System.out.println("[VIEW-CHANGE] Replica " + this.controller.getStaticConf().getProcessId()
+                        + " TIMEOUT — sending STOP for regency " + regency
+                        + " (new leader will be replica " + (regency % this.controller.getCurrentViewN()) + ")");
+
                 LCMessage stop = new LCMessage(this.controller.getStaticConf().getProcessId(), TOMUtil.STOP, regency, payload);
                 requestsTimer.setSTOP(regency, stop); // make replica re-transmit the stop message until a new regency is installed
                 communication.send(this.controller.getCurrentViewOtherAcceptors(), stop);
@@ -270,7 +273,13 @@ public class Synchronizer {
 
             boolean conditionCFT = (lcManager.getLastCIDsSize(regency) > cftQuorum && lcManager.getCollectsSize(regency) > cftQuorum);
 
+            System.out.println("[SYNC-DEBUG] processSTOPDATA regency=" + regency
+                    + " lastCIDsSize=" + lcManager.getLastCIDsSize(regency)
+                    + " collectsSize=" + lcManager.getCollectsSize(regency)
+                    + " byzantineQuorum=" + bizantineQuorum
+                    + " conditionBFT=" + conditionBFT + " conditionCFT=" + conditionCFT);
             if (conditionBFT || conditionCFT) {
+                System.out.println("[SYNC-DEBUG] Calling catch_up for regency=" + regency);
                 catch_up(regency);
             }
 
@@ -921,7 +930,12 @@ public class Synchronizer {
         int batchSize = -1;
 
         // normalize the collects and apply to them the predicate "sound"
-        if (lcManager.sound(lcManager.selectCollects(regency, currentCID))) {
+        HashSet<bftsmart.tom.leaderchange.CollectData> selColls = lcManager.selectCollects(regency, currentCID);
+        boolean soundResult = lcManager.sound(selColls);
+        System.out.println("[SYNC-DEBUG] catch_up regency=" + regency + " currentCID=" + currentCID
+                + " selectCollects.size=" + (selColls == null ? "null" : selColls.size())
+                + " sound=" + soundResult);
+        if (soundResult) {
 
             logger.debug("Sound predicate is true");
 
@@ -930,6 +944,9 @@ public class Synchronizer {
             Decision dec = new Decision(-1); // the only purpose of this object is to obtain the batchsize,
                                                 // using code inside of createPropose()
 
+            // Reset alreadyProposed so that requests whose first propose was
+            // dropped by a silent Byzantine leader are eligible for re-proposal.
+            tom.clientsManager.resetAlreadyProposed();
             propose = tom.createPropose(dec);
             batchSize = dec.batchSize;
             
@@ -952,6 +969,8 @@ public class Synchronizer {
                 bos.close();
 
                 logger.info("Sending SYNC message for regency " + regency);
+                System.out.println("[VIEW-CHANGE] Replica " + this.controller.getStaticConf().getProcessId()
+                        + " is NEW LEADER — sending SYNC for regency " + regency);
 
                 // send the CATCH-UP message
                 communication.send(this.controller.getCurrentViewOtherAcceptors(),
@@ -1101,7 +1120,13 @@ public class Synchronizer {
         logger.debug("Trying to find a binded value");
 
         // If such value does not exist, obtain the value written by the new leader
-        if (tmpval == null && lcManager.unbound(selectedColls)) {
+        boolean unboundResult = lcManager.unbound(selectedColls);
+        System.out.println("[SYNC-DEBUG] finalise regency=" + regency + " currentCID=" + currentCID
+                + " selectedColls.size=" + (selectedColls == null ? "null" : selectedColls.size())
+                + " bindValue=" + (tmpval == null ? "null" : "non-null")
+                + " unbound=" + unboundResult
+                + " propose=" + (propose == null ? "null" : propose.length + "bytes"));
+        if (tmpval == null && unboundResult) {
             logger.debug("Did not found a value that might have already been decided");
             tmpval = propose;
         } else {
@@ -1160,7 +1185,11 @@ public class Synchronizer {
             cons.removeWritten(tmpval);
             cons.addWritten(tmpval);
             /*************************************/
-            
+
+            System.out.println("[VIEW-CHANGE] Replica " + me + " INSTALLED regency=" + regency
+                    + " new_leader=" + (regency % this.controller.getCurrentViewN())
+                    + " CID=" + currentCID + " — resuming consensus");
+
             byte[] hash = tom.computeHash(tmpval);
             e.propValueHash = hash;
             e.propValue = tmpval;
@@ -1209,6 +1238,9 @@ public class Synchronizer {
                 e.acceptSent();
             }
         } else {
+            System.out.println("[SYNC-DEBUG] *** SYNC PHASE FAILED for regency=" + regency
+                    + " tmpval=" + (tmpval == null ? "null" : "non-null")
+                    + " propose=" + (propose == null ? "null" : propose.length + "bytes"));
             logger.warn("Sync phase failed for regency" + regency);
         }
     }

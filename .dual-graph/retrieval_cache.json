@@ -1,0 +1,219 @@
+{
+  "entries": {
+    "cdf plot steppy wait time data points|tf=5|te=12": {
+      "created_epoch": 1776120529,
+      "files": [
+        "fourway/analyze_log.py::save_waittime_by_car_plot",
+        "fourway/benchmarks/analyze_two_phase.py",
+        "fourway/benchmarks/ambulanceWaitTime.py",
+        "bftsmart/metricParser.py::generate_plots",
+        "fourway/benchmarks/analyze_benchmarks_v2.py::parse_collision_data"
+      ],
+      "mtimes_ns": {
+        "fourway/analyze_log.py::save_waittime_by_car_plot": 1776114977467314237,
+        "fourway/benchmarks/analyze_two_phase.py": 1775440278448561924,
+        "fourway/benchmarks/ambulanceWaitTime.py": 1775836937453129547,
+        "bftsmart/metricParser.py::generate_plots": 1775440285659371988,
+        "fourway/benchmarks/analyze_benchmarks_v2.py::parse_collision_data": 1775440278468438289
+      },
+      "result": {
+        "ok": true,
+        "query": "CDF plot steppy n=4 wait time data points",
+        "graph_files": [
+          {
+            "id": "fourway/analyze_log.py::save_waittime_by_car_plot",
+            "kind": "symbol",
+            "path": "fourway/analyze_log.py",
+            "ext": ".py",
+            "size": 29,
+            "keywords": [
+              "save_waittime_by_car_plot",
+              "save",
+              "waittime",
+              "car",
+              "plot"
+            ],
+            "symbol_type": "use_case",
+            "name": "save_waittime_by_car_plot",
+            "line_start": 802,
+            "line_end": 830,
+            "body_hash": "7512783d",
+            "confidence": "high",
+            "exported": true,
+            "_score": 25,
+            "_role": "code",
+            "_intent": "general"
+          },
+          {
+            "id": "fourway/benchmarks/analyze_two_phase.py",
+            "kind": "file",
+            "path": "fourway/benchmarks/analyze_two_phase.py",
+            "ext": ".py",
+            "size": 5678,
+            "keywords": [
+              "parse_log_file",
+              "parse",
+              "log",
+              "file",
+              "clean_and_group_data",
+              "clean",
+              "and",
+              "group",
+              "data",
+              "plot_multi_metrics",
+              "plot",
+              "multi",
+              "metrics"
+            ],
+            "summary": "import numpy as np. Contains 3 functions/classes: parse_log_file, clean_and_group_data, plot_multi_metrics.",
+            "file_hash": "1f2c0da5",
+            "_score": 17,
+            "_role": "code",
+            "_intent": "general"
+          },
+          {
+            "id": "fourway/benchmarks/ambulanceWaitTime.py",
+            "kind": "file",
+            "path": "fourway/benchmarks/ambulanceWaitTime.py",
+            "ext": ".py",
+            "size": 8302,
+            "keywords": [
+              "resolve_log_path",
+              "resolve",
+              "log",
+              "path"
+            ],
+            "summary": "import matplotlib. Contains 1 function: resolve_log_path.",
+            "file_hash": "a5843f5d",
+            "_score": 16,
+            "_role": "code",
+            "_intent": "general"
+          },
+          {
+            "id": "bftsmart/metricParser.py::generate_plots",
+            "kind": "symbol",
+            "path": "bftsmart/metricParser.py",
+            "ext": ".py",
+            "size": 127,
+            "keywords": [
+              "generate_plots",
+              "generate",
+              "plots"
+            ],
+            "symbol_type": "use_case",
+            "name": "generate_plots",
+            "line_start": 79,
+            "line_end": 205,
+            "body_hash": "bf8f1894",
+            "confidence": "high",
+            "exported": true,
+            "_score": 15,
+            "_role": "code",
+            "_intent": "general"
+          },
+          {
+            "id": "fourway/benchmarks/analyze_benchmarks_v2.py::parse_collision_data",
+            "kind": "symbol",
+            "path": "fourway/benchmarks/analyze_benchmarks_v2.py",
+            "ext": ".py",
+            "size": 58,
+            "keywords": [
+              "parse_collision_data",
+              "parse",
+              "collision",
+              "data"
+            ],
+            "symbol_type": "use_case",
+            "name": "parse_collision_data",
+            "line_start": 167,
+            "line_end": 224,
+            "body_hash": "2a4c40ae",
+            "confidence": "high",
+            "exported": true,
+            "_score": 15,
+            "_role": "code",
+            "_intent": "general"
+          }
+        ],
+        "graph_edges": [
+          {
+            "from": "fourway/benchmarks/ambulanceWaitTime.py",
+            "to": "matplotlib",
+            "rel": "imports"
+          },
+          {
+            "from": "fourway/benchmarks/ambulanceWaitTime.py",
+            "to": "matplotlib.pyplot",
+            "rel": "imports"
+          },
+          {
+            "from": "fourway/analyze_log.py",
+            "to": "fourway/analyze_log.py::save_waittime_by_car_plot",
+            "rel": "contains"
+          },
+          {
+            "from": "fourway/benchmarks/ambulanceWaitTime.py",
+            "to": "numpy",
+            "rel": "imports"
+          },
+          {
+            "from": "fourway/benchmarks/ambulanceWaitTime.py",
+            "to": "os",
+            "rel": "imports"
+          },
+          {
+            "from": "fourway/benchmarks/ambulanceWaitTime.py",
+            "to": "re",
+            "rel": "imports"
+          },
+          {
+            "from": "fourway/benchmarks/ambulanceWaitTime.py",
+            "to": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+            "rel": "contains"
+          },
+          {
+            "from": "fourway/benchmarks/analyze_two_phase.py",
+            "to": "matplotlib.pyplot",
+            "rel": "imports"
+          },
+          {
+            "from": "fourway/benchmarks/analyze_wait_times.py",
+            "to": "matplotlib.pyplot",
+            "rel": "imports"
+          },
+          {
+            "from": "bftsmart/metricParser.py",
+            "to": "bftsmart/metricParser.py::generate_plots",
+            "rel": "contains"
+          },
+          {
+            "from": "fourway/analyze_log.py",
+            "to": "fourway/analyze_log.py::save_waittime_plot",
+            "rel": "contains"
+          },
+          {
+            "from": "fourway/benchmarks/analyze_benchmarks_v2.py",
+            "to": "fourway/benchmarks/analyze_benchmarks_v2.py::parse_collision_data",
+            "rel": "contains"
+          }
+        ],
+        "grep_hits": [],
+        "reuse_candidates": [
+          {
+            "file": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+            "overlap": 2,
+            "cached_chars": 7158,
+            "cached_tokens_est": 1789,
+            "last_action": "read"
+          }
+        ],
+        "read_budget": {
+          "remaining_chars": 60000,
+          "reuse_gate_candidates": [
+            "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path"
+          ]
+        }
+      }
+    }
+  }
+}

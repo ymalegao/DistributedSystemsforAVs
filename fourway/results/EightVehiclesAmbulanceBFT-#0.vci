@@ -1,9 +1,9 @@
                                                                 
 version 3
-run EightVehiclesAmbulanceBFT-0-20260407-08:49:15-1200397
+run EightVehiclesAmbulanceBFT-0-20260412-21:31:07-142680
 attr configname EightVehiclesAmbulanceBFT
-attr datetime 20260407-08:49:15
-attr datetimef 20260407-084915
+attr datetime 20260412-21:31:07
+attr datetimef 20260412-213107
 attr experiment EightVehiclesAmbulanceBFT
 attr inifile omnetpp.ini
 attr iterationvars ""
@@ -11,7 +11,7 @@ attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network fourWay
-attr processid 1200397
+attr processid 142680
 attr repetition 0
 attr replication #0
 attr resultdir results

@@ -292,7 +292,7 @@ public final class DeliveryThread extends Thread {
 						cDecs[count] = cDec;
 
 						// cons.firstMessageProposed contains the performance counters
-						if (requests[count][0].equals(d.firstMessageProposed)) {
+						if (requests[count].length > 0 && requests[count][0].equals(d.firstMessageProposed)) {
 							d.firstMessageProposed.timestamp = requests[count][0].timestamp;
 							d.firstMessageProposed.seed = requests[count][0].seed;
 							d.firstMessageProposed.numOfNonces = requests[count][0].numOfNonces;

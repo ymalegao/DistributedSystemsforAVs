@@ -547,6 +547,16 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                     std::cout << "[ORDER] Replica " << replicaId
                               << ": cancelled stopSignTimeoutTimer (ORDER decided)" << "\n";
                 }
+                // Stop retransmissions immediately — consensus is done and any still-pending
+                // unacked messages are redundant.  The C++ epoch-boundary cleanup will still
+                // run later to advance-only sync receivers' expected sequence numbers.
+                // Cancelling here (rather than waiting for resumeVehicle) eliminates the
+                // retransmit bursts that inflate Messages_Sent and skew delivery_ratio.
+                if (retxCheckTimer && retxCheckTimer->isScheduled()) {
+                    cancelEvent(retxCheckTimer);
+                    std::cout << "[ORDER] Replica " << replicaId
+                              << ": cancelled retxCheckTimer (ORDER decided)" << "\n";
+                }
             }
         }  // jniMutex released here — safe to call parseAndNotifyDecision now
 

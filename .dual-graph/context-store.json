@@ -1,1 +1,226 @@
-[]
+[
+  {
+    "id": "mem:1776028955263",
+    "kind": "query_association",
+    "content": "Queried during: metrics per-vehicle output JSON Byzantine ambulance",
+    "tags": [
+      "metrics",
+      "per",
+      "vehicle",
+      "output",
+      "json",
+      "byzantine",
+      "ambulance"
+    ],
+    "files": [
+      "fourway/analyze_log.py"
+    ],
+    "file_path": "fourway/analyze_log.py",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-12T21:22:35.263151+00:00",
+    "created_epoch": 1776028955,
+    "updated_at": "2026-04-12T21:22:35.263176+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "metrics per-vehicle output JSON Byzantine ambulance"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1776027145
+    }
+  },
+  {
+    "id": "mem:1776028957831",
+    "kind": "query_association",
+    "content": "Queried during: ambulance wait time metrics",
+    "tags": [
+      "ambulance",
+      "wait",
+      "time",
+      "metrics"
+    ],
+    "files": [
+      "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path"
+    ],
+    "file_path": "fourway/benchmarks/ambulanceWaitTime.py",
+    "symbol_id": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+    "symbol_hash": "611799bc",
+    "created_at": "2026-04-12T21:22:37.831277+00:00",
+    "created_epoch": 1776028957,
+    "updated_at": "2026-04-12T21:22:37.831284+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "ambulance wait time metrics"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "symbol",
+      "session_epoch": 1776027145
+    }
+  },
+  {
+    "id": "mem:1776029455344",
+    "kind": "decision",
+    "content": "Added per-car metrics to JSON output: messages_sent/received, delivery_ratio, estimated_loss_rate, used_fallback, propose_all_consensus_wall_s, bft_decision_time_s. Added run-level delivery_ratio, estimated_loss_rate, fallback_rate to overall JSON. Added RUN-METRICS lines for batch log files.",
+    "tags": [
+      "added",
+      "per",
+      "car",
+      "metrics",
+      "json",
+      "output",
+      "messages_sent",
+      "received"
+    ],
+    "files": [
+      "fourway/analyze_log.py"
+    ],
+    "file_path": "fourway/analyze_log.py",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-12T21:30:55.344233+00:00",
+    "created_epoch": 1776029455,
+    "updated_at": "2026-04-12T21:30:55.344237+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1776029455344",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "added",
+      "per",
+      "car",
+      "metrics",
+      "json",
+      "output",
+      "messages_sent",
+      "received"
+    ],
+    "files": [
+      "fourway/analyze_log.py"
+    ],
+    "file_path": "fourway/analyze_log.py",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-12T21:30:55.344888+00:00",
+    "created_epoch": 1776029455,
+    "updated_at": "2026-04-12T21:30:55.344894+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1776031320813",
+    "kind": "decision",
+    "content": "Cancel retxCheckTimer immediately when ORDER consensus decision arrives on main thread (pendingCancelOrderTimer block), eliminating retransmit bursts between decision and resumeVehicle that inflate Messages_Sent and skew delivery_ratio.",
+    "tags": [
+      "cancel",
+      "retxchecktimer",
+      "immediately",
+      "when",
+      "order",
+      "consensus",
+      "decision",
+      "arrives"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-12T22:02:00.813785+00:00",
+    "created_epoch": 1776031320,
+    "updated_at": "2026-04-12T22:02:00.813789+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1776031320814",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "cancel",
+      "retxchecktimer",
+      "immediately",
+      "when",
+      "order",
+      "consensus",
+      "decision",
+      "arrives"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-12T22:02:00.814221+00:00",
+    "created_epoch": 1776031320,
+    "updated_at": "2026-04-12T22:02:00.814226+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1776120539911",
+    "kind": "query_association",
+    "content": "Queried during: CDF plot steppy data points n=4",
+    "tags": [
+      "cdf",
+      "plot",
+      "steppy",
+      "data",
+      "points"
+    ],
+    "files": [
+      "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path"
+    ],
+    "file_path": "fourway/benchmarks/ambulanceWaitTime.py",
+    "symbol_id": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+    "symbol_hash": "611799bc",
+    "created_at": "2026-04-13T22:48:59.911249+00:00",
+    "created_epoch": 1776120539,
+    "updated_at": "2026-04-13T22:48:59.911267+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "CDF plot steppy data points n=4"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "symbol",
+      "session_epoch": 1776027145
+    }
+  }
+]

@@ -218,7 +218,11 @@ public class V2VServersCommunicationLayer extends Thread implements ServersCommu
     public void deliverToBFTSmart(SystemMessage message){
         // REMOVED: No zombie filtering - using BFT reconfiguration instead
         // Reconfiguration consensus needs messages from all replicas!
-        
+
+        // Mark authenticated: messages arrive via V2V physical channel (known replicas)
+        // or are self-sent (e.g. TRIGGER_LC_LOCALLY). MAC auth is not used in this V2V model.
+        message.authenticated = true;
+
         System.out.println("=== [V2V Layer " + me + "] DELIVER to BFT-SMaRt ===");
         System.out.println("    Message type: " + message.getClass().getSimpleName());
         System.out.println("    From replica: " + message.getSender());

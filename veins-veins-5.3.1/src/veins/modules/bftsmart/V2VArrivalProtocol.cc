@@ -79,12 +79,15 @@ V2VProxyModule::VerificationResult V2VProxyModule::verifyCarPosition(const std::
     double actualPosition = targetVeh.getLanePosition();
 
     if (actualLane != claimedLane) {
-        return {false, "WRONG_LANE"};
+        std::cout << "[VERIFY] Replica " << replicaId << " WRONG_LANE: actualLane=" << actualLane << " claimedLane=" << claimedLane << "\n";
+        return {false, "WRONG_LANE", actualLane, actualPosition};
     }
     if (std::abs(actualPosition - claimedPosition) > tolerance) {
-        return {false, "WRONG_POSITION"};
+        std::cout << "[VERIFY] Replica " << replicaId << " WRONG_POSITION: actualPosition=" << actualPosition << " claimedPosition=" << claimedPosition << " tolerance=" << tolerance << "\n";
+        return {false, "WRONG_POSITION", actualLane, actualPosition};
     }
-    return {true, "OK"};
+    std::cout << "[VERIFY] Replica " << replicaId << " OK: actualLane=" << actualLane << " actualPosition=" << actualPosition << " claimedLane=" << claimedLane << " claimedPosition=" << claimedPosition << " tolerance=" << tolerance << "\n";
+    return {true, "OK", actualLane, actualPosition};
 }
 
 // TraCI Vehicle::getLeader(distance) returns (leaderId, distanceToLeader).
@@ -345,8 +348,50 @@ void V2VProxyModule::handleArrivalAnnouncement(BFTMessage* bftMsg) {
     // verifyCarPosition checks lane membership + numeric distance; pass tolerance=1e9 to
     // effectively skip the distance check and only verify that the car is in the claimed lane.
     VerificationResult result = verifyCarPosition(ann.carId, ann.laneId, ann.positionInLane, 1e9);
+
+    // ---- If the lane claim is wrong, the car is still physically present ----
+    // Add it to physicallyObservedCars with its TraCI-verified actual lane, but
+    // do NOT echo — no honest replica will sign a false lane claim, so the car
+    // will accumulate zero valid echoes and be marked QUIET in the proposal.
     if (!result.isValid) {
-        std::cout << "[ANN-RECV] Replica " << replicaId << " INVALID announcement from " << ann.carId << ": " << result.reason << "\n";
+        if (result.actualLaneId.empty()) {
+            // Car not found via TraCI at all (NO_VEHICLE / NO_TRACI) — truly absent.
+            std::cout << "[ANN-RECV] Replica " << replicaId << " ABSENT (not in TraCI): " << ann.carId << "\n";
+            return;
+        }
+        // Car IS physically present but is lying about its lane.
+        // Derive cardinal direction from the actual TraCI lane ID.
+        std::string actualCardinal;
+        {
+            char c = result.actualLaneId.empty() ? 'N' : std::toupper(result.actualLaneId[0]);
+            actualCardinal = (c == 'N' || c == 'S' || c == 'E' || c == 'W')
+                             ? std::string(1, c) : "N";
+        }
+        std::cout << "[ANN-RECV] Replica " << replicaId << " FALSE_LANE from " << ann.carId
+                  << ": claimed=" << ann.lane << " actual=" << actualCardinal
+                  << " — recording as QUIET (no echo sent)\n";
+        if (!viewState.count(ann.carId)) {
+            VehicleState vs;
+            vs.vehicleId      = ann.carId;
+            vs.lane           = actualCardinal;
+            vs.positionInLane = ann.positionInLane;  // rank unchanged
+            vs.direction      = ann.direction;        // direction claim kept (can't verify)
+            vs.isAmbulance    = false;                // don't trust ambulance claim from liar
+            viewState[ann.carId] = vs;
+            arrivalAnnouncementsReceived.insert(ann.carId);
+            physicallyObservedCars.insert(ann.carId);
+        }
+        // Fall through to timer-start logic below (no echo).
+        size_t n = physicallyObservedCars.size();
+        if (!certCollectionStarted && !viewEstablished && amITheLeader(physicallyObservedCars)) {
+            certCollectionStarted = true;
+            certCollectionStartTime = simTime();
+            std::cout << "[V2VProxy " << replicaId << "] Leader: started cert collection timer on first observation"
+                      << " (have " << n << "/" << BATCH_SIZE << " observed, timeout="
+                      << certCollectionTimeoutSec << "s)\n";
+            if (certCollectionTimeoutTimer && !certCollectionTimeoutTimer->isScheduled())
+                scheduleAt(simTime() + certCollectionTimeoutSec, certCollectionTimeoutTimer);
+        }
         return;
     }
 
@@ -408,13 +453,15 @@ void V2VProxyModule::handleArrivalAnnouncement(BFTMessage* bftMsg) {
     std::cout << "[ANN-RECV] Replica " << replicaId << " stored VehicleState for " << ann.carId
               << " (have " << n << "/" << expected << " physically observed)\n";
 
-    // ---- Leader: when all BATCH_SIZE cars physically observed, start cert collection timer ----
-    if (n >= expected && !certCollectionStarted && !viewEstablished
-            && amITheLeader(physicallyObservedCars)) {
+    // ---- Leader: start cert collection timer on FIRST observation ----
+    // We always expect BATCH_SIZE certs. A Byzantine car may never pass the physical
+    // check (so physicallyObservedCars stays < BATCH_SIZE), but the timer must still
+    // fire so that missing cars are marked QUIET rather than stalling the protocol.
+    if (!certCollectionStarted && !viewEstablished && amITheLeader(physicallyObservedCars)) {
         certCollectionStarted = true;
         certCollectionStartTime = simTime();
-        std::cout << "[V2VProxy " << replicaId << "] Leader: all " << expected
-                  << " cars physically observed — starting cert collection timer (timeout="
+        std::cout << "[V2VProxy " << replicaId << "] Leader: started cert collection timer on first observation"
+                  << " (have " << n << "/" << BATCH_SIZE << " observed, timeout="
                   << certCollectionTimeoutSec << "s)\n";
         if (certCollectionTimeoutTimer && !certCollectionTimeoutTimer->isScheduled()) {
             scheduleAt(simTime() + certCollectionTimeoutSec, certCollectionTimeoutTimer);
@@ -759,11 +806,10 @@ void V2VProxyModule::broadcastArrivalCert(const ArrivalCert& cert) {
     if (!collectedCerts.count(cert.carId)) {
         collectedCerts[cert.carId] = cert;
         std::cout << "[CERT-STORED-SELF] Replica " << replicaId << " self-stored ARRIVAL_CERT for "
-                  << cert.carId << " (" << collectedCerts.size() << "/"
-                  << physicallyObservedCars.size() << " certs)\n";
+                  << cert.carId << " (" << collectedCerts.size() << "/" << BATCH_SIZE << " certs)\n";
         // If we are the leader and this was the last missing cert, submit immediately.
         if (amITheLeader(physicallyObservedCars) && certCollectionStarted && !viewEstablished) {
-            if (collectedCerts.size() >= physicallyObservedCars.size()) {
+            if (collectedCerts.size() >= (size_t)BATCH_SIZE) {
                 if (certCollectionTimeoutTimer && certCollectionTimeoutTimer->isScheduled())
                     cancelEvent(certCollectionTimeoutTimer);
                 viewEstablished = true;
@@ -787,12 +833,13 @@ void V2VProxyModule::handleArrivalCert(BFTMessage* bftMsg) {
     if (collectedCerts.count(cert.carId)) return;  // dedup
     collectedCerts[cert.carId] = cert;
     std::cout << "[CERT-STORED] Replica " << replicaId << " stored ARRIVAL_CERT for "
-              << cert.carId << " (" << collectedCerts.size() << "/"
-              << physicallyObservedCars.size() << " certs)\n";
+              << cert.carId << " (" << collectedCerts.size() << "/" << BATCH_SIZE << " certs)\n";
 
-    // Leader: check if all physically observed cars now have certs
+    // Leader: check if all BATCH_SIZE cars now have certs (Byzantine cars will be
+    // absent and marked QUIET when the timer fires — never use physicallyObservedCars
+    // as the expected count, since a liar may have failed the physical check).
     if (amITheLeader(physicallyObservedCars) && certCollectionStarted && !viewEstablished) {
-        if (collectedCerts.size() >= physicallyObservedCars.size()) {
+        if (collectedCerts.size() >= (size_t)BATCH_SIZE) {
             if (certCollectionTimeoutTimer && certCollectionTimeoutTimer->isScheduled()) {
                 cancelEvent(certCollectionTimeoutTimer);
             }
