@@ -71,20 +71,16 @@ DEFAULT_BAR_SERIES: list[tuple[str, dict[int, list[str]]]] = [
         "Ambulance (honest)",
         {
             4: [
-                "benchmarks/Priority4cars/amb_honest/4veh_*.json",
-                "benchmarks/Priority4cars/AmbHonest.json",
+                "benchmarks/Priority4cars/amb_honest/4veh_[5-9].json",
             ],
             8: [
-                "benchmarks/Priority8cars/amb_honest/8veh_*.json",
-                "benchmarks/Priority8cars/8AmbHonest.json",
+                "benchmarks/Priority8cars/amb_honest/8veh_[5-9].json",
             ],
             12: [
-                "benchmarks/Priority12cars/amb_honest/12veh_*.json",
-                "benchmarks/Priority12cars/12AmbulanceHonest.json",
+                "benchmarks/Priority12cars/amb_honest/12veh_[5-9].json",
             ],
             16: [
-                "benchmarks/Priority16cars/amb_honest/16veh_*.json",
-                "benchmarks/Priority16cars/AmbulanceHonest.json",
+                "benchmarks/Priority16cars/amb_honest/16veh_[5-9].json",
             ],
         },
     ),
@@ -92,20 +88,16 @@ DEFAULT_BAR_SERIES: list[tuple[str, dict[int, list[str]]]] = [
         "Ambulance + Byzantine followers",
         {
             4: [
-                "benchmarks/Priority4cars/amb_byz_follower/4veh_*.json",
-                "benchmarks/Priority4cars/ByzFollower.json",
+                "benchmarks/Priority4cars/amb_byz_follower/4veh_[5-9].json",
             ],
             8: [
-                "benchmarks/Priority8cars/amb_byz_follower/8veh_*.json",
-                "benchmarks/Priority8cars/AmbByzFollower.json",
+                "benchmarks/Priority8cars/amb_byz_follower/8veh_[5-9].json",
             ],
             12: [
-                "benchmarks/Priority12cars/amb_byz_follower/12veh_*.json",
-                "benchmarks/Priority12cars/12ByzFollower.json",
+                "benchmarks/Priority12cars/amb_byz_follower/12veh_[5-9].json",
             ],
             16: [
-                "benchmarks/Priority16cars/amb_byz_follower/16veh_*.json",
-                "benchmarks/Priority16cars/AmbByzFollower.json",
+                "benchmarks/Priority16cars/amb_byz_follower/16veh_[5-9].json",
             ],
         },
     ),
@@ -113,19 +105,16 @@ DEFAULT_BAR_SERIES: list[tuple[str, dict[int, list[str]]]] = [
         "Ambulance + Byzantine leader",
         {
             4: [
-                "benchmarks/Priority4cars/amb_byz_leader/4veh_*.json",
-                "benchmarks/Priority4cars/ByzLeader.json",
+                "benchmarks/Priority4cars/amb_byz_leader/4veh_[5-9].json",
             ],
             8: [
-                "benchmarks/Priority8cars/amb_byz_leader/8veh_*.json",
+                "benchmarks/Priority8cars/amb_byz_leader/8veh_[5-9].json",
             ],
             12: [
-                "benchmarks/Priority12cars/amb_byz_leader/12veh_*.json",
-                "benchmarks/Priority12cars/12ByzLeader.json",
+                "benchmarks/Priority12cars/amb_byz_leader/12veh_[5-9].json",
             ],
             16: [
-                "benchmarks/Priority16cars/amb_byz_leader/16veh_*.json",
-                "benchmarks/Priority16cars/AmbByzLeader.json",
+                "benchmarks/Priority16cars/amb_byz_leader/16veh_[5-9].json",
             ],
         },
     ),
