@@ -1,5 +1,30 @@
 #!/bin/bash
 # Wrapper script to run OMNeT++ simulations with portable repo-relative paths.
+#
+# Usage:
+#   ./run-omnet-simulation.sh [sim-dir] [opp_run args...]
+#   ./run-omnet-simulation.sh --randomize <N> <F> [options] [sim-dir] [opp_run args...]
+#
+# --randomize <N> <F>
+#   Picks one ambulance and F Byzantine nodes (all FALSE_LANE) from N vehicles
+#   at random per run, writes fourway/random_scenario.ini, and injects it.
+#
+# --byzleader <ID>
+#   Reserve replica <ID> as the Java consensus-layer Byzantine silent leader.
+#   That replica is excluded from ambulance selection and from the C++ FALSE_LANE
+#   pool so the two fault layers don't overlap.
+#   When --sync-java is also passed, writes <ID> (not the FALSE_LANE nodes) into
+#   system.config's maliciousReplicaIds — that's what triggers silent-leader behavior.
+#
+# --sync-java
+#   Update fourway/config/system.config's maliciousReplicaIds.
+#   With --byzleader: writes the leader ID (Java consensus fault).
+#   Without --byzleader: writes the FALSE_LANE node IDs (combined C++/Java fault).
+#
+# Examples:
+#   ./run-omnet-simulation.sh -u Cmdenv -c TwelveVehiclesAmbulanceBFT
+#   ./run-omnet-simulation.sh --randomize 12 3 -u Cmdenv -c TwelveVehiclesAmbulanceBFT
+#   ./run-omnet-simulation.sh --randomize 16 4 --byzleader 0 --sync-java -u Cmdenv -c SixteenVehiclesBFTOverV2V
 
 set -euo pipefail
 
@@ -71,6 +96,179 @@ has_ned_path_arg() {
     return 1
 }
 
+# ---------------------------------------------------------------------------
+# Random scenario generation
+# ---------------------------------------------------------------------------
+# Writes fourway/random_scenario.ini with randomized ambulance + Byzantine
+# node assignments.  The file uses [General] so it applies to any config.
+# Prints the path to the generated ini file on stdout; all other output goes
+# to stderr so callers can safely capture the path with $(...).
+# Usage: generate_random_scenario <N> <F> <sim_dir> <byz_leader|-1> <sync_java>
+#   byz_leader: replica ID reserved as Java silent leader (-1 = none)
+#   sync_java:  "--sync-java" or ""
+# ---------------------------------------------------------------------------
+generate_random_scenario() {
+    local n="$1"
+    local f="$2"
+    local sim_dir="$3"
+    local byz_leader="$4"   # -1 means no byz leader
+    local sync_java="$5"
+
+    local out_ini="${sim_dir}/random_scenario.ini"
+
+    # Pure-bash random sampling — no Python subprocess needed, avoids LD_LIBRARY_PATH
+    # conflicts between Nix libs and the system Python binary.
+
+    # ---------------------------------------------------------------------------
+    # replica_to_node_idx <n> <replica_id>
+    # OMNeT++ orders node[] by SUMO vehicle ID lexicographically.
+    # For n<=9 the order is numeric, so node[i]=vehi.
+    # For n>9 it differs: e.g. n=16 → veh10<veh2, so node[2]=veh10 (replica 10).
+    # This function counts how many veh{j} (j≠replica, 0≤j<n) sort before veh{replica}.
+    # ---------------------------------------------------------------------------
+    replica_to_node_idx() {
+        local _n="$1" _r="$2"
+        local _count=0 _i
+        local _target="veh${_r}"
+        for (( _i=0; _i<_n; _i++ )); do
+            [[ $_i -ne $_r && "veh${_i}" < "${_target}" ]] && (( _count++ ))
+        done
+        echo $_count
+    }
+
+    # 1. Pick ambulance (replica ID) from all replicas except the byz leader.
+    local AMB_ID
+    if [[ "${byz_leader}" -ge 0 ]]; then
+        local amb_pool=()
+        local k
+        for (( k=0; k<n; k++ )); do
+            [[ $k -ne $byz_leader ]] && amb_pool+=("$k")
+        done
+        AMB_ID=${amb_pool[$(( RANDOM % ${#amb_pool[@]} ))]}
+    else
+        AMB_ID=$(( RANDOM % n ))
+    fi
+
+    # 2. Build FALSE_LANE candidate pool (replica IDs): exclude ambulance and byz leader.
+    #    Fisher-Yates shuffle, take first F.
+    local available=()
+    local i
+    for (( i=0; i<n; i++ )); do
+        [[ $i -ne $AMB_ID && $i -ne $byz_leader ]] && available+=("$i")
+    done
+    local avail_len=${#available[@]}
+    local pick=$(( f < avail_len ? f : avail_len ))
+    for (( i=0; i<pick; i++ )); do
+        local j=$(( i + RANDOM % (avail_len - i) ))
+        local tmp=${available[$i]}
+        available[$i]=${available[$j]}
+        available[$j]=$tmp
+    done
+    local BYZ_ARRAY=("${available[@]:0:$pick}")
+    local BYZ_IDS="${BYZ_ARRAY[*]}"   # space-separated replica IDs
+
+    echo "==========================================" >&2
+    echo "Randomized scenario:" >&2
+    echo "  Ambulance node  : ${AMB_ID} (veh${AMB_ID})" >&2
+    if [[ "${byz_leader}" -ge 0 ]]; then
+        echo "  Byzantine leader: replica ${byz_leader} (Java silent leader + C++ FALSE_LANE)" >&2
+    else
+        echo "  Byzantine leader: none" >&2
+    fi
+    echo "  Byzantine nodes : ${BYZ_IDS:-none} (C++ FALSE_LANE, replica IDs)" >&2
+    echo "  Output ini      : ${out_ini}" >&2
+    echo "==========================================" >&2
+
+    # Write the OMNeT++ ini override file.
+    # Reset all nodes first so stale Byzantine settings from the base config are cleared.
+    # IMPORTANT: isByzantine is set by OMNeT++ node[] INDEX, not replica ID.
+    # For n>9 these differ because OMNeT++ sorts nodes by SUMO ID lexicographically.
+    # Use replica_to_node_idx to convert before writing.
+    {
+        echo "# Auto-generated by run-omnet-simulation.sh --randomize"
+        echo "# Do not edit by hand — regenerated each run."
+        echo "[General]"
+        echo "*.node[*].appl.ambulanceReplicaId = ${AMB_ID}"
+        # echo "*.node[*].appl.isByzantine = false"
+        # echo "*.node[*].appl.byzantineType = 0"
+        # Byz leader: Byzantine at both Java layer (system.config) and C++ layer (FALSE_LANE)
+        if [[ "${byz_leader}" -ge 0 ]]; then
+            local leader_node
+            leader_node="$(replica_to_node_idx "${n}" "${byz_leader}")"
+            echo "*.node[${leader_node}].appl.isByzantine = true"
+            echo "*.node[${leader_node}].appl.byzantineType = 1   # FALSE_LANE (byz leader replica ${byz_leader})"
+        fi
+        # FALSE_LANE nodes (C++ arrival layer only)
+        for replica_id in "${BYZ_ARRAY[@]}"; do
+            local node_idx
+            node_idx="$(replica_to_node_idx "${n}" "${replica_id}")"
+            echo "*.node[${node_idx}].appl.isByzantine = true"
+            echo "*.node[${node_idx}].appl.byzantineType = 1   # FALSE_LANE (replica ${replica_id})"
+        done
+    } > "${out_ini}"
+
+    # Optionally sync the Java consensus-layer Byzantine config.
+    # With --byzleader: write the leader ID (triggers silent-leader behavior in Java).
+    # Without --byzleader: write the FALSE_LANE IDs (combined C++/Java fault testing).
+    if [[ "${sync_java}" == "--sync-java" ]]; then
+        local sys_cfg="${sim_dir}/config/system.config"
+        if [[ -f "${sys_cfg}" ]]; then
+            local java_byz_csv
+            if [[ "${byz_leader}" -ge 0 ]]; then
+                java_byz_csv="${byz_leader}"
+            else
+                java_byz_csv="${BYZ_IDS// /,}"
+            fi
+            sed -i "s/^system\.byzantine\.maliciousReplicaIds\s*=.*/system.byzantine.maliciousReplicaIds = ${java_byz_csv}/" "${sys_cfg}"
+            echo "  Synced Java maliciousReplicaIds = ${java_byz_csv} in ${sys_cfg}" >&2
+        else
+            echo "WARNING: --sync-java: ${sys_cfg} not found, skipping." >&2
+        fi
+    fi
+
+    # Only the ini path goes to stdout so $(...) captures just the path
+    printf '%s\n' "${out_ini}"
+}
+
+# ---------------------------------------------------------------------------
+# Argument parsing: strip our flags before forwarding the rest to opp_run
+# ---------------------------------------------------------------------------
+RANDOMIZE=0
+RANDOMIZE_N=""
+RANDOMIZE_F=""
+BYZ_LEADER=-1       # -1 = no designated byz leader
+SYNC_JAVA=""
+EXTRA_INI_ARG=()
+
+args=("$@")
+filtered_args=()
+i=0
+while [[ $i -lt ${#args[@]} ]]; do
+    case "${args[$i]}" in
+        --randomize)
+            RANDOMIZE=1
+            i=$(( i + 1 ))
+            RANDOMIZE_N="${args[$i]}"
+            i=$(( i + 1 ))
+            RANDOMIZE_F="${args[$i]}"
+            ;;
+        --byzleader)
+            i=$(( i + 1 ))
+            BYZ_LEADER="${args[$i]}"
+            ;;
+        --sync-java)
+            SYNC_JAVA="--sync-java"
+            ;;
+        *)
+            filtered_args+=("${args[$i]}")
+            ;;
+    esac
+    i=$(( i + 1 ))
+done
+set -- "${filtered_args[@]+"${filtered_args[@]}"}"
+
+# ---------------------------------------------------------------------------
+
 infer_omnetpp_root
 if [[ -z "${OMNETPP_ROOT:-}" ]]; then
     echo "ERROR: OMNETPP_ROOT is not set and could not be inferred." >&2
@@ -115,6 +313,18 @@ if [[ ! -d "${SIM_DIR}" ]]; then
     exit 1
 fi
 
+# Generate random scenario after SIM_DIR is known
+if [[ "${RANDOMIZE}" -eq 1 ]]; then
+    if [[ -z "${RANDOMIZE_N}" || -z "${RANDOMIZE_F}" ]]; then
+        echo "ERROR: --randomize requires <N> <F> arguments" >&2
+        exit 1
+    fi
+    RANDOM_INI="$(generate_random_scenario "${RANDOMIZE_N}" "${RANDOMIZE_F}" "${SIM_DIR}" "${BYZ_LEADER}" "${SYNC_JAVA}")"
+    # When any -f flag is given, OMNeT++ stops auto-loading omnetpp.ini.
+    # Explicitly load omnetpp.ini first, then the override file so it wins.
+    EXTRA_INI_ARG=(-f "omnetpp.ini" -f "${RANDOM_INI}")
+fi
+
 LOG_FILE="/tmp/bft-all-replicas.log"
 trap cleanup EXIT
 OLD_VIEW_FILE="${SIM_DIR}/config/currentView"
@@ -141,17 +351,16 @@ cd "${SIM_DIR}" || exit 1
 
 if [[ -x "./veins" ]]; then
     echo "Starting simulation..."
-    ./veins "$@" 2>&1 | tee -a "${LOG_FILE}"
+    ./veins "${EXTRA_INI_ARG[@]+"${EXTRA_INI_ARG[@]}"}" "$@" 2>&1 | tee -a "${LOG_FILE}"
 elif [[ -x "./fourway" ]]; then
     echo "Starting simulation..."
     cmd=(./fourway)
     if ! has_ned_path_arg "$@"; then
         cmd+=(-n "${VEINS_ROOT}/src/veins:.")
     fi
-    cmd+=("$@")
+    cmd+=("${EXTRA_INI_ARG[@]+"${EXTRA_INI_ARG[@]}"}" "$@")
     "${cmd[@]}" 2>&1 | tee -a "${LOG_FILE}"
 else
     echo "Starting with opp_run..."
-    opp_run "$@" 2>&1 | tee -a "${LOG_FILE}"
+    opp_run "${EXTRA_INI_ARG[@]+"${EXTRA_INI_ARG[@]}"}" "$@" 2>&1 | tee -a "${LOG_FILE}"
 fi
-

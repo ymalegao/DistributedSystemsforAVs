@@ -990,19 +990,6 @@ void V2VProxyModule::onViewAgreed(const std::set<std::string>& agreedView) {
         }
     }
     
-    // Within-epoch H1 fix: once VIEW is decided, any remaining VIEW WRITE/ACCEPT retransmissions
-    // are stale and should not spill into the ORDER broadcast window.
-    // // Clear this replica's reliability-layer unacked queue now (before ORDER starts).
-    // if (jvm && javaReady) {
-    //     JNIEnv* env;
-    //     jvm->AttachCurrentThread((void**)&env, nullptr);
-    //     jclass cls = env->FindClass("bftsmart/communication/V2V/ReliableV2VMessaging");
-    //     if (cls) {
-    //         jmethodID m = env->GetStaticMethodID(cls, "clearUnackedForReplica", "(I)V");
-    //         if (m) env->CallStaticVoidMethod(cls, m, (jint)replicaId);
-    //         if (env->ExceptionCheck()) env->ExceptionClear();
-    //     }
-    // }
 
     establishedView = agreedView;
     viewEstablished = true;

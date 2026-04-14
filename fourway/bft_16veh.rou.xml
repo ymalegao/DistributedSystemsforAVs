@@ -29,5 +29,5 @@
     <vehicle id="veh12" type="car" route="rW" depart="0.12" departSpeed="max" departPos="280"/>
     <vehicle id="veh13" type="car" route="rW" depart="0.13" departSpeed="max" departPos="270"/>
     <vehicle id="veh14" type="car" route="rW" depart="0.14" departSpeed="max" departPos="260"/>
-    <vehicle id="veh15" type="ambulance" route="rW" depart="0.15" departSpeed="max" departPos="250"/>
+    <vehicle id="veh15" type="car" route="rW" depart="0.15" departSpeed="max" departPos="250"/>
 </routes>

@@ -817,7 +817,9 @@ def write_metrics_json(path):
         "epochs": N_EPOCHS,
         "throughput_s_per_veh": throughput,
         "throughput_veh_per_s": throughput_vps,
-        "throughput_formula": "(last_depart - first_depart) / n_cars",
+        "throughput_formula": "((last_depart - first_depart) + median_positive_depart_gap) / n_cars",
+        "throughput_s_per_veh_legacy_span": throughput_legacy,
+        "throughput_veh_per_s_legacy_span": throughput_vps_legacy,
         "wait_all_s": _stat(all_waits),
         "wait_normal_s": _stat(normal_waits),
         "wait_ambulance_s": _stat(ambulance_waits),
@@ -1251,12 +1253,34 @@ resume_to_depart_all = [m["resume_to_depart"] for m in car_metrics.values()
                         if m.get("resume_to_depart") is not None]
 
 throughput = None
+throughput_vps = None
+throughput_legacy = None
+throughput_vps_legacy = None
 depart_times = sorted(
     m["depart_time"] for m in car_metrics.values() if m.get("depart_time") is not None
 )
 if len(depart_times) >= 2:
-    throughput = (depart_times[-1] - depart_times[0]) / len(depart_times)
-throughput_vps = (1.0 / throughput) if throughput not in (None, 0) else None
+    n_dep = len(depart_times)
+    span = depart_times[-1] - depart_times[0]
+    throughput_legacy = span / n_dep if n_dep > 0 else None
+    throughput_vps_legacy = (1.0 / throughput_legacy) if throughput_legacy not in (None, 0) else None
+
+    # Finite-window correction for small n:
+    # add one inferred service interval to the observed span.
+    unique_depart_times = sorted(set(float(t) for t in depart_times))
+    positive_gaps = [
+        unique_depart_times[i] - unique_depart_times[i - 1]
+        for i in range(1, len(unique_depart_times))
+        if (unique_depart_times[i] - unique_depart_times[i - 1]) > 1e-9
+    ]
+    delta = statistics.median(positive_gaps) if positive_gaps else None
+    corrected_span = (span + delta) if delta is not None else None
+    if corrected_span not in (None, 0):
+        throughput = corrected_span / n_dep
+        throughput_vps = 1.0 / throughput
+    else:
+        throughput = throughput_legacy
+        throughput_vps = throughput_vps_legacy
 missing_departure = [
     car_id for car_id, m in sorted(car_metrics.items(), key=lambda kv: int(kv[0][3:]))
     if m.get("stop_time") is not None and m.get("depart_time") is None
@@ -1266,11 +1290,31 @@ print(f"\n{'=' * 72}")
 print(f"{BOLD}Paper-Friendly Summary Metrics{RESET}")
 print(f"{'─' * 72}")
 if throughput is not None:
-    print(f"  Throughput (user definition): {throughput:.6f}s per vehicle")
+    print(f"  Throughput (corrected):       {throughput:.6f}s per vehicle")
     if throughput_vps is not None:
-        print(f"  Throughput (standard):        {throughput_vps:.6f} vehicles/s")
-    print(f"    Formula: (last leave - first leave) / cars = "
-          f"({depart_times[-1]:.4f} - {depart_times[0]:.4f}) / {len(depart_times)}")
+        print(f"  Throughput (corrected):       {throughput_vps:.6f} vehicles/s")
+    if len(depart_times) >= 2:
+        unique_depart_times = sorted(set(float(t) for t in depart_times))
+        positive_gaps = [
+            unique_depart_times[i] - unique_depart_times[i - 1]
+            for i in range(1, len(unique_depart_times))
+            if (unique_depart_times[i] - unique_depart_times[i - 1]) > 1e-9
+        ]
+        delta = statistics.median(positive_gaps) if positive_gaps else None
+        if delta is not None:
+            print(
+                "    Formula: ((last leave - first leave) + delta) / cars = "
+                f"(({depart_times[-1]:.4f} - {depart_times[0]:.4f}) + {delta:.4f}) / {len(depart_times)}"
+            )
+        else:
+            print(
+                "    Formula fallback: (last leave - first leave) / cars = "
+                f"({depart_times[-1]:.4f} - {depart_times[0]:.4f}) / {len(depart_times)}"
+            )
+    if throughput_legacy is not None:
+        print(f"  Throughput (legacy span-based): {throughput_legacy:.6f}s per vehicle")
+        if throughput_vps_legacy is not None:
+            print(f"  Throughput (legacy span-based): {throughput_vps_legacy:.6f} vehicles/s")
 elif "Throughput_User_Definition" in run_metrics:
     throughput = run_metrics["Throughput_User_Definition"]
     throughput_vps = (1.0 / throughput) if throughput not in (None, 0) else None

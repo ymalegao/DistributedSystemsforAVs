@@ -64,6 +64,39 @@
   },
   {
     "id": "mem:1776029455344",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "added",
+      "per",
+      "car",
+      "metrics",
+      "json",
+      "output",
+      "messages_sent",
+      "received"
+    ],
+    "files": [
+      "fourway/analyze_log.py"
+    ],
+    "file_path": "fourway/analyze_log.py",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-12T21:30:55.344888+00:00",
+    "created_epoch": 1776029455,
+    "updated_at": "2026-04-12T21:30:55.344894+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1776029455344",
     "kind": "decision",
     "content": "Added per-car metrics to JSON output: messages_sent/received, delivery_ratio, estimated_loss_rate, used_fallback, propose_all_consensus_wall_s, bft_decision_time_s. Added run-level delivery_ratio, estimated_loss_rate, fallback_rate to overall JSON. Added RUN-METRICS lines for batch log files.",
     "tags": [
@@ -95,28 +128,30 @@
     }
   },
   {
-    "id": "mem:1776029455344",
+    "id": "mem:1776031320814",
     "kind": "edit_observation",
     "content": "Edited during active session",
     "tags": [
-      "added",
-      "per",
-      "car",
-      "metrics",
-      "json",
-      "output",
-      "messages_sent",
-      "received"
+      "cancel",
+      "retxchecktimer",
+      "immediately",
+      "when",
+      "order",
+      "consensus",
+      "decision",
+      "arrives",
+      "set",
+      "ambulance"
     ],
     "files": [
-      "fourway/analyze_log.py"
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
     ],
-    "file_path": "fourway/analyze_log.py",
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-12T21:30:55.344888+00:00",
-    "created_epoch": 1776029455,
-    "updated_at": "2026-04-12T21:30:55.344894+00:00",
+    "created_at": "2026-04-12T22:02:00.814221+00:00",
+    "created_epoch": 1776031320,
+    "updated_at": "2026-04-14T03:33:11.099416+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -160,39 +195,6 @@
     }
   },
   {
-    "id": "mem:1776031320814",
-    "kind": "edit_observation",
-    "content": "Edited during active session",
-    "tags": [
-      "cancel",
-      "retxchecktimer",
-      "immediately",
-      "when",
-      "order",
-      "consensus",
-      "decision",
-      "arrives"
-    ],
-    "files": [
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
-    ],
-    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-12T22:02:00.814221+00:00",
-    "created_epoch": 1776031320,
-    "updated_at": "2026-04-12T22:02:00.814226+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [],
-    "evidence": {
-      "source": "graph_register_edit",
-      "recent_action_kinds": [],
-      "recent_queries": [],
-      "edited": true
-    }
-  },
-  {
     "id": "mem:1776120539911",
     "kind": "query_association",
     "content": "Queried during: CDF plot steppy data points n=4",
@@ -220,6 +222,355 @@
     "evidence": {
       "source": "graph_read",
       "anchor_mode": "symbol",
+      "session_epoch": 1776027145
+    }
+  },
+  {
+    "id": "mem:1776134948719",
+    "kind": "query_association",
+    "content": "Queried during: throughput calculation vehicles per second",
+    "tags": [
+      "throughput",
+      "calculation",
+      "vehicles",
+      "per",
+      "second"
+    ],
+    "files": [
+      "fourway/analyze_log.py::all_per_epoch"
+    ],
+    "file_path": "fourway/analyze_log.py",
+    "symbol_id": "fourway/analyze_log.py::all_per_epoch",
+    "symbol_hash": "9c32d740",
+    "created_at": "2026-04-14T02:49:08.719299+00:00",
+    "created_epoch": 1776134948,
+    "updated_at": "2026-04-14T02:49:08.719311+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "throughput calculation vehicles per second"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "symbol",
+      "session_epoch": 1776027145
+    }
+  },
+  {
+    "id": "mem:1776137351081",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "added",
+      "randomize",
+      "sync",
+      "java",
+      "flags",
+      "per",
+      "run",
+      "ambulance",
+      "fixed",
+      "pure"
+    ],
+    "files": [
+      "bftsmart/run-omnet-simulation.sh"
+    ],
+    "file_path": "bftsmart/run-omnet-simulation.sh",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-14T03:29:11.081226+00:00",
+    "created_epoch": 1776137351,
+    "updated_at": "2026-04-14T04:22:58.613946+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1776137351080",
+    "kind": "decision",
+    "content": "Added --randomize N F and --sync-java flags for per-run ambulance and Byzantine node randomization via generated random_scenario.ini",
+    "tags": [
+      "added",
+      "randomize",
+      "sync",
+      "java",
+      "flags",
+      "per",
+      "run",
+      "ambulance"
+    ],
+    "files": [
+      "bftsmart/run-omnet-simulation.sh"
+    ],
+    "file_path": "bftsmart/run-omnet-simulation.sh",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-14T03:29:11.080610+00:00",
+    "created_epoch": 1776137351,
+    "updated_at": "2026-04-14T03:29:11.080614+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1776137591105",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "set",
+      "ambulance",
+      "vehicle",
+      "color",
+      "red",
+      "via",
+      "traci",
+      "first"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-14T03:33:11.105295+00:00",
+    "created_epoch": 1776137591,
+    "updated_at": "2026-04-14T03:33:11.105305+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1776137591098",
+    "kind": "decision",
+    "content": "Set ambulance vehicle color to red via TraCI on first handlePositionUpdate call",
+    "tags": [
+      "set",
+      "ambulance",
+      "vehicle",
+      "color",
+      "red",
+      "via",
+      "traci",
+      "first"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-14T03:33:11.098634+00:00",
+    "created_epoch": 1776137591,
+    "updated_at": "2026-04-14T03:33:11.098643+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1776137897757",
+    "kind": "decision",
+    "content": "Fixed: pure-bash random (no Python), all banner to stderr, explicit -f omnetpp.ini needed when adding extra ini file",
+    "tags": [
+      "fixed",
+      "pure",
+      "bash",
+      "random",
+      "python",
+      "all",
+      "banner",
+      "stderr"
+    ],
+    "files": [
+      "bftsmart/run-omnet-simulation.sh"
+    ],
+    "file_path": "bftsmart/run-omnet-simulation.sh",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-14T03:38:17.757591+00:00",
+    "created_epoch": 1776137897,
+    "updated_at": "2026-04-14T03:38:17.757596+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1776140578612",
+    "kind": "decision",
+    "content": "Added --byzleader ID flag; fixed ambulance exclusion logic; cleaned up generate_random_scenario signature",
+    "tags": [
+      "added",
+      "byzleader",
+      "flag",
+      "fixed",
+      "ambulance",
+      "exclusion",
+      "logic",
+      "cleaned"
+    ],
+    "files": [
+      "bftsmart/run-omnet-simulation.sh"
+    ],
+    "file_path": "bftsmart/run-omnet-simulation.sh",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-14T04:22:58.612915+00:00",
+    "created_epoch": 1776140578,
+    "updated_at": "2026-04-14T04:22:58.612919+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1776144616563",
+    "kind": "query_association",
+    "content": "Queried during: ComputePassOrder buildProposal priority QUIET scheduling",
+    "tags": [
+      "computepassorder",
+      "buildproposal",
+      "priority",
+      "quiet",
+      "scheduling"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderScheduler.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderScheduler.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-14T05:30:16.563367+00:00",
+    "created_epoch": 1776144616,
+    "updated_at": "2026-04-14T05:30:16.563375+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "ComputePassOrder buildProposal priority QUIET scheduling"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1776027145
+    }
+  },
+  {
+    "id": "mem:1776144617265",
+    "kind": "query_association",
+    "content": "Queried during: validatePerCarCerts f+1 signatures QUIET",
+    "tags": [
+      "validatepercarcerts",
+      "signatures",
+      "quiet"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/ViewConsensusProtocol.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/ViewConsensusProtocol.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-14T05:30:17.265457+00:00",
+    "created_epoch": 1776144617,
+    "updated_at": "2026-04-14T05:30:17.265491+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "validatePerCarCerts f+1 signatures QUIET"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1776027145
+    }
+  },
+  {
+    "id": "mem:1776144622497",
+    "kind": "query_association",
+    "content": "Queried during: validation checks QUIET SIGNED cert schedule",
+    "tags": [
+      "validation",
+      "checks",
+      "quiet",
+      "signed",
+      "cert",
+      "schedule"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-14T05:30:22.497748+00:00",
+    "created_epoch": 1776144622,
+    "updated_at": "2026-04-14T05:30:22.497757+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "validation checks QUIET SIGNED cert schedule"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1776027145
+    }
+  },
+  {
+    "id": "mem:1776144623181",
+    "kind": "query_association",
+    "content": "Queried during: isSafeToBatch conflict lanes",
+    "tags": [
+      "issafetobatch",
+      "conflict",
+      "lanes"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/ConflictMatrix.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/ConflictMatrix.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-14T05:30:23.181517+00:00",
+    "created_epoch": 1776144623,
+    "updated_at": "2026-04-14T05:30:23.181538+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "isSafeToBatch conflict lanes"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
       "session_epoch": 1776027145
     }
   }

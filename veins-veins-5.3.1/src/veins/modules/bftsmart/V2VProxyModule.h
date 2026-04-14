@@ -23,7 +23,7 @@ class VEINS_API V2VProxyModule : public DemoBaseApplLayer {
 public:
     V2VProxyModule();
     ~V2VProxyModule() override;
-    static const int BATCH_SIZE = 16;
+    static const int BATCH_SIZE = 4;
 
     simtime_t consensusStartTime;
     
@@ -230,6 +230,7 @@ private:
     int serviceChannel;
     /** True if this module should act as ambulance (see ambulanceReplicaId vs isAmbulance in NED). */
     bool moduleIsAmbulance = false;
+    bool ambulanceColorSet = false;  // Set red via TraCI once on first position update
 
     std::string myLaneId;
     std::vector<std::string> laneQueue;  // ordered front-to-back by lane position

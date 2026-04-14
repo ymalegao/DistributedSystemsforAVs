@@ -1068,6 +1068,11 @@ void V2VProxyModule::handlePositionUpdate(cObject* obj)
 {
     if (replicaId < 0) {  return; }
     DemoBaseApplLayer::handlePositionUpdate(obj);
+
+    if (moduleIsAmbulance && !ambulanceColorSet && mobility && mobility->getVehicleCommandInterface()) {
+        mobility->getVehicleCommandInterface()->setColor(TraCIColor(255, 0, 0, 255));
+        ambulanceColorSet = true;
+    }
     std::cout << "[POSITION UPDATE] Replica " << replicaId << " at time " << simTime() << "\n";
     
     std::cout << "[POSITION UPDATE] Replica " << replicaId << " current phase: " << currentPhase << "Has departed: " << isDeparted << "\n";

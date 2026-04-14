@@ -1,17 +1,17 @@
                                                                 
 version 3
-run EightVehiclesAmbulanceBFT-0-20260412-21:31:07-142680
+run EightVehiclesAmbulanceBFT-0-20260414-08:25:08-546603
 attr configname EightVehiclesAmbulanceBFT
-attr datetime 20260412-21:31:07
-attr datetimef 20260412-213107
+attr datetime 20260414-08:25:08
+attr datetimef 20260414-082508
 attr experiment EightVehiclesAmbulanceBFT
-attr inifile omnetpp.ini
+attr inifile /home/yash/DistributedSystemsforAVs/fourway/random_scenario.ini
 attr iterationvars ""
 attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network fourWay
-attr processid 142680
+attr processid 546603
 attr repetition 0
 attr replication #0
 attr resultdir results
@@ -19,7 +19,6 @@ attr runnumber 0
 attr seedset 0
 config extends EightVehiclesBFTOverV2V
 config description "8 vehicles; veh7 auto-issues Emergency_CA cert and signs ARRIVAL_ANNOUNCE"
-config *.node[*].appl.ambulanceReplicaId 7
 config extends BFTOverV2V
 config description "BFT test on 8-vehicle routes"
 config *.manager.launchConfig "xmldoc(\"bft_8veh.launchd.xml\")"
@@ -163,6 +162,7 @@ config *.node[*].veinsmobility.setHostSpeed false
 config *.node[0].veinsmobility.accidentCount 0
 config *.node[0].veinsmobility.accidentStart 73s
 config *.node[0].veinsmobility.accidentDuration 50s
+config *.node[*].appl.ambulanceReplicaId 3
 
 vector 0 fourWay.tls[0].nic.phy80211p RadioState ETV
 vector 1 fourWay.tls[0].nic.phy80211p RadioChannel ETV

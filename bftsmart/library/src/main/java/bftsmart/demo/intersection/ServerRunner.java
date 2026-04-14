@@ -14,7 +14,7 @@ public class ServerRunner implements Runnable {
     private final int numCars;
     private IntersectionServer server;
     private volatile String initStatus = "Pending";
-    private static final int BATCH_SIZE = 16;
+    private static final int BATCH_SIZE = 4;
 
     // Static registry so OMNeT++ can find servers by replica ID
     private static final ConcurrentHashMap<Integer, ServerRunner> registry = new ConcurrentHashMap<>();
