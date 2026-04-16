@@ -541,6 +541,8 @@ extern "C" {
         (JNIEnv*, jobject, jint, jdouble);
     JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyWipeComplete
         (JNIEnv*, jobject, jint);
+    JNIEXPORT jobject JNICALL Java_bftsmart_demo_intersection_IntersectionServer_nativeGetCertSnapshot
+        (JNIEnv*, jobject, jint);
 }
 
 
@@ -616,17 +618,18 @@ bool V2VProxyModule::registerJNINativeMethods(JNIEnv* env)
         {const_cast<char*>("notifyViewAgreed"),      const_cast<char*>("(ILjava/lang/String;)V"),(void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyViewAgreed},
         {const_cast<char*>("notifyOrderDecided"),    const_cast<char*>("(ILjava/lang/String;)V"),(void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyOrderDecided},
         {const_cast<char*>("notifyProposeAllConsensusMetric"), const_cast<char*>("(IID)V"),     (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyProposeAllConsensusMetric},
-        {const_cast<char*>("notifyWipeComplete"),    const_cast<char*>("(I)V"),                 (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyWipeComplete}
+        {const_cast<char*>("notifyWipeComplete"),    const_cast<char*>("(I)V"),                 (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyWipeComplete},
+        {const_cast<char*>("nativeGetCertSnapshot"), const_cast<char*>("(I)Ljava/util/Set;"),  (void*)&Java_bftsmart_demo_intersection_IntersectionServer_nativeGetCertSnapshot}
     };
 
-    if (env->RegisterNatives(intersectionServerClass, serverMethods, 5) != 0) {
+    if (env->RegisterNatives(intersectionServerClass, serverMethods, 6) != 0) {
         std::cerr << "[V2VProxy] ERROR: Failed to register IntersectionServer native methods" << "\n";
         env->ExceptionDescribe();
         env->ExceptionClear();
         return false;
     }
 
-    std::cout << "[V2VProxy] Successfully registered 5 IntersectionServer JNI native methods" << "\n";
+    std::cout << "[V2VProxy] Successfully registered 6 IntersectionServer JNI native methods" << "\n";
     return true;
 
 

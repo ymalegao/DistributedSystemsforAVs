@@ -1,9 +1,9 @@
                                                                 
 version 3
-run FourVehiclesAmbulanceBFT-0-20260414-08:47:01-565031
+run FourVehiclesAmbulanceBFT-0-20260415-22:31:49-134013
 attr configname FourVehiclesAmbulanceBFT
-attr datetime 20260414-08:47:01
-attr datetimef 20260414-084701
+attr datetime 20260415-22:31:49
+attr datetimef 20260415-223149
 attr experiment FourVehiclesAmbulanceBFT
 attr inifile /home/yash/DistributedSystemsforAVs/fourway/random_scenario.ini
 attr iterationvars ""
@@ -11,7 +11,7 @@ attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network fourWay
-attr processid 565031
+attr processid 134013
 attr repetition 0
 attr replication #0
 attr resultdir results
@@ -153,7 +153,9 @@ config *.node[*].veinsmobility.setHostSpeed false
 config *.node[0].veinsmobility.accidentCount 0
 config *.node[0].veinsmobility.accidentStart 73s
 config *.node[0].veinsmobility.accidentDuration 50s
-config *.node[*].appl.ambulanceReplicaId 1
+config *.node[*].appl.ambulanceReplicaId 2
+config *.node[0].appl.isByzantine true
+config *.node[0].appl.byzantineType 1
 
 vector 0 fourWay.tls[0].nic.phy80211p RadioState ETV
 vector 1 fourWay.tls[0].nic.phy80211p RadioChannel ETV

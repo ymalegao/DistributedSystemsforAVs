@@ -904,6 +904,13 @@ bool V2VProxyModule::amITheLeader(const std::set<std::string>& agreedView) {
     return (getCurrentViewLeader(agreedView) == replicaId);
 }
 
+std::set<std::string> V2VProxyModule::getCertSnapshotKeys() const {
+    std::set<std::string> keys;
+    for (const auto& kv : collectedCerts)
+        keys.insert(kv.first);
+    return keys;
+}
+
 void V2VProxyModule::submitViewToBFTConsensus() {
     viewConsensusStartTime = simTime();
     proposeAllSubmitTime = simTime();

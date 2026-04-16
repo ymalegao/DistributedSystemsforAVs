@@ -61,6 +61,8 @@ public:
     void recordProposeAllConsensusMetric(int epoch, double wallSeconds);
     void resetForNextRound();
     void handleWipeComplete();  // Called by notifyWipeComplete JNI callback
+    // Returns a copy of collectedCerts key set (consistent snapshot for JNI).
+    std::set<std::string> getCertSnapshotKeys() const;
 
     // Direction and VehicleState are public so static helpers (dirToStr/strToDir) and
     // ConflictMatrix/OrderRequestVerifier can use them without friendship boilerplate.

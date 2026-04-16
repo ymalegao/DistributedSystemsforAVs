@@ -29,6 +29,7 @@ import java.io.ObjectOutput;
 import java.io.ObjectOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.Security;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -88,6 +89,30 @@ public final class IntersectionServer extends DefaultRecoverable {
 
     @SuppressWarnings("unused")
     private native void notifyVehicleCanGo(int replicaId, double delaySeconds);
+
+    /**
+     * JNI pull: returns the key set of this replica's C++ collectedCerts map.
+     * Called only from getCertSnapshot(); do not call directly.
+     */
+    private native Set<String> nativeGetCertSnapshot(int replicaId);
+
+    /**
+     * Returns a consistent snapshot of carIds in C++ collectedCerts at the moment of the call.
+     * Survives intra-epoch BFT view-changes (collectedCerts is not cleared by Java-side
+     * view-change machinery). Cleared at epoch boundary when C++ handleWipeComplete() fires.
+     * Returns an empty set when JNI is unavailable (e.g. unit-test context).
+     */
+    public Set<String> getCertSnapshot() {
+        try {
+            Set<String> raw = nativeGetCertSnapshot(processId);
+            return (raw != null)
+                    ? Collections.unmodifiableSet(new HashSet<>(raw))
+                    : Collections.emptySet();
+        } catch (UnsatisfiedLinkError e) {
+            System.err.println("[SERVER] getCertSnapshot JNI unavailable: " + e.getMessage());
+            return Collections.emptySet();
+        }
+    }
 
     public IntersectionServer(int id, int numCars) {
         System.out.println("[Server " + id + "] DEBUG: Constructor started.");
@@ -238,6 +263,9 @@ public final class IntersectionServer extends DefaultRecoverable {
         String proposerStr      = top[1];
         String vehicleStatesStr = top[2];
         String perCarCertsStr   = top[3];
+
+
+        
 
         // Build view map (filter departed vehicles)
         List<VehicleState> states = ViewConsensusProtocol.parseVehicleStates(vehicleStatesStr);
@@ -460,6 +488,8 @@ public final class IntersectionServer extends DefaultRecoverable {
                             break;
                         }
 
+                        //
+
                         triggerRoundReset = true;
                         String batchDecision = OrderScheduler.serializeOrderBagForJNI(bag);
 
@@ -538,6 +568,15 @@ public final class IntersectionServer extends DefaultRecoverable {
         cmd.type = Cmd.Type.valueOf(parts[0].trim().toUpperCase(java.util.Locale.ROOT));
         cmd.payload = (parts.length > 1 && !parts[1].trim().isEmpty()) ? parts[1].trim() : null;
         return cmd;
+    }
+
+    /**
+     * Package-private: exposes the wait-registry for deterministic re-execution
+     * in OrderRequestVerifier (Check 8). Returns an unmodifiable view; callers
+     * must not cache it across consensus rounds.
+     */
+    Map<String, Integer> getWaitRegistry() {
+        return Collections.unmodifiableMap(waitRegistry);
     }
 
     public static void main(String[] args) {

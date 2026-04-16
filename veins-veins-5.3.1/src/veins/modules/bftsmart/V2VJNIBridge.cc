@@ -20,6 +20,8 @@ extern "C" JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionSe
     (JNIEnv*, jobject, jint, jint, jdouble);
 extern "C" JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyWipeComplete
     (JNIEnv*, jobject, jint);
+extern "C" JNIEXPORT jobject JNICALL Java_bftsmart_demo_intersection_IntersectionServer_nativeGetCertSnapshot
+    (JNIEnv*, jobject, jint);
 
 static std::vector<uint8_t> jbyteArrayToVector(JNIEnv* env, jbyteArray array) {
     int len = env->GetArrayLength(array);
@@ -223,10 +225,11 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
             {const_cast<char*>("notifyViewAgreed"),      const_cast<char*>("(ILjava/lang/String;)V"),(void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyViewAgreed},
             {const_cast<char*>("notifyOrderDecided"),    const_cast<char*>("(ILjava/lang/String;)V"),(void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyOrderDecided},
             {const_cast<char*>("notifyProposeAllConsensusMetric"), const_cast<char*>("(IID)V"),     (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyProposeAllConsensusMetric},
-            {const_cast<char*>("notifyWipeComplete"),    const_cast<char*>("(I)V"),                 (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyWipeComplete}
+            {const_cast<char*>("notifyWipeComplete"),    const_cast<char*>("(I)V"),                 (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyWipeComplete},
+            {const_cast<char*>("nativeGetCertSnapshot"), const_cast<char*>("(I)Ljava/util/Set;"),  (void*)&Java_bftsmart_demo_intersection_IntersectionServer_nativeGetCertSnapshot}
         };
-        if (env->RegisterNatives(intersectionServerClass, serverMethods, 5) == 0) {
-            std::cout << "[JNI] JNI_OnLoad: Registered 5 IntersectionServer native methods" << std::endl;
+        if (env->RegisterNatives(intersectionServerClass, serverMethods, 6) == 0) {
+            std::cout << "[JNI] JNI_OnLoad: Registered 6 IntersectionServer native methods" << std::endl;
         }
     }
 
@@ -280,3 +283,31 @@ JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notify
           proxy->handleWipeComplete();
       }
   }
+
+/*
+ * Class:     bftsmart_demo_intersection_IntersectionServer
+ * Method:    nativeGetCertSnapshot
+ * Signature: (I)Ljava/util/Set;
+ *
+ * Returns a Java HashSet<String> of carIds currently in this replica's
+ * C++ collectedCerts map.  Called from Java's getCertSnapshot() so that
+ * OrderRequestVerifier can check for cert-omission before voting WRITE.
+ */
+JNIEXPORT jobject JNICALL Java_bftsmart_demo_intersection_IntersectionServer_nativeGetCertSnapshot
+    (JNIEnv* env, jobject /*obj*/, jint replicaId)
+{
+    jclass hsClass = env->FindClass("java/util/HashSet");
+    jmethodID ctor = env->GetMethodID(hsClass, "<init>", "()V");
+    jmethodID addM = env->GetMethodID(hsClass, "add", "(Ljava/lang/Object;)Z");
+    jobject set    = env->NewObject(hsClass, ctor);
+
+    V2VProxyModule* proxy = V2VProxyModule::getProxyForReplica(replicaId);
+    if (proxy) {
+        for (const std::string& id : proxy->getCertSnapshotKeys()) {
+            jstring js = env->NewStringUTF(id.c_str());
+            env->CallBooleanMethod(set, addM, js);
+            env->DeleteLocalRef(js);
+        }
+    }
+    return set;
+}

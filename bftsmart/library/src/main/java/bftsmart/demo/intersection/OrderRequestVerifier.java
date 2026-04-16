@@ -16,12 +16,27 @@ import java.util.Set;
  * If any check fails the batch is rejected, which triggers a BFT leader change.
  *
  * For PROPOSE_ALL messages, the following checks are applied:
- *   1. Signature validity   f+1 XXHash32 V2V signatures on the vehicleStates are present and valid
- *   2. No phantoms          every vehicleId in the schedule appears in the vehicleStates
- *   3. No duplicates        no vehicleId appears in more than one batch
- *   4. Collision safety     every pair within a batch passes ConflictMatrix.isSafeToBatch()
- *   5. Lane queue order     same-lane total order (positionInLane, then numeric veh id): if A is ahead of B
- *                           then A's batch index must be strictly less than B's
+ *   1. Signature validity       f+1 XXHash32 V2V signatures on the vehicleStates are present and valid
+ *   2. No phantoms              every vehicleId in the schedule appears in the vehicleStates
+ *   3. No duplicates            no vehicleId appears in more than one batch
+ *   4. Collision safety         every pair within a batch passes ConflictMatrix.isSafeToBatch()
+ *   5. Lane queue order         same-lane total order (positionInLane, then numeric veh id): if A is
+ *                               ahead of B then A's batch index must be strictly less than B's
+ *   6. Leader Rejection Rule    a QUIET vehicle (failed cert) must occupy an exclusive singleton batch
+ *   7. ARRIVAL_CERT omission    [EP5/G3 censorship resistance] — any car whose ARRIVAL_CERT is already
+ *                               in this follower's local C++ collectedCerts MUST appear as SIGNED in the
+ *                               proposal; if omitted, ≥f+1 honest followers reject, RequestsTimer fires,
+ *                               view-change occurs within epoch e (not epoch e+1).
+ *                               Requires getCertSnapshot() JNI pull from C++ collectedCerts.
+ *                               Returns empty set when JNI unavailable (unit-test safe; falls back to
+ *                               prior EP5 guarantee).
+ *   8. Deterministic re-exec    [anti-computation-fraud / safety] — the follower independently rebuilds
+ *                               the schedule from the proposal's vehicleStates and its own waitRegistry
+ *                               (kept in sync via snapshot/install) and compares with the submitted
+ *                               orderBagStr.  A mismatch means the leader computed a wrong schedule.
+ *                               Pure Java; no cross-layer state needed.
+ *                               NOTE: does NOT give EP5 censorship resistance — a BL could omit a car
+ *                               from vehicleStatesStr before this check runs.  Check 7 closes that gap.
  *
  * All other message types pass through without validation.
  */
@@ -64,6 +79,8 @@ public class OrderRequestVerifier implements RequestVerifier {
         String vehicleStatesStr = parts[1];
         String perCarCertsStr   = parts[2];
         String orderBagStr      = parts[3];
+
+        
 
         // ---- Check 1: Per-car ARRIVAL_CERT validation ----
         // Each SIGNED car must have f+1 valid echo signatures (physically verified by peers).
@@ -164,6 +181,40 @@ public class OrderRequestVerifier implements RequestVerifier {
                         + ": " + b.vehicleIds + " — rejecting");
                 return false;
             }
+        }
+
+        // ---- Check 7: ARRIVAL_CERT omission guard (EP5/G3 censorship resistance) ----
+        // If this follower has already collected a valid ARRIVAL_CERT for a car (C++ side),
+        // that car MUST appear as SIGNED in the proposal.  A Byzantine leader that omits
+        // such a car will be rejected by ≥f+1 honest followers, preventing 2f+1 WRITE
+        // votes.  RequestsTimer fires → intra-epoch view-change → new honest leader
+        // re-includes the car → decision within epoch e (not epoch e+1).
+        // Returns empty set when JNI is unavailable (e.g. unit-test context), which
+        // is safe: no rejection occurs and the protocol falls back to prior EP5 guarantees.
+        Set<String> localCertIds = server.getCertSnapshot();
+        for (String certId : localCertIds) {
+            VehicleState vs = stateMap.get(certId);
+            if (vs == null || !"SIGNED".equals(vs.cyberStatus)) {
+                System.err.println("[VERIFIER] PROPOSE_ALL: cert-omission — "
+                        + certId + " in local collectedCerts but not SIGNED in proposal — rejecting");
+                return false;
+            }
+        }
+
+        // ---- Check 8: Deterministic schedule re-execution (anti-computation fraud) ----
+        // Followers independently rebuild the schedule from the proposal's own vehicleStates
+        // and their local waitRegistry (which is kept in sync across view-changes via
+        // snapshot/install).  Any mismatch means the leader submitted a malformed or
+        // miscomputed ordering and is rejected.
+        // NOTE: This check detects computation fraud (safety) but NOT censorship (EP5) —
+        // a BL could still omit a car from vehicleStatesStr before this check runs.
+        // Check 7 above closes that gap.
+        String expectedSchedule = OrderScheduler.serializeOrderBagForBFT(
+                OrderScheduler.buildProposal(stateMap, bag.epoch, server.getWaitRegistry()));
+        if (!expectedSchedule.equals(orderBagStr)) {
+            System.err.println("[VERIFIER] PROPOSE_ALL: schedule mismatch — leader submitted "
+                    + orderBagStr + " but follower recomputed " + expectedSchedule + " — rejecting");
+            return false;
         }
 
         return true;
