@@ -26,6 +26,8 @@
 #include <memory>
 #include <list>
 #include <queue>
+#include <set>
+#include <string>
 
 #include "veins/veins.h"
 
@@ -144,6 +146,9 @@ protected:
     std::vector<std::string> trafficLightModuleIds; /**< list of traffic light module ids that is subscribed to (whitelist) */
 
     bool autoShutdown; /**< Shutdown module as soon as no more vehicles are in the simulation */
+    bool shutdownOnIntersectionBatchCleared; /**< if true, end simulation when N vehicles satisfy departure-leg clearance (see intersectionBatchSize) */
+    int intersectionBatchSize; /**< number of distinct vehicles that must clear intersection before endSimulation */
+    double intersectionDepartureMinMeters; /**< min meters on C2* departure edge (same idea as V2VTraCI clearance) */
     double penetrationRate;
     bool ignoreGuiCommands; /**< whether to ignore all TraCI commands that only make sense when the server has a graphical user interface */
     int order; // specific position in the multi-client execution order of the TraCI server to request upon connecting (-1: do not request a position)
@@ -163,6 +168,8 @@ protected:
     uint32_t activeVehicleCount; /**< number of vehicles, be it parking or driving **/
     uint32_t parkingVehicleCount; /**< number of parking vehicles, derived from parking start/end events */
     uint32_t drivingVehicleCount; /**< number of driving, as reported by sumo */
+    bool hadActiveVehicles; /**< guard against ending simulation before first vehicle departs */
+    std::set<std::string> vehiclesClearedIntersection; /**< vehicle ids that have satisfied departure-leg clearance */
     bool autoShutdownTriggered;
     cMessage* connectAndStartTrigger; /**< self-message scheduled for when to connect to TraCI server and start running */
     cMessage* executeOneTimestepTrigger; /**< self-message scheduled for when to next call executeOneTimestep */
@@ -172,6 +179,10 @@ protected:
     VehicleObstacleControl* vehicleObstacleControl;
 
     void executeOneTimestep(); /**< read and execute all commands for the next timestep */
+
+    /** Same predicate as V2VProxyModule::vehicleHasClearedIntersectionTraCI (four-way C2* departure legs). */
+    bool vehiclePastIntersectionDepartureLeg(const std::string& vehicleId);
+    void tryShutdownOnIntersectionBatchCleared(const std::string& vehicleId);
 
     virtual void init_traci();
 

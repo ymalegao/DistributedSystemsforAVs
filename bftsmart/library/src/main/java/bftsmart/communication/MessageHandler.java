@@ -18,6 +18,11 @@ package bftsmart.communication;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+
 import bftsmart.consensus.messages.ConsensusMessage;
 import bftsmart.consensus.roles.Acceptor;
 import bftsmart.statemanagement.SMMessage;
@@ -37,6 +42,13 @@ public class MessageHandler {
 
 	private Acceptor acceptor;
 	private TOMLayer tomLayer;
+
+	// Per-(type, regency) distinct-sender tracking so the log shows, for each
+	// receiver, how close it is to the 2f+1 quorum for each LC phase. Without
+	// this you can only grep-count total deliveries across the cluster; the
+	// quantity that actually drives LC progression is the *per-receiver*
+	// distinct-sender count.
+	private final Map<String, Set<Integer>> lcDistinctSenders = new HashMap<>();
 
 	public MessageHandler() {}
 
@@ -86,11 +98,18 @@ public class MessageHandler {
 						break;
 					}
 
-					if (lcMsg.getReg() != -1 && lcMsg.getSender() != -1)
-						logger.info("Received leader change message of type {} " + "for regency {} from replica {}",
+					if (lcMsg.getReg() != -1 && lcMsg.getSender() != -1) {
+						int myId = tomLayer.controller.getStaticConf().getProcessId();
+						String key = type + ":" + lcMsg.getReg();
+						Set<Integer> seen = lcDistinctSenders.computeIfAbsent(key, k -> new HashSet<>());
+						seen.add(lcMsg.getSender());
+						logger.info(
+								"[LC-RECV me={} type={} reg={} from={} distinct={}] Received leader change message of type {} for regency {} from replica {}",
+								myId, type, lcMsg.getReg(), lcMsg.getSender(), seen.size(),
 								type, lcMsg.getReg(), lcMsg.getSender());
-					else
+					} else {
 						logger.debug("Received leader change message from myself");
+					}
 					
 					if (lcMsg.TRIGGER_LC_LOCALLY)
 						tomLayer.requestsTimer.run_lc_protocol();

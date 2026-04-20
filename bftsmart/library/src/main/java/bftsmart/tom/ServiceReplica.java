@@ -39,6 +39,7 @@ import bftsmart.tom.server.Executable;
 import bftsmart.tom.server.Recoverable;
 import bftsmart.tom.server.Replier;
 import bftsmart.tom.server.RequestVerifier;
+import bftsmart.tom.server.ViewChangeRebuildHook;
 import bftsmart.tom.server.SingleExecutable;
 
 import bftsmart.tom.server.defaultservices.DefaultReplier;
@@ -78,6 +79,7 @@ public class ServiceReplica {
     private ReplicaContext replicaCtx = null;
     private Replier replier = null;
     private RequestVerifier verifier = null;
+    private ViewChangeRebuildHook viewChangeRebuildHook = null;
 
     /**
      * Constructor
@@ -100,6 +102,18 @@ public class ServiceReplica {
      */
     public ServiceReplica(int id, Executable executor, Recoverable recoverer, RequestVerifier verifier) {
         this(id, "", executor, recoverer, verifier, new DefaultReplier(), null);
+    }
+
+    /**
+     * Constructor with optional view-change rebuild hook. Applications with a
+     * notion of fresh "ground truth" (e.g. V2V intersection) can supply a
+     * {@link ViewChangeRebuildHook} that rebuilds pending requests from
+     * current state on the new leader during catch-up, instead of replaying
+     * potentially censored bytes from the deposed Byzantine leader.
+     */
+    public ServiceReplica(int id, Executable executor, Recoverable recoverer,
+                          RequestVerifier verifier, ViewChangeRebuildHook rebuildHook) {
+        this(id, "", executor, recoverer, verifier, new DefaultReplier(), null, rebuildHook);
     }
     
     /**
@@ -131,12 +145,27 @@ public class ServiceReplica {
      * @param loader Used to load signature keys from disk
      */
     public ServiceReplica(int id, String configHome, Executable executor, Recoverable recoverer, RequestVerifier verifier, Replier replier, KeyLoader loader) {
+        this(id, configHome, executor, recoverer, verifier, replier, loader, null);
+    }
+
+    /**
+     * Full constructor including the optional view-change rebuild hook.
+     *
+     * @param rebuildHook Hook invoked on the new leader inside
+     *                    {@code Synchronizer.catch_up()} before
+     *                    {@code createPropose()}; may be {@code null}
+     *                    (default replay behavior).
+     */
+    public ServiceReplica(int id, String configHome, Executable executor, Recoverable recoverer,
+                          RequestVerifier verifier, Replier replier, KeyLoader loader,
+                          ViewChangeRebuildHook rebuildHook) {
         this.id = id;
         this.SVController = new ServerViewController(id, configHome, loader);
         this.executor = executor;
         this.recoverer = recoverer;
         this.replier = (replier != null ? replier : new DefaultReplier());
         this.verifier = verifier;
+        this.viewChangeRebuildHook = rebuildHook;
         this.init();
         this.recoverer.setReplicaContext(replicaCtx);
         this.replier.setReplicaContext(replicaCtx);
@@ -477,6 +506,7 @@ public class ServiceReplica {
         acceptor.setExecutionManager(executionManager);
 
         tomLayer = new TOMLayer(executionManager, this, recoverer, acceptor, cs, SVController, verifier);
+        tomLayer.setViewChangeRebuildHook(viewChangeRebuildHook);
 
         executionManager.setTOMLayer(tomLayer);
 

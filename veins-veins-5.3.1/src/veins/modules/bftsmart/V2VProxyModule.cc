@@ -125,6 +125,10 @@ V2VProxyModule::~V2VProxyModule()
         EVP_PKEY_free(static_cast<EVP_PKEY*>(ambulancePrivateKey));
         ambulancePrivateKey = nullptr;
     }
+    if (replicaPrivateKey) {
+        EVP_PKEY_free(static_cast<EVP_PKEY*>(replicaPrivateKey));
+        replicaPrivateKey = nullptr;
+    }
 
     // Unregister from static map
     {
@@ -205,6 +209,19 @@ void V2VProxyModule::initialize(int stage)
                       << ")" << "\n";
         }
 
+        // Per-replica ECDSA P-256 keypair (for witness echoes + self-signed claims).
+        // Generated for EVERY replica regardless of role (IEEE 1609.2 model: every
+        // V2X station has its own EC key). Embedded uncompressed pubkey travels with
+        // each ARRIVAL_ECHO so any peer can verify without a shared key registry.
+        if (replicaPrivateKey) {
+            EVP_PKEY_free(static_cast<EVP_PKEY*>(replicaPrivateKey));
+            replicaPrivateKey = nullptr;
+        }
+        replicaPrivateKey = CryptoAuth::instance().generateKeyPair(myReplicaPubKey);
+        std::cout << "[CRYPTO] Replica " << replicaId
+                  << " generated per-replica ECDSA P-256 keypair (pubKey="
+                  << CRYPTO_PUBKEY_BYTES << " bytes)" << "\n";
+
         // Initialize signals
         bftMsgSentSignal = registerSignal("bftMsgSent");
         bftMsgReceivedSignal = registerSignal("bftMsgReceived");
@@ -267,6 +284,9 @@ void V2VProxyModule::initialize(int stage)
         // With StateManager bypass, replicas initialize in ~1-2s, so start checking early
         scheduleAt(simTime() + 0.5, checkPositionTimer);
         std::cout << "[DEBUG V2VProxy " << replicaId << "] Position checking will start at t=0.5s" << "\n";
+        //testing finish
+
+       
     }
 }
 
@@ -465,6 +485,7 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                               << " Avg_ProposeAll_Consensus_Wall: " << avgWall
                               << " seconds (submittersCounted=" << epochWall.size() << ")" << "\n";
                 }
+
                 
                 std::cout << "[METRICS " << replicaId << "] === PIPELINE (stop → ORDER decision) ===" << "\n";
                 std::cout << "[METRICS " << replicaId << "] Stop_To_OrderDecision_Start: " << fmtSimInstant(consensusStartTime) << "\n";
@@ -574,10 +595,9 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
             }
         }
 
-        // if (completedConsensusCount == BATCH_SIZE) {
-        //     std::cout << "[METRICS " << replicaId << "] All Consensus Completed" << "\n";
-        //     endSimulation();
-        // }
+   if (completedConsensusCount == BATCH_SIZE) {
+            std::cout << "[METRICS " << replicaId << "] All Consensus Completed" << "\n";
+        }
         
         // Reschedule timer
         // std::cout << "[V2V-QUEUE-TIMER] Replica " << replicaId << ": Rescheduling for t=" 
@@ -682,6 +702,7 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                 // and start our new round once we hit the line.
                 // We know the car ahead left, so we are essentially cleared.
             }
+         
 
             // C. Once the current batch's cars are GONE, advance to next batch (or reset if done).
             bool allDeparted = (!currentBatchExpected.empty() &&

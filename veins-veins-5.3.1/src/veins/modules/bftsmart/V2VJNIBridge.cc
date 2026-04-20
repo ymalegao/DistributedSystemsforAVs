@@ -22,6 +22,8 @@ extern "C" JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionSe
     (JNIEnv*, jobject, jint);
 extern "C" JNIEXPORT jobject JNICALL Java_bftsmart_demo_intersection_IntersectionServer_nativeGetCertSnapshot
     (JNIEnv*, jobject, jint);
+extern "C" JNIEXPORT jstring JNICALL Java_bftsmart_demo_intersection_IntersectionServer_nativeGetFreshProposePayload
+    (JNIEnv*, jobject, jint);
 
 static std::vector<uint8_t> jbyteArrayToVector(JNIEnv* env, jbyteArray array) {
     int len = env->GetArrayLength(array);
@@ -310,4 +312,27 @@ JNIEXPORT jobject JNICALL Java_bftsmart_demo_intersection_IntersectionServer_nat
         }
     }
     return set;
+}
+
+/*
+ * Class:     bftsmart_demo_intersection_IntersectionServer
+ * Method:    nativeGetFreshProposePayload
+ * Signature: (I)Ljava/lang/String;
+ *
+ * Returns the "<vehicleStatesStr>:<perCarCerts>" string built from this
+ * replica's CURRENT C++ collectedCerts map. Called from Java's
+ * getFreshProposePayload() during Synchronizer.catch_up() so the new
+ * leader can rebuild a fresh PROPOSE_ALL (instead of replaying the
+ * censored bytes the deposed Byzantine leader queued).
+ *
+ * Returns an empty string when no proxy is registered for this replicaId
+ * (e.g. before C++/OMNeT++ startup or in unit-test contexts); Java treats
+ * "" as "JNI unavailable, fall back to existing replay behavior".
+ */
+JNIEXPORT jstring JNICALL Java_bftsmart_demo_intersection_IntersectionServer_nativeGetFreshProposePayload
+    (JNIEnv* env, jobject /*obj*/, jint replicaId)
+{
+    V2VProxyModule* proxy = V2VProxyModule::getProxyForReplica(replicaId);
+    if (!proxy) return env->NewStringUTF("");
+    return env->NewStringUTF(proxy->buildFreshProposePayload().c_str());
 }

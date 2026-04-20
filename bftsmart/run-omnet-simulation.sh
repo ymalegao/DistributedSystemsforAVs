@@ -8,6 +8,8 @@
 # --randomize <N> <F>
 #   Picks one ambulance and F Byzantine nodes (all FALSE_LANE) from N vehicles
 #   at random per run, writes fourway/random_scenario.ini, and injects it.
+#   Without --byzleader, replica 0 is never chosen as a FALSE_LANE follower (it is
+#   usually the BFT leader); use --allow-replica0-byz-follower to allow replica 0.
 #
 # --byzleader <ID>
 #   Reserve replica <ID> as the Java consensus-layer Byzantine silent leader.
@@ -63,6 +65,8 @@ infer_omnetpp_root() {
 find_omnetpp_runtime_lib() {
     local candidate
     for candidate in \
+        "${OMNETPP_ROOT}/lib/liboppsim_dbg.dylib" \
+        "${OMNETPP_ROOT}/lib/liboppsim.dylib" \
         "${OMNETPP_ROOT}/lib/liboppsim_dbg.so" \
         "${OMNETPP_ROOT}/lib/liboppsim.so"
     do
@@ -103,9 +107,10 @@ has_ned_path_arg() {
 # node assignments.  The file uses [General] so it applies to any config.
 # Prints the path to the generated ini file on stdout; all other output goes
 # to stderr so callers can safely capture the path with $(...).
-# Usage: generate_random_scenario <N> <F> <sim_dir> <byz_leader|-1> <sync_java>
+# Usage: generate_random_scenario <N> <F> <sim_dir> <byz_leader|-1> <sync_java> <allow_r0_follower>
 #   byz_leader: replica ID reserved as Java silent leader (-1 = none)
 #   sync_java:  "--sync-java" or ""
+#   allow_r0_follower: "1" = allow replica 0 in FALSE_LANE pool when byz_leader=-1; else exclude 0
 # ---------------------------------------------------------------------------
 generate_random_scenario() {
     local n="$1"
@@ -113,6 +118,7 @@ generate_random_scenario() {
     local sim_dir="$3"
     local byz_leader="$4"   # -1 means no byz leader
     local sync_java="$5"
+    local allow_r0_follower="${6:-0}"
 
     local out_ini="${sim_dir}/random_scenario.ini"
 
@@ -150,22 +156,37 @@ generate_random_scenario() {
     fi
 
     # 2. Build FALSE_LANE candidate pool (replica IDs): exclude ambulance and byz leader.
+    #    When there is no --byzleader, also exclude replica 0 so follower faults never
+    #    overlap default leader semantics (unless allow_r0_follower=1).
     #    Fisher-Yates shuffle, take first F.
     local available=()
     local i
     for (( i=0; i<n; i++ )); do
-        [[ $i -ne $AMB_ID && $i -ne $byz_leader ]] && available+=("$i")
+        [[ $i -eq $AMB_ID || $i -eq $byz_leader ]] && continue
+        if [[ "${byz_leader}" -lt 0 && "${allow_r0_follower}" != "1" && $i -eq 0 ]]; then
+            continue
+        fi
+        available+=("$i")
     done
     local avail_len=${#available[@]}
     local pick=$(( f < avail_len ? f : avail_len ))
+    if (( f > avail_len )); then
+        echo "WARNING: Requested F=${f} Byzantine followers but only ${avail_len} candidate(s) after exclusions; using ${pick}." >&2
+    fi
     for (( i=0; i<pick; i++ )); do
         local j=$(( i + RANDOM % (avail_len - i) ))
         local tmp=${available[$i]}
         available[$i]=${available[$j]}
         available[$j]=$tmp
     done
-    local BYZ_ARRAY=("${available[@]:0:$pick}")
-    local BYZ_IDS="${BYZ_ARRAY[*]}"   # space-separated replica IDs
+    local BYZ_ARRAY=()
+    if (( pick > 0 )); then
+        BYZ_ARRAY=("${available[@]:0:$pick}")
+    fi
+    local BYZ_IDS=""
+    if ((${#BYZ_ARRAY[@]} > 0)); then
+        BYZ_IDS="${BYZ_ARRAY[*]}"   # space-separated replica IDs
+    fi
 
     echo "==========================================" >&2
     echo "Randomized scenario:" >&2
@@ -174,6 +195,9 @@ generate_random_scenario() {
         echo "  Byzantine leader: replica ${byz_leader} (Java silent leader + C++ FALSE_LANE)" >&2
     else
         echo "  Byzantine leader: none" >&2
+        if [[ "${allow_r0_follower}" != "1" ]]; then
+            echo "  FALSE_LANE pool: replica 0 excluded (Byz follower vs leader disambiguation)" >&2
+        fi
     fi
     echo "  Byzantine nodes : ${BYZ_IDS:-none} (C++ FALSE_LANE, replica IDs)" >&2
     echo "  Output ini      : ${out_ini}" >&2
@@ -199,12 +223,14 @@ generate_random_scenario() {
             echo "*.node[${leader_node}].appl.byzantineType = 1   # FALSE_LANE (byz leader replica ${byz_leader})"
         fi
         # FALSE_LANE nodes (C++ arrival layer only)
-        for replica_id in "${BYZ_ARRAY[@]}"; do
-            local node_idx
-            node_idx="$(replica_to_node_idx "${n}" "${replica_id}")"
-            echo "*.node[${node_idx}].appl.isByzantine = true"
-            echo "*.node[${node_idx}].appl.byzantineType = 1   # FALSE_LANE (replica ${replica_id})"
-        done
+        if (( pick > 0 )); then
+            for replica_id in "${BYZ_ARRAY[@]}"; do
+                local node_idx
+                node_idx="$(replica_to_node_idx "${n}" "${replica_id}")"
+                echo "*.node[${node_idx}].appl.isByzantine = true"
+                echo "*.node[${node_idx}].appl.byzantineType = 1   # FALSE_LANE (replica ${replica_id})"
+            done
+        fi
     } > "${out_ini}"
 
     # Optionally sync the Java consensus-layer Byzantine config.
@@ -219,7 +245,21 @@ generate_random_scenario() {
             else
                 java_byz_csv="${BYZ_IDS// /,}"
             fi
-            sed -i "s/^system\.byzantine\.maliciousReplicaIds\s*=.*/system.byzantine.maliciousReplicaIds = ${java_byz_csv}/" "${sys_cfg}"
+            # Portable in-place edit: BSD sed (macOS /usr/bin/sed) requires an explicit
+            # backup-suffix arg with -i, while GNU sed accepts -i alone. Using -i.bak
+            # works on both; remove the backup afterwards. \s is a GNU extension, so
+            # use [[:space:]] for portability.
+            if ! sed -i.bak \
+                "s/^system\.byzantine\.maliciousReplicaIds[[:space:]]*=.*/system.byzantine.maliciousReplicaIds = ${java_byz_csv}/" \
+                "${sys_cfg}"; then
+                echo "ERROR: --sync-java: sed failed to update ${sys_cfg}" >&2
+                exit 1
+            fi
+            rm -f "${sys_cfg}.bak"
+            if ! grep -q "^system\.byzantine\.maliciousReplicaIds = ${java_byz_csv}\$" "${sys_cfg}"; then
+                echo "ERROR: --sync-java: ${sys_cfg} did not pick up maliciousReplicaIds = ${java_byz_csv}" >&2
+                exit 1
+            fi
             echo "  Synced Java maliciousReplicaIds = ${java_byz_csv} in ${sys_cfg}" >&2
         else
             echo "WARNING: --sync-java: ${sys_cfg} not found, skipping." >&2
@@ -237,6 +277,7 @@ RANDOMIZE=0
 RANDOMIZE_N=""
 RANDOMIZE_F=""
 BYZ_LEADER=-1       # -1 = no designated byz leader
+ALLOW_REPLICA0_BYZ_FOLLOWER=0
 SYNC_JAVA=""
 EXTRA_INI_ARG=()
 
@@ -258,6 +299,9 @@ while [[ $i -lt ${#args[@]} ]]; do
             ;;
         --sync-java)
             SYNC_JAVA="--sync-java"
+            ;;
+        --allow-replica0-byz-follower)
+            ALLOW_REPLICA0_BYZ_FOLLOWER=1
             ;;
         *)
             filtered_args+=("${args[$i]}")
@@ -282,15 +326,23 @@ JVM_LIB_PATH="${JAVA_HOME}/lib/server"
 
 NIX_LIB_PATHS=""
 if OMNETPP_RUNTIME_LIB="$(find_omnetpp_runtime_lib)"; then
-    NIX_LIB_PATHS="$(ldd "${OMNETPP_RUNTIME_LIB}" 2>/dev/null | \
-        grep /nix/store | \
-        sed 's/.*=> //' | \
-        sed 's/ (0x.*//' | \
-        xargs -r -n1 dirname | \
-        sort -u | \
-        tr '\n' ':')"
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        NIX_LIB_PATHS="$(otool -L "${OMNETPP_RUNTIME_LIB}" 2>/dev/null | \
+            awk '/\/nix\/store\// {print $1}' | \
+            xargs -n1 dirname 2>/dev/null | \
+            sort -u | \
+            tr '\n' ':')"
+    else
+        NIX_LIB_PATHS="$(ldd "${OMNETPP_RUNTIME_LIB}" 2>/dev/null | \
+            grep /nix/store | \
+            sed 's/.*=> //' | \
+            sed 's/ (0x.*//' | \
+            xargs -r -n1 dirname | \
+            sort -u | \
+            tr '\n' ':')"
+    fi
 else
-    echo "ERROR: Could not find liboppsim_dbg.so or liboppsim.so under ${OMNETPP_ROOT}/lib" >&2
+    echo "ERROR: Could not find liboppsim(_dbg).so or liboppsim(_dbg).dylib under ${OMNETPP_ROOT}/lib" >&2
     exit 1
 fi
 
@@ -319,7 +371,7 @@ if [[ "${RANDOMIZE}" -eq 1 ]]; then
         echo "ERROR: --randomize requires <N> <F> arguments" >&2
         exit 1
     fi
-    RANDOM_INI="$(generate_random_scenario "${RANDOMIZE_N}" "${RANDOMIZE_F}" "${SIM_DIR}" "${BYZ_LEADER}" "${SYNC_JAVA}")"
+    RANDOM_INI="$(generate_random_scenario "${RANDOMIZE_N}" "${RANDOMIZE_F}" "${SIM_DIR}" "${BYZ_LEADER}" "${SYNC_JAVA}" "${ALLOW_REPLICA0_BYZ_FOLLOWER}")"
     # When any -f flag is given, OMNeT++ stops auto-loading omnetpp.ini.
     # Explicitly load omnetpp.ini first, then the override file so it wins.
     EXTRA_INI_ARG=(-f "omnetpp.ini" -f "${RANDOM_INI}")

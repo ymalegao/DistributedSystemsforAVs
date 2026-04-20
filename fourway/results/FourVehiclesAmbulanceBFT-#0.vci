@@ -1,17 +1,17 @@
-                                                                
+file 23764 1776706543                                           
 version 3
-run FourVehiclesAmbulanceBFT-0-20260415-22:31:49-134013
+run FourVehiclesAmbulanceBFT-0-20260420-10:35:11-56106
 attr configname FourVehiclesAmbulanceBFT
-attr datetime 20260415-22:31:49
-attr datetimef 20260415-223149
+attr datetime 20260420-10:35:11
+attr datetimef 20260420-103511
 attr experiment FourVehiclesAmbulanceBFT
-attr inifile /home/yash/DistributedSystemsforAVs/fourway/random_scenario.ini
+attr inifile /Users/yashmalegaonkar/Documents/v2v/fourway/random_scenario.ini
 attr iterationvars ""
 attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network fourWay
-attr processid 134013
+attr processid 56106
 attr repetition 0
 attr replication #0
 attr resultdir results
@@ -19,12 +19,14 @@ attr runnumber 0
 attr seedset 0
 config extends FourVehiclesBFTOverV2V
 config description "4 vehicles; veh3 auto-issues Emergency_CA cert (ambulanceReplicaId matches SUMO veh id, not node index)"
+config *.manager.intersectionBatchSize 4
 config extends BFTOverV2V
 config description "BFT test on benchmarking 4-vehicle routes"
 config *.manager.launchConfig "xmldoc(\"bft_4veh.launchd.xml\")"
 config *.node[*].appl.intersectionX 300m
 config *.node[*].appl.intersectionY 300m
 config *.node[*].appl.stopDistance 50m
+config *.manager.intersectionBatchSize 4
 config extends WithChannelSwitching
 config *.node[*].applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
 config *.node[0].appl.replicaId 0
@@ -104,6 +106,8 @@ config *.manager.updateInterval 0.1s
 config *.manager.host "\"localhost\""
 config *.manager.port 9999
 config *.manager.autoShutdown true
+config *.manager.shutdownOnIntersectionBatchCleared true
+config *.manager.intersectionDepartureMinMeters 20m
 config *.manager.launchConfig "xmldoc(\"osm.launchd.xml\")"
 config *.manager.trafficLightModuleType "\"org.car2x.veins.nodes.TrafficLight\""
 config *.tls[*].mobility.x 0
@@ -153,9 +157,7 @@ config *.node[*].veinsmobility.setHostSpeed false
 config *.node[0].veinsmobility.accidentCount 0
 config *.node[0].veinsmobility.accidentStart 73s
 config *.node[0].veinsmobility.accidentDuration 50s
-config *.node[*].appl.ambulanceReplicaId 2
-config *.node[0].appl.isByzantine true
-config *.node[0].appl.byzantineType 1
+config *.node[*].appl.ambulanceReplicaId 0
 
 vector 0 fourWay.tls[0].nic.phy80211p RadioState ETV
 vector 1 fourWay.tls[0].nic.phy80211p RadioChannel ETV
@@ -219,3 +221,32 @@ vector 34 fourWay.manager acceleration ETV
 vector 35 fourWay.manager co2emission ETV
 vector 36 fourWay.manager acceleration ETV
 vector 37 fourWay.manager co2emission ETV
+2	9115 257 525 2137 0.6 0.9 13 1 17 108 1230
+3	9372 340 1578 2202 0.807424876334 0.906137133094 14 1 14 105 1015
+6	9712 512 2 2586 0.1 3.1 31 323.4 323.4 10025.4 3242214.36
+7	10224 796 2 2586 0.1 3.1 31 305 377.75885534814 10358.530239052 3477961.6531356
+8	11020 195 527 2138 0.6 0.9 10 1 12 60 486
+9	11215 416 1431 2198 0.796760775893 0.906137132981 17 1 17 153 1785
+12	11631 543 2 2586 0.1 3.1 31 326.6 326.6 10124.6 3306694.36
+13	12174 829 2 2586 0.1 3.1 31 272.19747537482 345 9790.3343597454 3108667.059271
+14	13003 230 529 2381 0.6 1.7 11 1 14 74 682
+15	13233 407 1423 2175 0.796760746559 0.904900068524 16 1 16 136 1496
+18	13640 814 2 2586 0.1 3.1 31 292.2940227335 345 10150.670684432 3331195.9008098
+19	14454 543 2 2586 0.1 3.1 31 323.4 323.4 10025.4 3242214.36
+20	14997 231 531 2382 0.6 1.7 11 1 14 74 682
+21	15228 401 1427 2206 0.79676074658 0.906137159898 16 1 16 136 1496
+24	15629 771 2 2576 0.1 3 30 305 351.682892521 9641.057378144 3104502.1453894
+25	16400 525 2 2576 0.1 3 30 326.6 326.6 9798 3200026.8
+26	16925 555 89 2586 0.2 3.1 30 7.0985691851733 30 707.87147014805 19584.864945387
+27	17480 555 89 2586 0.2 3.1 30 7.1531557814713 30 708.30816291844 19592.267641125
+28	18035 659 89 2586 0.2 3.1 30 3.5700022464438 30 507.3426893317 12587.333580215
+29	18694 644 89 2576 0.2 3 29 3.6359935193786 30 477.11184187668 11683.477001636
+30	19338 428 198 2586 0.3 3.1 29 -9 229.01430814827 197.17083333333 52714.012584912
+31	19766 660 198 2586 0.3 3.1 29 0.973 1660.824877672 1772.0480258552 2758863.3494441
+32	20426 428 198 2586 0.3 3.1 29 -9 228.46844218529 197.17083333333 52459.298516416
+33	20854 662 198 2586 0.3 3.1 29 0.973 1656.8782667596 1768.1163564371 2745769.713293
+34	21516 445 198 2586 0.3 3.1 29 -9 264.29997753556 197.17083333333 70426.701310833
+35	21961 661 198 2586 0.3 3.1 29 0.973 1915.9402673421 1996.0852641884 3671158.2469481
+36	22622 502 198 2576 0.3 3 28 -9 263.64006480621 197.17083333333 70068.645096759
+37	23124 639 198 2576 0.3 3 28 0.973 1911.1690983089 1986.2551733482 3652872.9215533
+

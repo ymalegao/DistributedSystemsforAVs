@@ -27,6 +27,7 @@
 #include <stdexcept>
 #include <iterator>
 #include <cstdlib>
+#include <cctype>
 
 #include "veins/modules/mobility/traci/TraCIScenarioManager.h"
 #include "veins/base/connectionManager/ChannelAccess.h"
@@ -271,6 +272,12 @@ void TraCIScenarioManager::initialize(int stage)
         throw cRuntimeError("TraCI Port autoconfiguration failed, set 'port' != -1 in omnetpp.ini or provide VEINS_TRACI_PORT environment variable.");
     }
     autoShutdown = par("autoShutdown");
+    shutdownOnIntersectionBatchCleared = par("shutdownOnIntersectionBatchCleared").boolValue();
+    intersectionBatchSize = par("intersectionBatchSize").intValue();
+    if (intersectionBatchSize < 1) {
+        throw cRuntimeError("TraCIScenarioManager: intersectionBatchSize must be >= 1");
+    }
+    intersectionDepartureMinMeters = par("intersectionDepartureMinMeters").doubleValue();
 
     annotations = AnnotationManagerAccess().getIfExists();
 
@@ -286,6 +293,8 @@ void TraCIScenarioManager::initialize(int stage)
     activeVehicleCount = 0;
     parkingVehicleCount = 0;
     drivingVehicleCount = 0;
+    hadActiveVehicles = false;
+    vehiclesClearedIntersection.clear();
     autoShutdownTriggered = false;
 
     world = FindModule<BaseWorldUtility*>::findGlobalModule();
@@ -812,6 +821,7 @@ void TraCIScenarioManager::processSimSubscription(std::string objectId, TraCIBuf
 
             activeVehicleCount += count;
             drivingVehicleCount += count;
+            if (count > 0) hadActiveVehicles = true;
         }
         else if (variable1_resp == VAR_ARRIVED_VEHICLES_IDS) {
             uint8_t varType;
@@ -838,7 +848,6 @@ void TraCIScenarioManager::processSimSubscription(std::string objectId, TraCIBuf
                 }
             }
 
-            if ((count > 0) && (count >= activeVehicleCount) && autoShutdown) autoShutdownTriggered = true;
             activeVehicleCount -= count;
             drivingVehicleCount -= count;
         }
@@ -880,6 +889,7 @@ void TraCIScenarioManager::processSimSubscription(std::string objectId, TraCIBuf
 
             activeVehicleCount += count;
             drivingVehicleCount += count;
+            if (count > 0) hadActiveVehicles = true;
         }
         else if (variable1_resp == VAR_PARKING_STARTING_VEHICLES_IDS) {
             uint8_t varType;
@@ -954,6 +964,61 @@ void TraCIScenarioManager::processSimSubscription(std::string objectId, TraCIBuf
         else {
             throw cRuntimeError("Received unhandled sim subscription result");
         }
+    }
+
+    // Global, manager-level watchdog:
+    // once traffic existed and all vehicles are gone, end the whole simulation.
+    if (autoShutdown && hadActiveVehicles && activeVehicleCount == 0 && !autoShutdownTriggered) {
+        autoShutdownTriggered = true;
+        EV_INFO << "Auto-shutdown: all vehicles departed, ending simulation." << endl;
+        endSimulation();
+    }
+}
+
+bool TraCIScenarioManager::vehiclePastIntersectionDepartureLeg(const std::string& vehicleId)
+{
+    if (!commandIfc) {
+        return false;
+    }
+    try {
+        TraCICommandInterface::Vehicle v = getCommandInterface()->vehicle(vehicleId);
+        std::string laneId = v.getLaneId();
+        if (laneId.empty()) {
+            return false;
+        }
+        // SUMO internal / junction lanes — still inside the conflict region
+        if (laneId.front() == ':') {
+            return false;
+        }
+
+        std::string roadId = v.getRoadId();
+        bool onDepartureLeg = (roadId.size() >= 2 && std::toupper(static_cast<unsigned char>(roadId[0])) == 'C' && std::toupper(static_cast<unsigned char>(roadId[1])) == '2');
+        if (onDepartureLeg) {
+            return v.getLanePosition() >= intersectionDepartureMinMeters;
+        }
+        return false;
+    } catch (...) {
+        // Vehicle left the simulation (aligned with V2VTraCI::vehicleHasClearedIntersectionTraCI)
+        return true;
+    }
+}
+
+void TraCIScenarioManager::tryShutdownOnIntersectionBatchCleared(const std::string& vehicleId)
+{
+    if (!shutdownOnIntersectionBatchCleared || autoShutdownTriggered) {
+        return;
+    }
+    if (!vehiclePastIntersectionDepartureLeg(vehicleId)) {
+        return;
+    }
+    auto inserted = vehiclesClearedIntersection.insert(vehicleId);
+    if (inserted.second) {
+        EV_INFO << "Intersection batch: " << vehiclesClearedIntersection.size() << "/" << intersectionBatchSize << " cleared (" << vehicleId << ")" << endl;
+    }
+    if ((int) vehiclesClearedIntersection.size() >= intersectionBatchSize) {
+        autoShutdownTriggered = true;
+        EV_INFO << "Auto-shutdown: " << intersectionBatchSize << " vehicles cleared intersection (global TraCI predicate)." << endl;
+        endSimulation();
     }
 }
 
@@ -1125,6 +1190,9 @@ void TraCIScenarioManager::processVehicleSubscription(std::string objectId, TraC
     if ((p.x < 0) || (p.y < 0)) throw cRuntimeError("received bad node position (%.2f, %.2f), translated to (%.2f, %.2f)", px, py, p.x, p.y);
 
     Heading heading = connection->traci2omnetHeading(angle_traci);
+
+    // Global: same clearance predicate as V2VProxy (C2* + min m); count distinct vehicles, end at intersectionBatchSize.
+    tryShutdownOnIntersectionBatchCleared(objectId);
 
     cModule* mod = getManagedModule(objectId);
 

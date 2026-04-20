@@ -1,0 +1,9 @@
+# Link Veins shared library so veins:: modules (BaseWorldUtility, etc.) are registered at runtime.
+# Build Veins first: (cd ../veins-veins-5.3.1 && ./configure && make)
+VEINS_ROOT ?= $(abspath ../veins-veins-5.3.1)
+VEINS_LIB_DIR := $(VEINS_ROOT)/out/$(CONFIGNAME)/src
+
+LIBS += $(LDFLAG_LIBPATH)$(VEINS_LIB_DIR) -lveins
+
+# Runtime loader path (avoids DYLD_LIBRARY_PATH for libveins)
+LIBS += -Wl,-rpath,$(abspath $(VEINS_LIB_DIR))

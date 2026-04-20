@@ -9,6 +9,7 @@
 #include "veins/modules/application/ieee80211p/DemoBaseApplLayer.h"
 #include "veins/modules/bftsmart/bftsmart_demo_intersection_IntersectionServer.h"
 #include "veins/modules/bftsmart/BFTMessage_m.h"
+#include "veins/modules/bftsmart/crypto/CryptoAuth.h"
 #include <jni.h>
 #include <map>
 #include <queue>
@@ -23,7 +24,7 @@ class VEINS_API V2VProxyModule : public DemoBaseApplLayer {
 public:
     V2VProxyModule();
     ~V2VProxyModule() override;
-    static const int BATCH_SIZE = 4;
+    static const int BATCH_SIZE = 16;
 
     simtime_t consensusStartTime;
     
@@ -63,6 +64,12 @@ public:
     void handleWipeComplete();  // Called by notifyWipeComplete JNI callback
     // Returns a copy of collectedCerts key set (consistent snapshot for JNI).
     std::set<std::string> getCertSnapshotKeys() const;
+
+    // Returns "<vehicleStatesStr>:<perCarCerts>" built from current collectedCerts
+    // ground truth. Shared helper used both by submitViewToBFTConsensus() (initial
+    // leader) and by the Java-side view-change rebuild hook (new leader fetches
+    // fresh payload via JNI when a Byzantine predecessor censored a car).
+    std::string buildFreshProposePayload() const;
 
     // Direction and VehicleState are public so static helpers (dirToStr/strToDir) and
     // ConflictMatrix/OrderRequestVerifier can use them without friendship boilerplate.
@@ -120,6 +127,11 @@ protected:
     void deliverMessageToJava(int fromReplicaId, const uint8_t* data, int dataLen);
 
     // Per-car ARRIVAL_ECHO / ARRIVAL_CERT structures (Phase 1 reliable broadcast)
+    //
+    // Witness-echo authenticity is provided by ECDSA P-256 signatures (IEEE 1609.2 /
+    // ETSI TS 103 097 V2X security profile), not the legacy XXHash32 MAC. Each echo
+    // self-contains the signer's uncompressed P-256 public key so that any receiver
+    // (C++ or Java) can verify without a shared replica-key registry.
     struct ArrivalEcho {
         int echoingReplicaId;     // Who is sending the echo
         std::string targetCarId;  // Which car's announcement is being echoed
@@ -128,8 +140,10 @@ protected:
         Direction direction;
         bool isAmbulance;
         int epoch;
-        // XXHash32(targetCarId:lane:pos:dir:isAmb:echoingReplicaId) as int32 decimal in wire format
-        int32_t signatureHash;    // 0 if invalid
+        // ECDSA P-256 over UTF-8(targetCarId:lane:pos:dir:isAmb:echoingReplicaId).
+        uint8_t signerPubKey[CRYPTO_PUBKEY_BYTES];  // 65-byte uncompressed P-256 pubkey
+        uint8_t signature[CRYPTO_SIG_MAX_BYTES];    // DER-encoded ECDSA signature
+        uint8_t signatureLen;                       // actual bytes used in signature[]
     };
 
     struct ArrivalCert {
@@ -151,7 +165,7 @@ protected:
         bool isAmbulance;          // True if cert verified via CryptoAuth
         double claimedArrivalTime; // For witness timestamp comparison (kept for legacy)
         int epoch;
-        std::vector<uint8_t> signature;  // Self-signed (XXHash32)
+        std::vector<uint8_t> signature;  // Self-signed (ECDSA P-256, DER-encoded)
         // Ambulance-only: raw cert and signature bytes for peer verification
         std::vector<uint8_t> ambulanceCertBytes;
         std::vector<uint8_t> ambulanceSigBytes;
@@ -193,6 +207,13 @@ protected:
     std::vector<uint8_t> myAmbulanceCertBytes;
     void* ambulancePrivateKey = nullptr;  // EVP_PKEY*; freed in destructor
     void attachAmbulanceCryptoToAnnouncement(ArrivalAnnouncement& ann);
+
+    // Per-replica ECDSA P-256 keypair used to sign witness echoes and self-signed
+    // arrival claims. Generated for EVERY replica (ambulance or normal) during
+    // initialize() and freed in the destructor. Distinct from ambulancePrivateKey,
+    // which is bound to the Emergency_CA-issued ambulance role.
+    uint8_t myReplicaPubKey[CRYPTO_PUBKEY_BYTES] = {0};
+    void*   replicaPrivateKey = nullptr;  // EVP_PKEY*; freed in destructor
 
     // Byzantine fault injection types
     enum ByzantineType {
@@ -352,6 +373,7 @@ private:
     void stopVehicle();
     /** True if car is gone from SUMO or on a post-junction edge (e.g. C2*) far enough along it. */
     bool vehicleHasClearedIntersectionTraCI(const std::string& carId);
+    int departedCount = 0;
 
     int getCurrentViewLeader(const std::set<std::string>& agreedView);
     bool amITheLeader(const std::set<std::string>& agreedView);

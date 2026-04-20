@@ -39,7 +39,20 @@ public class ReliableV2VMessaging {
 
     private static final long RETX_TIMEOUT_MS = 30;
 
-    private static final int MAX_RETX_ATTEMPTS = 20;
+    // Cap on exponential-backoff growth. During leader change, outgoing cross-
+    // replica traffic dries up (no PROPOSE burst to piggyback ACKs on), so lots
+    // of STOP broadcasts slide into the old 8000 ms backoff and effectively stop
+    // retransmitting within a stop-sign-relevant window. Capping tight keeps
+    // late retries dense enough for LC to converge.
+    // Override via `-Dbftsmart.retx_max_backoff_ms=<N>`.
+    private static final long RETX_MAX_BACKOFF_MS =
+            Long.getLong("bftsmart.retx_max_backoff_ms", 250L);
+
+    // Bumped up so that the sum of capped retx intervals still covers a realistic
+    // LC window without prematurely dropping messages.
+    private static final int MAX_RETX_ATTEMPTS =
+            Integer.getInteger("bftsmart.max_retx_attempts", 40);
+
 
     // Add jitter to reduce collision probability during retransmissions
     private final java.util.Random jitterRandom = new java.util.Random();
@@ -349,7 +362,28 @@ public class ReliableV2VMessaging {
     }
 
     public void sendMulticast(int[] targetIds, SystemMessage message, V2VNativeReplicaConnection conn) {
-        System.out.println("    [Reliability " + myReplicaId + "] sendMulticast() to " + targetIds.length + " targets");
+        // Scope the unordered/no-retx bypass to STOP messages only.
+        //
+        // STOP is fired by every replica on a fixed cadence via
+        // RequestsTimer.SendStopTask, so it's self-re-emitting. Putting STOPs
+        // into the reliability retx queue creates an ACK storm (N replicas
+        // simultaneously retransmitting with exponential backoff and no
+        // piggyback reverse traffic) that saturates the 802.11p channel and
+        // starves LC of delivery.
+        //
+        // STOPDATA and SYNC, in contrast, are fired ONCE by BFT-SMaRt when the
+        // respective quorum is collected. They have no application-layer
+        // re-emitter, so they MUST stay on the reliable path — otherwise a
+        // single dropped frame stalls LC (observed at N=12: new leader sent
+        // SYNC, every receiver dropped it on the wire, no retransmission,
+        // cluster cascaded to reg=2/3 and stop-sign timed out).
+        boolean unordered = false;
+        if (message instanceof bftsmart.tom.leaderchange.LCMessage) {
+            int lcType = ((bftsmart.tom.leaderchange.LCMessage) message).getType();
+            unordered = (lcType == bftsmart.tom.util.TOMUtil.STOP);
+        }
+        System.out.println("    [Reliability " + myReplicaId + "] sendMulticast() to " + targetIds.length + " targets"
+                + (unordered ? " [unordered/no-retx]" : ""));
         System.out.println("        Message class: " + message.getClass().getSimpleName());
         System.out.flush();
 
@@ -370,8 +404,25 @@ public class ReliableV2VMessaging {
             long sendTimeMs = SimulationClock.currentTimeMillis();
             // One seq for the whole physical broadcast. Flagged to avoid collisions with
             // per-target unicast seqs.
-            long broadcastIdx = broadcastSeqNum.getAndIncrement();
-            long broadcastSeq = BROADCAST_SEQ_FLAG | (broadcastIdx & BROADCAST_SEQ_MASK);
+            //
+            // IMPORTANT for unordered traffic: consuming a slot from broadcastSeqNum
+            // here would desync the receiver's expectedBroadcastSeqNums from the
+            // sender's actual emitted seqs (unordered envelopes bypass the receive
+            // ordering path, so receivers never advance their expectation). The next
+            // ordered broadcast from this sender would then look like an OOO gap
+            // and sit in broadcastReceiveBuffers forever. Use a sentinel seq for
+            // unordered sends — receivers early-return before any seq tracking, so
+            // the value only needs to carry BROADCAST_SEQ_FLAG for the isBroadcast
+            // classification on the receive side.
+            long broadcastIdx;
+            long broadcastSeq;
+            if (unordered) {
+                broadcastIdx = BROADCAST_SEQ_MASK; // sentinel: not a real ordered slot
+                broadcastSeq = BROADCAST_SEQ_FLAG | broadcastIdx;
+            } else {
+                broadcastIdx = broadcastSeqNum.getAndIncrement();
+                broadcastSeq = BROADCAST_SEQ_FLAG | (broadcastIdx & BROADCAST_SEQ_MASK);
+            }
             for (int targetId : targetIds) {
                 if (targetId == myReplicaId)
                     continue;
@@ -389,18 +440,23 @@ public class ReliableV2VMessaging {
                         0L,
                         payload);
                 envelope.isBroadcast = true;
+                envelope.isUnordered = unordered;
                 envelope.timestampMs = sendTimeMs;
                 envelope.currentTimeout = RETX_TIMEOUT_MS;
-                // NOTE: Do not use per-target ACK piggybacking here; only one envelope is
-                // physically sent.
-                unackedMessages.computeIfAbsent(targetId, k -> new ConcurrentHashMap<>()).put(broadcastSeq, envelope);
+                // Only track LC broadcasts outside the unacked/retx map. Skipping
+                // the put() means checkRetransmissions() never sees them, so the
+                // reliability layer stays silent for LC traffic.
+                if (!unordered) {
+                    unackedMessages.computeIfAbsent(targetId, k -> new ConcurrentHashMap<>()).put(broadcastSeq, envelope);
+                }
 
                 if (firstTarget == -1) {
                     firstTarget = targetId;
                     firstSeq = broadcastSeq;
                     broadcastEnvelope = envelope;
                 }
-                System.out.println("        -> Registered broadcastSeq=" + broadcastSeq + " for target " + targetId);
+                System.out.println("        -> Registered broadcastSeq=" + broadcastSeq + " for target " + targetId
+                        + (unordered ? " (no unacked tracking)" : ""));
             }
 
             if (broadcastEnvelope != null) {
@@ -413,6 +469,7 @@ public class ReliableV2VMessaging {
                         acks.clear();
                     }
                 }
+
                 System.out.println("        -> Calling conn.send(envelope) for broadcast...");
                 System.out.flush();
                 conn.send(broadcastEnvelope);
@@ -530,6 +587,19 @@ public class ReliableV2VMessaging {
         int senderId = envelope.fromReplicaId;
         long seq = envelope.sequenceNum;
         final boolean isBroadcast = envelope.isBroadcast || ((seq & BROADCAST_SEQ_FLAG) != 0);
+
+        // Fire-and-forget path (currently LC messages): the sender never adds the
+        // envelope to unackedMessages, so no one retransmits on loss. We must also
+        // skip the sequence-ordering path on receive — otherwise one missed LC
+        // broadcast would leave every subsequent LC broadcast from the same sender
+        // buffered behind a gap that never closes. LC handling is idempotent at
+        // the BFT-SMaRt LC layer (distinct-sender sets by regency), so delivering
+        // directly and ignoring sequencing is safe.
+        if (envelope.isUnordered) {
+            System.out.println("        -> UNORDERED envelope, delivering directly (no seq tracking)");
+            deliverMessage(envelope);
+            return;
+        }
 
         // C++ always broadcasts all messages (even intended unicasts) to every replica.
         // For unicast DATA messages, only the intended recipient should track sequence
@@ -753,7 +823,7 @@ public class ReliableV2VMessaging {
                                 + envelope.sequenceNum + " to replica " + targetId + " (attempt " + (attempts + 1) + "/"
                                 + MAX_RETX_ATTEMPTS + ")");
 
-                        envelope.currentTimeout = Math.min(envelope.currentTimeout * 2, 8000);
+                        envelope.currentTimeout = Math.min(envelope.currentTimeout * 2, RETX_MAX_BACKOFF_MS);
                         envelope.timestampMs = now; // Update timestamp for next retry jitter
                         // Deduplicate broadcast retransmits: only one physical broadcast per seq.
                         if (envelope.isBroadcast || ((envelope.sequenceNum & BROADCAST_SEQ_FLAG) != 0)) {

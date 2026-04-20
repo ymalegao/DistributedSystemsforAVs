@@ -2,8 +2,8 @@
 """
 BFT-SMaRt V2V Intersection Log Analyzer.
 
-Tracks the active VIEW/ORDER protocol and per-car lifecycle metrics, including:
-  - VIEW / ORDER latency breakdowns
+Tracks the single-round PROPOSE_ALL protocol and per-car lifecycle metrics, including:
+  - PROPOSE_ALL consensus latency (Java BFT layer)
   - wait time at the intersection (stop -> leave)
   - arrival -> resume and arrival -> leave timing
   - throughput using the user-defined formula
@@ -45,8 +45,12 @@ _parser.add_argument("--cars", type=int, default=None,
                           "If omitted, inferred from --save-to path or defaults to 16.")
 _parser.add_argument("--plots-dir", metavar="DIR",
                      help="Directory for generated plots/CSV. Defaults to the log file directory.")
-_parser.add_argument("--verbose", action="store_true",
-                     help="Show legacy deep-diagnostic sections (QC/witness/ACK internals).")
+_parser.add_argument(
+    "--no-scenario-subdir",
+    action="store_true",
+    help="Write metrics directly under --save-to (do not append no_amb/amb_honest/...). "
+         "Use when --save-to already includes the scenario folder (e.g. .../amb_honest/run_0).",
+)
 _args = _parser.parse_args()
 
 # Scenario subdirs (match plot_wait_time_cdf.DEFAULT_BAR_SERIES globs)
@@ -69,10 +73,11 @@ if _args.scenario is not None:
     if not SAVE_TO:
         print("analyze_log: --scenario requires --save-to <base_dir>", file=sys.stderr)
         sys.exit(2)
-    SAVE_TO = os.path.join(SAVE_TO, SCENARIO_SUBDIR[_args.scenario])
+    if not _args.no_scenario_subdir:
+        SAVE_TO = os.path.join(SAVE_TO, SCENARIO_SUBDIR[_args.scenario])
 PLOTS_DIR = _args.plots_dir or os.path.dirname(os.path.abspath(LOG_FILE)) or "."
 
-def _infer_cars_from_save_to(save_to: str | None) -> int | None:
+def _infer_cars_from_save_to(save_to: str or None) -> int or None:
     if not save_to:
         return None
     # Try a few common naming conventions:
@@ -103,13 +108,6 @@ def _infer_cars_from_save_to(save_to: str | None) -> int | None:
 CARS = _args.cars or _infer_cars_from_save_to(SAVE_TO) or 16
 N_EPOCHS = max(1, CARS // 4)
 
-# Golden isolated-n reference values (from benchmarks/golden.log)
-GOLDEN = {
-    4:  {"view": 0.2556, "order": 0.3879},
-    8:  {"view": 0.3302, "order": 0.4173},
-    12: {"view": 0.3800, "order": 0.4925},
-    16: {"view": 0.4444, "order": 0.5858},
-}
 # Epoch → group size mapping (4 cars depart each round)
 EPOCH_N = {epoch: max(CARS - 4 * epoch, 0) for epoch in range(N_EPOCHS)}
 
@@ -117,54 +115,8 @@ EPOCH_N = {epoch: max(CARS - 4 * epoch, 0) for epoch in range(N_EPOCHS)}
 RE_ROUND_METRIC = re.compile(
     r'\[ROUND-METRICS\] Epoch (\d+) Avg_([\w]+): ([\d.]+) seconds')
 
-RE_METRICS_VIEW_START = re.compile(
-    r'\[METRICS (\d+)\] View_Consensus_Start: ([\d.]+)')
-RE_METRICS_VIEW_END = re.compile(
-    r'\[METRICS (\d+)\] View_Consensus_End:\s*([\d.]+)')
-RE_METRICS_ORDER_START = re.compile(
-    r'\[METRICS (\d+)\] Order_Consensus_Start: ([\d.]+)')
-RE_METRICS_ORDER_END = re.compile(
-    r'\[METRICS (\d+)\] Order_Consensus_End:\s*([\d.]+)')
-RE_METRICS_QC_WINDOW = re.compile(
-    r'\[METRICS (\d+)\] Order_QC_Window_Start: ([\d.]+)')
-
-RE_PHASE_TIMER = re.compile(
-    r'\[PHASE_TIMER\] CID=(\d+) replica=(\d+) (\w+) wall_ms=(\d+)')
-
-RE_GOSSIP_RETX = re.compile(
-    r'\[ORDER-GOSSIP\] Replica (\d+) re-broadcast own ReadyQC')
-RE_GOSSIP_RETX_DETAIL = re.compile(
-    r'\[ORDER-GOSSIP\] Replica (\d+) re-broadcast own ReadyQC \((\d+) peers not yet ACKed\) at t=([\d.]+)')
-RE_GOSSIP_ACK = re.compile(
-    r'\[ORDER-GOSSIP\] Replica (\d+) received ReadyQC ACK from replica (\d+)')
-RE_GOSSIP_DONE = re.compile(
-    r'\[ORDER-GOSSIP\] Replica (\d+).*all peers ACKed|Gossip complete')
-RE_ORDER_COLLECT_START = re.compile(
-    r'\[ORDER-COLLECT\] Replica (\d+) started collection window until ([\d.]+)')
-RE_FRONT_LANES = re.compile(
-    r'\[ORDER-COLLECT\] Replica (\d+) front-lanes-in-pool=(\d+)')
-RE_EARLY_CLOSE = re.compile(
-    r'\[ORDER-COLLECT\] Replica (\d+).*EARLY_4_LANES|proposeOrderBagNow.*EARLY')
-
-RE_LANE_FRONT_CAR = re.compile(
-    r'\[BUILD_ORDER_BAG_FINAL\] car (veh\d+) is at front of lane (\S+), starting')
-RE_QC_BROADCASTED = re.compile(
-    r'\[V2VProxy (\d+)\] \*\*\* BROADCASTED ReadyQC for (veh\d+)')
-RE_QC_RECEIVED = re.compile(
-    r'\[V2VProxy (\d+)\] Received ReadyQC from (veh\d+)')
-
 RE_DIAG_EPOCH = re.compile(
     r'\[ORDER-DIAG\] Replica (\d+) epoch=(\d+)')
-
-# Witness collection diagnostics
-RE_WITNESS_ACCEPTED = re.compile(
-    r'\[WITNESS-RECV\] Replica (\d+) ACCEPTED witness from replica \d+ for (veh\d+) \(have (\d+)/(\d+) witnesses\) at t=([\d.]+)')
-RE_WITNESS_IGNORED = re.compile(
-    r'\[WITNESS-RECV\] Replica (\d+) IGNORING witness \(meant for (veh\d+), not')
-RE_WITNESS_SEND = re.compile(
-    r'\[WITNESS-SEND\] Replica \d+ sent witness response TO (veh\d+) .* at t=([\d.]+)')
-RE_QC_COMPLETE = re.compile(
-    r'\[V2VProxy (\d+)\] \*\*\* ReadyQC COMPLETE! \*\*\* \((\d+)/(\d+) witnesses\)')
 
 # Vehicle Lifecycle Diagnostics
 RE_ORDER_DECISION = re.compile(
@@ -187,10 +139,6 @@ RE_CAR_METRICS       = re.compile(
     r'stop_time=([-\d.]+) depart_time=([-\d.]+) wait_stop_to_departure_sec=([-\d.]+)')
 RE_AMBULANCE_WAIT    = re.compile(
     r'\[AMBULANCE_METRICS\] (veh\d+) sim_wait_stop_to_departure_sec=([-\d.]+) epoch=(\d+)')
-RE_BFTCONS_VIEW = re.compile(
-    r'\[BFTCONSENSUS (\d+)\] View consensus time epoch=(\d+): ([\d.]+)ms')
-RE_BFTCONS_ORDER = re.compile(
-    r'\[BFTCONSENSUS (\d+)\] Order consensus time epoch=(\d+): ([\d.]+)ms')
 RE_BYZANTINE_INJECTION = re.compile(
     r'\[BYZANTINE INJECTION\] Replica (\d+) CID=(\d+) intentionally broadcasting corrupted consensus hash')
 
@@ -207,34 +155,6 @@ RE_ROUND_METRIC_KEY = re.compile(
 
 # ── Data stores ─────────────────────────────────────────────────────────────
 round_metrics = defaultdict(dict)      # epoch → {metric_name: value}
-view_starts   = defaultdict(list)      # replica → [sim_time, ...]
-view_ends     = defaultdict(list)
-order_starts  = defaultdict(list)
-order_ends    = defaultdict(list)
-qc_windows    = defaultdict(list)      # replica → [sim_time, ...]
-
-# PHASE_TIMER per CID
-phase_timers  = defaultdict(lambda: defaultdict(dict))  # cid → replica → phase → wall_ms
-
-gossip_retx   = defaultdict(int)       # epoch → count of retransmit events
-gossip_acks   = defaultdict(int)       # epoch → count of ACK events
-gossip_done   = defaultdict(int)       # epoch → count of "all ACKed" events
-
-# QC diagnostics
-max_front_lanes   = defaultdict(lambda: defaultdict(int))  # epoch -> replica -> max lanes seen
-lane_front_cars   = defaultdict(dict)    # epoch -> {carId: laneId}
-qc_broadcasted    = defaultdict(set)     # epoch -> set of carIds that broadcast
-qc_received_by    = defaultdict(lambda: defaultdict(set))  # epoch -> replica -> {carIds received}
-gossip_retx_details = defaultdict(list) # epoch -> [(replica, unacked, sim_time)]
-collect_windows   = defaultdict(dict)   # epoch -> {replica: deadline}
-
-# Witness collection diagnostics
-# witness_progress[epoch][replica] = (max_have, need)
-witness_progress  = defaultdict(lambda: defaultdict(lambda: (0, 0)))
-# witness_send_times[epoch][veh] = [t, t, ...] — when witness responses were sent to that car
-witness_send_times = defaultdict(lambda: defaultdict(list))
-# qc_complete_replicas[epoch] = set of replica IDs that completed QC
-qc_complete_replicas = defaultdict(set)
 
 # Track which epoch we're in for each replica (coarse: by ORDER-DIAG)
 replica_epoch = {}                     # replica → last seen epoch
@@ -255,8 +175,6 @@ epoch_total_dur_by_car = defaultdict(dict)  # epoch -> {carId: duration}
 epoch_failures      = defaultdict(int)      # epoch -> count
 ambulance_ids       = set()
 car_metrics         = defaultdict(dict)     # carId -> {metric_name: value}
-java_view_consensus_wall_raw = defaultdict(list)   # raw epoch -> [seconds, ...]
-java_order_consensus_wall_raw = defaultdict(list)  # raw epoch -> [seconds, ...]
 
 # Byzantine injection tracking
 byzantine_by_epoch   = defaultdict(int)    # epoch -> count of [BYZANTINE INJECTION] events
@@ -317,133 +235,12 @@ with open(LOG_FILE, "r", errors="replace") as f:
             round_metrics[epoch][metric] = val
             continue
 
-        m = RE_BFTCONS_VIEW.search(line)
-        if m:
-            raw_epoch = int(m.group(2))
-            java_view_consensus_wall_raw[raw_epoch].append(float(m.group(3)) / 1000.0)
-            continue
-        m = RE_BFTCONS_ORDER.search(line)
-        if m:
-            raw_epoch = int(m.group(2))
-            java_order_consensus_wall_raw[raw_epoch].append(float(m.group(3)) / 1000.0)
-            continue
-
-        # PHASE_TIMER
-        m = RE_PHASE_TIMER.search(line)
-        if m:
-            cid, rep, phase, wall = int(m.group(1)), int(m.group(2)), m.group(3), int(m.group(4))
-            phase_timers[cid][rep][phase] = wall
-            continue
-
-        # METRICS – View/Order timestamps
-        m = RE_METRICS_VIEW_START.search(line)
-        if m:
-            view_starts[int(m.group(1))].append(float(m.group(2)))
-            continue
-        m = RE_METRICS_VIEW_END.search(line)
-        if m:
-            # Be robust to occasional malformed concatenated timestamps
-            try:
-                t = float(m.group(2))
-            except ValueError:
-                floats = re.findall(r'\d+\.\d+', line)
-                if not floats:
-                    continue
-                t = float(floats[0])
-            view_ends[int(m.group(1))].append(t)
-            continue
-        m = RE_METRICS_ORDER_START.search(line)
-        if m:
-            order_starts[int(m.group(1))].append(float(m.group(2)))
-            continue
-        m = RE_METRICS_ORDER_END.search(line)
-        if m:
-            order_ends[int(m.group(1))].append(float(m.group(2)))
-            continue
-        m = RE_METRICS_QC_WINDOW.search(line)
-        if m:
-            qc_windows[int(m.group(1))].append(float(m.group(2)))
-            continue
-
         # ORDER-DIAG – epoch tracker
         m = RE_DIAG_EPOCH.search(line)
         if m:
             rep, epoch = int(m.group(1)), int(m.group(2))
             replica_epoch[rep] = epoch
             current_gossip_epoch = epoch
-            continue
-
-        # Gossip retransmit detail (check detailed before simple so both captured)
-        m = RE_GOSSIP_RETX_DETAIL.search(line)
-        if m:
-            rep, unacked, t = int(m.group(1)), int(m.group(2)), float(m.group(3))
-            gossip_retx_details[current_gossip_epoch].append((rep, unacked, t))
-            gossip_retx[current_gossip_epoch] += 1
-            continue
-        m = RE_GOSSIP_RETX.search(line)
-        if m:
-            gossip_retx[current_gossip_epoch] += 1
-            continue
-
-        m = RE_GOSSIP_ACK.search(line)
-        if m:
-            gossip_acks[current_gossip_epoch] += 1
-            continue
-        m = RE_GOSSIP_DONE.search(line)
-        if m:
-            gossip_done[current_gossip_epoch] += 1
-            continue
-
-        # QC diagnostics
-        m = RE_FRONT_LANES.search(line)
-        if m:
-            rep, lanes = int(m.group(1)), int(m.group(2))
-            if lanes > max_front_lanes[current_gossip_epoch][rep]:
-                max_front_lanes[current_gossip_epoch][rep] = lanes
-            continue
-
-        m = RE_LANE_FRONT_CAR.search(line)
-        if m:
-            car, lane = m.group(1), m.group(2)
-            lane_front_cars[current_gossip_epoch][car] = lane
-            continue
-
-        m = RE_QC_BROADCASTED.search(line)
-        if m:
-            car = m.group(2)
-            qc_broadcasted[current_gossip_epoch].add(car)
-            continue
-
-        m = RE_QC_RECEIVED.search(line)
-        if m:
-            rep, car = int(m.group(1)), m.group(2)
-            qc_received_by[current_gossip_epoch][rep].add(car)
-            continue
-
-        m = RE_ORDER_COLLECT_START.search(line)
-        if m:
-            rep, deadline = int(m.group(1)), float(m.group(2))
-            collect_windows[current_gossip_epoch][rep] = deadline
-            continue
-
-        m = RE_WITNESS_ACCEPTED.search(line)
-        if m:
-            rep, veh, have, need, t = int(m.group(1)), m.group(2), int(m.group(3)), int(m.group(4)), float(m.group(5))
-            prev_have, prev_need = witness_progress[current_gossip_epoch][rep]
-            if have > prev_have:
-                witness_progress[current_gossip_epoch][rep] = (have, need)
-            continue
-
-        m = RE_WITNESS_SEND.search(line)
-        if m:
-            veh, t = m.group(1), float(m.group(2))
-            witness_send_times[current_gossip_epoch][veh].append(t)
-            continue
-
-        m = RE_QC_COMPLETE.search(line)
-        if m:
-            rep = int(m.group(1))
-            qc_complete_replicas[current_gossip_epoch].add(rep)
             continue
 
         m = RE_ORDER_COMMITTED.search(line)
@@ -458,7 +255,7 @@ with open(LOG_FILE, "r", errors="replace") as f:
 
         m = RE_ORDER_DECISION.search(line)
         if m:
-            decision = m.group(1) or m.group(2)
+            decision = m.group(1) or m.group(2) or ""
             for car, _batch_idx in RE_BATCH_ENTRY.findall(decision):
                 if car not in go_decision_epoch:
                     go_decision_epoch[car] = current_gossip_epoch
@@ -600,30 +397,11 @@ def normalize_java_epoch(raw_epoch):
         return raw_epoch
     return raw_epoch
 
-for raw_epoch, samples in java_view_consensus_wall_raw.items():
-    if not samples:
-        continue
-    epoch = normalize_java_epoch(raw_epoch)
-    round_metrics[epoch]["View_Consensus_Wall"] = statistics.mean(samples)
-
-for raw_epoch, samples in java_order_consensus_wall_raw.items():
-    if not samples:
-        continue
-    epoch = normalize_java_epoch(raw_epoch)
-    round_metrics[epoch]["Order_Consensus_Wall"] = statistics.mean(samples)
-
 for raw_epoch, samples in propose_all_wall_raw.items():
     if not samples:
         continue
     epoch = normalize_java_epoch(raw_epoch)
     round_metrics[epoch]["ProposeAll_Consensus_Wall"] = statistics.mean(samples)
-
-for epoch in range(N_EPOCHS):
-    rm = round_metrics.get(epoch, {})
-    view_wall = rm.get("View_Consensus_Wall")
-    order_wall = rm.get("Order_Consensus_Wall")
-    if view_wall is not None and order_wall is not None:
-        round_metrics[epoch]["Combined_Consensus_Wall"] = view_wall + order_wall
 
 # Compute per-epoch total durations: arrival at intersection zone → resume.
 # Uses Arrival_Time (car first enters zone, even if queued) so queue wait is included.
@@ -664,23 +442,23 @@ for car_id, metrics in car_metrics.items():
         ratio = recv / expected if expected > 0 else None
         metrics["delivery_ratio"] = ratio
         metrics["estimated_loss_rate"] = (1.0 - ratio) if ratio is not None else None
-    # BFT decision time = consensus latency for the epoch this car was decided in
+      # BFT decision time = single-round PROPOSE_ALL consensus latency
+    # for the epoch this car was decided in.
     if isinstance(ep, int):
         rm = round_metrics.get(ep, {})
         pa = rm.get("ProposeAll_Consensus_Wall")
-        vw = rm.get("View_Consensus_Wall") or 0
-        ow = rm.get("Order_Consensus_Wall") or 0
         if pa and pa > 0:
             metrics["propose_all_consensus_wall_s"] = pa
             metrics["bft_decision_time_s"] = pa
-        elif (vw + ow) > 0:
-            metrics["bft_decision_time_s"] = vw + ow
 
-# Per-epoch throughput: (last_depart - first_depart) / n_cars_in_epoch
-# Uses the depart_times of cars assigned to each epoch.
-epoch_depart_times = defaultdict(list)   # epoch -> sorted depart_times
-epoch_throughput   = {}                  # epoch -> s/veh (same formula as global, per epoch)
-epoch_wait_normal  = defaultdict(list)   # epoch -> [wait_s, ...] for normal cars
+# Per-epoch throughput (user definition):
+#   throughput_veh_per_s = n_vehicles_in_epoch / mean(depart - stop) over those vehicles
+#   throughput_s_per_veh = mean(depart - stop) / n_vehicles_in_epoch  (stored value)
+# `wait_intersection` already equals `depart_time - stop_time` per car (line ~694).
+# Cars with missing stop or depart are naturally excluded.
+epoch_depart_times   = defaultdict(list) # epoch -> sorted depart_times (kept for diagnostics)
+epoch_throughput     = {}                # epoch -> s/veh under the user formula
+epoch_wait_normal    = defaultdict(list) # epoch -> [wait_s, ...] for normal cars
 epoch_wait_ambulance = defaultdict(list) # epoch -> [wait_s, ...] for ambulance cars
 
 for car_id, metrics in car_metrics.items():
@@ -714,9 +492,12 @@ for car_id, metrics in car_metrics.items():
         else:
             epoch_wait_normal[ep].append(wait_t)
 
-for ep, dtimes in epoch_depart_times.items():
-    if len(dtimes) >= 2:
-        epoch_throughput[ep] = (max(dtimes) - min(dtimes)) / len(dtimes)
+for ep in set(list(epoch_wait_normal.keys()) + list(epoch_wait_ambulance.keys())):
+    waits_ep = epoch_wait_normal.get(ep, []) + epoch_wait_ambulance.get(ep, [])
+    if waits_ep:
+        mean_wait = statistics.mean(waits_ep)
+        if mean_wait > 0:
+            epoch_throughput[ep] = mean_wait / len(waits_ep)  # s/veh
 
 os.makedirs(PLOTS_DIR, exist_ok=True)
 
@@ -741,8 +522,6 @@ def write_metrics_json(path):
         n = EPOCH_N[ep]
         rm = round_metrics.get(ep, {})
         propose_all_lat = rm.get("ProposeAll_Consensus_Wall")
-        view_lat  = rm.get("View_Consensus_Wall") or rm.get("View_Consensus_Latency_4Cars")
-        order_lat = rm.get("Order_Consensus_Wall") or rm.get("Order_Consensus_Latency_4Cars")
         tp = epoch_throughput.get(ep)
         wn = epoch_wait_normal.get(ep, [])
         wa = epoch_wait_ambulance.get(ep, [])
@@ -753,15 +532,12 @@ def write_metrics_json(path):
             "epoch": ep,
             "n_replicas": n,
             "propose_all_consensus_latency_s": propose_all_lat,
-            "view_consensus_latency_s": view_lat,
-            "order_consensus_latency_s": order_lat,
-            "combined_consensus_latency_s": (view_lat + order_lat) if view_lat and order_lat else None,
             "throughput_s_per_veh": tp,
             "throughput_veh_per_s": (1.0 / tp) if tp not in (None, 0) else None,
             "wait_normal_s": _stat(wn),
             "wait_ambulance_s": _stat(wa),
             "byzantine_injections": byz,
-            "consensus_success": bool(propose_all_lat or order_lat),
+            "consensus_success": bool(propose_all_lat),
             "avg_messages_sent_per_replica": (sum(msgs_sent) / len(msgs_sent)) if msgs_sent else None,
             "avg_messages_recv_per_replica": (sum(msgs_recv) / len(msgs_recv)) if msgs_recv else None,
             "stop_sign_failures": epoch_failures.get(ep, 0),
@@ -817,7 +593,7 @@ def write_metrics_json(path):
         "epochs": N_EPOCHS,
         "throughput_s_per_veh": throughput,
         "throughput_veh_per_s": throughput_vps,
-        "throughput_formula": "((last_depart - first_depart) + median_positive_depart_gap) / n_cars",
+        "throughput_formula": "n_cars / mean(depart_time - stop_time)  (s/veh stored as inverse)",
         "throughput_s_per_veh_legacy_span": throughput_legacy,
         "throughput_veh_per_s_legacy_span": throughput_vps_legacy,
         "wait_all_s": _stat(all_waits),
@@ -834,9 +610,6 @@ def write_metrics_json(path):
             for ep in range(N_EPOCHS)
             if round_metrics.get(ep, {}).get("ProposeAll_Consensus_Wall", 0) > 0
         ]),
-        "view_consensus_latency_s": _stat(view_consensus_wall_all or view_consensus_lat_all),
-        "order_consensus_latency_s": _stat(order_consensus_wall_all or order_consensus_lat_all),
-        "combined_consensus_latency_s": _stat(combined_consensus_wall_all or combined_consensus_lat_all),
         # BFT decision time per vehicle (consensus latency assigned to each car's epoch)
         "bft_decision_time_s": _stat(_bft_dt_all),
         "total_byzantine_injections": byzantine_total,
@@ -901,7 +674,13 @@ def save_waittime_plot(path):
             labels.append(role.title())
             values.append(grouped[role])
             colors.append("#4C78A8" if role == "normal" else "#E45756")
-    bp = ax.boxplot(values, tick_labels=labels, patch_artist=True, showfliers=True)
+    # Matplotlib API compatibility:
+    # - newer versions accept tick_labels=
+    # - older versions use labels=
+    try:
+        bp = ax.boxplot(values, tick_labels=labels, patch_artist=True, showfliers=True)
+    except TypeError:
+        bp = ax.boxplot(values, labels=labels, patch_artist=True, showfliers=True)
     for patch, color in zip(bp["boxes"], colors):
         patch.set_facecolor(color)
         patch.set_alpha(0.6)
@@ -941,90 +720,6 @@ def save_waittime_by_car_plot(path):
     plt.close(fig)
     return True
 
-# ── PHASE_TIMER analysis ─────────────────────────────────────────────────────
-# CID 0,2,4,6 = VIEW epochs 0,1,2,3  (even CIDs)
-# CID 1,3,5,7 = ORDER epochs 0,1,2,3 (odd CIDs)
-def cid_to_epoch_type(cid):
-    epoch = cid // 2
-    kind  = "VIEW" if cid % 2 == 0 else "ORDER"
-    return epoch, kind
-
-def phase_summary(cid):
-    """Return wall-clock durations for the consensus identified by CID."""
-    reps = phase_timers[cid]
-    if not reps:
-        return None
-    # Leader = replica with PROPOSE_SENT
-    leader = None
-    for rep, phases in reps.items():
-        if "PROPOSE_SENT" in phases:
-            leader = rep
-            break
-    if leader is None:
-        return None
-
-    lp = reps[leader]
-    propose_sent = lp.get("PROPOSE_SENT")
-    deliver_times = []
-    propose_recv_times = []
-    for rep, phases in reps.items():
-        if "DELIVER" in phases:
-            deliver_times.append(phases["DELIVER"])
-        if "PROPOSE_RECV" in phases and rep != leader:
-            propose_recv_times.append(phases["PROPOSE_RECV"])
-
-    if not deliver_times:
-        return None
-
-    first_deliver = min(deliver_times)
-    last_deliver  = max(deliver_times)
-    first_recv    = min(propose_recv_times) if propose_recv_times else None
-
-    return {
-        "leader": leader,
-        "propose_sent_ms": propose_sent,
-        "first_propose_recv_ms": first_recv,
-        "first_deliver_ms": first_deliver,
-        "last_deliver_ms": last_deliver,
-        "propagation_wall_ms": (first_recv - propose_sent) if first_recv else None,
-        "bft_wall_ms": last_deliver - propose_sent if propose_sent else None,
-        "replica_count": len(reps),
-    }
-
-# ── Per-epoch breakdown ──────────────────────────────────────────────────────
-def all_per_epoch(per_replica_dict, n_epochs=4):
-    """Return all values per epoch (for spread analysis)."""
-    epoch_ranges = [(0, 5), (5, 15), (15, 25), (25, 40)]
-    result = {}
-    for epoch, (lo, hi) in enumerate(epoch_ranges):
-        vals = [t for times in per_replica_dict.values() for t in times if lo <= t < hi]
-        if vals:
-            result[epoch] = vals
-    return result
-
-def latest_per_epoch(per_replica_dict, n_epochs=4):
-    epoch_ranges = [(0, 5), (5, 15), (15, 25), (25, 40)]
-    result = {}
-    for epoch, (lo, hi) in enumerate(epoch_ranges):
-        vals = [t for times in per_replica_dict.values() for t in times if lo <= t < hi]
-        if vals:
-            result[epoch] = max(vals)
-    return result
-
-def earliest_per_epoch(per_replica_dict, n_epochs=4):
-    epoch_ranges = [(0, 5), (5, 15), (15, 25), (25, 40)]
-    result = {}
-    for epoch, (lo, hi) in enumerate(epoch_ranges):
-        vals = [t for times in per_replica_dict.values() for t in times if lo <= t < hi]
-        if vals:
-            result[epoch] = min(vals)
-    return result
-
-view_end_by_epoch    = latest_per_epoch(view_ends)
-view_end_all         = all_per_epoch(view_ends)
-order_start_by_epoch = latest_per_epoch(order_starts)
-qc_win_by_epoch      = earliest_per_epoch(qc_windows)
-
 # ── Print Report ─────────────────────────────────────────────────────────────
 BOLD = "\033[1m"
 RESET = "\033[0m"
@@ -1033,194 +728,19 @@ GRN   = "\033[32m"
 YEL   = "\033[33m"
 CYN   = "\033[36m"
 
-def color_vs_golden(val, golden_val, label=""):
-    if golden_val is None:
-        return f"{val:.4f}s"
-    diff = val - golden_val
-    pct  = 100 * diff / golden_val
-    sign = "+" if diff >= 0 else ""
-    col  = RED if diff > 0.02 else (GRN if diff < -0.02 else YEL)
-    return f"{col}{val:.4f}s{RESET} ({sign}{pct:.1f}% vs golden {golden_val:.4f}s)"
-
 print("=" * 72)
 print(f"{BOLD}BFT-SMaRt V2V Intersection — Epoch Latency Breakdown{RESET}")
 print("=" * 72)
 
 for epoch in range(N_EPOCHS):
-    n    = EPOCH_N[epoch]
-    gold = GOLDEN.get(n, {})
-    cid_view  = epoch * 2
-    cid_order = epoch * 2 + 1
-
+    n  = EPOCH_N[epoch]
     rm = round_metrics.get(epoch, {})
-    view_lat    = rm.get("View_Consensus_Latency_4Cars")
-    order_lat   = rm.get("Order_Consensus_Latency_4Cars")
-    view_wall   = rm.get("View_Consensus_Wall")
-    order_wall  = rm.get("Order_Consensus_Wall")
-    reset_to_ve = rm.get("ResetToViewEnd_4Cars")
-    bft_rtt     = rm.get("Order_BFT_Request_RTT_Submitter")
-
-    ps_view  = phase_summary(cid_view)
-    ps_order = phase_summary(cid_order)
-
-    # Gossip = view_end → leader order_start
-    view_end   = view_end_by_epoch.get(epoch)
-    ord_start  = order_start_by_epoch.get(epoch)
-    gossip_dur = (ord_start - view_end) if (view_end and ord_start) else None
-
-    bft_wall  = ps_order["bft_wall_ms"] if ps_order else None
-    prop_wall = ps_order["propagation_wall_ms"] if ps_order else None
-
-    retx  = gossip_retx.get(epoch, 0)
-    retx_per_car = retx / n if n else 0
-    acks  = gossip_acks.get(epoch, 0)
-    done  = gossip_done.get(epoch, 0)
-
-    print(f"\n{BOLD}── Epoch {epoch}  (n={n} replicas) ──{RESET}")
-    if reset_to_ve:
-        col = RED if reset_to_ve > 2.0 else (YEL if reset_to_ve > 1.0 else GRN)
-        print(f"  Reset→VIEW_END:{col} {reset_to_ve:.4f}s{RESET}")
     propose_all_wall = rm.get("ProposeAll_Consensus_Wall")
+    print(f"\n{BOLD}── Epoch {epoch}  (n={n} replicas) ──{RESET}")
     if propose_all_wall is not None and propose_all_wall > 0:
         print(f"  PROPOSE_ALL latency:     {CYN}{propose_all_wall:.4f}s{RESET}  (wall/Java, single round)")
     else:
-        if view_wall is not None and view_wall > 0:
-            print(f"  VIEW consensus latency:  {color_vs_golden(view_wall, gold.get('view'))}  (wall/Java)")
-        elif view_lat is not None and view_lat > 0:
-            print(f"  VIEW delivery latency:   {color_vs_golden(view_lat, gold.get('view'))}  (sim/native)")
-        if order_wall is not None and order_wall > 0:
-            print(f"  ORDER consensus latency: {color_vs_golden(order_wall, gold.get('order'))}  (wall/Java)")
-        elif order_lat is not None and order_lat > 0:
-            print(f"  ORDER delivery latency:  {color_vs_golden(order_lat, gold.get('order'))}  (sim/native)")
-    if bft_rtt:
-        print(f"  ORDER BFT RTT: {bft_rtt:.3f}s  (submitter wall-clock)")
-
-    if gossip_dur is not None:
-        col = RED if gossip_dur > 1.0 else (YEL if gossip_dur > 0.2 else GRN)
-        print(f"  Gossip phase:  {col}{gossip_dur:.4f}s sim{RESET}  "
-              f"(view_end={view_end:.3f}s → leader_submit={ord_start:.3f}s)")
-    else:
-        print(f"  Gossip phase:  {YEL}N/A{RESET}  "
-              f"(view_end={view_end}, ord_start={ord_start})")
-
-    if ps_order:
-        prop_str = f"{prop_wall}ms wall" if prop_wall else "N/A"
-        print(f"  BFT net (wall):{CYN} total={bft_wall}ms, PROPOSE propagation={prop_str}{RESET}")
-        print(f"  BFT leader:    replica {ps_order['leader']}  "
-              f"({ps_order['replica_count']} replicas observed)")
-
-    retx_col = RED if retx_per_car > 1.0 else (YEL if retx_per_car > 0 else GRN)
-    print(f"  Gossip retx:   {retx_col}{retx} total  ({retx_per_car:.1f}/car){RESET}   "
-          f"ACKs received={acks}  all-ACKed events={done}")
-
-# ── Cross-epoch comparison ────────────────────────────────────────────────────
-print(f"\n{'=' * 72}")
-print(f"{BOLD}Cross-epoch ORDER monotonicity check{RESET}")
-print(f"{'─' * 72}")
-print(f"  {'Epoch':>5}  {'N':>4}  {'ORDER':>10}  {'Src':>5}  {'Golden':>8}  {'Gossip sim':>10}  {'RTT':>7}  {'Retx/car':>9}")
-for epoch in range(N_EPOCHS):
-    n    = EPOCH_N[epoch]
-    rm   = round_metrics.get(epoch, {})
-    olat = rm.get("Order_Consensus_Latency_4Cars")
-    owall = rm.get("Order_Consensus_Wall")
-    gold = GOLDEN.get(n, {}).get("order")
-    bft_rtt = rm.get("Order_BFT_Request_RTT_Submitter")
-    view_end  = view_end_by_epoch.get(epoch)
-    ord_start = order_start_by_epoch.get(epoch)
-    gossip_dur = (ord_start - view_end) if (view_end and ord_start) else None
-    retx = gossip_retx.get(epoch, 0)
-    retx_per_car = retx / EPOCH_N[epoch] if EPOCH_N[epoch] else 0
-
-    if owall is not None and owall > 0:
-        order_metric = owall
-        order_src = "wall"
-    elif olat is not None and olat > 0:
-        order_metric = olat
-        order_src = "sim"
-    else:
-        order_metric = None
-        order_src = "N/A"
-    olat_str   = f"{order_metric:.4f}s" if order_metric is not None else "  N/A  "
-    gold_str   = f"{gold:.4f}s" if gold else "  N/A  "
-    gossip_str = f"{gossip_dur:.4f}s" if gossip_dur else "  N/A  "
-    rtt_str    = f"{bft_rtt:.3f}s" if bft_rtt else "  N/A"
-    flag = ""
-    if epoch > 0:
-        prev_rm = round_metrics.get(epoch - 1, {})
-        prev_olat = prev_rm.get("Order_Consensus_Wall")
-        if prev_olat is None:
-            prev_olat = prev_rm.get("Order_Consensus_Latency_4Cars")
-        if order_metric is not None and prev_olat is not None and order_metric > prev_olat:
-            flag = f"  {RED}▲ NON-MONOTONIC{RESET}"
-        elif order_metric is not None and prev_olat is not None:
-            flag = f"  {GRN}▼ OK{RESET}"
-    print(f"  {epoch:>5}  {n:>4}  {olat_str:>10}  {order_src:>5}  {gold_str:>8}  {gossip_str:>10}  {rtt_str:>7}  {retx_per_car:>9.1f}{flag}")
-
-# ── PHASE_TIMER wall-clock detail ─────────────────────────────────────────────
-if _args.verbose:
-    print(f"\n{'=' * 72}")
-    print(f"{BOLD}PHASE_TIMER wall-clock detail (ms) — all epochs{RESET}")
-    print(f"{'─' * 72}")
-    print(f"  {'CID':>4}  {'Type':>6}  {'Epoch':>5}  {'Leader':>6}  {'PropagMs':>9}  {'TotalMs':>8}  {'#Reps':>5}")
-    for cid in range(2 * N_EPOCHS):
-        epoch, kind = cid_to_epoch_type(cid)
-        ps = phase_summary(cid)
-        if ps is None:
-            print(f"  {cid:>4}  {kind:>6}  {epoch:>5}  {'N/A':>6}")
-            continue
-        prop = f"{ps['propagation_wall_ms']:>9}" if ps['propagation_wall_ms'] else "      N/A"
-        tot  = f"{ps['bft_wall_ms']:>8}" if ps['bft_wall_ms'] else "     N/A"
-        print(f"  {cid:>4}  {kind:>6}  {epoch:>5}  {ps['leader']:>6}  {prop}  {tot}  {ps['replica_count']:>5}")
-
-    print(f"\n{'=' * 72}")
-    print(f"{BOLD}Legacy Deep Diagnostics (verbose only){RESET}")
-    print(f"{'─' * 72}")
-    print(f"  QC/witness/ACK internals are retained here for debugging older logs.")
-
-print(f"\n{'=' * 72}")
-print(f"{BOLD}Diagnosis summary{RESET}")
-print(f"{'─' * 72}")
-bottleneck_found = False
-for epoch in range(N_EPOCHS):
-    n   = EPOCH_N[epoch]
-    rm  = round_metrics.get(epoch, {})
-    olat = rm.get("Order_Consensus_Wall")
-    if olat is None:
-        olat = rm.get("Order_Consensus_Latency_4Cars")
-    gold = GOLDEN.get(n, {}).get("order")
-    if olat and gold:
-        excess = olat - gold
-        retx   = gossip_retx.get(epoch, 0)
-        acks   = gossip_acks.get(epoch, 0)
-        done   = gossip_done.get(epoch, 0)
-        expected_done = n
-        if done < expected_done:
-            note = f"{RED}ACK convergence incomplete ({done}/{expected_done} replicas got all-ACKed){RESET}"
-            bottleneck_found = True
-        elif excess > 0.05:
-            view_end  = view_end_by_epoch.get(epoch)
-            ord_start = order_start_by_epoch.get(epoch)
-            gossip_dur = (ord_start - view_end) if (view_end and ord_start) else None
-            if gossip_dur and gossip_dur > 0.2:
-                note = f"{YEL}Gossip phase is slow ({gossip_dur:.3f}s), possible V2V loss or retransmit failure{RESET}"
-                bottleneck_found = True
-            else:
-                note = f"{YEL}BFT network phase may be slow — check PHASE_TIMER propagation{RESET}"
-                bottleneck_found = True
-        else:
-            note = f"{GRN}Within 50ms of golden — OK{RESET}"
-        print(f"  Epoch {epoch} (n={n}): excess={excess:+.3f}s  {note}")
-    elif not olat:
-        # Check for single-round PROPOSE_ALL protocol
-        pa_wall = round_metrics.get(epoch, {}).get("ProposeAll_Consensus_Wall")
-        if pa_wall:
-            print(f"  Epoch {epoch} (n={n}): {GRN}PROPOSE_ALL single round {pa_wall:.4f}s — ✓ one-round protocol confirmed{RESET}")
-        else:
-            print(f"  Epoch {epoch} (n={n}): {RED}no ORDER data — epoch did not complete{RESET}")
-            bottleneck_found = True
-
-if not bottleneck_found:
-    print(f"  {GRN}All epochs within 50ms of golden — no obvious bottleneck{RESET}")
+        print(f"  PROPOSE_ALL latency:     {RED}N/A — epoch did not complete{RESET}")
 
 print(f"\n{'=' * 72}")
 print(f"{BOLD}Per-Car Lifecycle Metrics{RESET}")
@@ -1259,28 +779,23 @@ throughput_vps_legacy = None
 depart_times = sorted(
     m["depart_time"] for m in car_metrics.values() if m.get("depart_time") is not None
 )
+
+# Throughput (user definition):
+#   vehicles / mean(depart - stop) over all vehicles with both timestamps.
+#   `all_waits` (computed above) is exactly the per-car (depart - stop) list.
+if all_waits:
+    n_w = len(all_waits)
+    mean_wait_all = statistics.mean(all_waits)
+    if mean_wait_all > 0:
+        throughput_vps = n_w / mean_wait_all          # vehicles per second
+        throughput     = mean_wait_all / n_w          # seconds per vehicle (1/vps)
+
+# Legacy span-based throughput (kept as a diagnostic; older runs report this).
 if len(depart_times) >= 2:
     n_dep = len(depart_times)
     span = depart_times[-1] - depart_times[0]
     throughput_legacy = span / n_dep if n_dep > 0 else None
     throughput_vps_legacy = (1.0 / throughput_legacy) if throughput_legacy not in (None, 0) else None
-
-    # Finite-window correction for small n:
-    # add one inferred service interval to the observed span.
-    unique_depart_times = sorted(set(float(t) for t in depart_times))
-    positive_gaps = [
-        unique_depart_times[i] - unique_depart_times[i - 1]
-        for i in range(1, len(unique_depart_times))
-        if (unique_depart_times[i] - unique_depart_times[i - 1]) > 1e-9
-    ]
-    delta = statistics.median(positive_gaps) if positive_gaps else None
-    corrected_span = (span + delta) if delta is not None else None
-    if corrected_span not in (None, 0):
-        throughput = corrected_span / n_dep
-        throughput_vps = 1.0 / throughput
-    else:
-        throughput = throughput_legacy
-        throughput_vps = throughput_vps_legacy
 missing_departure = [
     car_id for car_id, m in sorted(car_metrics.items(), key=lambda kv: int(kv[0][3:]))
     if m.get("stop_time") is not None and m.get("depart_time") is None
@@ -1290,31 +805,22 @@ print(f"\n{'=' * 72}")
 print(f"{BOLD}Paper-Friendly Summary Metrics{RESET}")
 print(f"{'─' * 72}")
 if throughput is not None:
-    print(f"  Throughput (corrected):       {throughput:.6f}s per vehicle")
+    print(f"  Throughput (user definition): {throughput:.6f}s per vehicle")
     if throughput_vps is not None:
-        print(f"  Throughput (corrected):       {throughput_vps:.6f} vehicles/s")
-    if len(depart_times) >= 2:
-        unique_depart_times = sorted(set(float(t) for t in depart_times))
-        positive_gaps = [
-            unique_depart_times[i] - unique_depart_times[i - 1]
-            for i in range(1, len(unique_depart_times))
-            if (unique_depart_times[i] - unique_depart_times[i - 1]) > 1e-9
-        ]
-        delta = statistics.median(positive_gaps) if positive_gaps else None
-        if delta is not None:
-            print(
-                "    Formula: ((last leave - first leave) + delta) / cars = "
-                f"(({depart_times[-1]:.4f} - {depart_times[0]:.4f}) + {delta:.4f}) / {len(depart_times)}"
-            )
-        else:
-            print(
-                "    Formula fallback: (last leave - first leave) / cars = "
-                f"({depart_times[-1]:.4f} - {depart_times[0]:.4f}) / {len(depart_times)}"
-            )
+        print(f"  Throughput (user definition): {throughput_vps:.6f} vehicles/s")
+    print(
+        "    Formula: cars / mean(depart - stop) = "
+        f"{len(all_waits)} / {statistics.mean(all_waits):.4f} = "
+        f"{throughput_vps:.6f} veh/s"
+    )
     if throughput_legacy is not None:
         print(f"  Throughput (legacy span-based): {throughput_legacy:.6f}s per vehicle")
         if throughput_vps_legacy is not None:
             print(f"  Throughput (legacy span-based): {throughput_vps_legacy:.6f} vehicles/s")
+        print(
+            "    Legacy formula: (last leave - first leave) / cars = "
+            f"({depart_times[-1]:.4f} - {depart_times[0]:.4f}) / {len(depart_times)}"
+        )
 elif "Throughput_User_Definition" in run_metrics:
     throughput = run_metrics["Throughput_User_Definition"]
     throughput_vps = (1.0 / throughput) if throughput not in (None, 0) else None
@@ -1342,47 +848,13 @@ _fmt_or_run(ambulance_waits,      "Wait_Intersection_Ambulance_Mean","Wait@inter
 _fmt_or_run(arrival_to_resume_all,"Arrival_To_Resume_Mean",          "Arrival→resume, all cars        ")
 _fmt_or_run(resume_to_depart_all, "Resume_To_Depart_Mean",           "Resume→leave, all cars          ")
 
-view_consensus_lat_all = [
-    round_metrics[ep]["View_Consensus_Latency_4Cars"]
+propose_all_wall_all = [
+    round_metrics[ep]["ProposeAll_Consensus_Wall"]
     for ep in range(N_EPOCHS)
-    if round_metrics.get(ep, {}).get("View_Consensus_Latency_4Cars", 0) > 0
-]
-order_consensus_lat_all = [
-    round_metrics[ep]["Order_Consensus_Latency_4Cars"]
-    for ep in range(N_EPOCHS)
-    if round_metrics.get(ep, {}).get("Order_Consensus_Latency_4Cars", 0) > 0
-]
-combined_consensus_lat_by_epoch = {}
-for ep in range(N_EPOCHS):
-    rm = round_metrics.get(ep, {})
-    view_lat = rm.get("View_Consensus_Latency_4Cars")
-    order_lat = rm.get("Order_Consensus_Latency_4Cars")
-    if view_lat is not None and view_lat > 0 and order_lat is not None and order_lat > 0:
-        combined_consensus_lat_by_epoch[ep] = view_lat + order_lat
-combined_consensus_lat_all = list(combined_consensus_lat_by_epoch.values())
-
-view_consensus_wall_all = [
-    round_metrics[ep]["View_Consensus_Wall"]
-    for ep in range(N_EPOCHS)
-    if round_metrics.get(ep, {}).get("View_Consensus_Wall", 0) > 0
-]
-order_consensus_wall_all = [
-    round_metrics[ep]["Order_Consensus_Wall"]
-    for ep in range(N_EPOCHS)
-    if round_metrics.get(ep, {}).get("Order_Consensus_Wall", 0) > 0
-]
-combined_consensus_wall_all = [
-    round_metrics[ep]["Combined_Consensus_Wall"]
-    for ep in range(N_EPOCHS)
-    if round_metrics.get(ep, {}).get("Combined_Consensus_Wall", 0) > 0
+    if round_metrics.get(ep, {}).get("ProposeAll_Consensus_Wall", 0) > 0
 ]
 
-print(f"  VIEW delivery latency (sim):      {fmt_stat(view_consensus_lat_all)}")
-print(f"  ORDER delivery latency (sim):     {fmt_stat(order_consensus_lat_all)}")
-print(f"  Combined delivery latency (sim):  {fmt_stat(combined_consensus_lat_all)}")
-print(f"  VIEW consensus latency (wall):    {fmt_stat(view_consensus_wall_all)}")
-print(f"  ORDER consensus latency (wall):   {fmt_stat(order_consensus_wall_all)}")
-print(f"  Combined consensus latency:       {fmt_stat(combined_consensus_wall_all)}")
+print(f"  PROPOSE_ALL consensus latency:    {fmt_stat(propose_all_wall_all)}")
 
 fairness_all = jains_fairness(all_waits)
 fairness_normal = jains_fairness(normal_waits)
@@ -1447,8 +919,6 @@ if byz_total_display > 0:
         for rep in sorted(byzantine_by_replica):
             print(f"  {rep:>8}  {byzantine_by_replica[rep]:>12}")
     consensus_ok = all(
-        round_metrics.get(ep, {}).get("Order_Consensus_Wall") or
-        round_metrics.get(ep, {}).get("Order_Consensus_Latency_4Cars") or
         round_metrics.get(ep, {}).get("ProposeAll_Consensus_Wall")
         for ep in range(N_EPOCHS))
     if consensus_ok:
@@ -1511,33 +981,10 @@ if SAVE_TO:
     with open(dest, 'w') as f:
         for ep in range(N_EPOCHS):
             rm = round_metrics.get(ep, {})
-            view_lat = rm.get("View_Consensus_Latency_4Cars")
-            order_lat = rm.get("Order_Consensus_Latency_4Cars")
-            view_wall = rm.get("View_Consensus_Wall")
-            order_wall = rm.get("Order_Consensus_Wall")
             propose_all_wall = rm.get("ProposeAll_Consensus_Wall")
             if propose_all_wall is not None and propose_all_wall > 0:
                 f.write(f"[ROUND-METRICS] Epoch {ep} Avg_ProposeAll_Consensus_Wall: "
                         f"{propose_all_wall:.6f} seconds\n")
-            else:
-                if view_lat is not None and view_lat > 0:
-                    f.write(f"[ROUND-METRICS] Epoch {ep} Avg_View_Consensus_Latency_4Cars: "
-                            f"{view_lat:.6f} seconds\n")
-                if order_lat is not None and order_lat > 0:
-                    f.write(f"[ROUND-METRICS] Epoch {ep} Avg_Order_Consensus_Latency_4Cars: "
-                            f"{order_lat:.6f} seconds\n")
-                if view_lat is not None and view_lat > 0 and order_lat is not None and order_lat > 0:
-                    f.write(f"[ROUND-METRICS] Epoch {ep} Avg_Combined_Consensus_Latency: "
-                            f"{(view_lat + order_lat):.6f} seconds\n")
-                if view_wall is not None and view_wall > 0:
-                    f.write(f"[ROUND-METRICS] Epoch {ep} Avg_View_Consensus_Wall: "
-                            f"{view_wall:.6f} seconds\n")
-                if order_wall is not None and order_wall > 0:
-                    f.write(f"[ROUND-METRICS] Epoch {ep} Avg_Order_Consensus_Wall: "
-                            f"{order_wall:.6f} seconds\n")
-                if view_wall is not None and view_wall > 0 and order_wall is not None and order_wall > 0:
-                    f.write(f"[ROUND-METRICS] Epoch {ep} Avg_Combined_Consensus_Wall: "
-                            f"{(view_wall + order_wall):.6f} seconds\n")
 
             # Per-car durations (one line per car) so downstream scripts can build CDFs.
             # These are lifecycle timings, not consensus latency.

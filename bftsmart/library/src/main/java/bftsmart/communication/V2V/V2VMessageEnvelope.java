@@ -29,6 +29,13 @@ public class V2VMessageEnvelope implements Serializable {
     public HashMap<Integer, ArrayList<Long>> broadcastAcks = new HashMap<>();
     // True when this envelope represents a V2V multicast/broadcast delivery.
     public boolean isBroadcast = false;
+    // True for fire-and-forget traffic that must skip sender-side retransmission
+    // and receiver-side sequence ordering. Used for leader-change (LC) messages:
+    // LC handling is idempotent at the application layer (distinct-sender sets,
+    // regency gating), so reliability-layer ordering/retx would only add channel
+    // pressure with no correctness benefit. Default false preserves behaviour
+    // for legacy envelopes deserialized from older senders.
+    public boolean isUnordered = false;
 
     public final byte[] serializedMessage;
 

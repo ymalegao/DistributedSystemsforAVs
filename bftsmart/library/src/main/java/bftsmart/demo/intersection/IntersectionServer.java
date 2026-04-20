@@ -15,10 +15,14 @@ limitations under the License.
 */
 package bftsmart.demo.intersection;
 
+import bftsmart.clientsmanagement.ClientsManager;
 import bftsmart.communication.V2V.SimulationClock;
 import bftsmart.tom.MessageContext;
 import bftsmart.tom.ServiceProxy;
 import bftsmart.tom.ServiceReplica;
+import bftsmart.tom.core.messages.TOMMessage;
+import bftsmart.tom.core.messages.TOMMessageType;
+import bftsmart.tom.server.ViewChangeRebuildHook;
 import bftsmart.tom.server.defaultservices.DefaultRecoverable;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -57,7 +61,7 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
  * OrderRequestVerifier validates per-car ARRIVAL_CERT signatures (f+1 per SIGNED car)
  * and the proposed schedule before every follower votes. On delivery, all replicas call notifyOrderDecided.
  */
-public final class IntersectionServer extends DefaultRecoverable {
+public final class IntersectionServer extends DefaultRecoverable implements ViewChangeRebuildHook {
     private static final Map<Integer, IntersectionServer> readyServers = new ConcurrentHashMap<>();
     private static final int CONSENSUS_REQUEST_TIMEOUT_SEC = 3600;
 
@@ -97,6 +101,12 @@ public final class IntersectionServer extends DefaultRecoverable {
     private native Set<String> nativeGetCertSnapshot(int replicaId);
 
     /**
+     * JNI pull: returns "<vehicleStatesStr>:<perCarCerts>" built from this replica's
+     * current C++ collectedCerts. Called only from getFreshProposePayload().
+     */
+    private native String nativeGetFreshProposePayload(int replicaId);
+
+    /**
      * Returns a consistent snapshot of carIds in C++ collectedCerts at the moment of the call.
      * Survives intra-epoch BFT view-changes (collectedCerts is not cleared by Java-side
      * view-change machinery). Cleared at epoch boundary when C++ handleWipeComplete() fires.
@@ -111,6 +121,26 @@ public final class IntersectionServer extends DefaultRecoverable {
         } catch (UnsatisfiedLinkError e) {
             System.err.println("[SERVER] getCertSnapshot JNI unavailable: " + e.getMessage());
             return Collections.emptySet();
+        }
+    }
+
+    /**
+     * Returns "&lt;vehicleStatesStr&gt;:&lt;perCarCerts&gt;" built from this replica's current
+     * C++ collectedCerts (ground truth). Called by the view-change rebuild hook
+     * ({@link #rebuildPendingProposals}) so the new leader can construct a fresh
+     * PROPOSE_ALL that includes any vehicle the previous Byzantine leader censored.
+     * <p>
+     * Returns an empty string when JNI is unavailable (e.g. unit-test context);
+     * callers must treat empty-string as "no fresh build possible — fall back to
+     * the existing replay-pending-request behavior" so prior EP5 guarantees hold.
+     */
+    public String getFreshProposePayload() {
+        try {
+            String raw = nativeGetFreshProposePayload(processId);
+            return raw != null ? raw : "";
+        } catch (UnsatisfiedLinkError e) {
+            System.err.println("[SERVER] getFreshProposePayload JNI unavailable: " + e.getMessage());
+            return "";
         }
     }
 
@@ -135,7 +165,7 @@ public final class IntersectionServer extends DefaultRecoverable {
 
         try {
             System.out.println("[Server " + id + "] DEBUG: Calling new ServiceReplica(" + id + ", ...)");
-            this.replica = new ServiceReplica(id, this, this, new OrderRequestVerifier(this));
+            this.replica = new ServiceReplica(id, this, this, new OrderRequestVerifier(this), this);
             if (replica != null) {
                 bftsmart.communication.ServerCommunicationSystem commSystem = replica.getServerCommunicationSystem();
                 if (commSystem != null) {
@@ -315,14 +345,24 @@ public final class IntersectionServer extends DefaultRecoverable {
                     + ((proxyEnd - proxyStart) / 1_000_000.0) + " ms");
 
             long consensusEndWall = System.currentTimeMillis();
-            double consensusWallSeconds = (consensusEndWall - consensusStartWall) / 1000.0;
-            System.out.println("[BFTCONSENSUS " + processId + "] PROPOSE_ALL consensus time epoch="
-                    + epoch + ": " + (consensusEndWall - consensusStartWall) + "ms");
-            try {
-                notifyProposeAllConsensusMetric(processId, epoch, consensusWallSeconds);
-            } catch (UnsatisfiedLinkError e) {
-                System.err.println("[BFTCONSENSUS] JNI notifyProposeAllConsensusMetric unavailable: "
-                        + e.getMessage());
+            // Emit the BFTCONSENSUS metric only if appExecuteBatch hasn't already
+            // emitted+reset it. In the honest-leader path appExecuteBatch fires
+            // before invokeOrdered returns and zeros consensusStartWall, so this
+            // branch is skipped (preventing a duplicate sample). In the rare case
+            // where invokeOrdered returns before delivery (or appExecuteBatch
+            // missed it), this remains the fallback emit point so analyze_log.py
+            // still gets a sample.
+            if (consensusStartWall > 0) {
+                double consensusWallSeconds = (consensusEndWall - consensusStartWall) / 1000.0;
+                System.out.println("[BFTCONSENSUS " + processId + "] PROPOSE_ALL consensus time epoch="
+                        + epoch + ": " + (consensusEndWall - consensusStartWall) + "ms");
+                try {
+                    notifyProposeAllConsensusMetric(processId, epoch, consensusWallSeconds);
+                } catch (UnsatisfiedLinkError e) {
+                    System.err.println("[BFTCONSENSUS] JNI notifyProposeAllConsensusMetric unavailable: "
+                            + e.getMessage());
+                }
+                consensusStartWall = 0;
             }
 
             if (reply == null) {
@@ -501,6 +541,33 @@ public final class IntersectionServer extends DefaultRecoverable {
                                 + " epoch=" + bag.epoch
                                 + " batches=" + bag.batches.size()
                                 + " decision=" + batchDecision);
+
+                        // Emit PROPOSE_ALL consensus latency from the original
+                        // submitter (the only replica with consensusStartWall > 0).
+                        // Doing it here — at delivery — instead of after
+                        // invokeOrdered() returns is required for the EP5
+                        // Byzantine-leader rebuild path: the rebuilt request is
+                        // injected under a synthetic clientId so the deposed
+                        // leader's localClientProxy.invokeOrdered() never gets a
+                        // reply and would block until CONSENSUS_REQUEST_TIMEOUT_SEC,
+                        // leaving analyze_log.py with no sample (-> bft_decision_time_s=null).
+                        // We zero consensusStartWall after emitting so the
+                        // post-invokeOrdered block in submitViewToBFTConsensus
+                        // does not double-print.
+                        if (consensusStartWall > 0) {
+                            long deliveredWall = System.currentTimeMillis();
+                            double consensusWallSeconds = (deliveredWall - consensusStartWall) / 1000.0;
+                            System.out.println("[BFTCONSENSUS " + processId
+                                    + "] PROPOSE_ALL consensus time epoch=" + bag.epoch
+                                    + ": " + (deliveredWall - consensusStartWall) + "ms");
+                            try {
+                                notifyProposeAllConsensusMetric(processId, bag.epoch, consensusWallSeconds);
+                            } catch (UnsatisfiedLinkError e) {
+                                System.err.println("[BFTCONSENSUS] JNI notifyProposeAllConsensusMetric unavailable: "
+                                        + e.getMessage());
+                            }
+                            consensusStartWall = 0;
+                        }
                         System.out.println("[SERVER] Cars=" + String.join(",",
                                 new TreeSet<>(newViewState.keySet()))
                                 + " wall_offset=" + (System.currentTimeMillis() - experimentStartWall) + "ms");
@@ -577,6 +644,169 @@ public final class IntersectionServer extends DefaultRecoverable {
      */
     Map<String, Integer> getWaitRegistry() {
         return Collections.unmodifiableMap(waitRegistry);
+    }
+
+    // ---------------------------------------------------------------------
+    // ViewChangeRebuildHook (EP5 "Dynamic Reconstruction")
+    //
+    // Called on the NEW leader from Synchronizer.catch_up() between
+    // ClientsManager.resetAlreadyProposed() and TOMLayer.createPropose().
+    // Purpose: replace whatever stale PROPOSE_ALL the deposed Byzantine leader
+    // queued (the bytes that triggered Check 7 and hence the view-change) with
+    // a fresh proposal rebuilt from the current C++ collectedCerts ground truth.
+    // Without this, catch_up would replay the censored bytes and the liveness
+    // stall would persist within epoch e.
+    // ---------------------------------------------------------------------
+
+    /** Synthetic clientId used exclusively for hook-injected fresh proposals;
+     *  kept off the live ServiceProxy's sequence space (processId + 1000). */
+    private static final int REBUILD_CLIENT_ID_OFFSET = 2000;
+
+    @Override
+    public void rebuildPendingProposals(ClientsManager cm, int regency) {
+        String freshPayload = getFreshProposePayload();
+        if (freshPayload == null || freshPayload.isEmpty()) {
+            System.out.println("[REBUILD " + processId + "] JNI ground truth unavailable; "
+                    + "falling back to replay of pending bytes (regency=" + regency + ")");
+            return;
+        }
+
+        byte[] freshRequest = buildFreshProposeAllBytes(freshPayload);
+        if (freshRequest == null) {
+            System.err.println("[REBUILD " + processId + "] could not assemble fresh PROPOSE_ALL "
+                    + "from payload '" + freshPayload + "'; falling back to replay");
+            return;
+        }
+
+        int evicted = evictAllPendingProposeAll(cm);
+        System.out.println("[REBUILD " + processId + "] evicted " + evicted
+                + " stale pending request(s) across all clients");
+
+        boolean accepted = injectFreshProposeAll(cm, freshRequest, regency);
+        System.out.println("[REBUILD " + processId + "] injected fresh PROPOSE_ALL accepted="
+                + accepted + " len=" + freshRequest.length + " regency=" + regency);
+    }
+
+    @Override
+    public void evictStaleProposals(ClientsManager cm, int regency) {
+        // Runs on every replica at the top of Synchronizer.finalise() during
+        // view-change recovery. The new leader has already evicted in
+        // rebuildPendingProposals (called from catch_up); calling this again
+        // returns 0 evictions and is a safe no-op. Followers, however, reach
+        // finalise() via processSYNC() and need this call so their
+        // RequestsTimer stops watching the deposed Byzantine PROPOSE_ALL —
+        // otherwise the timer fires T_request later and forces a needless
+        // leader-change to regency+1.
+        int evicted = evictAllPendingProposeAll(cm);
+        System.out.println("[REBUILD " + processId + "] follower-side evict: removed "
+                + evicted + " stale pending request(s) (regency=" + regency + ")");
+    }
+
+    /**
+     * Instance wrapper: assembles fresh PROPOSE_ALL bytes using this replica's
+     * {@code processId}, {@code roundNumber}, {@code waitRegistry}, and departed set.
+     */
+    byte[] buildFreshProposeAllBytes(String jniPayload) {
+        return buildFreshProposeAllBytes(
+                jniPayload,
+                this.processId,
+                (int) this.roundNumber,
+                this.waitRegistry,
+                this.departedReplicas);
+    }
+
+    /**
+     * Pure static primitive for view-change reconstruction: parses the JNI-fetched
+     * ground truth {@code <vehicleStatesStr>:<perCarCerts>}, filters out departed
+     * replicas, re-runs {@link OrderScheduler#buildProposal} with the caller-provided
+     * {@code waitRegistry}, and returns the fully-assembled
+     * {@code PROPOSE_ALL:<proposerId>:<vsStr>:<pcc>:<orderBagStr>} wire bytes.
+     *
+     * <p>Returns {@code null} when the JNI payload is malformed/empty or all
+     * vehicles are departed — callers must treat null as "no fresh build possible;
+     * fall back to replay of pending bytes".
+     *
+     * <p>Side-effect-free so the self-test can invoke it without a live
+     * ServiceReplica / JNI environment.
+     */
+    static byte[] buildFreshProposeAllBytes(
+            String jniPayload,
+            int proposerId,
+            int epoch,
+            Map<String, Integer> waitRegistry,
+            Set<Integer> departedReplicas) {
+        if (jniPayload == null || jniPayload.isEmpty()) {
+            return null;
+        }
+        int split = jniPayload.indexOf(':');
+        if (split < 0) {
+            return null;
+        }
+        String vehicleStatesStr = jniPayload.substring(0, split);
+        String perCarCertsStr   = jniPayload.substring(split + 1);
+
+        List<VehicleState> states = ViewConsensusProtocol.parseVehicleStates(vehicleStatesStr);
+        if (states.isEmpty()) {
+            return null;
+        }
+        Map<String, VehicleState> stateMap = new LinkedHashMap<>();
+        for (VehicleState vs : states) {
+            try {
+                int rid = Integer.parseInt(vs.vehicleId.substring(3));
+                if (departedReplicas == null || !departedReplicas.contains(rid)) {
+                    stateMap.put(vs.vehicleId, vs);
+                }
+            } catch (NumberFormatException ex) {
+                stateMap.put(vs.vehicleId, vs);
+            }
+        }
+        if (stateMap.isEmpty()) {
+            return null;
+        }
+
+        Map<String, Integer> wr = (waitRegistry != null) ? waitRegistry : Collections.emptyMap();
+        OrderBag bag = OrderScheduler.buildProposal(stateMap, epoch, wr);
+        String orderBagStr = OrderScheduler.serializeOrderBagForBFT(bag);
+        String fullRequest = "PROPOSE_ALL:" + proposerId + ":"
+                + vehicleStatesStr + ":" + perCarCertsStr + ":" + orderBagStr;
+        return fullRequest.getBytes(StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Purges every pending request across every known client. Safe in the V2V
+     * single-round protocol: the only thing in-flight at a view-change is the
+     * deposed leader's stale PROPOSE_ALL (replicas do not pipeline requests).
+     * Returns the total number of requests removed.
+     */
+    private int evictAllPendingProposeAll(ClientsManager cm) {
+        int total = 0;
+        for (int cid : cm.getKnownClientIds()) {
+            total += cm.removePendingForClient(cid);
+        }
+        return total;
+    }
+
+    /**
+     * Injects {@code freshBytes} as a new pending request under a dedicated
+     * rebuild clientId so we do not collide with the live {@code localClientProxy}
+     * sequence space. Uses {@code fromClient=false} in
+     * {@link ClientsManager#requestReceived} to bypass the client-signature check
+     * (acceptable since we are the BFT leader and this is an intra-replica
+     * synthetic submission, analogous to BFT-SMaRt's own forwarded-request path).
+     */
+    private boolean injectFreshProposeAll(ClientsManager cm, byte[] freshBytes, int regency) {
+        int rebuildClientId = processId + REBUILD_CLIENT_ID_OFFSET;
+        int session = 0;
+        int sequence = regency; // monotonically increasing with each view-change
+        int viewId = (replica != null && replica.getReplicaContext() != null)
+                ? replica.getReplicaContext().getSVController().getCurrentViewId()
+                : 0;
+        TOMMessage fresh = new TOMMessage(
+                rebuildClientId, session, sequence, sequence,
+                freshBytes, viewId, TOMMessageType.ORDERED_REQUEST);
+        fresh.signed = false;
+        fresh.serializedMessage = TOMMessage.messageToBytes(fresh);
+        return cm.requestReceived(fresh, false, null);
     }
 
     public static void main(String[] args) {

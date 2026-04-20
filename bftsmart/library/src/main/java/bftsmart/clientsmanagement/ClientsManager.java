@@ -16,8 +16,10 @@ limitations under the License.
 package bftsmart.clientsmanagement;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 import bftsmart.communication.ServerCommunicationSystem;
 import bftsmart.reconfiguration.ServerViewController;
@@ -301,7 +303,13 @@ public class ClientsManager {
     public boolean requestReceived(TOMMessage request, boolean fromClient, ServerCommunicationSystem cs) {
 
         long receptionTime = System.nanoTime();
-        long receptionTimestamp = System.currentTimeMillis();
+        // Stamp reception in SIMULATION time (not wall time) so RequestsTimer's
+        // request-timeout (system.totalordermulticast.timeout) is measured
+        // against sim time. Under heavy-load BFT runs a single sim-second can
+        // take many wall-seconds, making a wall-clock timeout fire spuriously
+        // — especially with a Byzantine leader. SimulationClock is fed by the
+        // C++ side every retx tick via syncTimeToJava().
+        long receptionTimestamp = bftsmart.communication.V2V.SimulationClock.currentTimeMillis();
         
         int clientId = request.getSender();
         boolean accounted = false;
@@ -475,6 +483,57 @@ public class ClientsManager {
                 } finally {
                     cd.clientLock.unlock();
                 }
+            }
+        } finally {
+            clientsLock.unlock();
+        }
+    }
+
+    /**
+     * Evicts every pending request queued for the given clientId and cancels
+     * their request timers. Used by {@link bftsmart.tom.server.ViewChangeRebuildHook}
+     * implementations during view-change catch-up so the new leader can replace
+     * a stale/censored request with a freshly-built one, without the stale bytes
+     * being re-selected by {@link #getPendingRequests()}.
+     * <p>
+     * Returns the number of requests removed (0 if the client has no pending
+     * requests or was never seen).
+     */
+    /**
+     * Returns a snapshot of the client IDs for which this manager has any state
+     * (including empty pending queues). Used by view-change rebuild hooks that
+     * need to scan every client's pending queue without exposing the underlying
+     * map. Thread-safe: takes {@code clientsLock} for the duration of the copy.
+     */
+    public Set<Integer> getKnownClientIds() {
+        clientsLock.lock();
+        try {
+            return new HashSet<>(clientsData.keySet());
+        } finally {
+            clientsLock.unlock();
+        }
+    }
+
+    public int removePendingForClient(int clientId) {
+        clientsLock.lock();
+        try {
+            ClientData cd = clientsData.get(clientId);
+            if (cd == null) {
+                return 0;
+            }
+            cd.clientLock.lock();
+            try {
+                RequestList pending = cd.getPendingRequests();
+                int removed = pending.size();
+                if (timer != null) {
+                    for (TOMMessage m : pending) {
+                        timer.unwatch(m);
+                    }
+                }
+                pending.clear();
+                return removed;
+            } finally {
+                cd.clientLock.unlock();
             }
         } finally {
             clientsLock.unlock();

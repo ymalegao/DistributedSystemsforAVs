@@ -1,16 +1,16 @@
 version 3
-run EightVehiclesAmbulanceBFT-0-20260414-08:25:08-546603
+run EightVehiclesAmbulanceBFT-0-20260420-11:51:11-64155
 attr configname EightVehiclesAmbulanceBFT
-attr datetime 20260414-08:25:08
-attr datetimef 20260414-082508
+attr datetime 20260420-11:51:11
+attr datetimef 20260420-115111
 attr experiment EightVehiclesAmbulanceBFT
-attr inifile /home/yash/DistributedSystemsforAVs/fourway/random_scenario.ini
+attr inifile /Users/yashmalegaonkar/Documents/v2v/fourway/random_scenario.ini
 attr iterationvars ""
 attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network fourWay
-attr processid 546603
+attr processid 64155
 attr repetition 0
 attr replication #0
 attr resultdir results
@@ -18,6 +18,7 @@ attr runnumber 0
 attr seedset 0
 config extends EightVehiclesBFTOverV2V
 config description "8 vehicles; veh7 auto-issues Emergency_CA cert and signs ARRIVAL_ANNOUNCE"
+config *.manager.intersectionBatchSize 8
 config extends BFTOverV2V
 config description "BFT test on 8-vehicle routes"
 config *.manager.launchConfig "xmldoc(\"bft_8veh.launchd.xml\")"
@@ -112,6 +113,8 @@ config *.manager.updateInterval 0.1s
 config *.manager.host "\"localhost\""
 config *.manager.port 9999
 config *.manager.autoShutdown true
+config *.manager.shutdownOnIntersectionBatchCleared true
+config *.manager.intersectionDepartureMinMeters 20m
 config *.manager.launchConfig "xmldoc(\"osm.launchd.xml\")"
 config *.manager.trafficLightModuleType "\"org.car2x.veins.nodes.TrafficLight\""
 config *.tls[*].mobility.x 0
@@ -161,7 +164,11 @@ config *.node[*].veinsmobility.setHostSpeed false
 config *.node[0].veinsmobility.accidentCount 0
 config *.node[0].veinsmobility.accidentStart 73s
 config *.node[0].veinsmobility.accidentDuration 50s
-config *.node[*].appl.ambulanceReplicaId 3
+config *.node[*].appl.ambulanceReplicaId 4
+config *.node[7].appl.isByzantine true
+config *.node[7].appl.byzantineType 1
+config *.node[6].appl.isByzantine true
+config *.node[6].appl.byzantineType 1
 
 vector 0 fourWay.tls[0].nic.phy80211p RadioState ETV
 vector 1 fourWay.tls[0].nic.phy80211p RadioChannel ETV

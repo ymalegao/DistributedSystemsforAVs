@@ -16,7 +16,7 @@ import java.util.Set;
  * If any check fails the batch is rejected, which triggers a BFT leader change.
  *
  * For PROPOSE_ALL messages, the following checks are applied:
- *   1. Signature validity       f+1 XXHash32 V2V signatures on the vehicleStates are present and valid
+ *   1. Signature validity       f+1 ECDSA P-256 (SHA256withECDSA) V2V witness signatures on the vehicleStates are present and valid
  *   2. No phantoms              every vehicleId in the schedule appears in the vehicleStates
  *   3. No duplicates            no vehicleId appears in more than one batch
  *   4. Collision safety         every pair within a batch passes ConflictMatrix.isSafeToBatch()
@@ -90,7 +90,8 @@ public class OrderRequestVerifier implements RequestVerifier {
             return false;
         }
 
-        Map<String, List<int[]>> certs = ViewConsensusProtocol.parsePerCarCerts(perCarCertsStr);
+        Map<String, List<ViewConsensusProtocol.EchoSig>> certs =
+                ViewConsensusProtocol.parsePerCarCerts(perCarCertsStr);
         if (!ViewConsensusProtocol.validatePerCarCerts(states, certs)) {
             System.err.println("[VERIFIER] PROPOSE_ALL: per-car cert validation failed");
             return false;

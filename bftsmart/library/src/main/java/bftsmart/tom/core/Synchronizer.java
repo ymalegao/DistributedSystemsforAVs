@@ -947,6 +947,27 @@ public class Synchronizer {
             // Reset alreadyProposed so that requests whose first propose was
             // dropped by a silent Byzantine leader are eligible for re-proposal.
             tom.clientsManager.resetAlreadyProposed();
+
+            // V2V "Dynamic Reconstruction" hook (EP5 truth recovery): if the
+            // application provides one, let it rebuild the pending requests from
+            // current ground truth BEFORE createPropose() reads them. This is
+            // what prevents the new leader from replaying the censored bytes
+            // that triggered the view-change in the first place. No-op when the
+            // hook is null (stock BFT-SMaRt demos) or when the app cannot
+            // produce a fresh proposal (e.g. JNI unavailable).
+            bftsmart.tom.server.ViewChangeRebuildHook rebuildHook = tom.getViewChangeRebuildHook();
+            if (rebuildHook != null) {
+                try {
+                    System.out.println("[VIEW-CHANGE] Invoking ViewChangeRebuildHook for regency=" + regency
+                            + " before createPropose");
+                    rebuildHook.rebuildPendingProposals(tom.clientsManager, regency);
+                } catch (Throwable t) {
+                    logger.error("ViewChangeRebuildHook threw; falling back to replay of pending bytes", t);
+                    System.err.println("[VIEW-CHANGE] ViewChangeRebuildHook failed: " + t.getMessage()
+                            + " — falling back to replay");
+                }
+            }
+
             propose = tom.createPropose(dec);
             batchSize = dec.batchSize;
             
@@ -1020,6 +1041,30 @@ public class Synchronizer {
         int me = this.controller.getStaticConf().getProcessId();
         Consensus cons = null;
         Epoch e = null;
+
+        // V2V "Dynamic Reconstruction" follower-side cleanup: the new leader
+        // has already evicted its stale pending request inside catch_up()
+        // (and injected a fresh one) before this method ran. Followers,
+        // however, reach finalise() via processSYNC() WITHOUT going through
+        // catch_up(), so their RequestsTimer is still watching the deposed
+        // Byzantine leader's censored PROPOSE_ALL. Without this eviction
+        // the timer fires ~T_request later and forces a redundant
+        // leader-change to regency+1 even though consensus on the rebuilt
+        // proposal already succeeded. Calling evictStaleProposals on the
+        // leader is a harmless no-op (its pending list is already empty).
+        bftsmart.tom.server.ViewChangeRebuildHook rebuildHook = tom.getViewChangeRebuildHook();
+        if (rebuildHook != null) {
+            try {
+                System.out.println("[VIEW-CHANGE] Replica " + me
+                        + " invoking evictStaleProposals (iAmLeader=" + iAmLeader
+                        + ", regency=" + regency + ") in finalise");
+                rebuildHook.evictStaleProposals(tom.clientsManager, regency);
+            } catch (Throwable t) {
+                logger.error("evictStaleProposals threw; followers may still trigger a redundant view-change", t);
+                System.err.println("[VIEW-CHANGE] evictStaleProposals failed on replica " + me
+                        + ": " + t.getMessage());
+            }
+        }
 
         if (tom.getLastExec() + 1 < lastHighestCID.getCID()) { // is this a delayed replica?
 

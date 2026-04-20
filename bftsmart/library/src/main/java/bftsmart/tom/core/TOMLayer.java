@@ -114,6 +114,22 @@ public final class TOMLayer extends Thread implements RequestReceiver {
     private final Synchronizer syncher;
 
     /**
+     * Optional hook invoked on the new leader inside {@link Synchronizer} catch-up
+     * between {@code clientsManager.resetAlreadyProposed()} and
+     * {@link #createPropose}. See {@link bftsmart.tom.server.ViewChangeRebuildHook}.
+     * May be {@code null} (default BFT-SMaRt behavior: replay pending bytes).
+     */
+    private volatile bftsmart.tom.server.ViewChangeRebuildHook viewChangeRebuildHook = null;
+
+    public void setViewChangeRebuildHook(bftsmart.tom.server.ViewChangeRebuildHook hook) {
+        this.viewChangeRebuildHook = hook;
+    }
+
+    public bftsmart.tom.server.ViewChangeRebuildHook getViewChangeRebuildHook() {
+        return this.viewChangeRebuildHook;
+    }
+
+    /**
      * Creates a new instance of TOMulticastLayer
      *
      * @param manager Execution manager

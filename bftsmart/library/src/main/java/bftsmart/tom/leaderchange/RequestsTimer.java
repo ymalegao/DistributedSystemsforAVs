@@ -21,11 +21,13 @@ import java.util.ListIterator;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.TreeSet;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.HashMap;
 import java.util.Set;
 
 import bftsmart.communication.ServerCommunicationSystem;
+import bftsmart.communication.V2V.SimulationClock;
 import bftsmart.reconfiguration.ServerViewController;
 import bftsmart.tom.core.TOMLayer;
 import bftsmart.tom.core.messages.TOMMessage;
@@ -51,11 +53,47 @@ public class RequestsTimer {
     private ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
     
     private boolean enabled = true;
-    
+
+    // Maximum jitter (wall-ms) added to every Timer.schedule() call so that the
+    // initial STOP burst and subsequent STOP retransmissions from distinct
+    // replicas de-synchronise. Over 802.11p, a synchronised broadcast by N
+    // replicas at the same sim-instant collides catastrophically; adding
+    // [0, JITTER_WALL_MS) of per-schedule spread turns a thundering herd into
+    // a staggered one and massively improves STOP delivery probability.
+    // Override via `-Dbftsmart.lc_jitter_wall_ms=<N>`.
+    private static final long JITTER_WALL_MS =
+            Long.getLong("bftsmart.lc_jitter_wall_ms", 500L);
+
+    // How often SendStopTask wakes on the wall-clock Timer to check whether a
+    // fresh STOP emission is due. Must be small so we sample sim-time often
+    // enough under heavy load (where sim time runs 5–20× slower than wall
+    // time), but not so small that the poll itself eats CPU.
+    // Override via `-Dbftsmart.stop_retx_wall_ms=<N>`.
+    private static final long STOP_RETX_WALL_MS =
+            Long.getLong("bftsmart.stop_retx_wall_ms", 200L);
+
+    // Minimum SIM-TIME gap between successive STOP emissions from the same
+    // replica for the same regency. Under a Byzantine leader at N=12+, the
+    // simulation runs roughly 10× slower than wall time during LC. A
+    // wall-clock-scheduled re-emit every 1 s would then fire ~10×/sim-s per
+    // replica, which means ~100+ STOP broadcasts/sim-s across the whole view.
+    // That level of 802.11p channel saturation starves the ordered SYNC
+    // retransmissions and makes replicas time out into reg=2 before SYNC
+    // delivers. Gating on sim-time keeps the broadcast rate stable regardless
+    // of sim:wall ratio.
+    // Override via `-Dbftsmart.stop_retx_sim_ms=<N>`.
+    private static final long STOP_RETX_SIM_MS =
+            Long.getLong("bftsmart.stop_retx_sim_ms", 1000L);
+
     private ServerCommunicationSystem communication; // Communication system between replicas
     private ServerViewController controller; // Reconfiguration manager
     
     private HashMap <Integer, Timer> stopTimers = new HashMap<>();
+
+    // Per-regency sim-time of the last actual STOP broadcast. Shared across
+    // the one-shot SendStopTask instances so we throttle by sim-time rather
+    // than firing on every wall-clock wakeup.
+    private final HashMap<Integer, Long> lastStopSimEmitMs = new HashMap<>();
     
     //private Storage st1 = new Storage(100000);
     //private Storage st2 = new Storage(10000);
@@ -76,13 +114,19 @@ public class RequestsTimer {
     public void setShortTimeout(long shortTimeout) {
         this.shortTimeout = shortTimeout;
     }
-    
+
+    /** Non-negative jitter in wall-ms, uniform over [0, JITTER_WALL_MS). */
+    private static long jitter() {
+        if (JITTER_WALL_MS <= 0) return 0L;
+        return ThreadLocalRandom.current().nextLong(JITTER_WALL_MS);
+    }
+
     public void startTimer() {
         if (rtTask == null) {
             long t = (shortTimeout > -1 ? shortTimeout : timeout);
             //shortTimeout = -1;
             rtTask = new RequestTimerTask();
-            if (controller.getCurrentViewN() > 1) timer.schedule(rtTask, t);
+            if (controller.getCurrentViewN() > 1) timer.schedule(rtTask, t + jitter());
         }
     }
     
@@ -144,37 +188,41 @@ public class RequestsTimer {
     }
     
     public void run_lc_protocol() {
-        
+
         long t = (shortTimeout > -1 ? shortTimeout : timeout);
-        
-        //System.out.println("(RequestTimerTask.run) I SOULD NEVER RUN WHEN THERE IS NO TIMEOUT");
+
+        // Compare in SIM TIME. receptionTimestamp was stamped from
+        // SimulationClock in ClientsManager, so this delta is sim-time-correct
+        // even when wall time runs arbitrarily slower than sim time during
+        // heavy BFT rounds (especially under Byzantine leaders).
+        long nowSimMs = SimulationClock.currentTimeMillis();
 
         LinkedList<TOMMessage> pendingRequests = new LinkedList<>();
 
         try {
-        
+
             rwLock.readLock().lock();
-        
+
             for (Iterator<TOMMessage> i = watched.iterator(); i.hasNext();) {
                 TOMMessage request = i.next();
-                if ((System.currentTimeMillis() - request.receptionTimestamp ) > t) {
+                if ((nowSimMs - request.receptionTimestamp) > t) {
                     pendingRequests.add(request);
                 }
             }
-            
+
         } finally {
-            
+
             rwLock.readLock().unlock();
         }
-        
+
         if (!pendingRequests.isEmpty()) {
-            
+
             logger.info("The following requests timed out: " + pendingRequests);
-            
+
             for (ListIterator<TOMMessage> li = pendingRequests.listIterator(); li.hasNext(); ) {
                 TOMMessage request = li.next();
                 if (!request.timeout) {
-                    
+
                     logger.info("Forwarding requests {} to leader", request);
 
                     request.signed = request.serializedMessageSignature != null;
@@ -186,37 +234,50 @@ public class RequestsTimer {
 
             if (!pendingRequests.isEmpty()) {
                 logger.info("Attempting to start leader change for requests {}", pendingRequests);
-                //Logger.debug = true;
-                //tomLayer.requestTimeout(pendingRequests);
-                //if (reconfManager.getStaticConf().getProcessId() == 4) Logger.debug = true;
                 tomLayer.getSynchronizer().triggerTimeout(pendingRequests);
             }
             else {
                 rtTask = new RequestTimerTask();
-                timer.schedule(rtTask, t);
+                timer.schedule(rtTask, t + jitter());
             }
         } else {
-            
+
             logger.debug("Timeout triggered with no expired requests");
-            
+
             rtTask = new RequestTimerTask();
-            timer.schedule(rtTask, t);
+            timer.schedule(rtTask, t + jitter());
         }
-        
+
     }
     
     public void setSTOP(int regency, LCMessage stop) {
-        
+
         stopSTOP(regency);
-        
+
         SendStopTask stopTask = new SendStopTask(stop);
         Timer stopTimer = new Timer("Stop message");
-        
-        stopTimer.schedule(stopTask, timeout);
-        
-       stopTimers.put(regency, stopTimer);
 
-    }   
+        // Wall-clock schedule so the Timer fires often enough to sample
+        // sim-time; the actual emission cadence is gated on SIM time inside
+        // SendStopTask.run().
+        stopTimer.schedule(stopTask, STOP_RETX_WALL_MS + jitter());
+
+        stopTimers.put(regency, stopTimer);
+    }
+
+    /**
+     * Reschedule the STOP wakeup for the given regency. Creates a fresh
+     * {@link SendStopTask} each time (Java's {@link TimerTask} is single-use)
+     * while preserving the sim-time emission state via
+     * {@link #lastStopSimEmitMs}.
+     */
+    private void rescheduleSTOP(int regency, LCMessage stop) {
+        stopSTOP(regency);
+        SendStopTask stopTask = new SendStopTask(stop);
+        Timer stopTimer = new Timer("Stop message");
+        stopTimer.schedule(stopTask, STOP_RETX_WALL_MS + jitter());
+        stopTimers.put(regency, stopTimer);
+    }
     
     public void stopAllSTOPs() {
         Iterator stops = getTimers().iterator();
@@ -226,9 +287,13 @@ public class RequestsTimer {
     }
     
     public void stopSTOP(int regency){
-        
+
         Timer stopTimer = stopTimers.remove(regency);
         if (stopTimer != null) stopTimer.cancel();
+        // Note: we intentionally preserve lastStopSimEmitMs[regency] across
+        // intra-regency restarts (rescheduleSTOP calls stopSTOP + setSTOP on
+        // every wakeup) so the sim-time throttle holds. Entries for fully
+        // installed regencies do leak — negligible: one long per regency.
 
     }
     
@@ -263,25 +328,35 @@ public class RequestsTimer {
     }
     
     class SendStopTask extends TimerTask {
-        
+
         private LCMessage stop;
-        
+
         public SendStopTask(LCMessage stop) {
             this.stop = stop;
         }
 
         @Override
         /**
-         * This is the code for the TimerTask. It sends a STOP
-         * message to the other replicas
+         * Wakes on the wall-clock {@link Timer} every STOP_RETX_WALL_MS.
+         * Gates the actual broadcast on SIM-TIME elapsed since last emission
+         * (tracked per-regency in {@link #lastStopSimEmitMs}) so channel
+         * pressure stays bounded regardless of the wall:sim ratio. Always
+         * reschedules a successor task; the chain is cancelled when the
+         * regency is installed via {@link #stopSTOP(int)}.
          */
         public void run() {
-
-                logger.info("Re-transmitting STOP message to install regency " + stop.getReg());
-                communication.send(controller.getCurrentViewOtherAcceptors(),this.stop);
-
-                setSTOP(stop.getReg(), stop); //repeat
+            int reg = stop.getReg();
+            long nowSimMs = SimulationClock.currentTimeMillis();
+            long lastSim = lastStopSimEmitMs.getOrDefault(reg, Long.MIN_VALUE / 2);
+            long sinceSim = nowSimMs - lastSim;
+            if (sinceSim >= STOP_RETX_SIM_MS) {
+                logger.info("Re-transmitting STOP message to install regency "
+                        + reg + " (sim-gap=" + sinceSim + "ms)");
+                communication.send(controller.getCurrentViewOtherAcceptors(), this.stop);
+                lastStopSimEmitMs.put(reg, nowSimMs);
+            }
+            rescheduleSTOP(reg, this.stop);
         }
-        
+
     }
 }

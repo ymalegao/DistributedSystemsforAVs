@@ -132,6 +132,15 @@ task setupIntegrationTestingEnvironment(dependsOn: installDist) {
 	}
 }
 
+// Exercises the pure-Java half of the EP5 view-change rebuild hook
+// (IntersectionServer.buildFreshProposeAllBytes). No JNI, no OMNeT++, no BFT replica.
+task runReconstructionCheckSelfTest(type: JavaExec) {
+	description = 'Runs ReconstructionCheckSelfTest for the EP5 Dynamic Reconstruction primitive'
+	group = 'verification'
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = 'bftsmart.demo.intersection.ReconstructionCheckSelfTest'
+}
+
 task runIntegrationTest(type: JavaExec, dependsOn: installDist) {
 	int f = 1
 	int nWorkers = 3 * f + 2;

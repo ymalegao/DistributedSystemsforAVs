@@ -18,7 +18,9 @@
 
 using namespace veins;
 
-int32_t computeXXHash32(const std::string& str);
+// XXHash32 has been replaced by ECDSA P-256 (CryptoAuth) for all signing use
+// cases in this file (witness echoes + self-signed arrival claims), per the
+// IEEE 1609.2 / ETSI TS 103 097 V2X security profile.
 static std::map<int, std::map<int, double>> resetToViewEndByEpochAndReplica;
 static std::set<int> printedResetToViewEndAvgEpochs;
 
@@ -94,14 +96,29 @@ V2VProxyModule::VerificationResult V2VProxyModule::verifyCarPosition(const std::
 // If leaderId is empty, there is no vehicle ahead within that distance -> car is at front of lane.
 
 std::vector<uint8_t> V2VProxyModule::signArrivalClaim(const ArrivalAnnouncement& announcement) {
+    // ECDSA P-256 self-signed claim (replaces legacy XXHash32 MAC). Aligns with the
+    // IEEE 1609.2 / ETSI TS 103 097 V2X security profile already used by the
+    // ambulance Emergency_CA cert path.
     std::string data = announcement.carId + ":" + announcement.laneId + ":" +
                        std::to_string(announcement.positionInLane) + ":" +
                        std::to_string(announcement.claimedArrivalTime) + ":" +
                        std::to_string(announcement.epoch);
-    int32_t hash = computeXXHash32(data);
-    std::vector<uint8_t> sig(sizeof(int32_t));
-    std::memcpy(sig.data(), &hash, sizeof(int32_t));
-    return sig;
+    if (!replicaPrivateKey) {
+        std::cerr << "[CRYPTO] Replica " << replicaId
+                  << " signArrivalClaim called before replica keypair was initialized" << "\n";
+        return {};
+    }
+    EVP_PKEY* pk = static_cast<EVP_PKEY*>(replicaPrivateKey);
+    uint8_t sigOut[CRYPTO_SIG_MAX_BYTES];
+    uint8_t sigLen = 0;
+    if (!CryptoAuth::instance().signBytes(pk,
+            reinterpret_cast<const uint8_t*>(data.c_str()), data.size(),
+            sigOut, sigLen)) {
+        std::cerr << "[CRYPTO] Replica " << replicaId
+                  << " signArrivalClaim: ECDSA sign failed" << "\n";
+        return {};
+    }
+    return std::vector<uint8_t>(sigOut, sigOut + sigLen);
 }
 
 void V2VProxyModule::attachAmbulanceCryptoToAnnouncement(ArrivalAnnouncement& ann)
@@ -474,8 +491,10 @@ void V2VProxyModule::handleArrivalAnnouncement(BFTMessage* bftMsg) {
 // ============================================================================
 
 // Wire format for ARRIVAL_ECHO (all text, pipe-delimited):
-//   echoingReplicaId|targetCarId|lane|positionInLane|direction|isAmbulance|epoch|signatureHashDecimal
+//   echoingReplicaId|targetCarId|lane|positionInLane|direction|isAmbulance|epoch|signerPubKeyHex,sigHex
 std::vector<uint8_t> V2VProxyModule::serializeArrivalEcho(const ArrivalEcho& echo) {
+    std::vector<uint8_t> pubVec(echo.signerPubKey, echo.signerPubKey + CRYPTO_PUBKEY_BYTES);
+    std::vector<uint8_t> sigVec(echo.signature, echo.signature + echo.signatureLen);
     std::stringstream ss;
     ss << echo.echoingReplicaId << "|"
        << echo.targetCarId     << "|"
@@ -484,7 +503,7 @@ std::vector<uint8_t> V2VProxyModule::serializeArrivalEcho(const ArrivalEcho& ech
        << dirToStr(echo.direction) << "|"
        << (echo.isAmbulance ? "1" : "0") << "|"
        << echo.epoch           << "|"
-       << echo.signatureHash;
+       << toHex(pubVec) << "," << toHex(sigVec);
     std::string s = ss.str();
     return std::vector<uint8_t>(s.begin(), s.end());
 }
@@ -495,6 +514,9 @@ V2VProxyModule::ArrivalEcho V2VProxyModule::deserializeArrivalEcho(BFTMessage* b
     std::string s(payload.begin(), payload.end());
     std::vector<std::string> parts = split(s, '|');
     ArrivalEcho echo;
+    std::memset(echo.signerPubKey, 0, CRYPTO_PUBKEY_BYTES);
+    std::memset(echo.signature, 0, CRYPTO_SIG_MAX_BYTES);
+    echo.signatureLen = 0;
     if (parts.size() >= 8) {
         echo.echoingReplicaId = std::stoi(parts[0]);
         echo.targetCarId      = parts[1];
@@ -503,13 +525,27 @@ V2VProxyModule::ArrivalEcho V2VProxyModule::deserializeArrivalEcho(BFTMessage* b
         echo.direction        = strToDir(parts[4]);
         echo.isAmbulance      = (parts[5] == "1");
         echo.epoch            = std::stoi(parts[6]);
-        echo.signatureHash    = (int32_t)std::stol(parts[7]);
+        // parts[7] = "<pubKeyHex>,<sigHex>"
+        const std::string& sigField = parts[7];
+        size_t comma = sigField.find(',');
+        if (comma != std::string::npos) {
+            std::vector<uint8_t> pubVec = fromHex(sigField.substr(0, comma));
+            std::vector<uint8_t> sigVec = fromHex(sigField.substr(comma + 1));
+            if (pubVec.size() == CRYPTO_PUBKEY_BYTES) {
+                std::memcpy(echo.signerPubKey, pubVec.data(), CRYPTO_PUBKEY_BYTES);
+            }
+            if (sigVec.size() <= CRYPTO_SIG_MAX_BYTES) {
+                std::memcpy(echo.signature, sigVec.data(), sigVec.size());
+                echo.signatureLen = static_cast<uint8_t>(sigVec.size());
+            }
+        }
     }
     return echo;
 }
 
 // Wire format for ARRIVAL_CERT (all text, pipe-delimited):
-//   carId|lane|positionInLane|direction|isAmbulance|epoch|replicaId1:hash1|replicaId2:hash2|...
+//   carId|lane|positionInLane|direction|isAmbulance|epoch
+//        |replicaId1:pubKeyHex1,sigHex1|replicaId2:pubKeyHex2,sigHex2|...
 std::vector<uint8_t> V2VProxyModule::serializeArrivalCert(const ArrivalCert& cert) {
     std::stringstream ss;
     ss << cert.carId           << "|"
@@ -519,7 +555,10 @@ std::vector<uint8_t> V2VProxyModule::serializeArrivalCert(const ArrivalCert& cer
        << (cert.isAmbulance ? "1" : "0") << "|"
        << cert.epoch;
     for (const auto& echo : cert.echoes) {
-        ss << "|" << echo.echoingReplicaId << ":" << echo.signatureHash;
+        std::vector<uint8_t> pubVec(echo.signerPubKey, echo.signerPubKey + CRYPTO_PUBKEY_BYTES);
+        std::vector<uint8_t> sigVec(echo.signature, echo.signature + echo.signatureLen);
+        ss << "|" << echo.echoingReplicaId << ":"
+           << toHex(pubVec) << "," << toHex(sigVec);
     }
     std::string s = ss.str();
     return std::vector<uint8_t>(s.begin(), s.end());
@@ -542,8 +581,24 @@ V2VProxyModule::ArrivalCert V2VProxyModule::deserializeArrivalCert(BFTMessage* b
         size_t colon = parts[i].find(':');
         if (colon == std::string::npos) continue;
         ArrivalEcho echo;
+        std::memset(echo.signerPubKey, 0, CRYPTO_PUBKEY_BYTES);
+        std::memset(echo.signature, 0, CRYPTO_SIG_MAX_BYTES);
+        echo.signatureLen = 0;
         echo.echoingReplicaId = std::stoi(parts[i].substr(0, colon));
-        echo.signatureHash    = (int32_t)std::stol(parts[i].substr(colon + 1));
+        // Right side of ':' is "<pubKeyHex>,<sigHex>"
+        std::string sigField = parts[i].substr(colon + 1);
+        size_t comma = sigField.find(',');
+        if (comma != std::string::npos) {
+            std::vector<uint8_t> pubVec = fromHex(sigField.substr(0, comma));
+            std::vector<uint8_t> sigVec = fromHex(sigField.substr(comma + 1));
+            if (pubVec.size() == CRYPTO_PUBKEY_BYTES) {
+                std::memcpy(echo.signerPubKey, pubVec.data(), CRYPTO_PUBKEY_BYTES);
+            }
+            if (sigVec.size() <= CRYPTO_SIG_MAX_BYTES) {
+                std::memcpy(echo.signature, sigVec.data(), sigVec.size());
+                echo.signatureLen = static_cast<uint8_t>(sigVec.size());
+            }
+        }
         echo.targetCarId      = cert.carId;
         echo.lane             = cert.lane;
         echo.positionInLane   = cert.positionInLane;
@@ -725,13 +780,14 @@ void V2VProxyModule::sendArrivalEcho(const ArrivalAnnouncement& ann) {
     if (zombieFilter()) return;
     std::string myCarId = "veh" + std::to_string(replicaId);
 
-    // Compute signature: XXHash32(targetCarId:lane:pos:dir:isAmb:echoingReplicaId)
+    // ECDSA P-256 sign over UTF-8(targetCarId:lane:pos:dir:isAmb:echoingReplicaId).
+    // Embed the signer's uncompressed pubkey so any peer (C++ or Java) can verify
+    // self-containedly (IEEE 1609.2 V2X model).
     std::string toSign = ann.carId + ":" + ann.lane + ":"
         + std::to_string(ann.positionInLane) + ":"
         + (ann.direction == DIR_LEFT ? "L" : ann.direction == DIR_RIGHT ? "R" : "S")
         + ":" + (ann.isAmbulance ? "1" : "0")
         + ":" + std::to_string(replicaId);
-    int32_t hashVal = computeXXHash32(toSign);
 
     ArrivalEcho echo;
     echo.echoingReplicaId = replicaId;
@@ -741,13 +797,29 @@ void V2VProxyModule::sendArrivalEcho(const ArrivalAnnouncement& ann) {
     echo.direction        = ann.direction;
     echo.isAmbulance      = ann.isAmbulance;
     echo.epoch            = ann.epoch;
-    echo.signatureHash    = hashVal;
+    std::memcpy(echo.signerPubKey, myReplicaPubKey, CRYPTO_PUBKEY_BYTES);
+    std::memset(echo.signature, 0, CRYPTO_SIG_MAX_BYTES);
+    echo.signatureLen = 0;
+
+    if (!replicaPrivateKey) {
+        std::cerr << "[ECHO-SEND] Replica " << replicaId
+                  << " has no replica keypair; aborting echo for " << ann.carId << "\n";
+        return;
+    }
+    EVP_PKEY* pk = static_cast<EVP_PKEY*>(replicaPrivateKey);
+    if (!CryptoAuth::instance().signBytes(pk,
+            reinterpret_cast<const uint8_t*>(toSign.c_str()), toSign.size(),
+            echo.signature, echo.signatureLen)) {
+        std::cerr << "[ECHO-SEND] Replica " << replicaId
+                  << " ECDSA signBytes failed for echo of " << ann.carId << "\n";
+        return;
+    }
 
     std::vector<uint8_t> payload = serializeArrivalEcho(echo);
     int targetReplicaId = extractReplicaIdFromCarId(ann.carId);
     sendBFTMessage(replicaId, targetReplicaId, payload, 4);  // msgType=4 ARRIVAL_ECHO (unicast)
-    std::cout << "[ECHO-SEND] Replica " << replicaId << " → " << ann.carId
-              << " ARRIVAL_ECHO hash=" << hashVal << "\n";
+    std::cout << "[ECHO-SEND] Replica " << replicaId << " -> " << ann.carId
+              << " ARRIVAL_ECHO ECDSA sigLen=" << (int)echo.signatureLen << "\n";
 }
 
 void V2VProxyModule::handleArrivalEcho(BFTMessage* bftMsg) {
@@ -863,7 +935,8 @@ bool V2VProxyModule::validateArrivalCert(const ArrivalCert& cert) {
     int validCount = 0;
     for (const auto& echo : cert.echoes) {
         if (!seenEchoers.insert(echo.echoingReplicaId).second) continue;  // dedup
-        // Recompute expected signature
+        if (echo.signatureLen == 0) continue;  // missing/short-circuit signature
+        // Verify ECDSA P-256 signature using the signer's embedded pubkey.
         std::string dirStr = (cert.direction == DIR_LEFT ? "L" :
                               cert.direction == DIR_RIGHT ? "R" : "S");
         std::string toSign = cert.carId + ":" + cert.lane + ":"
@@ -871,8 +944,11 @@ bool V2VProxyModule::validateArrivalCert(const ArrivalCert& cert) {
             + dirStr + ":"
             + (cert.isAmbulance ? "1" : "0") + ":"
             + std::to_string(echo.echoingReplicaId);
-        int32_t expected = computeXXHash32(toSign);
-        if (expected == echo.signatureHash) validCount++;
+        bool ok = CryptoAuth::instance().verifyBytes(
+            echo.signerPubKey,
+            reinterpret_cast<const uint8_t*>(toSign.c_str()), toSign.size(),
+            echo.signature, echo.signatureLen);
+        if (ok) validCount++;
     }
 
     if (validCount < required) {
@@ -911,23 +987,17 @@ std::set<std::string> V2VProxyModule::getCertSnapshotKeys() const {
     return keys;
 }
 
-void V2VProxyModule::submitViewToBFTConsensus() {
-    viewConsensusStartTime = simTime();
-    proposeAllSubmitTime = simTime();
-    realViewConsensusStart = std::chrono::high_resolution_clock::now();
-    std::cout << "[V2VProxy " << replicaId << "] Submitting PROPOSE_ALL to BFT-SMaRt (per-car cert protocol)...\n";
-    std::cout << "[METRICS " << replicaId << "] ProposeAll_Submit_Time: " << proposeAllSubmitTime << "\n";
-
-    // Wire format: "PROPOSE_ALL:<proposerId>:<vehicleStatesStr>:<perCarCerts>"
-    // vehicleStatesStr: "veh0|N|1|S|0|SIGNED;veh1|S|1|L|0|QUIET;..."
-    // perCarCerts:      "veh0~r1,hash1|r2,hash2;veh1~r0,hash0|r1,hash1"
-    //   (carId ~ signerReplicaId,xxhashDecimal | ... ; nextCar ...)
-    // Java leader appends the computed schedule before invoking ordered consensus.
-
-    // Build vehicleStatesStr: SIGNED = has valid cert, QUIET = no cert
+// Factored out of submitViewToBFTConsensus(): builds the "<vsStr>:<perCarCerts>"
+// half of the PROPOSE_ALL wire format from the CURRENT collectedCerts snapshot.
+// The Java layer tacks on the "PROPOSE_ALL:<proposerId>:" prefix and the
+// trailing ":<orderBagStr>" (from OrderScheduler.buildProposal) itself.
+std::string V2VProxyModule::buildFreshProposePayload() const {
     std::string vsStr = buildVehicleStatesStr(&collectedCerts);
 
-    // Build per-car certs string (only SIGNED cars have certs)
+    // Per-car cert string: "carId~r1,pubKeyHex1,sigHex1|r2,pubKeyHex2,sigHex2;..."
+    // Each echo carries the signer's uncompressed P-256 pubkey + DER ECDSA sig
+    // so the Java leader (and any verifying replica) can self-containedly verify
+    // SHA256withECDSA(carId:lane:pos:dir:isAmb:replicaId).
     std::string perCarCertsStr;
     bool firstCar = true;
     for (const auto& kv : collectedCerts) {
@@ -938,14 +1008,35 @@ void V2VProxyModule::submitViewToBFTConsensus() {
         for (const auto& echo : kv.second.echoes) {
             if (!firstSig) perCarCertsStr += "|";
             firstSig = false;
+            std::vector<uint8_t> pubVec(echo.signerPubKey,
+                                        echo.signerPubKey + CRYPTO_PUBKEY_BYTES);
+            std::vector<uint8_t> sigVec(echo.signature,
+                                        echo.signature + echo.signatureLen);
             perCarCertsStr += std::to_string(echo.echoingReplicaId)
-                            + "," + std::to_string(echo.signatureHash);
+                            + "," + toHex(pubVec)
+                            + "," + toHex(sigVec);
         }
     }
 
+    return vsStr + ":" + perCarCertsStr;
+}
+
+void V2VProxyModule::submitViewToBFTConsensus() {
+    viewConsensusStartTime = simTime();
+    proposeAllSubmitTime = simTime();
+    realViewConsensusStart = std::chrono::high_resolution_clock::now();
+    std::cout << "[V2VProxy " << replicaId << "] Submitting PROPOSE_ALL to BFT-SMaRt (per-car cert protocol)...\n";
+    std::cout << "[METRICS " << replicaId << "] ProposeAll_Submit_Time: " << proposeAllSubmitTime << "\n";
+
+    // Wire format: "PROPOSE_ALL:<proposerId>:<vehicleStatesStr>:<perCarCerts>"
+    // vehicleStatesStr: "veh0|N|1|S|0|SIGNED;veh1|S|1|L|0|QUIET;..."
+    // perCarCerts:      "veh0~r1,pubKeyHex1,sigHex1|r2,pubKeyHex2,sigHex2;veh1~..."
+    //   (carId ~ signerReplicaId,uncompressedP256PubKeyHex,DERECDSASigHex | ... ; nextCar ...)
+    // Java leader verifies SHA256withECDSA over (carId:lane:pos:dir:isAmb:replicaId)
+    // for every echo, then appends the schedule before invoking ordered consensus.
+
     std::string request = "PROPOSE_ALL:" + std::to_string(replicaId)
-                        + ":" + vsStr
-                        + ":" + perCarCertsStr;
+                        + ":" + buildFreshProposePayload();
 
     std::cout << "[V2VProxy " << replicaId << "] BFT PROPOSE_ALL: " << request << "\n";
 

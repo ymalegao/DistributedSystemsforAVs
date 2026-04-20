@@ -1,17 +1,17 @@
                                                                 
 version 3
-run TwelveVehiclesAmbulanceBFT-0-20260414-00:46:41-520212
+run TwelveVehiclesAmbulanceBFT-0-20260420-15:50:32-70749
 attr configname TwelveVehiclesAmbulanceBFT
-attr datetime 20260414-00:46:41
-attr datetimef 20260414-004641
+attr datetime 20260420-15:50:32
+attr datetimef 20260420-155032
 attr experiment TwelveVehiclesAmbulanceBFT
-attr inifile omnetpp.ini
+attr inifile /Users/yashmalegaonkar/Documents/v2v/fourway/random_scenario.ini
 attr iterationvars ""
 attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network fourWay
-attr processid 520212
+attr processid 70749
 attr repetition 0
 attr replication #0
 attr resultdir results
@@ -19,7 +19,8 @@ attr runnumber 0
 attr seedset 0
 config extends TwelveVehiclesBFTOverV2V
 config description "12 vehicles; veh11 auto-issues Emergency_CA cert (ambulanceReplicaId matches SUMO veh id, not node index)"
-config *.node[*].appl.ambulanceReplicaId 11
+config *.manager.intersectionBatchSize 12
+config *.node[*].appl.stopSignTimeoutSec 25s
 config extends BFTOverV2V
 config description "BFT test on 12-vehicle routes"
 config *.manager.launchConfig "xmldoc(\"bft_12veh.launchd.xml\")"
@@ -27,6 +28,7 @@ config *.node[*].appl.intersectionX 300m
 config *.node[*].appl.intersectionY 300m
 config *.node[*].appl.stopDistance 200m
 config *.node[*].appl.consensusTimeoutSec 100s
+config *.manager.intersectionBatchSize 12
 config extends WithChannelSwitching
 config *.node[*].applType "\"org.car2x.veins.modules.bftsmart.V2VProxyModule\""
 config *.node[0].appl.replicaId 0
@@ -106,6 +108,8 @@ config *.manager.updateInterval 0.1s
 config *.manager.host "\"localhost\""
 config *.manager.port 9999
 config *.manager.autoShutdown true
+config *.manager.shutdownOnIntersectionBatchCleared true
+config *.manager.intersectionDepartureMinMeters 20m
 config *.manager.launchConfig "xmldoc(\"osm.launchd.xml\")"
 config *.manager.trafficLightModuleType "\"org.car2x.veins.nodes.TrafficLight\""
 config *.tls[*].mobility.x 0
@@ -155,6 +159,13 @@ config *.node[*].veinsmobility.setHostSpeed false
 config *.node[0].veinsmobility.accidentCount 0
 config *.node[0].veinsmobility.accidentStart 73s
 config *.node[0].veinsmobility.accidentDuration 50s
+config *.node[*].appl.ambulanceReplicaId 5
+config *.node[0].appl.isByzantine true
+config *.node[0].appl.byzantineType 1
+config *.node[9].appl.isByzantine true
+config *.node[9].appl.byzantineType 1
+config *.node[10].appl.isByzantine true
+config *.node[10].appl.byzantineType 1
 
 vector 0 fourWay.tls[0].nic.phy80211p RadioState ETV
 vector 1 fourWay.tls[0].nic.phy80211p RadioChannel ETV
