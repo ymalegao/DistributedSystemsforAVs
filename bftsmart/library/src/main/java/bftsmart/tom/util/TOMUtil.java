@@ -61,6 +61,13 @@ public class TOMUtil {
 
     public static final int TRIGGER_LC_LOCALLY = 8;
     public static final int TRIGGER_SM_LOCALLY = 9;
+
+    // Transport-only LC helper: a replica that has not yet heard STOPs from a
+    // 2f+1 set broadcasts a compact bitmask of acceptor IDs it is missing.
+    // Honest receivers whose bit is set re-emit their own STOP (unicast-back
+    // in bookkeeping, still PHY-broadcast). Never enters LCManager.addStop —
+    // carries no cryptographic payload and is dropped in MessageHandler.
+    public static final int STOP_NACK = 10;
     
     private static boolean init = false;
         

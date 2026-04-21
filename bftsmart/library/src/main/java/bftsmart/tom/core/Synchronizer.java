@@ -37,6 +37,9 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
+import java.util.Timer;
+import java.util.TimerTask;
+import bftsmart.communication.V2V.SimulationClock;
 
 import org.apache.commons.codec.binary.Base64;
 
@@ -125,6 +128,28 @@ public class Synchronizer {
 
 	// still not in the leader change phase?
         if (lcManager.getNextReg() == lcManager.getLastReg()) {
+
+            // Single choke point for LC escalation. Both RequestsTimer.run_lc_protocol
+            // (honest wall-clock retry after a client-request timeout) and
+            // Acceptor.acceptReceived's null-propose branch funnel here. The
+            // Acceptor path in particular bypasses any debounce in RequestsTimer —
+            // and re-opens the moment startSynchronization() flips
+            // requestsTimer.Enabled(true) at Phase 2 install (line ~544), which
+            // happens BEFORE SYNC for reg=r propagates. Without this guard,
+            // replicas that crossed Phase 2 locally escalated to reg=r+1 within
+            // a sim-second of installing reg=r, splitting the cluster's STOP
+            // senders across two regencies and permanently starving the new
+            // leader of the 2f+1 STOPs it still needs for reg=r. See
+            // LC_INVESTIGATION.md, "Stage 2, round 3" for the full evidence.
+            if (!requestsTimer.tryClaimLCEpoch()) {
+                logger.info("triggerTimeout: escalation to regency "
+                        + (lcManager.getLastReg() + 1)
+                        + " suppressed (LC epoch for regency " + regency
+                        + " still in flight)");
+                processOutOfContextSTOPs(regency);
+                startSynchronization(regency);
+                return;
+            }
 
             lcManager.setNextReg(lcManager.getLastReg() + 1); // define next timestamp
 
@@ -442,7 +467,10 @@ public class Synchronizer {
         Set<Integer> timers = requestsTimer.getTimers();
 
         for (int t : timers) {
-            if (t <= regency) requestsTimer.stopSTOP(t);
+            if (t <= regency) {
+                requestsTimer.stopSTOP(t);
+                requestsTimer.dropRegencyState(t);
+            }
         }
 
     }
@@ -462,6 +490,23 @@ public class Synchronizer {
         // Ask to start the synchronizations phase if enough messages have been received already
         if (condition && lcManager.getNextReg() == lcManager.getLastReg()) {
             
+            // Same escalation-choke-point guard as Synchronizer.triggerTimeout.
+            // When we enter this branch because f+1 STOPs for some regency
+            // arrived from peers, we're initiating LC locally — which counts
+            // as an LC-epoch claim for the escalation debounce. Without the
+            // claim here, a subsequent Acceptor null-propose on the same
+            // replica would see lcEpochInFlight == false and happily
+            // advance nextReg to r+1 as soon as Phase 2 installs. See
+            // triggerTimeout() for the full rationale and LC_INVESTIGATION.md
+            // "Stage 2, round 3".
+            if (!requestsTimer.tryClaimLCEpoch()) {
+                logger.info("startSynchronization: escalation to regency "
+                        + (lcManager.getLastReg() + 1)
+                        + " suppressed (LC epoch for regency " + nextReg
+                        + " still in flight)");
+                return;
+            }
+
             logger.debug("Initialize synch phase");
             requestsTimer.Enabled(false);
             requestsTimer.stopTimer();
@@ -668,8 +713,45 @@ public class Synchronizer {
 
                     logger.info("Sending STOPDATA of regency " + regency);
                     // send message SYNC to the new leader
-                    communication.send(b,
-                            new LCMessage(this.controller.getStaticConf().getProcessId(), TOMUtil.STOPDATA, regency, payload));
+                    final LCMessage stopdataMsg = new LCMessage(
+                            this.controller.getStaticConf().getProcessId(), TOMUtil.STOPDATA, regency, payload);
+                    communication.send(b, stopdataMsg);
+
+                    // Retransmit STOPDATA at 200ms sim cadence until SYNC is installed.
+                    // STOPDATA is a unicast to the leader; a single lost frame means the
+                    // leader never calls catch_up, so we keep resending until lastReg > regency.
+                    final int retxRegency = regency;
+                    final int[] retxDest = b;
+                    final long retxSimMs = 200L;
+                    final long retxWallMs = 200L;
+                    // byzantineQuorum mirrors the processSTOPDATA check: (N+f)/2.
+                    final int retxByzQuorum =
+                            (controller.getCurrentViewN() + controller.getCurrentViewF()) / 2;
+                    final Timer stopdataRetxTimer = new Timer("STOPDATA-retx-" + regency);
+                    stopdataRetxTimer.schedule(new TimerTask() {
+                        private long lastEmitSimMs = SimulationClock.currentTimeMillis();
+                        @Override public void run() {
+                            // Stop when a later regency is installed (escalation)
+                            // or when this leader already has a Byzantine quorum
+                            // of STOPDATAs (catch_up will fire soon / has fired).
+                            // Without the quorum check the timer fires indefinitely
+                            // after a successful LC (lastReg stays at retxRegency=1),
+                            // causing processSTOPDATA to call catch_up repeatedly.
+                            boolean escalated = lcManager.getLastReg() > retxRegency;
+                            boolean quorumReached =
+                                    lcManager.getLastCIDsSize(retxRegency) > retxByzQuorum;
+                            if (escalated || quorumReached) {
+                                stopdataRetxTimer.cancel();
+                                return;
+                            }
+                            long nowSimMs = SimulationClock.currentTimeMillis();
+                            if (nowSimMs - lastEmitSimMs >= retxSimMs) {
+                                logger.info("Re-transmitting STOPDATA of regency " + retxRegency);
+                                communication.send(retxDest, stopdataMsg);
+                                lastEmitSimMs = nowSimMs;
+                            }
+                        }
+                    }, retxWallMs, retxWallMs);
 
 		//TODO: Turn on timeout again?
                 } catch (IOException ex) {

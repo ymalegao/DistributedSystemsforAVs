@@ -34,6 +34,12 @@ public class LCMessage extends SystemMessage {
     public final boolean TRIGGER_LC_LOCALLY; // indicates that the replica should
                                              // initiate the LC protocol locally
 
+    // Used ONLY when type == TOMUtil.STOP_NACK. Bit i set means: "sender has
+    // not heard a STOP from acceptor i for this regency; please re-emit".
+    // Carried on the wire as a plain int (supports up to N=32; switch to long
+    // or BitSet if cluster size grows). Default 0 for all other LC types.
+    public int missingNodesMask = 0;
+
     /**
      * Empty constructor
      */
@@ -90,6 +96,7 @@ public class LCMessage extends SystemMessage {
         out.writeInt(type);
         out.writeInt(ts);
         out.writeObject(payload);
+        out.writeInt(missingNodesMask);
     }
 
     @Override
@@ -99,5 +106,12 @@ public class LCMessage extends SystemMessage {
         type = in.readInt();
         ts = in.readInt();
         payload = (byte[]) in.readObject();
+        // Legacy peers that don't write missingNodesMask would EOF here; we
+        // treat any read failure as mask=0 so mixed-version decode stays safe.
+        try {
+            missingNodesMask = in.readInt();
+        } catch (IOException e) {
+            missingNodesMask = 0;
+        }
     }
 }

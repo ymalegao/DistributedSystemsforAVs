@@ -22,6 +22,7 @@ import java.security.MessageDigest;
 import java.security.PublicKey;
 import java.security.SignedObject;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -250,6 +251,17 @@ public class LCManager {
     public int getStopsSize(int regency) {
         HashSet<Integer> pids = stops.get(regency);
         return pids == null ? 0 : pids.size();
+    }
+
+    /**
+     * Read-only view of the set of acceptor pids whose STOP for the given
+     * regency has been recorded via {@link #addStop(int, int)}. Used by the
+     * transport-layer STOP_NACK path in RequestsTimer to build a bitmask of
+     * acceptors we have NOT yet heard from. Never modifies state.
+     */
+    public Set<Integer> getStopSenders(int regency) {
+        HashSet<Integer> pids = stops.get(regency);
+        return pids == null ? Collections.emptySet() : Collections.unmodifiableSet(pids);
     }
 
     /**

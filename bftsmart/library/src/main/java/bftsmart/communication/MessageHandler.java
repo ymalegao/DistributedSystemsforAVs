@@ -93,6 +93,9 @@ public class MessageHandler {
 					case TOMUtil.SYNC:
 						type = "SYNC";
 						break;
+					case TOMUtil.STOP_NACK:
+						type = "STOP_NACK";
+						break;
 					default:
 						type = "LOCAL";
 						break;
@@ -111,6 +114,29 @@ public class MessageHandler {
 						logger.debug("Received leader change message from myself");
 					}
 					
+					// Transport-layer bookkeeping: record every delivered STOP in
+					// RequestsTimer's heardByRegency set so the NACK mask stays
+					// accurate even after Synchronizer.startSynchronization wipes
+					// LCManager.stops when it transitions to Phase 2.
+					if (lcMsg.getType() == TOMUtil.STOP
+							&& lcMsg.getSender() != -1 && lcMsg.getReg() != -1) {
+						tomLayer.requestsTimer.recordHeardStop(lcMsg.getReg(), lcMsg.getSender());
+					}
+
+					// STOP_NACK is a pure transport-layer helper: it MUST NOT reach
+					// the Synchronizer, which would otherwise try to interpret it
+					// as a STOP-family control message and (worse) admit it into
+					// LCManager's 2f+1 counting. Safety of the LC quorum is
+					// preserved because only real, authenticated STOPs take the
+					// deliverTimeoutRequest path below.
+					if (lcMsg.getType() == TOMUtil.STOP_NACK) {
+						if (lcMsg.getSender() != -1 && lcMsg.getReg() != -1) {
+							tomLayer.requestsTimer.handleStopNack(
+									lcMsg.getReg(), lcMsg.getSender(), lcMsg.missingNodesMask);
+						}
+						return;
+					}
+
 					if (lcMsg.TRIGGER_LC_LOCALLY)
 						tomLayer.requestsTimer.run_lc_protocol();
 					else

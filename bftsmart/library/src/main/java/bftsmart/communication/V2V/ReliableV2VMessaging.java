@@ -380,7 +380,30 @@ public class ReliableV2VMessaging {
         boolean unordered = false;
         if (message instanceof bftsmart.tom.leaderchange.LCMessage) {
             int lcType = ((bftsmart.tom.leaderchange.LCMessage) message).getType();
-            unordered = (lcType == bftsmart.tom.util.TOMUtil.STOP);
+            // STOP and STOP_NACK are both self-repairing Phase-1 transport
+            // messages: the emitter keeps re-firing until the regency is
+            // installed, so reliability-layer retx would only create an ACK
+            // storm.
+            //
+            // STOPDATA was originally on the reliable path, but the
+            // application-level STOPDATA retransmission timer in Synchronizer
+            // makes it self-repairing too. Keeping STOPDATA on the ordered
+            // path caused a seq-number gap bug: the timer called
+            // communication.send() on each tick, consuming a new broadcastSeqNum
+            // slot each time. If the ORIGINAL seq=N frame was lost, the receiver
+            // buffered the later seq=N+1, N+2 retransmissions in
+            // broadcastReceiveBuffers waiting for seq=N — which never arrived if
+            // the channel was saturated. Making STOPDATA unordered removes the
+            // per-frame seq dependency: each retransmission stands alone and is
+            // delivered independently. The application timer retransmits every
+            // ~200ms sim-time until the regency is fully installed, giving many
+            // independent delivery attempts with no ordering stall.
+            //
+            // SYNC stays on the reliable path as it has no application-layer
+            // retransmitter and is sent only once by the leader.
+            unordered = (lcType == bftsmart.tom.util.TOMUtil.STOP
+                      || lcType == bftsmart.tom.util.TOMUtil.STOP_NACK
+                      || lcType == bftsmart.tom.util.TOMUtil.STOPDATA);
         }
         System.out.println("    [Reliability " + myReplicaId + "] sendMulticast() to " + targetIds.length + " targets"
                 + (unordered ? " [unordered/no-retx]" : ""));
