@@ -61,6 +61,11 @@ public class Synchronizer {
 
     // out of context messages related to the leader change are stored here
     private final HashSet<LCMessage> outOfContextLC;
+    // Regency values for which the new leader has already emitted SYNC.
+    // Duplicate STOPDATAs can keep re-entering catch_up() after quorum is
+    // reached; without this guard the leader keeps rebroadcasting the same
+    // SYNC and adds avoidable load to the shared 802.11p channel.
+    private final HashSet<Integer> syncSentRegencies;
 
     // Manager of the leader change
     private final LCManager lcManager;
@@ -102,6 +107,7 @@ public class Synchronizer {
         this.md = this.tom.md;
         
         this.outOfContextLC = new HashSet<>();
+        this.syncSentRegencies = new HashSet<>();
 	this.lcManager = new LCManager(this.tom,this.controller, this.md);
     }
 
@@ -472,6 +478,8 @@ public class Synchronizer {
                 requestsTimer.dropRegencyState(t);
             }
         }
+
+        syncSentRegencies.removeIf(r -> r <= regency);
 
     }
     // this method is called when a timeout occurs or when a STOP message is recevied
@@ -1001,6 +1009,10 @@ public class Synchronizer {
     private void catch_up(int regency) {
 
         logger.debug("Verifying STOPDATA info");
+        if (syncSentRegencies.contains(regency)) {
+            logger.debug("SYNC for regency {} already sent; skipping duplicate catch_up", regency);
+            return;
+        }
         ObjectOutputStream out = null;
         ByteArrayOutputStream bos = null;
 
@@ -1071,6 +1083,7 @@ public class Synchronizer {
                 out.close();
                 bos.close();
 
+                syncSentRegencies.add(regency);
                 logger.info("Sending SYNC message for regency " + regency);
                 System.out.println("[VIEW-CHANGE] Replica " + this.controller.getStaticConf().getProcessId()
                         + " is NEW LEADER — sending SYNC for regency " + regency);
