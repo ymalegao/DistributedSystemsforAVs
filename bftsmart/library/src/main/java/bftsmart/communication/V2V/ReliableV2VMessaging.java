@@ -362,49 +362,7 @@ public class ReliableV2VMessaging {
     }
 
     public void sendMulticast(int[] targetIds, SystemMessage message, V2VNativeReplicaConnection conn) {
-        // Scope the unordered/no-retx bypass to STOP messages only.
-        //
-        // STOP is fired by every replica on a fixed cadence via
-        // RequestsTimer.SendStopTask, so it's self-re-emitting. Putting STOPs
-        // into the reliability retx queue creates an ACK storm (N replicas
-        // simultaneously retransmitting with exponential backoff and no
-        // piggyback reverse traffic) that saturates the 802.11p channel and
-        // starves LC of delivery.
-        //
-        // STOPDATA and SYNC, in contrast, are fired ONCE by BFT-SMaRt when the
-        // respective quorum is collected. They have no application-layer
-        // re-emitter, so they MUST stay on the reliable path — otherwise a
-        // single dropped frame stalls LC (observed at N=12: new leader sent
-        // SYNC, every receiver dropped it on the wire, no retransmission,
-        // cluster cascaded to reg=2/3 and stop-sign timed out).
-        boolean unordered = false;
-        if (message instanceof bftsmart.tom.leaderchange.LCMessage) {
-            int lcType = ((bftsmart.tom.leaderchange.LCMessage) message).getType();
-            // STOP and STOP_NACK are both self-repairing Phase-1 transport
-            // messages: the emitter keeps re-firing until the regency is
-            // installed, so reliability-layer retx would only create an ACK
-            // storm.
-            //
-            // STOPDATA was originally on the reliable path, but the
-            // application-level STOPDATA retransmission timer in Synchronizer
-            // makes it self-repairing too. Keeping STOPDATA on the ordered
-            // path caused a seq-number gap bug: the timer called
-            // communication.send() on each tick, consuming a new broadcastSeqNum
-            // slot each time. If the ORIGINAL seq=N frame was lost, the receiver
-            // buffered the later seq=N+1, N+2 retransmissions in
-            // broadcastReceiveBuffers waiting for seq=N — which never arrived if
-            // the channel was saturated. Making STOPDATA unordered removes the
-            // per-frame seq dependency: each retransmission stands alone and is
-            // delivered independently. The application timer retransmits every
-            // ~200ms sim-time until the regency is fully installed, giving many
-            // independent delivery attempts with no ordering stall.
-            //
-            // SYNC stays on the reliable path as it has no application-layer
-            // retransmitter and is sent only once by the leader.
-            unordered = (lcType == bftsmart.tom.util.TOMUtil.STOP
-                      || lcType == bftsmart.tom.util.TOMUtil.STOP_NACK
-                      || lcType == bftsmart.tom.util.TOMUtil.STOPDATA);
-        }
+        boolean unordered = isUnorderedLcMessage(message);
         System.out.println("    [Reliability " + myReplicaId + "] sendMulticast() to " + targetIds.length + " targets"
                 + (unordered ? " [unordered/no-retx]" : ""));
         System.out.println("        Message class: " + message.getClass().getSimpleName());
@@ -522,9 +480,17 @@ public class ReliableV2VMessaging {
         System.out.println("        Message type: " + message.getClass().getSimpleName());
 
         try {
-            // get next sequence number for this destination
-            long seq = sendSeqNums.computeIfAbsent(targetId, k -> 0L); // explain this line later
-            sendSeqNums.put(targetId, seq + 1);
+            boolean unordered = isUnorderedLcMessage(message);
+            // STOPDATA-to-leader retransmissions also need the unordered path.
+            // Otherwise each resend burns the next per-target unicast seq,
+            // and if the first copy is lost the leader buffers seq=N+1, N+2...
+            // forever waiting for the missing seq=N. For unordered sends we
+            // intentionally DO NOT advance sendSeqNums, so the next reliable
+            // unicast is not stranded behind a gap that receivers never track.
+            long seq = sendSeqNums.computeIfAbsent(targetId, k -> 0L);
+            if (!unordered) {
+                sendSeqNums.put(targetId, seq + 1);
+            }
             System.out.println("        Sequence number: " + seq);
 
             // serialize the message
@@ -543,6 +509,7 @@ public class ReliableV2VMessaging {
                     seq,
                     ackNum,
                     payload);
+            envelope.isUnordered = unordered;
             envelope.timestampMs = SimulationClock.currentTimeMillis();
             envelope.currentTimeout = RETX_TIMEOUT_MS;
 
@@ -564,7 +531,9 @@ public class ReliableV2VMessaging {
             }
 
             conn.send(envelope);
-            unackedMessages.computeIfAbsent(targetId, k -> new ConcurrentHashMap<>()).put(seq, envelope);
+            if (!unordered) {
+                unackedMessages.computeIfAbsent(targetId, k -> new ConcurrentHashMap<>()).put(seq, envelope);
+            }
             System.out.println("        [Reliability " + myReplicaId + "] Sent seq=" + seq + " to replica " + targetId);
         } catch (IOException e) {
             System.err.println("       [Reliability " + myReplicaId + "] Error sending message: " + e.getMessage());
@@ -619,6 +588,11 @@ public class ReliableV2VMessaging {
         // the BFT-SMaRt LC layer (distinct-sender sets by regency), so delivering
         // directly and ignoring sequencing is safe.
         if (envelope.isUnordered) {
+            if (!isBroadcast && envelope.toReplicaId != myReplicaId && envelope.toReplicaId != -1) {
+                System.out.println("        -> UNORDERED unicast to " + envelope.toReplicaId
+                        + " (not us=" + myReplicaId + "), dropping");
+                return;
+            }
             System.out.println("        -> UNORDERED envelope, delivering directly (no seq tracking)");
             deliverMessage(envelope);
             return;
@@ -697,6 +671,17 @@ public class ReliableV2VMessaging {
 
         }
 
+    }
+
+    private boolean isUnorderedLcMessage(SystemMessage message) {
+        if (!(message instanceof bftsmart.tom.leaderchange.LCMessage)) {
+            return false;
+        }
+
+        int lcType = ((bftsmart.tom.leaderchange.LCMessage) message).getType();
+        return (lcType == bftsmart.tom.util.TOMUtil.STOP
+                || lcType == bftsmart.tom.util.TOMUtil.STOP_NACK
+                || lcType == bftsmart.tom.util.TOMUtil.STOPDATA);
     }
 
     private void processAck(int from, long ackNum) {

@@ -1,17 +1,17 @@
                                                                 
 version 3
-run SixteenVehiclesAmbulanceBFT-0-20260421-00:34:59-24674
+run SixteenVehiclesAmbulanceBFT-0-20260421-12:19:55-389373
 attr configname SixteenVehiclesAmbulanceBFT
-attr datetime 20260421-00:34:59
-attr datetimef 20260421-003459
+attr datetime 20260421-12:19:55
+attr datetimef 20260421-121955
 attr experiment SixteenVehiclesAmbulanceBFT
-attr inifile /Users/yashmalegaonkar/Documents/v2v/fourway/random_scenario.ini
+attr inifile /home/yash/DistributedSystemsforAVs/fourway/random_scenario.ini
 attr iterationvars ""
 attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network fourWay
-attr processid 24674
+attr processid 389373
 attr repetition 0
 attr replication #0
 attr resultdir results
@@ -175,9 +175,17 @@ config *.node[*].veinsmobility.setHostSpeed false
 config *.node[0].veinsmobility.accidentCount 0
 config *.node[0].veinsmobility.accidentStart 73s
 config *.node[0].veinsmobility.accidentDuration 50s
-config *.node[*].appl.ambulanceReplicaId 13
+config *.node[*].appl.ambulanceReplicaId 7
 config *.node[0].appl.isByzantine true
 config *.node[0].appl.byzantineType 1
+config *.node[5].appl.isByzantine true
+config *.node[5].appl.byzantineType 1
+config *.node[3].appl.isByzantine true
+config *.node[3].appl.byzantineType 1
+config *.node[1].appl.isByzantine true
+config *.node[1].appl.byzantineType 1
+config *.node[4].appl.isByzantine true
+config *.node[4].appl.byzantineType 1
 
 vector 0 fourWay.tls[0].nic.phy80211p RadioState ETV
 vector 1 fourWay.tls[0].nic.phy80211p RadioChannel ETV
