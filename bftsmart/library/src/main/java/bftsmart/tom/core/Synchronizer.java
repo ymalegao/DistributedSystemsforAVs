@@ -66,6 +66,10 @@ public class Synchronizer {
     // reached; without this guard the leader keeps rebroadcasting the same
     // SYNC and adds avoidable load to the shared 802.11p channel.
     private final HashSet<Integer> syncSentRegencies;
+    // Non-leaders resend STOPDATA until the regency is installed locally.
+    // We keep the timer handles so finalise() can cancel them as soon as
+    // SYNC lands, rather than letting them continue to flood the leader.
+    private final java.util.HashMap<Integer, Timer> stopdataRetxTimers;
 
     // Manager of the leader change
     private final LCManager lcManager;
@@ -108,6 +112,7 @@ public class Synchronizer {
         
         this.outOfContextLC = new HashSet<>();
         this.syncSentRegencies = new HashSet<>();
+        this.stopdataRetxTimers = new java.util.HashMap<>();
 	this.lcManager = new LCManager(this.tom,this.controller, this.md);
     }
 
@@ -479,7 +484,20 @@ public class Synchronizer {
             }
         }
 
-        syncSentRegencies.removeIf(r -> r <= regency);
+        for (Integer r : new HashSet<>(stopdataRetxTimers.keySet())) {
+            if (r <= regency) {
+                Timer timer = stopdataRetxTimers.remove(r);
+                if (timer != null) {
+                    timer.cancel();
+                }
+            }
+        }
+
+        // Keep the guard for the regency we just installed. Duplicate
+        // STOPDATAs can still arrive after finalise(), and clearing the
+        // current regency here lets them re-trigger catch_up() and rebroadcast
+        // the same SYNC again. Older regencies are safe to forget.
+        syncSentRegencies.removeIf(r -> r < regency);
 
     }
     // this method is called when a timeout occurs or when a STOP message is recevied
@@ -735,20 +753,34 @@ public class Synchronizer {
                     // byzantineQuorum mirrors the processSTOPDATA check: (N+f)/2.
                     final int retxByzQuorum =
                             (controller.getCurrentViewN() + controller.getCurrentViewF()) / 2;
+                    // After phase-2 installs locally, non-leaders cannot observe the leader's
+                    // STOPDATA quorum (quorumReached never fires for them). Without a cap they
+                    // run for LC_ESCALATION_GAP_SIM_MS / 200ms ≈ 75 ticks, flooding the channel
+                    // during SYNC delivery and preventing SYNC from reaching peers (deadlock).
+                    // 10 retransmissions at 200ms gives >99.9% delivery probability before the
+                    // channel clears for the SYNC reliability-layer retransmissions.
+                    final int maxStopDataRetx =
+                            Integer.getInteger("bftsmart.max_stopdata_retx", 10);
                     final Timer stopdataRetxTimer = new Timer("STOPDATA-retx-" + regency);
+                    stopdataRetxTimers.put(retxRegency, stopdataRetxTimer);
                     stopdataRetxTimer.schedule(new TimerTask() {
                         private long lastEmitSimMs = SimulationClock.currentTimeMillis();
+                        private int retxCount = 0;
                         @Override public void run() {
-                            // Stop when a later regency is installed (escalation)
-                            // or when this leader already has a Byzantine quorum
-                            // of STOPDATAs (catch_up will fire soon / has fired).
-                            // Without the quorum check the timer fires indefinitely
-                            // after a successful LC (lastReg stays at retxRegency=1),
-                            // causing processSTOPDATA to call catch_up repeatedly.
                             boolean escalated = lcManager.getLastReg() > retxRegency;
                             boolean quorumReached =
                                     lcManager.getLastCIDsSize(retxRegency) > retxByzQuorum;
-                            if (escalated || quorumReached) {
+                            // Non-leaders: cap retransmissions after phase-2 installs locally.
+                            // quorumReached never fires at non-leaders (they don't accumulate
+                            // STOPDATAs), so without this cap the timer runs for ~75 ticks,
+                            // saturating the channel and starving SYNC delivery.
+                            boolean retxCapped = retxCount >= maxStopDataRetx;
+                            if (escalated || quorumReached || retxCapped) {
+                                if (retxCapped && !escalated && !quorumReached) {
+                                    logger.info("STOPDATA retx capped at {} for regency {}",
+                                            retxCount, retxRegency);
+                                }
+                                stopdataRetxTimers.remove(retxRegency);
                                 stopdataRetxTimer.cancel();
                                 return;
                             }
@@ -757,6 +789,7 @@ public class Synchronizer {
                                 logger.info("Re-transmitting STOPDATA of regency " + retxRegency);
                                 communication.send(retxDest, stopdataMsg);
                                 lastEmitSimMs = nowSimMs;
+                                retxCount++;
                             }
                         }
                     }, retxWallMs, retxWallMs);

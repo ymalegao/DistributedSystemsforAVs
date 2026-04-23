@@ -112,6 +112,15 @@ public final class IntersectionServer extends DefaultRecoverable implements View
      * view-change machinery). Cleared at epoch boundary when C++ handleWipeComplete() fires.
      * Returns an empty set when JNI is unavailable (e.g. unit-test context).
      */
+    /** Returns the BFT fault tolerance parameter f from system.config. */
+    public int getF() {
+        try {
+            return replica.getReplicaContext().getStaticConfiguration().getF();
+        } catch (Exception e) {
+            return 5; // safe fallback for N=16
+        }
+    }
+
     public Set<String> getCertSnapshot() {
         try {
             Set<String> raw = nativeGetCertSnapshot(processId);

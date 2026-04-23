@@ -449,6 +449,10 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                     lastProposeAllConsensusEpoch == currentEpoch && lastProposeAllConsensusWallSec > 0.0;
                 const double durStopToDecisionSim =
                     hasStopToDecisionPipeline ? stopToDecisionDuration.dbl() : -1.0;
+                const double durProposeAllSim = 
+                    (proposeAllSubmitTime > 0 && orderConsensusEndTime >= proposeAllSubmitTime)
+                        ? (orderConsensusEndTime - proposeAllSubmitTime).dbl()
+                        : -1.0;
                 
                 std::cout << "\n========== CONSENSUS METRICS (Replica " << replicaId << ") epoch=" << currentEpoch
                           << " ==========" << "\n";
@@ -457,6 +461,7 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                           << " gap_to_PROPOSE_ALL=" << fmtPhaseSec(gapV2vToViewBft)
                           << " PROPOSE_ALL_BFT(wall)="
                           << (hasLocalProposeAllWall ? fmtPhaseSec(lastProposeAllConsensusWallSec) : std::string("N/A"))
+                          << " PROPOSE_ALL_BFT(sim)=" << fmtPhaseSec(durProposeAllSim)
                           << " stop_to_decision(sim)=" << fmtPhaseSec(durStopToDecisionSim)
                           << "\n";
 

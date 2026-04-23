@@ -1,5 +1,19 @@
 [
   {
+    "type": "decision",
+    "content": "Relaxed cert-omission guard: reject only if omitted certs > f (not any single omission)",
+    "tags": [
+      "cert-omission",
+      "check7",
+      "ep5",
+      "honest-leader"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java"
+    ],
+    "date": "2026-04-22"
+  },
+  {
     "id": "mem:1776028955263",
     "kind": "query_association",
     "content": "Queried during: metrics per-vehicle output JSON Byzantine ambulance",
@@ -64,6 +78,38 @@
   },
   {
     "id": "mem:1776029455344",
+    "kind": "decision",
+    "content": "Added per-car metrics to JSON output: messages_sent/received, delivery_ratio, estimated_loss_rate, used_fallback, propose_all_consensus_wall_s, bft_decision_time_s. Added run-level delivery_ratio, estimated_loss_rate, fallback_rate to overall JSON. Added RUN-METRICS lines for batch log files.",
+    "tags": [
+      "added",
+      "per",
+      "car",
+      "metrics",
+      "json",
+      "output",
+      "messages_sent",
+      "received"
+    ],
+    "files": [
+      "fourway/analyze_log.py"
+    ],
+    "file_path": "fourway/analyze_log.py",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-12T21:30:55.344233+00:00",
+    "created_epoch": 1776029455,
+    "updated_at": "2026-04-12T21:30:55.344237+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1776029455344",
     "kind": "edit_observation",
     "content": "Edited during active session",
     "tags": [
@@ -96,28 +142,28 @@
     }
   },
   {
-    "id": "mem:1776029455344",
+    "id": "mem:1776031320813",
     "kind": "decision",
-    "content": "Added per-car metrics to JSON output: messages_sent/received, delivery_ratio, estimated_loss_rate, used_fallback, propose_all_consensus_wall_s, bft_decision_time_s. Added run-level delivery_ratio, estimated_loss_rate, fallback_rate to overall JSON. Added RUN-METRICS lines for batch log files.",
+    "content": "Cancel retxCheckTimer immediately when ORDER consensus decision arrives on main thread (pendingCancelOrderTimer block), eliminating retransmit bursts between decision and resumeVehicle that inflate Messages_Sent and skew delivery_ratio.",
     "tags": [
-      "added",
-      "per",
-      "car",
-      "metrics",
-      "json",
-      "output",
-      "messages_sent",
-      "received"
+      "cancel",
+      "retxchecktimer",
+      "immediately",
+      "when",
+      "order",
+      "consensus",
+      "decision",
+      "arrives"
     ],
     "files": [
-      "fourway/analyze_log.py"
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
     ],
-    "file_path": "fourway/analyze_log.py",
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-12T21:30:55.344233+00:00",
-    "created_epoch": 1776029455,
-    "updated_at": "2026-04-12T21:30:55.344237+00:00",
+    "created_at": "2026-04-12T22:02:00.813785+00:00",
+    "created_epoch": 1776031320,
+    "updated_at": "2026-04-12T22:02:00.813789+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -160,38 +206,6 @@
       "recent_action_kinds": [],
       "recent_queries": [],
       "edited": true
-    }
-  },
-  {
-    "id": "mem:1776031320813",
-    "kind": "decision",
-    "content": "Cancel retxCheckTimer immediately when ORDER consensus decision arrives on main thread (pendingCancelOrderTimer block), eliminating retransmit bursts between decision and resumeVehicle that inflate Messages_Sent and skew delivery_ratio.",
-    "tags": [
-      "cancel",
-      "retxchecktimer",
-      "immediately",
-      "when",
-      "order",
-      "consensus",
-      "decision",
-      "arrives"
-    ],
-    "files": [
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
-    ],
-    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-12T22:02:00.813785+00:00",
-    "created_epoch": 1776031320,
-    "updated_at": "2026-04-12T22:02:00.813789+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [],
-    "evidence": {
-      "window_sec": 120,
-      "recent_action_kinds": [],
-      "recent_queries": []
     }
   },
   {
@@ -244,9 +258,9 @@
     "symbol_hash": "9c32d740",
     "created_at": "2026-04-14T02:49:08.719299+00:00",
     "created_epoch": 1776134948,
-    "updated_at": "2026-04-14T02:49:08.719311+00:00",
-    "stale": false,
-    "stale_reason": "",
+    "updated_at": "2026-04-22T02:34:51.169388+00:00",
+    "stale": true,
+    "stale_reason": "symbol removed",
     "observed_queries": [
       "throughput calculation vehicles per second"
     ],
@@ -254,41 +268,6 @@
       "source": "graph_read",
       "anchor_mode": "symbol",
       "session_epoch": 1776027145
-    }
-  },
-  {
-    "id": "mem:1776137351081",
-    "kind": "edit_observation",
-    "content": "Edited during active session",
-    "tags": [
-      "added",
-      "randomize",
-      "sync",
-      "java",
-      "flags",
-      "per",
-      "run",
-      "ambulance",
-      "fixed",
-      "pure"
-    ],
-    "files": [
-      "bftsmart/run-omnet-simulation.sh"
-    ],
-    "file_path": "bftsmart/run-omnet-simulation.sh",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-14T03:29:11.081226+00:00",
-    "created_epoch": 1776137351,
-    "updated_at": "2026-04-14T04:22:58.613946+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [],
-    "evidence": {
-      "source": "graph_register_edit",
-      "recent_action_kinds": [],
-      "recent_queries": [],
-      "edited": true
     }
   },
   {
@@ -324,28 +303,30 @@
     }
   },
   {
-    "id": "mem:1776137591105",
+    "id": "mem:1776137351081",
     "kind": "edit_observation",
     "content": "Edited during active session",
     "tags": [
-      "set",
+      "added",
+      "randomize",
+      "sync",
+      "java",
+      "flags",
+      "per",
+      "run",
       "ambulance",
-      "vehicle",
-      "color",
-      "red",
-      "via",
-      "traci",
-      "first"
+      "fixed",
+      "pure"
     ],
     "files": [
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h"
+      "bftsmart/run-omnet-simulation.sh"
     ],
-    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
+    "file_path": "bftsmart/run-omnet-simulation.sh",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-14T03:33:11.105295+00:00",
-    "created_epoch": 1776137591,
-    "updated_at": "2026-04-14T03:33:11.105305+00:00",
+    "created_at": "2026-04-14T03:29:11.081226+00:00",
+    "created_epoch": 1776137351,
+    "updated_at": "2026-04-14T04:22:58.613946+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -387,6 +368,39 @@
       "window_sec": 120,
       "recent_action_kinds": [],
       "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1776137591105",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "set",
+      "ambulance",
+      "vehicle",
+      "color",
+      "red",
+      "via",
+      "traci",
+      "first"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-14T03:33:11.105295+00:00",
+    "created_epoch": 1776137591,
+    "updated_at": "2026-04-14T03:33:11.105305+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
     }
   },
   {
@@ -572,6 +586,365 @@
       "source": "graph_read",
       "anchor_mode": "file",
       "session_epoch": 1776027145
+    }
+  },
+  {
+    "id": "mem:1776825291171",
+    "kind": "stale_marker",
+    "content": "Marked stale because symbol removed",
+    "tags": [],
+    "files": [
+      "fourway/analyze_log.py::all_per_epoch"
+    ],
+    "file_path": "fourway/analyze_log.py",
+    "symbol_id": "fourway/analyze_log.py::all_per_epoch",
+    "symbol_hash": "9c32d740",
+    "created_at": "2026-04-22T02:34:51.169452+00:00",
+    "created_epoch": 1776825291,
+    "updated_at": "2026-04-22T02:34:51.169861+00:00",
+    "stale": true,
+    "stale_reason": "symbol removed",
+    "observed_queries": [
+      "throughput calculation vehicles per second"
+    ],
+    "evidence": {
+      "source_kind": "query_association"
+    }
+  },
+  {
+    "id": "mem:1776887185819",
+    "kind": "decision",
+    "content": "totalordermulticast.timeout raised 800\u21924000ms: honest consensus takes ~2000ms sim-time",
+    "tags": [
+      "timeout",
+      "lc",
+      "system-config"
+    ],
+    "files": [
+      "fourway/config/system.config"
+    ],
+    "file_path": "fourway/config/system.config",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-22",
+    "created_epoch": 1776841200,
+    "updated_at": "2026-04-22",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1776887181037",
+    "kind": "decision",
+    "content": "Java JITTER_WALL_MS set to 0: C++ sendDelayed provides replicaId*5ms sim-time stagger",
+    "tags": [
+      "jitter",
+      "lc",
+      "reliability"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-22",
+    "created_epoch": 1776841200,
+    "updated_at": "2026-04-22",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1776887184463",
+    "kind": "decision",
+    "content": "STOPDATA retx capped at max_stopdata_retx=10 to break SYNC delivery deadlock at non-leaders",
+    "tags": [
+      "stopdata",
+      "sync",
+      "lc",
+      "deadlock"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/tom/core/Synchronizer.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/core/Synchronizer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-22",
+    "created_epoch": 1776841200,
+    "updated_at": "2026-04-22",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1776887174743",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "raised",
+      "totalordermulticast",
+      "timeout",
+      "4000ms",
+      "capped",
+      "stopdata",
+      "retx",
+      "removed"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/tom/core/Synchronizer.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/core/Synchronizer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-22T19:46:14.743850+00:00",
+    "created_epoch": 1776887174,
+    "updated_at": "2026-04-22T19:46:14.743856+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1776887174740",
+    "kind": "decision",
+    "content": "Raised totalordermulticast.timeout to 4000ms, capped STOPDATA retx at 10, removed Java jitter (redundant with C++ sendDelayed slot stagger)",
+    "tags": [
+      "raised",
+      "totalordermulticast",
+      "timeout",
+      "4000ms",
+      "capped",
+      "stopdata",
+      "retx",
+      "removed"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
+      "bftsmart/library/src/main/java/bftsmart/tom/core/Synchronizer.java",
+      "fourway/config/system.config"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-22T19:46:14.740532+00:00",
+    "created_epoch": 1776887174,
+    "updated_at": "2026-04-22T19:46:14.740539+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1776887174742",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "raised",
+      "totalordermulticast",
+      "timeout",
+      "4000ms",
+      "capped",
+      "stopdata",
+      "retx",
+      "removed",
+      "zeroed",
+      "nack"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-22T19:46:14.742706+00:00",
+    "created_epoch": 1776887174,
+    "updated_at": "2026-04-22T20:02:49.820300+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1776887174744",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "raised",
+      "totalordermulticast",
+      "timeout",
+      "4000ms",
+      "capped",
+      "stopdata",
+      "retx",
+      "removed"
+    ],
+    "files": [
+      "fourway/config/system.config"
+    ],
+    "file_path": "fourway/config/system.config",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-22T19:46:14.744789+00:00",
+    "created_epoch": 1776887174,
+    "updated_at": "2026-04-22T19:46:14.744796+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1776888169818",
+    "kind": "decision",
+    "content": "Zeroed NACK reply jitter (handleStopNack): same redundancy as JITTER_WALL_MS, C++ handles staggering",
+    "tags": [
+      "zeroed",
+      "nack",
+      "reply",
+      "jitter",
+      "handlestopnack",
+      "same",
+      "redundancy",
+      "jitter_wall_ms"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-22T20:02:49.818678+00:00",
+    "created_epoch": 1776888169,
+    "updated_at": "2026-04-22T20:02:49.818683+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1776902430115",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "relaxed",
+      "cert",
+      "omission",
+      "guard",
+      "check",
+      "reject",
+      "only",
+      "omitted"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-23T00:00:30.115068+00:00",
+    "created_epoch": 1776902430,
+    "updated_at": "2026-04-23T00:00:30.115075+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1776902430113",
+    "kind": "decision",
+    "content": "Relaxed cert-omission guard (Check 7): reject only if omitted count > f, not on any single omission. Added getF() to IntersectionServer.",
+    "tags": [
+      "relaxed",
+      "cert",
+      "omission",
+      "guard",
+      "check",
+      "reject",
+      "only",
+      "omitted"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java",
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-23T00:00:30.113459+00:00",
+    "created_epoch": 1776902430,
+    "updated_at": "2026-04-23T00:00:30.113465+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1776902430116",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "relaxed",
+      "cert",
+      "omission",
+      "guard",
+      "check",
+      "reject",
+      "only",
+      "omitted"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-23T00:00:30.116503+00:00",
+    "created_epoch": 1776902430,
+    "updated_at": "2026-04-23T00:00:30.116510+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
     }
   }
 ]

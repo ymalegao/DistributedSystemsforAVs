@@ -145,6 +145,9 @@ RE_BYZANTINE_INJECTION = re.compile(
 # Single-round PROPOSE_ALL protocol
 RE_BFTCONS_PROPOSE_ALL = re.compile(
     r'\[BFTCONSENSUS (\d+)\] PROPOSE_ALL consensus time epoch=(\d+): ([\d.]+)ms')
+RE_PHASE_SUMMARY = re.compile(
+    r'\[PHASE_SUMMARY (\d+)\] .*PROPOSE_ALL_BFT\(sim\)=(?:([\d.]+)s|N/A) .*stop_to_decision\(sim\)=(?:([\d.]+)s|N/A)'
+)
 
 # Pre-computed summary metrics (written by --save-to or the C++ side)
 RE_RUN_METRIC       = re.compile(r'\[RUN-METRICS\] ([\w_]+):\s*([-\d.]+)')
@@ -189,6 +192,8 @@ replica_stopsign_timeout = set()  # replica IDs that hit StopSign_Timeout (used 
 # Pre-computed summary metrics read back from saved logs
 run_metrics           = {}                 # key -> float  (from [RUN-METRICS] lines)
 propose_all_wall_raw  = defaultdict(list)  # raw_epoch -> [seconds, ...]
+propose_all_sim_raw   = defaultdict(list)  # epoch -> [seconds, ...]
+stop_to_decision_sim_raw = defaultdict(list) # epoch -> [seconds, ...]
 
 def percentile(values, q):
     if not values:
@@ -360,6 +365,21 @@ with open(LOG_FILE, "r", errors="replace") as f:
             raw_epoch = int(m.group(2))
             propose_all_wall_raw[raw_epoch].append(float(m.group(3)) / 1000.0)
             continue
+            
+        m = RE_PHASE_SUMMARY.search(line)
+        if m:
+            rep = int(m.group(1))
+            ep = replica_epoch.get(rep, current_gossip_epoch)
+            car_id = f"veh{rep}"
+            if m.group(2):
+                val = float(m.group(2))
+                propose_all_sim_raw[ep].append(val)
+                car_metrics[car_id]["propose_all_consensus_sim_s"] = val
+            if m.group(3):
+                val = float(m.group(3))
+                stop_to_decision_sim_raw[ep].append(val)
+                car_metrics[car_id]["stop_to_decision_sim_s"] = val
+            continue
 
         # [RUN-METRICS] summary lines (read back from saved log files)
         m = RE_RUN_METRIC.search(line)
@@ -402,6 +422,14 @@ for raw_epoch, samples in propose_all_wall_raw.items():
         continue
     epoch = normalize_java_epoch(raw_epoch)
     round_metrics[epoch]["ProposeAll_Consensus_Wall"] = statistics.mean(samples)
+
+for ep, samples in propose_all_sim_raw.items():
+    if samples:
+        round_metrics[ep]["ProposeAll_Consensus_Sim"] = statistics.mean(samples)
+
+for ep, samples in stop_to_decision_sim_raw.items():
+    if samples:
+        round_metrics[ep]["Stop_To_Decision_Sim"] = statistics.mean(samples)
 
 # Compute per-epoch total durations: arrival at intersection zone → resume.
 # Uses Arrival_Time (car first enters zone, even if queued) so queue wait is included.
@@ -532,6 +560,8 @@ def write_metrics_json(path):
             "epoch": ep,
             "n_replicas": n,
             "propose_all_consensus_latency_s": propose_all_lat,
+            "propose_all_consensus_latency_sim_s": rm.get("ProposeAll_Consensus_Sim"),
+            "stop_to_decision_sim_s": rm.get("Stop_To_Decision_Sim"),
             "throughput_s_per_veh": tp,
             "throughput_veh_per_s": (1.0 / tp) if tp not in (None, 0) else None,
             "wait_normal_s": _stat(wn),
@@ -570,6 +600,8 @@ def write_metrics_json(path):
             # propose_all_consensus_wall_s: set when PROPOSE_ALL single-round protocol ran
             # (all cars in the same epoch share this value; directly comparable to RAFT raft_decision_time)
             "propose_all_consensus_wall_s": m.get("propose_all_consensus_wall_s"),
+            "propose_all_consensus_sim_s": m.get("propose_all_consensus_sim_s"),
+            "stop_to_decision_sim_s": m.get("stop_to_decision_sim_s"),
             "bft_decision_time_s": m.get("bft_decision_time_s"),
         })
 
@@ -609,6 +641,16 @@ def write_metrics_json(path):
             round_metrics[ep]["ProposeAll_Consensus_Wall"]
             for ep in range(N_EPOCHS)
             if round_metrics.get(ep, {}).get("ProposeAll_Consensus_Wall", 0) > 0
+        ]),
+        "propose_all_consensus_latency_sim_s": _stat([
+            round_metrics[ep]["ProposeAll_Consensus_Sim"]
+            for ep in range(N_EPOCHS)
+            if round_metrics.get(ep, {}).get("ProposeAll_Consensus_Sim", 0) > 0
+        ]),
+        "stop_to_decision_sim_s": _stat([
+            round_metrics[ep]["Stop_To_Decision_Sim"]
+            for ep in range(N_EPOCHS)
+            if round_metrics.get(ep, {}).get("Stop_To_Decision_Sim", 0) > 0
         ]),
         # BFT decision time per vehicle (consensus latency assigned to each car's epoch)
         "bft_decision_time_s": _stat(_bft_dt_all),

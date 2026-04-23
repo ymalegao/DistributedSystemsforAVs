@@ -178,8 +178,8 @@ protected:
     uint32_t receivedBSMs;
 
     /* messages for periodic events such as beacon and WSA transmissions */
-    cMessage* sendBeaconEvt;
-    cMessage* sendWSAEvt;
+    cMessage* sendBeaconEvt = nullptr;
+    cMessage* sendWSAEvt = nullptr;
 };
 
 } // namespace veins

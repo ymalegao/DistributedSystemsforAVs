@@ -263,8 +263,8 @@ void DemoBaseApplLayer::finish()
 
 DemoBaseApplLayer::~DemoBaseApplLayer()
 {
-    cancelAndDelete(sendBeaconEvt);
-    cancelAndDelete(sendWSAEvt);
+    if (sendBeaconEvt) cancelAndDelete(sendBeaconEvt);
+    if (sendWSAEvt) cancelAndDelete(sendWSAEvt);
     findHost()->unsubscribe(BaseMobility::mobilityStateChangedSignal, this);
 }
 

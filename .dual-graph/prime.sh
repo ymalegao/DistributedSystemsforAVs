@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 PORT=$(cat "/home/yash/DistributedSystemsforAVs/.dual-graph/run/claude/mcp_port" 2>/dev/null || echo 8080)
-OUT=$(curl -sf --max-time 2 "http://localhost:$PORT/prime" 2>/dev/null || true)
+OUT=$(curl -sf --max-time 2 "http://127.0.0.1:$PORT/prime" 2>/dev/null || true)
 if [[ -n "$OUT" ]]; then
   echo "$OUT"
 fi

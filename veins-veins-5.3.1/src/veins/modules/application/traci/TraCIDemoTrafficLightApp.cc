@@ -34,10 +34,17 @@ TraCIDemoTrafficLightApp::TraCIDemoTrafficLightApp()
 
 TraCIDemoTrafficLightApp::~TraCIDemoTrafficLightApp()
 {
+    // Defensive teardown: in some embedded/JNI shutdown paths this module's
+    // inherited periodic-event pointers may already be invalid by the time
+    // base destructors run. Null them so DemoBaseApplLayer won't touch them.
+    sendBeaconEvt = nullptr;
+    sendWSAEvt = nullptr;
 }
 
 void TraCIDemoTrafficLightApp::initialize(int stage)
 {
+    // Ensure DemoBaseApplLayer allocates and manages its self-messages.
+    DemoBaseApplLayer::initialize(stage);
 }
 
 void TraCIDemoTrafficLightApp::onBSM(DemoSafetyMessage* bsm)

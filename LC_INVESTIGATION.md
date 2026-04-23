@@ -800,36 +800,37 @@ application-level retransmissions. Zero delivery despite many attempts.
 
 ### Root cause 2 — STOPDATA retransmission timer never cancels
 
-The timer cancel condition was `lcManager.getLastReg() > retxRegency=1`.
-After a successful reg=1 LC, `lastReg` stays at 1 indefinitely (it only
-advances past 1 on a subsequent LC escalation). The timer would fire
-forever after SYNC is delivered, repeatedly calling `processSTOPDATA`,
-which calls `catch_up` (since `lastCIDsSize > 10` remains true), which
-sends another SYNC. Successive SYNCs during normal consensus operation
-would cause incorrect behavior.
+The original timer cancel condition was `lcManager.getLastReg() > retxRegency=1`.
+After a successful reg=1 install, `lastReg` typically remains at `1` indefinitely
+(it only becomes `>1` on a subsequent LC escalation), so the timer kept firing.
+
+Even after adding a "cancel on quorum reach" condition, non-leader replicas still
+did **not** cancel: they never observe the leader's STOPDATA quorum locally, so
+`lcManager.getLastCIDsSize(1)` at a non-leader stays small. Result: all non-leaders
+continued to unicast STOPDATA to the leader long after reg=1 had installed, and
+the leader kept re-entering `processSTOPDATA` under constant load.
 
 ### Fix applied
 
 1. **STOPDATA → unordered in `ReliableV2VMessaging`.** Added
    `TOMUtil.STOPDATA` to the unordered predicate alongside `STOP` and
    `STOP_NACK`. Now each retransmission is a standalone fire-and-forget
-   frame — no `broadcastSeqNum` slot consumed, no `unackedMessages`
-   entry, no `broadcastReceiveBuffers` stall. Multiple retransmissions
-   arrive and are processed independently; `addLastCID` deduplicates
-   by sender via `CertifiedDecision.equals()` so `lastCIDsSize` counts
-   only unique contributors regardless of retransmission count. SYNC
-   stays on the reliable path (it is fired once by the leader with no
-   application-layer re-emitter).
+   frame — no ordered seq-gap stall on receive (this applies to both the
+   physical-broadcast multicast path and the single-target `sendReliable(...)`
+   path used by STOPDATA-to-leader). Multiple retransmissions arrive and are
+   processed independently; `addLastCID` deduplicates by sender via
+   `CertifiedDecision.equals()` so `lastCIDsSize` counts only unique
+   contributors regardless of retransmission count. SYNC stays single-shot.
 
-2. **Timer cancel on Byzantine-quorum reach.** Added a second cancel
-   condition to the STOPDATA retransmission timer:
-   ```java
-   boolean quorumReached = lcManager.getLastCIDsSize(retxRegency) > retxByzQuorum;
-   if (escalated || quorumReached) { stopdataRetxTimer.cancel(); return; }
-   ```
-   Once the leader has collected enough unique STOPDATAs to call `catch_up`,
-   the timer stops. This prevents the "repeated SYNC" bug and avoids
-   unnecessary channel load after Phase 3 completes.
+2. **Stop STOPDATA retx when the regency is installed locally.**
+   The robust cancel point is when this replica installs regency `r` via SYNC
+   (i.e., inside `finalise(...)`), not when it *infers* quorum locally.
+   Implementation:
+   - Track STOPDATA retx `Timer`s in `Synchronizer` and cancel them in
+     `removeSTOPretransmissions(r)` for all `<= r`.
+   - Keep the leader's `syncSentRegencies` guard for the installed regency
+     (`removeIf(r < installed)` instead of `<=`) so duplicate STOPDATAs can't
+     re-trigger `catch_up()` and re-broadcast SYNC.
 
 ### What to expect
 

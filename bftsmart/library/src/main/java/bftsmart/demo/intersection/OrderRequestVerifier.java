@@ -3,6 +3,7 @@ package bftsmart.demo.intersection;
 import bftsmart.tom.core.messages.TOMMessage;
 import bftsmart.tom.server.RequestVerifier;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -185,21 +186,29 @@ public class OrderRequestVerifier implements RequestVerifier {
         }
 
         // ---- Check 7: ARRIVAL_CERT omission guard (EP5/G3 censorship resistance) ----
-        // If this follower has already collected a valid ARRIVAL_CERT for a car (C++ side),
-        // that car MUST appear as SIGNED in the proposal.  A Byzantine leader that omits
-        // such a car will be rejected by ≥f+1 honest followers, preventing 2f+1 WRITE
-        // votes.  RequestsTimer fires → intra-epoch view-change → new honest leader
-        // re-includes the car → decision within epoch e (not epoch e+1).
-        // Returns empty set when JNI is unavailable (e.g. unit-test context), which
-        // is safe: no rejection occurs and the protocol falls back to prior EP5 guarantees.
+        // A follower rejects if MORE THAN f certs it holds are marked QUIET in the proposal.
+        // Up to f omissions are tolerated as plausible channel-loss at the leader.
+        // A Byzantine leader that suppresses f+1 or more well-known vehicles will cause
+        // at least one honest follower to see >f omissions, triggering rejection and LC.
         Set<String> localCertIds = server.getCertSnapshot();
+        int omittedCount = 0;
+        List<String> omitted = new ArrayList<>();
         for (String certId : localCertIds) {
             VehicleState vs = stateMap.get(certId);
             if (vs == null || !"SIGNED".equals(vs.cyberStatus)) {
-                System.err.println("[VERIFIER] PROPOSE_ALL: cert-omission — "
-                        + certId + " in local collectedCerts but not SIGNED in proposal — rejecting");
-                return false;
+                omittedCount++;
+                omitted.add(certId);
             }
+        }
+        int f = server.getF();
+        if (omittedCount > f) {
+            System.err.println("[VERIFIER] PROPOSE_ALL: cert-omission — "
+                    + omittedCount + " certs omitted (threshold f+1=" + (f + 1)
+                    + "): " + omitted + " — rejecting (Byzantine censorship)");
+            return false;
+        } else if (omittedCount > 0) {
+            System.err.println("[VERIFIER] PROPOSE_ALL: cert-omission TOLERATED — "
+                    + omittedCount + "/" + f + " omissions (≤f, channel loss): " + omitted);
         }
 
         // ---- Check 8: Deterministic schedule re-execution (anti-computation fraud) ----

@@ -58,15 +58,16 @@ public class RequestsTimer {
     
     private boolean enabled = true;
 
-    // Maximum jitter (wall-ms) added to every Timer.schedule() call so that the
-    // initial STOP burst and subsequent STOP retransmissions from distinct
-    // replicas de-synchronise. Over 802.11p, a synchronised broadcast by N
-    // replicas at the same sim-instant collides catastrophically; adding
-    // [0, JITTER_WALL_MS) of per-schedule spread turns a thundering herd into
-    // a staggered one and massively improves STOP delivery probability.
-    // Override via `-Dbftsmart.lc_jitter_wall_ms=<N>`.
+    // Java-side wall-clock jitter is redundant: every BFT message goes through
+    // C++ sendBFTMessage() which applies replicaId * broadcastSlotSec (5ms) +
+    // uniform(broadcastJitterMin, broadcastJitterMax) in sim-time before hitting
+    // the 802.11p medium. That provides a 75ms sim-time deterministic spread
+    // across N=16 replicas — far better collision avoidance than a wall-clock
+    // random delay. The Java jitter only delayed messages entering the JNI queue,
+    // adding latency with no benefit. Default is 0; override via
+    // `-Dbftsmart.lc_jitter_wall_ms=<N>` if needed for experiments.
     private static final long JITTER_WALL_MS =
-            Long.getLong("bftsmart.lc_jitter_wall_ms", 500L);
+            Long.getLong("bftsmart.lc_jitter_wall_ms", 0L);
 
     // How often SendStopTask wakes on the wall-clock Timer to check whether a
     // fresh STOP emission is due. Must be small so we sample sim-time often
@@ -518,7 +519,7 @@ public class RequestsTimer {
         }
         counts.put(fromPid, already + 1);
 
-        final long jitterWallMs = ThreadLocalRandom.current().nextLong(20);
+        final long jitterWallMs = 0; // C++ sendDelayed slot stagger makes wall-clock jitter redundant
         // Broadcast to ALL peers, not just the NACKer. On 802.11p every
         // "unicast" is physically a broadcast anyway (no real unicast at the
         // MAC layer), so there is no efficiency loss. More importantly, when

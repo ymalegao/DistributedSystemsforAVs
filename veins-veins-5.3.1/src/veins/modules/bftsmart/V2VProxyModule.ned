@@ -36,9 +36,10 @@ simple V2VProxyModule extends DemoBaseApplLayer
 
         // Cert-collection timeout (Exclusive Fallback mechanism).
         // The leader waits this long for ARRIVAL_CERTs from all physically-observed cars.
-        // Cars that fail to provide a valid cert before this deadline receive QUIET status
-        // and are isolated into exclusive singleton batches by OrderScheduler.
-        double certCollectionTimeoutSec @unit(s) = default(1.5s);
+        // Keep this long enough to absorb honest late ARRIVAL_CERT propagation at N=16;
+        // timing out too early causes the leader to mislabel a late honest car as QUIET,
+        // which honest followers reject via the cert-omission guard.
+        double certCollectionTimeoutSec @unit(s) = default(2.0s);
 
         // Consensus timeout (fallback if BFT fails to reach quorum)
         // After this timeout, vehicles resume without coordination
@@ -111,7 +112,6 @@ simple V2VProxyModule extends DemoBaseApplLayer
         // input lowerControlIn;
         // output lowerControlOut;
 }
-
 
 
 
