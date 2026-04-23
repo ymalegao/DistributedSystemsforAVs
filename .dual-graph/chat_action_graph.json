@@ -299,6 +299,83 @@
     {
       "id": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
       "type": "file"
+    },
+    {
+      "id": "query:full stack system review protocol spec alignment v2v",
+      "type": "query",
+      "meta": {
+        "text": "full stack system review: protocol spec alignment, V2V communication vs TCP/Netty, sim time enforcement, intersection logic, leader change NACKs, JNI bridge"
+      }
+    },
+    {
+      "id": "fourway/plot_wait_time_cdf.py::parse_scenario_spec",
+      "type": "file"
+    },
+    {
+      "id": "experiment_orchestrator.py::patch_system_config",
+      "type": "file"
+    },
+    {
+      "id": "fourway/benchmarks/analyzetwo_phase.py::generate_stacked_bar_chart",
+      "type": "file"
+    },
+    {
+      "id": "query:(empty)",
+      "type": "query",
+      "meta": {
+        "text": ""
+      }
+    },
+    {
+      "id": ".claude/agents/v2v-protocol-ref.md",
+      "type": "file"
+    },
+    {
+      "id": "query:batch timeout system currenttimemillis wall clock",
+      "type": "query",
+      "meta": {
+        "text": "batch timeout System.currentTimeMillis wall clock"
+      }
+    },
+    {
+      "id": "bftsmart/library/src/main/java/bftsmart/tom/core/TOMLayer.java",
+      "type": "file"
+    },
+    {
+      "id": "query:invokeordered tcp gateway dead code",
+      "type": "query",
+      "meta": {
+        "text": "invokeOrdered TCP gateway dead code"
+      }
+    },
+    {
+      "id": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionGateway.java",
+      "type": "file"
+    },
+    {
+      "id": "query:sendconsensusrequest invokeordered localclientproxy wall time thread sleep",
+      "type": "query",
+      "meta": {
+        "text": "sendConsensusRequest invokeOrdered localClientProxy wall time Thread.sleep"
+      }
+    },
+    {
+      "id": "query:nack handlestopnack heardbyregency nackreplycount simulationclock wall timer stop_retx",
+      "type": "query",
+      "meta": {
+        "text": "NACK handleStopNack heardByRegency nackReplyCount SimulationClock wall timer STOP_RETX"
+      }
+    },
+    {
+      "id": "query:byzantine leader failure change",
+      "type": "query",
+      "meta": {
+        "text": "byzantine leader failure leader change"
+      }
+    },
+    {
+      "id": "experiment_orchestrator.py::apply_scale",
+      "type": "file"
     }
   ],
   "edges": [
@@ -661,6 +738,120 @@
       "to": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
       "rel": "edited",
       "ts": 1776902430
+    },
+    {
+      "from": "query:full stack system review protocol spec alignment v2v",
+      "to": "fourway/plot_wait_time_cdf.py::parse_scenario_spec",
+      "rel": "retrieved",
+      "ts": 1776927233
+    },
+    {
+      "from": "query:full stack system review protocol spec alignment v2v",
+      "to": "fourway/benchmarks/analyze_two_phase_v2_avg_runs.py",
+      "rel": "retrieved",
+      "ts": 1776927233
+    },
+    {
+      "from": "query:full stack system review protocol spec alignment v2v",
+      "to": "experiment_orchestrator.py::patch_system_config",
+      "rel": "retrieved",
+      "ts": 1776927233
+    },
+    {
+      "from": "query:full stack system review protocol spec alignment v2v",
+      "to": "fourway/analyze_log.py::save_waittime_by_car_plot",
+      "rel": "retrieved",
+      "ts": 1776927233
+    },
+    {
+      "from": "query:full stack system review protocol spec alignment v2v",
+      "to": "fourway/benchmarks/analyzetwo_phase.py::generate_stacked_bar_chart",
+      "rel": "retrieved",
+      "ts": 1776927233
+    },
+    {
+      "from": "query:(empty)",
+      "to": ".claude/agents/v2v-protocol-ref.md",
+      "rel": "read",
+      "ts": 1776927245,
+      "meta": {
+        "mode": "full"
+      }
+    },
+    {
+      "from": "query:(empty)",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+      "rel": "read",
+      "ts": 1776927245,
+      "meta": {
+        "mode": "head"
+      }
+    },
+    {
+      "from": "query:batch timeout system currenttimemillis wall clock",
+      "to": "bftsmart/library/src/main/java/bftsmart/tom/core/TOMLayer.java",
+      "rel": "read",
+      "ts": 1776927463,
+      "meta": {
+        "mode": "query_excerpt"
+      }
+    },
+    {
+      "from": "query:invokeordered tcp gateway dead code",
+      "to": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionGateway.java",
+      "rel": "read",
+      "ts": 1776927464,
+      "meta": {
+        "mode": "query_excerpt"
+      }
+    },
+    {
+      "from": "query:sendconsensusrequest invokeordered localclientproxy wall time thread sleep",
+      "to": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
+      "rel": "read",
+      "ts": 1776927471,
+      "meta": {
+        "mode": "query_excerpt"
+      }
+    },
+    {
+      "from": "query:nack handlestopnack heardbyregency nackreplycount simulationclock wall timer stop_retx",
+      "to": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
+      "rel": "read",
+      "ts": 1776927473,
+      "meta": {
+        "mode": "query_excerpt"
+      }
+    },
+    {
+      "from": "query:byzantine leader failure change",
+      "to": "bftsmart/metricParser.py::generate_plots",
+      "rel": "retrieved",
+      "ts": 1776974709
+    },
+    {
+      "from": "query:byzantine leader failure change",
+      "to": "experiment_orchestrator.py::apply_scale",
+      "rel": "retrieved",
+      "ts": 1776974709
+    },
+    {
+      "from": "query:byzantine leader failure change",
+      "to": "fourway/analyze_log.py::fmt_stat",
+      "rel": "retrieved",
+      "ts": 1776974709
+    },
+    {
+      "from": "query:byzantine leader failure change",
+      "to": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+      "rel": "retrieved",
+      "ts": 1776974709
+    },
+    {
+      "from": "query:byzantine leader failure change",
+      "to": "fourway/benchmarks/analyze_benchmarks.py::main",
+      "rel": "retrieved",
+      "ts": 1776974709
     }
   ],
   "files": {
@@ -696,9 +887,12 @@
       "last_ts": 1776120539
     },
     "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc": {
-      "last_action": "edited",
-      "last_ts": "2026-04-14T03:33:11.097218+00:00",
-      "edited_count": 2
+      "query_terms": [],
+      "cached_content": "//\n// V2VProxyModule.cc\n// Implementation of V2V Proxy Module for BFT-SMaRt\n//\n\n#include \"veins/modules/bftsmart/V2VProxyModule.h\"\n#include \"veins/modules/bftsmart/crypto/CryptoAuth.h\"\n#include \"veins/base/utils/SimpleAddress.h\"\n#include \"veins/modules/utility/Consts80211p.h\"\n#include <algorithm>\n#i",
+      "cached_chars": 20000,
+      "cached_tokens_est": 5000,
+      "last_action": "read",
+      "last_ts": 1776927245
     },
     "fourway/analyze_log.py::all_per_epoch": {
       "query_terms": [
@@ -779,9 +973,21 @@
       "last_ts": 1776144623
     },
     "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java": {
-      "last_action": "edited",
-      "last_ts": "2026-04-22T20:02:49.818101+00:00",
-      "edited_count": 2
+      "query_terms": [
+        "nack",
+        "handlestopnack",
+        "heardbyregency",
+        "nackreplycount",
+        "simulationclock",
+        "wall",
+        "timer",
+        "stop_retx"
+      ],
+      "cached_content": "\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an \"AS IS\" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the Li",
+      "cached_chars": 8592,
+      "cached_tokens_est": 2148,
+      "last_action": "read",
+      "last_ts": 1776927473
     },
     "bftsmart/library/src/main/java/bftsmart/tom/core/Synchronizer.java": {
       "last_action": "edited",
@@ -794,9 +1000,57 @@
       "edited_count": 1
     },
     "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java": {
-      "last_action": "edited",
-      "last_ts": "2026-04-23T00:00:30.112638+00:00",
-      "edited_count": 1
+      "query_terms": [
+        "sendconsensusrequest",
+        "invokeordered",
+        "localclientproxy",
+        "wall",
+        "time",
+        "thread",
+        "sleep"
+      ],
+      "cached_content": "import java.util.Collections;\nimport java.util.HashMap;\nimport java.util.HashSet;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\nimport java.util.TreeSet;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.ExecutorService;\ni",
+      "cached_chars": 12000,
+      "cached_tokens_est": 3000,
+      "last_action": "read",
+      "last_ts": 1776927471
+    },
+    ".claude/agents/v2v-protocol-ref.md": {
+      "query_terms": [],
+      "cached_content": "# V2V BFT Protocol \u2014 Proof Reference\n\nFull implementation notes: `/home/yash/BFTSMART_PROTOCOL_README.md`\n\n## Architecture\n\n- **Single-round `PROPOSE_ALL`** protocol. Do NOT introduce a second `invokeOrdered` call.\n- **Vehicles are the replicas** \u2014 highly mobile, dynamic, subject to epoch churn.\n- *",
+      "cached_chars": 5408,
+      "cached_tokens_est": 1352,
+      "last_action": "read",
+      "last_ts": 1776927245
+    },
+    "bftsmart/library/src/main/java/bftsmart/tom/core/TOMLayer.java": {
+      "query_terms": [
+        "batch",
+        "timeout",
+        "system",
+        "currenttimemillis",
+        "wall",
+        "clock"
+      ],
+      "cached_content": " * http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS, WITHOUT\n * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the\n * License for the specific",
+      "cached_chars": 6000,
+      "cached_tokens_est": 1500,
+      "last_action": "read",
+      "last_ts": 1776927463
+    },
+    "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionGateway.java": {
+      "query_terms": [
+        "invokeordered",
+        "tcp",
+        "gateway",
+        "dead",
+        "code"
+      ],
+      "cached_content": "package bftsmart.demo.intersection;\n\nimport java.io.BufferedReader;\nimport java.io.IOException;\nimport java.io.InputStreamReader;\nimport java.io.PrintWriter;\nimport java.net.ServerSocket;\nimport java.net.Socket;\nimport java.nio.charset.StandardCharsets;\nimport bftsmart.tom.ServiceProxy;\n\n/**\n * TCP ",
+      "cached_chars": 8000,
+      "cached_tokens_est": 2000,
+      "last_action": "read",
+      "last_ts": 1776927464
     }
   },
   "actions": [
@@ -991,6 +1245,60 @@
       "kind": "register_edit",
       "payload": {
         "kind": "register_edit"
+      }
+    },
+    {
+      "ts": 1776927233,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "full stack system review: protocol spec alignment, V2V communication vs TCP/Netty, sim time enforcement, intersection logic, leader change NACKs, JNI bridge"
+      }
+    },
+    {
+      "ts": 1776927233,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "full stack system review: protocol spec alignment, V2V communication vs TCP/Netty, sim time enforcement, intersection logic, leader change NACKs, JNI bridge"
+      }
+    },
+    {
+      "ts": 1776927480,
+      "kind": "read_cache_hit",
+      "payload": {
+        "kind": "read_cache_hit",
+        "file": "bftsmart/library/src/main/java/bftsmart/tom/core/TOMLayer.java",
+        "query": "lastRequest currentTimeMillis batchTimeout batch timer scheduleAtFixedRate",
+        "mode": "cache_hit",
+        "response_chars": 300
+      }
+    },
+    {
+      "ts": 1776927481,
+      "kind": "read_cache_hit",
+      "payload": {
+        "kind": "read_cache_hit",
+        "file": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
+        "query": "sendConsensusRequest Thread.sleep invokeOrdered invokeOrderedWithTimeout sleep delay",
+        "mode": "cache_hit",
+        "response_chars": 300
+      }
+    },
+    {
+      "ts": 1776974709,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "byzantine leader failure leader change"
+      }
+    },
+    {
+      "ts": 1776974709,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "byzantine leader failure leader change"
       }
     }
   ],

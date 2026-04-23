@@ -40,6 +40,25 @@ bool V2VProxyModule::sendMessageToReplica(int fromReplicaId, int toReplicaId, co
     return true;
 }
 
+// Enqueue a CLIENT_REQUEST_V2V (type=9) for broadcast by the leader.
+// Called from Java via nativeBroadcastClientRequest JNI; processes on sim thread.
+void V2VProxyModule::enqueueBroadcastClientRequest(int fromReplicaId, const std::vector<uint8_t>& data)
+{
+    std::cout << "[V2V-SEND] Replica " << replicaId << ": Enqueueing CLIENT_REQUEST_V2V broadcast ("
+              << data.size() << " bytes) at t=" << simTime() << "\n";
+    PendingMessage pendingMsg;
+    pendingMsg.fromReplicaId = fromReplicaId;
+    pendingMsg.toReplicaId   = -1;   // broadcast
+    pendingMsg.data          = data;
+    pendingMsg.messageType   = 9;    // CLIENT_REQUEST_V2V
+    std::lock_guard<std::mutex> lock(jniMutex);
+    if (messageQueue.size() >= MAX_QUEUE_SIZE) {
+        std::cerr << "[V2V-SEND] Replica " << replicaId << ": CLIENT_REQUEST_V2V DROPPED — queue full\n";
+        return;
+    }
+    messageQueue.push(pendingMsg);
+}
+
 // Register Java callback object for delivering received messages
 
 void V2VProxyModule::registerJavaCallback(JNIEnv* env, jobject javaObject)
@@ -60,6 +79,7 @@ void V2VProxyModule::registerJavaCallback(JNIEnv* env, jobject javaObject)
     
     if (!deliverMessageMethod) {
         std::cerr << "[ERROR V2VProxy " << replicaId << "] Failed to find deliverMessage method in Java class" << "\n";
+        env->ExceptionClear();
     } else {
         std::cout << "[DEBUG V2VProxy " << replicaId << "] Java callback registered successfully" << "\n";
     }
@@ -487,9 +507,48 @@ void V2VProxyModule::handlepreConsensusMessages(BFTMessage* bftMsg) {
             std::cout << " (EXECUTING)" << "\n";
             handleExecutingMessage(bftMsg);
             break;
+        case 9:  // CLIENT_REQUEST_V2V — PROPOSE_ALL TOMMessage broadcast by leader
+            std::cout << " (CLIENT_REQUEST_V2V)" << "\n";
+            handleClientRequestBroadcast(bftMsg);
+            break;
         default:
             std::cout << " (UNKNOWN)" << "\n";
             EV_WARN << "Unknown message type: " << msgType << "\n";
     }
     delete bftMsg;
+}
+
+// Delivers a PROPOSE_ALL TOMMessage received via type-9 V2V broadcast to this
+// follower's TOMLayer. Runs on the OMNeT++ simulation thread (dequeued by
+// processQueueTimer) so it is safe to call JNI here without re-entering OMNeT++.
+void V2VProxyModule::handleClientRequestBroadcast(BFTMessage* bftMsg)
+{
+    if (!sharedJVM || !intersectionServerGlobalClass || !deliverInjectedClientRequestMethod) {
+        EV_WARN << "Replica " << replicaId << ": handleClientRequestBroadcast: JNI not ready, dropping\n";
+        return;
+    }
+
+    JNIEnv* env;
+    bool attached = false;
+    if (sharedJVM->GetEnv((void**)&env, JNI_VERSION_1_8) == JNI_EDETACHED) {
+        sharedJVM->AttachCurrentThread((void**)&env, nullptr);
+        attached = true;
+    }
+
+    int dataLen = static_cast<int>(bftMsg->getPayloadArraySize());
+    jbyteArray jba = env->NewByteArray(dataLen);
+    std::vector<uint8_t> buf(dataLen);
+    for (int i = 0; i < dataLen; i++) buf[i] = static_cast<uint8_t>(bftMsg->getPayload(i));
+    env->SetByteArrayRegion(jba, 0, dataLen, reinterpret_cast<const jbyte*>(buf.data()));
+
+    env->CallStaticVoidMethod(intersectionServerGlobalClass,
+                              deliverInjectedClientRequestMethod,
+                              static_cast<jint>(replicaId), jba);
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+    }
+    env->DeleteLocalRef(jba);
+
+    if (attached) sharedJVM->DetachCurrentThread();
 }

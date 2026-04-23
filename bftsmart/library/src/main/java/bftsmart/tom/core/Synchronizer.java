@@ -1117,6 +1117,7 @@ public class Synchronizer {
                 bos.close();
 
                 syncSentRegencies.add(regency);
+                syncSentRegencies.removeIf(r -> r < regency - 10);
                 logger.info("Sending SYNC message for regency " + regency);
                 System.out.println("[VIEW-CHANGE] Replica " + this.controller.getStaticConf().getProcessId()
                         + " is NEW LEADER — sending SYNC for regency " + regency);

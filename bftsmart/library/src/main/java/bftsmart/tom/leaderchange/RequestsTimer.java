@@ -29,6 +29,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import bftsmart.communication.ServerCommunicationSystem;
 import bftsmart.communication.V2V.SimulationClock;
@@ -176,7 +177,7 @@ public class RequestsTimer {
 
     // regency -> (nackerPid -> number of resends already sent to that peer).
     // DoS cap; reset when the regency is installed via stopSTOP().
-    private final HashMap<Integer, HashMap<Integer, Integer>> nackReplyCount = new HashMap<>();
+    private final ConcurrentHashMap<Integer, ConcurrentHashMap<Integer, Integer>> nackReplyCount = new ConcurrentHashMap<>();
 
     // Per-regency set of acceptor pids whose STOP we have actually observed
     // on the wire. Maintained independently of LCManager.stops because
@@ -185,7 +186,7 @@ public class RequestsTimer {
     // memory leaks — at which point getStopSenders() is worthless for
     // computing a missing-peers bitmask. This set is ONLY used by the
     // STOP_NACK transport; it never feeds the BFT quorum.
-    private final HashMap<Integer, HashSet<Integer>> heardByRegency = new HashMap<>();
+    private final ConcurrentHashMap<Integer, Set<Integer>> heardByRegency = new ConcurrentHashMap<>();
 
     // Shared daemon scheduler used to add a small wall-ms jitter between a
     // STOP_NACK arrival and our resend, preventing synchronized CSMA-CA
@@ -424,7 +425,7 @@ public class RequestsTimer {
      * #stopSTOP(int)} because stopSTOP is re-used on every intra-regency
      * rescheduleSTOP and we don't want to lose counts mid-regency.
      */
-    public void dropRegencyState(int regency) {
+    public synchronized void dropRegencyState(int regency) {
         currentStopByRegency.remove(regency);
         blindEmitCount.remove(regency);
         nackReplyCount.remove(regency);
@@ -471,7 +472,7 @@ public class RequestsTimer {
      */
     public void recordHeardStop(int regency, int fromPid) {
         if (regency < 0 || fromPid < 0) return;
-        heardByRegency.computeIfAbsent(regency, r -> new HashSet<>()).add(fromPid);
+        heardByRegency.computeIfAbsent(regency, r -> ConcurrentHashMap.newKeySet()).add(fromPid);
     }
     
     public Set<Integer> getTimers() {
@@ -509,15 +510,15 @@ public class RequestsTimer {
         LCMessage myStop = currentStopByRegency.get(regency);
         if (myStop == null) return;                       // regency installed or never started
 
-        HashMap<Integer, Integer> counts =
-                nackReplyCount.computeIfAbsent(regency, r -> new HashMap<>());
-        int already = counts.getOrDefault(fromPid, 0);
-        if (already >= NACK_REPLIES_PER_PEER) {
+        ConcurrentHashMap<Integer, Integer> counts =
+                nackReplyCount.computeIfAbsent(regency, r -> new ConcurrentHashMap<>());
+        // Atomic increment + cap: returns the NEW count after increment.
+        int newCount = counts.merge(fromPid, 1, Integer::sum);
+        if (newCount > NACK_REPLIES_PER_PEER) {
             logger.debug("STOP_NACK from " + fromPid + " reg=" + regency
                     + " ignored (reply cap " + NACK_REPLIES_PER_PEER + " reached)");
             return;
         }
-        counts.put(fromPid, already + 1);
 
         final long jitterWallMs = 0; // C++ sendDelayed slot stagger makes wall-clock jitter redundant
         // Broadcast to ALL peers, not just the NACKer. On 802.11p every
@@ -532,7 +533,7 @@ public class RequestsTimer {
         final LCMessage stopToSend = myStop;
 
         logger.info("Responding to STOP_NACK from " + fromPid + " reg=" + regency
-                + " (resend " + (already + 1) + "/" + NACK_REPLIES_PER_PEER
+                + " (resend " + (newCount + 1) + "/" + NACK_REPLIES_PER_PEER
                 + ", jitter=" + jitterWallMs + "ms)");
 
         nackReplyExec.schedule(() -> {

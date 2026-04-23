@@ -149,32 +149,34 @@ V2VProxyModule* V2VProxyModule::getProxyForReplica(int replicaId)
 void V2VProxyModule::notifyJavaRadioReady()
 {
     std::lock_guard<std::mutex> lock(jvmMutex);
-    
+
     if (!sharedJVM || !javaCallbackObject) return;
-    
+
     JNIEnv* env;
-    int envStat = sharedJVM->GetEnv((void**)&env, JNI_VERSION_1_8);
-    if (envStat == JNI_EDETACHED) {
+    bool attached = false;
+    if (sharedJVM->GetEnv((void**)&env, JNI_VERSION_1_8) == JNI_EDETACHED) {
         sharedJVM->AttachCurrentThread((void**)&env, nullptr);
+        attached = true;
     }
-    
+
     // Get onRadioReady method if not cached
     if (!onRadioReadyMethod) {
         jclass cls = env->GetObjectClass(javaCallbackObject);
         onRadioReadyMethod = env->GetMethodID(cls, "onRadioReady", "()V");
         if (!onRadioReadyMethod) {
-            // Method not found - Java hasn't implemented it yet, that's okay
             env->ExceptionClear();
+            if (attached) sharedJVM->DetachCurrentThread();
             return;
         }
     }
-    
+
     // Call Java's onRadioReady()
     env->CallVoidMethod(javaCallbackObject, onRadioReadyMethod);
-    
+
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
     }
+    if (attached) sharedJVM->DetachCurrentThread();
 }
 
 bool V2VProxyModule::triggerJoinViaJNI(const std::string& request )
@@ -192,17 +194,19 @@ bool V2VProxyModule::triggerJoinViaJNI(const std::string& request )
     }
     
     JNIEnv* env;
-    int envStat = sharedJVM->GetEnv((void**)&env, JNI_VERSION_1_8);
-    if (envStat == JNI_EDETACHED) {
+    bool attached = false;
+    if (sharedJVM->GetEnv((void**)&env, JNI_VERSION_1_8) == JNI_EDETACHED) {
         sharedJVM->AttachCurrentThread((void**)&env, nullptr);
+        attached = true;
     }
-    
+
     // Find ServerRunner class
     jclass serverRunnerClass = env->FindClass("bftsmart/demo/intersection/ServerRunner");
     if (!serverRunnerClass) {
         std::cerr << "[ERROR V2VProxy " << replicaId << "] Failed to find ServerRunner class" << "\n";
         env->ExceptionDescribe();
         env->ExceptionClear();
+        if (attached) sharedJVM->DetachCurrentThread();
         return false;
     }
 
@@ -233,6 +237,7 @@ bool V2VProxyModule::triggerJoinViaJNI(const std::string& request )
         if (status != "READY") {
             std::cout << "[V2VProxy " << replicaId << "] FAILED: Server Status = '" << status
                       << "' (expected 'READY') at t=" << simTime() << "\n";
+            if (attached) sharedJVM->DetachCurrentThread();
             return false;
         }
         std::cout << "[V2VProxy " << replicaId << "] PASSED: Server Status = 'READY'" << "\n";
@@ -241,35 +246,33 @@ bool V2VProxyModule::triggerJoinViaJNI(const std::string& request )
     jmethodID readyMethod = env->GetStaticMethodID(serverRunnerClass, "isReplicaReady", "(I)Z");
     if (readyMethod) {
         jboolean isReady = env->CallStaticBooleanMethod(serverRunnerClass, readyMethod, replicaId);
-        
+
         if (!isReady) {
             std::cout << "[V2VProxy " << replicaId << "] FAILED: isReplicaReady() = false at t="
                       << simTime() << "\n";
-            return false; // Return false so handleSelfMsg reschedules the timer
+            if (attached) sharedJVM->DetachCurrentThread();
+            return false;
         }
         std::cout << "[V2VProxy " << replicaId << "] PASSED: isReplicaReady() = true" << "\n";
     } else {
         std::cerr << "[ERROR] Could not find isReplicaReady method!" << "\n";
+        if (attached) sharedJVM->DetachCurrentThread();
         return false;
     }
-    
+
     // Get the static triggerJoinForReplica method with String parameter
     jmethodID triggerMethod = env->GetStaticMethodID(serverRunnerClass, "triggerJoinForReplica", "(ILjava/lang/String;)V");
 
+    bool result = false;
     if (triggerMethod) {
-        // Convert C++ string to Java string
         jstring jRequest = env->NewStringUTF(request.c_str());
-
-        // Call Java method with replica ID and request string
         env->CallStaticVoidMethod(serverRunnerClass, triggerMethod, replicaId, jRequest);
-
-        // Clean up local reference
         env->DeleteLocalRef(jRequest);
 
         if (!env->ExceptionCheck()) {
             std::cout << "[V2VProxy " << replicaId << "] SUCCESS: Triggered consensus request '"
                       << request << "' at t=" << simTime() << "\n";
-            return true; // Success!
+            result = true;
         } else {
             std::cerr << "[V2VProxy " << replicaId << "] Exception calling triggerJoinForReplica" << "\n";
             env->ExceptionDescribe();
@@ -279,8 +282,8 @@ bool V2VProxyModule::triggerJoinViaJNI(const std::string& request )
         std::cerr << "[V2VProxy " << replicaId << "] ERROR: Could not find triggerJoinForReplica(I, String) method" << "\n";
     }
 
-    return false;
-
+    if (attached) sharedJVM->DetachCurrentThread();
+    return result;
 }
 
 bool V2VProxyModule::triggerGlobalResetViaJNI(const std::vector<int>& departedReplicas)
@@ -295,33 +298,33 @@ bool V2VProxyModule::triggerGlobalResetViaJNI(const std::vector<int>& departedRe
     }
     
     JNIEnv* env;
-    int envStat = sharedJVM->GetEnv((void**)&env, JNI_VERSION_1_8);
-    if (envStat == JNI_EDETACHED) {
+    bool attached = false;
+    if (sharedJVM->GetEnv((void**)&env, JNI_VERSION_1_8) == JNI_EDETACHED) {
         sharedJVM->AttachCurrentThread((void**)&env, nullptr);
+        attached = true;
     }
-    
+
     // Find ReliableV2VMessaging class
     jclass messagingClass = env->FindClass("bftsmart/communication/V2V/ReliableV2VMessaging");
     if (!messagingClass) {
         std::cerr << "[ERROR V2VProxy " << replicaId << "] Failed to find ReliableV2VMessaging class" << "\n";
         env->ExceptionDescribe();
         env->ExceptionClear();
+        if (attached) sharedJVM->DetachCurrentThread();
         return false;
     }
 
     // Get the static globalResetV2V method taking int[]
     jmethodID resetMethod = env->GetStaticMethodID(messagingClass, "globalResetV2V", "([I)V");
 
+    bool result = false;
     if (resetMethod) {
         jintArray jDepartedArray = nullptr;
         if (!departedReplicas.empty()) {
             jDepartedArray = env->NewIntArray(departedReplicas.size());
-            // Need cast because jint is usually long on 64-bit windows, but usually int on linux.
-            // On linux jint is int32_t. data() of vector<int> is safe for SetIntArrayRegion.
             env->SetIntArrayRegion(jDepartedArray, 0, departedReplicas.size(), (const jint*)departedReplicas.data());
         }
 
-        // Call Java method
         env->CallStaticVoidMethod(messagingClass, resetMethod, jDepartedArray);
 
         if (jDepartedArray) {
@@ -330,7 +333,7 @@ bool V2VProxyModule::triggerGlobalResetViaJNI(const std::vector<int>& departedRe
 
         if (!env->ExceptionCheck()) {
             std::cout << "[V2VProxy " << replicaId << "] SUCCESS: Triggered globalResetV2V via JNI at t=" << simTime() << "\n";
-            return true; // Success!
+            result = true;
         } else {
             std::cerr << "[V2VProxy " << replicaId << "] Exception calling globalResetV2V" << "\n";
             env->ExceptionDescribe();
@@ -340,7 +343,8 @@ bool V2VProxyModule::triggerGlobalResetViaJNI(const std::vector<int>& departedRe
         std::cerr << "[V2VProxy " << replicaId << "] ERROR: Could not find globalResetV2V([I)V method" << "\n";
     }
 
-    return false;
+    if (attached) sharedJVM->DetachCurrentThread();
+    return result;
 }
 
 bool V2VProxyModule::warmupJVM(JNIEnv* env)
@@ -404,6 +408,24 @@ bool V2VProxyModule::createOrAttachJVM()
             env->DeleteLocalRef(localClockCls);
         } else {
             std::cerr << "[V2VProxy " << replicaId << "] WARNING: SimulationClock class not found on attach" << "\n";
+            env->ExceptionClear();
+        }
+
+        // Cache IntersectionServer static callback for type-9 CLIENT_REQUEST_V2V dispatch.
+        // Must be done here (attach path) too — registerJNINativeMethods() runs only on
+        // replica 0 (the JVM creator); replicas 1..N-1 enter via this attach branch.
+        jclass localISCls = env->FindClass("bftsmart/demo/intersection/IntersectionServer");
+        if (localISCls) {
+            intersectionServerGlobalClass = static_cast<jclass>(env->NewGlobalRef(localISCls));
+            env->DeleteLocalRef(localISCls);
+            deliverInjectedClientRequestMethod = env->GetStaticMethodID(
+                intersectionServerGlobalClass, "deliverInjectedClientRequest", "(I[B)V");
+            if (!deliverInjectedClientRequestMethod) {
+                std::cerr << "[V2VProxy " << replicaId << "] WARNING: deliverInjectedClientRequest not found on attach\n";
+                env->ExceptionClear();
+            }
+        } else {
+            std::cerr << "[V2VProxy " << replicaId << "] WARNING: IntersectionServer class not found on attach\n";
             env->ExceptionClear();
         }
 
@@ -545,6 +567,8 @@ extern "C" {
         (JNIEnv*, jobject, jint);
     JNIEXPORT jstring JNICALL Java_bftsmart_demo_intersection_IntersectionServer_nativeGetFreshProposePayload
         (JNIEnv*, jobject, jint);
+    JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_nativeBroadcastClientRequest
+        (JNIEnv*, jobject, jint, jbyteArray);
 }
 
 
@@ -622,17 +646,28 @@ bool V2VProxyModule::registerJNINativeMethods(JNIEnv* env)
         {const_cast<char*>("notifyProposeAllConsensusMetric"), const_cast<char*>("(IID)V"),     (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyProposeAllConsensusMetric},
         {const_cast<char*>("notifyWipeComplete"),    const_cast<char*>("(I)V"),                 (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyWipeComplete},
         {const_cast<char*>("nativeGetCertSnapshot"), const_cast<char*>("(I)Ljava/util/Set;"),  (void*)&Java_bftsmart_demo_intersection_IntersectionServer_nativeGetCertSnapshot},
-        {const_cast<char*>("nativeGetFreshProposePayload"), const_cast<char*>("(I)Ljava/lang/String;"), (void*)&Java_bftsmart_demo_intersection_IntersectionServer_nativeGetFreshProposePayload}
+        {const_cast<char*>("nativeGetFreshProposePayload"), const_cast<char*>("(I)Ljava/lang/String;"), (void*)&Java_bftsmart_demo_intersection_IntersectionServer_nativeGetFreshProposePayload},
+        {const_cast<char*>("nativeBroadcastClientRequest"), const_cast<char*>("(I[B)V"),        (void*)&Java_bftsmart_demo_intersection_IntersectionServer_nativeBroadcastClientRequest}
     };
 
-    if (env->RegisterNatives(intersectionServerClass, serverMethods, 7) != 0) {
+    if (env->RegisterNatives(intersectionServerClass, serverMethods, 8) != 0) {
         std::cerr << "[V2VProxy] ERROR: Failed to register IntersectionServer native methods" << "\n";
         env->ExceptionDescribe();
         env->ExceptionClear();
         return false;
     }
 
-    std::cout << "[V2VProxy] Successfully registered 7 IntersectionServer JNI native methods" << "\n";
+    std::cout << "[V2VProxy] Successfully registered 8 IntersectionServer JNI native methods" << "\n";
+
+    // Cache IntersectionServer.deliverInjectedClientRequest(int, byte[]) for type-9 dispatch.
+    intersectionServerGlobalClass = static_cast<jclass>(env->NewGlobalRef(intersectionServerClass));
+    deliverInjectedClientRequestMethod = env->GetStaticMethodID(
+        intersectionServerGlobalClass, "deliverInjectedClientRequest", "(I[B)V");
+    if (!deliverInjectedClientRequestMethod) {
+        std::cerr << "[V2VProxy] WARNING: deliverInjectedClientRequest not found — type-9 dispatch will be no-op\n";
+        env->ExceptionClear();
+    }
+
     return true;
 
 
@@ -646,7 +681,11 @@ void V2VProxyModule::startBFTSmartReplica()
     }
 
     JNIEnv* env;
-    jvm->AttachCurrentThread((void**)&env, nullptr);
+    bool attached = false;
+    if (jvm->GetEnv((void**)&env, JNI_VERSION_1_8) == JNI_EDETACHED) {
+        jvm->AttachCurrentThread((void**)&env, nullptr);
+        attached = true;
+    }
 
     std::cout << "[V2VProxyModule] Starting BFTSmart replica " << replicaId << " in background Java thread" << "\n";
 
@@ -655,6 +694,7 @@ void V2VProxyModule::startBFTSmartReplica()
     if (!runnerClass) {
         std::cerr << "[V2VProxyModule] ERROR: Failed to find ServerRunner class" << "\n";
         env->ExceptionDescribe();
+        if (attached) jvm->DetachCurrentThread();
         return;
     }
 
@@ -663,6 +703,7 @@ void V2VProxyModule::startBFTSmartReplica()
     if (!runnerCtor) {
         std::cerr << "[V2VProxyModule] ERROR: Failed to find ServerRunner constructor" << "\n";
         env->ExceptionDescribe();
+        if (attached) jvm->DetachCurrentThread();
         return;
     }
 
@@ -671,6 +712,7 @@ void V2VProxyModule::startBFTSmartReplica()
     if (!runnerInstance) {
         std::cerr << "[V2VProxyModule] ERROR: Failed to create ServerRunner instance" << "\n";
         env->ExceptionDescribe();
+        if (attached) jvm->DetachCurrentThread();
         return;
     }
 
@@ -679,6 +721,7 @@ void V2VProxyModule::startBFTSmartReplica()
     if (!threadClass) {
         std::cerr << "[V2VProxyModule] ERROR: Failed to find Thread class" << "\n";
         env->ExceptionDescribe();
+        if (attached) jvm->DetachCurrentThread();
         return;
     }
 
@@ -687,6 +730,7 @@ void V2VProxyModule::startBFTSmartReplica()
     if (!threadCtor) {
         std::cerr << "[V2VProxyModule] ERROR: Failed to find Thread constructor" << "\n";
         env->ExceptionDescribe();
+        if (attached) jvm->DetachCurrentThread();
         return;
     }
 
@@ -695,6 +739,7 @@ void V2VProxyModule::startBFTSmartReplica()
     if (!thread) {
         std::cerr << "[V2VProxyModule] ERROR: Failed to create Thread" << "\n";
         env->ExceptionDescribe();
+        if (attached) jvm->DetachCurrentThread();
         return;
     }
 
@@ -703,6 +748,7 @@ void V2VProxyModule::startBFTSmartReplica()
     if (!startMethod) {
         std::cerr << "[V2VProxyModule] ERROR: Failed to find Thread.start method" << "\n";
         env->ExceptionDescribe();
+        if (attached) jvm->DetachCurrentThread();
         return;
     }
 

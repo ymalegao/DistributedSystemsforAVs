@@ -15,10 +15,8 @@ limitations under the License.
 */
 package bftsmart.demo.intersection;
 
-import bftsmart.clientsmanagement.ClientsManager;
 import bftsmart.communication.V2V.SimulationClock;
 import bftsmart.tom.MessageContext;
-import bftsmart.tom.ServiceProxy;
 import bftsmart.tom.ServiceReplica;
 import bftsmart.tom.core.messages.TOMMessage;
 import bftsmart.tom.core.messages.TOMMessageType;
@@ -42,13 +40,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
-
+import bftsmart.clientsmanagement.ClientsManager;
 /**
  * BFT replicated service for the single-round PROPOSE_ALL intersection protocol.
  *
@@ -63,7 +56,6 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
  */
 public final class IntersectionServer extends DefaultRecoverable implements ViewChangeRebuildHook {
     private static final Map<Integer, IntersectionServer> readyServers = new ConcurrentHashMap<>();
-    private static final int CONSENSUS_REQUEST_TIMEOUT_SEC = 3600;
 
     private long roundNumber = 0;
     private final int processId;
@@ -76,11 +68,16 @@ public final class IntersectionServer extends DefaultRecoverable implements View
     private volatile boolean proposeAllSubmitted = false;
     volatile Map<String, VehicleState> agreedViewState = null;
 
-    private ServiceProxy localClientProxy = null;
-    private long consensusStartWall;
+    /** Monotonically increasing sequence number for the virtual client TOMMessages. */
+    private volatile long clientSeqNum = 0;
+    /** Stamped at proposal submission; read by appExecuteBatch on delivery thread. */
+    private volatile long consensusStartWall = 0;
 
     /** Notify C++ that wipeAndReinit completed; C++ will command re-announce. */
     private native void notifyWipeComplete(int processId);
+
+    /** Kept for JNI registration compatibility with V2VJVMLifecycle. */
+    private native void notifyVehicleCanGo(int replicaId, double delaySeconds);
 
     /** Notify C++ of the single-round PROPOSE_ALL wall-clock consensus latency. */
     private native void notifyProposeAllConsensusMetric(int replicaId, int epoch, double wallSeconds);
@@ -90,9 +87,6 @@ public final class IntersectionServer extends DefaultRecoverable implements View
 
     /** Notify C++ that ORDER consensus completed. */
     private native void notifyOrderDecided(int replicaId, String orderDecision);
-
-    @SuppressWarnings("unused")
-    private native void notifyVehicleCanGo(int replicaId, double delaySeconds);
 
     /**
      * JNI pull: returns the key set of this replica's C++ collectedCerts map.
@@ -105,6 +99,34 @@ public final class IntersectionServer extends DefaultRecoverable implements View
      * current C++ collectedCerts. Called only from getFreshProposePayload().
      */
     private native String nativeGetFreshProposePayload(int replicaId);
+
+    /**
+     * JNI push: leader broadcasts a serialized TOMMessage to all follower cars via
+     * the 802.11p V2V radio (msgType=9). Leader self-delivers separately.
+     * C++ calls deliverInjectedClientRequest() on each follower upon receipt.
+     */
+    private native void nativeBroadcastClientRequest(int fromReplicaId, byte[] tomBytes);
+
+    /**
+     * Called from C++ (via JNI) when a CLIENT_REQUEST_V2V (type=9) broadcast lands.
+     * Injects the deserialized TOMMessage directly into this follower's TOMLayer,
+     * bypassing Netty. Runs on the OMNeT++ simulation thread.
+     */
+    public static void deliverInjectedClientRequest(int toReplicaId, byte[] tomBytes) {
+        IntersectionServer srv = readyServers.get(toReplicaId);
+        if (srv == null) {
+            System.err.println("[IntersectionServer] deliverInjectedClientRequest: no server for replica " + toReplicaId);
+            return;
+        }
+        try {
+            ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(tomBytes));
+            TOMMessage tom = (TOMMessage) ois.readObject();
+            ois.close();
+            srv.replica.getTOMLayer().requestReceived(tom, false);
+        } catch (Exception e) {
+            System.err.println("[IntersectionServer " + toReplicaId + "] Failed to inject TOMMessage: " + e.getMessage());
+        }
+    }
 
     /**
      * Returns a consistent snapshot of carIds in C++ collectedCerts at the moment of the call.
@@ -240,18 +262,18 @@ public final class IntersectionServer extends DefaultRecoverable implements View
      */
     public void triggerConsensusRequest(String request) {
         System.out.println("[IntersectionServer " + processId + "] triggerConsensusRequest: " + request);
-
-        new Thread(() -> {
+        // C++ sendDelayed already staggers PROPOSE_ALL injection per replica — no sleep needed here.
+        Thread t = new Thread(() -> {
             try {
-                int delayMs = processId;
-                Thread.sleep(delayMs + 10L);
                 sendConsensusRequest(request);
             } catch (Exception e) {
                 System.err.println("[IntersectionServer " + processId
                         + "] Error in triggerConsensusRequest: " + e.getMessage());
                 e.printStackTrace();
             }
-        }).start();
+        }, "propose-" + processId);
+        t.setDaemon(true);
+        t.start();
     }
 
     /**
@@ -260,25 +282,13 @@ public final class IntersectionServer extends DefaultRecoverable implements View
      * Incoming from C++:
      *   PROPOSE_ALL:<proposerId>:<vehicleStatesStr>:<perCarCerts>
      *
-     * This method appends the computed schedule and calls invokeOrdered once:
-     *   PROPOSE_ALL:<proposerId>:<vehicleStatesStr>:<perCarCerts>:<orderBagStr>
+     * Unified-car V2V path (replaces ServiceProxy/TCP):
+     *   1. Leader self-injects TOMMessage into own TOMLayer (intra-vehicle, instant).
+     *   2. Leader broadcasts serialized TOMMessage via 802.11p V2V (inter-vehicle).
+     *   Followers receive via radio → C++ handleClientRequestBroadcast → deliverInjectedClientRequest.
+     *   Decision arrives asynchronously via appExecuteBatch → notifyOrderDecided.
      */
     private void sendConsensusRequest(String request) {
-        if (this.localClientProxy == null) {
-            int clientId = this.processId + 1000;
-            System.out.println("[SERVER " + this.processId
-                    + "] Initializing persistent ServiceProxy for client " + clientId);
-            this.localClientProxy = new ServiceProxy(clientId);
-
-            try {
-                Thread.sleep(100);
-                System.out.println("[PROXY_INIT " + processId + "] proxy created, wall_offset="
-                        + (System.currentTimeMillis() - experimentStartWall) + "ms");
-            } catch (InterruptedException ignored) {
-                Thread.currentThread().interrupt();
-            }
-        }
-
         if (isReplicaDeparted(processId)) {
             System.out.println("[SERVER " + processId + "] Departed; ignoring consensus request.");
             return;
@@ -303,9 +313,6 @@ public final class IntersectionServer extends DefaultRecoverable implements View
         String vehicleStatesStr = top[2];
         String perCarCertsStr   = top[3];
 
-
-        
-
         // Build view map (filter departed vehicles)
         List<VehicleState> states = ViewConsensusProtocol.parseVehicleStates(vehicleStatesStr);
         Map<String, VehicleState> viewMap = new LinkedHashMap<>();
@@ -321,104 +328,48 @@ public final class IntersectionServer extends DefaultRecoverable implements View
         OrderBag bag = OrderScheduler.buildProposal(viewMap, epoch, waitRegistry);
         String schedulePart = OrderScheduler.serializeOrderBagForBFT(bag);
 
-        // Full message for BFT-SMaRt ordered consensus:
-        // PROPOSE_ALL:<proposerId>:<vehicleStatesStr>:<perCarCerts>:<orderBagStr>
+        // Full payload: PROPOSE_ALL:<proposerId>:<vehicleStatesStr>:<perCarCerts>:<orderBagStr>
         String fullRequest = "PROPOSE_ALL:" + proposerStr + ":" + vehicleStatesStr + ":"
                 + perCarCertsStr + ":" + schedulePart;
 
-        System.out.println("[SERVER " + processId + "] >>> Calling invokeOrdered for PROPOSE_ALL...");
+        System.out.println("[SERVER " + processId + "] >>> Submitting PROPOSE_ALL via V2V broadcast path...");
         bftsmart.communication.V2V.ReliableV2VMessaging.globalResetV2V(null);
         consensusStartWall = System.currentTimeMillis();
         System.out.println("[INVOKE_START " + processId + "] wall_offset="
                 + (System.currentTimeMillis() - experimentStartWall) + "ms");
 
+        // Use epoch as session so sequence 0 is always fresh per round.
+        int clientId = processId + 1000;
+        int session  = epoch;
+        int seqNum   = (int)(clientSeqNum++);
+        byte[] payload = fullRequest.getBytes(StandardCharsets.UTF_8);
+        int viewId = replica.getTOMLayer().controller.getCurrentViewId();
+
+        TOMMessage tom = new TOMMessage(clientId, session, seqNum, 0, payload,
+                                        viewId, TOMMessageType.ORDERED_REQUEST);
+        // Required by ClientsManager#getPendingRequests(), which sizes batches
+        // using request.serializedMessage.length.
+        tom.signed = false;
+        tom.serializedMessage = TOMMessage.messageToBytes(tom);
+
+        // Step 1: intra-vehicle self-delivery (instant, no radio needed)
+        System.out.println("[SERVER " + processId + "] Self-injecting TOMMessage into own TOMLayer");
+        replica.getTOMLayer().requestReceived(tom, false);
+
+        // Step 2: inter-vehicle broadcast via 802.11p (radio latency + channel model apply)
         try {
-            long proxyStart = System.nanoTime();
-            byte[] reply;
-            try {
-                reply = invokeOrderedWithTimeout(this.localClientProxy,
-                        fullRequest.getBytes(StandardCharsets.UTF_8));
-            } catch (NullPointerException npe) {
-                System.err.println("[SERVER " + processId
-                        + "] Netty NPE on stale proxy; nulling for fresh creation on next request.");
-                try {
-                    this.localClientProxy.close();
-                } catch (Exception ignored) {
-                }
-                this.localClientProxy = null;
-                proposeAllSubmitted = false;
-                return;
-            }
-            long proxyEnd = System.nanoTime();
-            System.out.println("[PROFILING " + processId + "] proxy.invokeOrdered took: "
-                    + ((proxyEnd - proxyStart) / 1_000_000.0) + " ms");
-
-            long consensusEndWall = System.currentTimeMillis();
-            // Emit the BFTCONSENSUS metric only if appExecuteBatch hasn't already
-            // emitted+reset it. In the honest-leader path appExecuteBatch fires
-            // before invokeOrdered returns and zeros consensusStartWall, so this
-            // branch is skipped (preventing a duplicate sample). In the rare case
-            // where invokeOrdered returns before delivery (or appExecuteBatch
-            // missed it), this remains the fallback emit point so analyze_log.py
-            // still gets a sample.
-            if (consensusStartWall > 0) {
-                double consensusWallSeconds = (consensusEndWall - consensusStartWall) / 1000.0;
-                System.out.println("[BFTCONSENSUS " + processId + "] PROPOSE_ALL consensus time epoch="
-                        + epoch + ": " + (consensusEndWall - consensusStartWall) + "ms");
-                try {
-                    notifyProposeAllConsensusMetric(processId, epoch, consensusWallSeconds);
-                } catch (UnsatisfiedLinkError e) {
-                    System.err.println("[BFTCONSENSUS] JNI notifyProposeAllConsensusMetric unavailable: "
-                            + e.getMessage());
-                }
-                consensusStartWall = 0;
-            }
-
-            if (reply == null) {
-                return;
-            }
-
-            String replyStr = new String(reply, StandardCharsets.UTF_8);
-            System.out.println("[SERVER " + processId + "] Consensus reply: " + replyStr);
-
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            ObjectOutputStream oos = new ObjectOutputStream(bos);
+            oos.writeObject(tom);
+            oos.flush();
+            byte[] tomBytes = bos.toByteArray();
+            System.out.println("[SERVER " + processId + "] V2V-broadcasting TOMMessage ("
+                    + tomBytes.length + " bytes) to followers");
+            nativeBroadcastClientRequest(processId, tomBytes);
         } catch (Exception e) {
-            System.err.println("[SERVER " + processId + "] Error in consensus request: " + e.getMessage());
-            e.printStackTrace();
-            try {
-                if (this.localClientProxy != null) {
-                    this.localClientProxy.close();
-                }
-            } catch (Exception ignored) {
-            }
-            this.localClientProxy = null;
+            System.err.println("[SERVER " + processId + "] Failed to broadcast TOMMessage: " + e.getMessage());
         }
-    }
-
-    private byte[] invokeOrderedWithTimeout(ServiceProxy proxy, byte[] requestBytes)
-            throws NullPointerException {
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        try {
-            Future<byte[]> future = executor.submit(() -> proxy.invokeOrdered(requestBytes));
-            return future.get(CONSENSUS_REQUEST_TIMEOUT_SEC, TimeUnit.SECONDS);
-        } catch (TimeoutException e) {
-            System.err.println("[SERVER " + processId + "] >>> invokeOrdered TIMED OUT after "
-                    + CONSENSUS_REQUEST_TIMEOUT_SEC
-                    + "s. Consensus may not be completing (check if [DELIVERY] appears in replica logs).");
-            return null;
-        } catch (java.util.concurrent.ExecutionException e) {
-            if (e.getCause() instanceof NullPointerException) {
-                throw (NullPointerException) e.getCause();
-            }
-            System.err.println("[SERVER " + processId + "] invokeOrdered failed: " + e.getMessage());
-            e.printStackTrace();
-            return null;
-        } catch (Exception e) {
-            System.err.println("[SERVER " + processId + "] invokeOrdered failed: " + e.getMessage());
-            e.printStackTrace();
-            return null;
-        } finally {
-            executor.shutdownNow();
-        }
+        // Decision arrives via appExecuteBatch → notifyOrderDecided (JNI)
     }
 
     @Override
@@ -441,14 +392,6 @@ public final class IntersectionServer extends DefaultRecoverable implements View
                 + " with " + newParticipants.length + " participants");
 
         resetForNextRound();
-
-        if (localClientProxy != null) {
-            try {
-                localClientProxy.close();
-            } catch (Exception ignored) {
-            }
-            localClientProxy = null;
-        }
 
         try {
             bftsmart.reconfiguration.ServerViewController svc =
@@ -553,16 +496,9 @@ public final class IntersectionServer extends DefaultRecoverable implements View
 
                         // Emit PROPOSE_ALL consensus latency from the original
                         // submitter (the only replica with consensusStartWall > 0).
-                        // Doing it here — at delivery — instead of after
-                        // invokeOrdered() returns is required for the EP5
-                        // Byzantine-leader rebuild path: the rebuilt request is
-                        // injected under a synthetic clientId so the deposed
-                        // leader's localClientProxy.invokeOrdered() never gets a
-                        // reply and would block until CONSENSUS_REQUEST_TIMEOUT_SEC,
-                        // leaving analyze_log.py with no sample (-> bft_decision_time_s=null).
-                        // We zero consensusStartWall after emitting so the
-                        // post-invokeOrdered block in submitViewToBFTConsensus
-                        // does not double-print.
+                        // Done at delivery so the EP5 rebuilt-request path also
+                        // records latency (rebuilt requests use a synthetic clientId
+                        // and are delivered here just like normal proposals).
                         if (consensusStartWall > 0) {
                             long deliveredWall = System.currentTimeMillis();
                             double consensusWallSeconds = (deliveredWall - consensusStartWall) / 1000.0;
@@ -667,8 +603,8 @@ public final class IntersectionServer extends DefaultRecoverable implements View
     // stall would persist within epoch e.
     // ---------------------------------------------------------------------
 
-    /** Synthetic clientId used exclusively for hook-injected fresh proposals;
-     *  kept off the live ServiceProxy's sequence space (processId + 1000). */
+    /** Synthetic clientId for hook-injected fresh proposals; distinct from the
+     *  leader's own clientId (processId + 1000) to avoid seq-space collisions. */
     private static final int REBUILD_CLIENT_ID_OFFSET = 2000;
 
     @Override
@@ -797,7 +733,7 @@ public final class IntersectionServer extends DefaultRecoverable implements View
 
     /**
      * Injects {@code freshBytes} as a new pending request under a dedicated
-     * rebuild clientId so we do not collide with the live {@code localClientProxy}
+     * rebuild clientId so we do not collide with the leader's own clientId
      * sequence space. Uses {@code fromClient=false} in
      * {@link ClientsManager#requestReceived} to bypass the client-signature check
      * (acceptable since we are the BFT leader and this is an intra-replica

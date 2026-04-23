@@ -24,7 +24,7 @@ class VEINS_API V2VProxyModule : public DemoBaseApplLayer {
 public:
     V2VProxyModule();
     ~V2VProxyModule() override;
-    static const int BATCH_SIZE = 16;
+    static const int BATCH_SIZE = 4;
 
     simtime_t consensusStartTime;
     
@@ -44,6 +44,7 @@ public:
     // JNI Bridge Interface - called from Java via JNI
     static V2VProxyModule* getProxyForReplica(int replicaId);
     bool sendMessageToReplica(int fromReplicaId, int toReplicaId, const uint8_t* data, int dataLen);
+    void enqueueBroadcastClientRequest(int fromReplicaId, const std::vector<uint8_t>& data);
     void registerJavaCallback(JNIEnv* env, jobject javaObject);
     bool isRadioBusy() const { return radioBusy; }  // For reactive yield pattern
     bool isDeparted = false;
@@ -325,6 +326,7 @@ private:
         int fromReplicaId;
         int toReplicaId;
         std::vector<uint8_t> data;
+        int messageType = 0;
     };
     std::queue<PendingMessage> messageQueue;
     std::condition_variable queueCondVar;  // For blocking Java when queue full
@@ -336,6 +338,11 @@ private:
     jmethodID onRadioReadyMethod;  // Java callback
     jclass clockClass;
     jmethodID updateTimeMethod;
+    // Cached for deliverInjectedClientRequest (type-9 CLIENT_REQUEST_V2V dispatch).
+    jclass intersectionServerGlobalClass = nullptr;
+    jmethodID deliverInjectedClientRequestMethod = nullptr;
+
+    void handleClientRequestBroadcast(BFTMessage* bftMsg);
     cMessage* processQueueTimer;
     cMessage* startBFTTimer;  // Timer to start BFT after initialization
     cMessage* triggerJoinTimer;  // Timer to trigger JOIN when car reaches intersection

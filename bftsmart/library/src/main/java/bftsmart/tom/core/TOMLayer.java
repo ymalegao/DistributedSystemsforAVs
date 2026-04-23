@@ -19,6 +19,7 @@ package bftsmart.tom.core;
 import bftsmart.clientsmanagement.ClientsManager;
 import bftsmart.clientsmanagement.RequestList;
 import bftsmart.communication.ServerCommunicationSystem;
+import bftsmart.communication.V2V.SimulationClock;
 import bftsmart.communication.client.RequestReceiver;
 import bftsmart.consensus.Consensus;
 import bftsmart.consensus.Decision;
@@ -213,7 +214,7 @@ public final class TOMLayer extends Thread implements RequestReceiver {
                 public void run() {
 
                     if (clientsManager.havePendingRequests() &&
-                            (System.currentTimeMillis() - lastRequest) >= controller.getStaticConf().getBatchTimeout()) {
+                            (SimulationClock.currentTimeMillis() - lastRequest) >= controller.getStaticConf().getBatchTimeout()) {
 
                         logger.debug("Signaling proposer thread!!");
                         haveMessages();
@@ -388,7 +389,7 @@ public final class TOMLayer extends Thread implements RequestReceiver {
 
                     if (!clientsManager.isNextBatchReady()) {
 
-                        lastRequest = System.currentTimeMillis();
+                        lastRequest = SimulationClock.currentTimeMillis();
 
                     } else {
 

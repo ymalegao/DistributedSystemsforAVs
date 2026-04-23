@@ -1,14 +1,14 @@
-[ROUND-METRICS] Epoch 0 Avg_ProposeAll_Consensus_Wall: 1.392000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh0: 0.500000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh1: 1.300000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh2: 0.500000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh3: 1.300000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh4: 2.300000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh5: 3.100000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh6: 2.300000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh7: 3.100000 seconds
-[ROUND-METRICS] Epoch 0 Avg_Messages_Sent_PerReplica: 18.125 (count=8)
-[ROUND-METRICS] Epoch 0 Avg_Messages_Received_PerReplica: 34.375 (count=8)
+[ROUND-METRICS] Epoch 0 Avg_ProposeAll_Consensus_Wall: 1.742000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh0: 2.300000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh1: 3.100000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh2: 2.300000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh3: 3.100000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh4: 0.500000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh5: 1.300000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh6: 0.500000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh7: 1.300000 seconds
+[ROUND-METRICS] Epoch 0 Avg_Messages_Sent_PerReplica: 18.625 (count=8)
+[ROUND-METRICS] Epoch 0 Avg_Messages_Received_PerReplica: 31.125 (count=8)
 [ROUND-METRICS] Epoch 0 Avg_Arrival_To_Resume_Time: 1.800000 seconds (goCars=8)
 [ROUND-METRICS] Epoch 0 Avg_StopSign_Failures: 0.000 (count)
 [ROUND-METRICS] Epoch 1 Avg_StopSign_Failures: 0.000 (count)
@@ -27,8 +27,8 @@
 [RUN-METRICS] Byzantine_Injections_Total: 0
 [RUN-METRICS] Byzantine_Injections_Epoch0: 0
 [RUN-METRICS] Byzantine_Injections_Epoch1: 0
-[RUN-METRICS] Delivery_Ratio: 0.271094
-[RUN-METRICS] Estimated_Loss_Rate: 0.728906
+[RUN-METRICS] Delivery_Ratio: 0.241201
+[RUN-METRICS] Estimated_Loss_Rate: 0.758799
 [RUN-METRICS] Fallback_Count: 0
 [RUN-METRICS] Fallback_Rate: 0.000000
 [ROUND-METRICS] Epoch 0 Throughput_User_Definition: 0.325000 seconds_per_vehicle

@@ -24,6 +24,8 @@ extern "C" JNIEXPORT jobject JNICALL Java_bftsmart_demo_intersection_Intersectio
     (JNIEnv*, jobject, jint);
 extern "C" JNIEXPORT jstring JNICALL Java_bftsmart_demo_intersection_IntersectionServer_nativeGetFreshProposePayload
     (JNIEnv*, jobject, jint);
+extern "C" JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_nativeBroadcastClientRequest
+    (JNIEnv*, jobject, jint, jbyteArray);
 
 static std::vector<uint8_t> jbyteArrayToVector(JNIEnv* env, jbyteArray array) {
     int len = env->GetArrayLength(array);
@@ -194,6 +196,29 @@ JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notify
     std::cout << "[JNI-NOTIFY]   resumeVehicle() returned" << std::endl;
 }
 
+/*
+ * Class:     bftsmart_demo_intersection_IntersectionServer
+ * Method:    nativeBroadcastClientRequest
+ * Signature: (I[B)V
+ *
+ * Called by the BFT leader to broadcast a serialized TOMMessage to all followers
+ * via 802.11p V2V (msgType=9). The leader self-delivers separately before calling
+ * this. Followers receive via handleClientRequestBroadcast → deliverInjectedClientRequest.
+ */
+JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_nativeBroadcastClientRequest
+    (JNIEnv* env, jobject /*obj*/, jint fromReplicaId, jbyteArray tomBytes)
+{
+    V2VProxyModule* proxy = V2VProxyModule::getProxyForReplica(fromReplicaId);
+    if (!proxy) {
+        std::cerr << "[JNI] nativeBroadcastClientRequest: no proxy for replica " << fromReplicaId << std::endl;
+        return;
+    }
+    int len = env->GetArrayLength(tomBytes);
+    std::vector<uint8_t> data(len);
+    env->GetByteArrayRegion(tomBytes, 0, len, reinterpret_cast<jbyte*>(data.data()));
+    proxy->enqueueBroadcastClientRequest(fromReplicaId, data);
+}
+
 }  // extern "C"
 
 
@@ -228,10 +253,12 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
             {const_cast<char*>("notifyOrderDecided"),    const_cast<char*>("(ILjava/lang/String;)V"),(void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyOrderDecided},
             {const_cast<char*>("notifyProposeAllConsensusMetric"), const_cast<char*>("(IID)V"),     (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyProposeAllConsensusMetric},
             {const_cast<char*>("notifyWipeComplete"),    const_cast<char*>("(I)V"),                 (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyWipeComplete},
-            {const_cast<char*>("nativeGetCertSnapshot"), const_cast<char*>("(I)Ljava/util/Set;"),  (void*)&Java_bftsmart_demo_intersection_IntersectionServer_nativeGetCertSnapshot}
+            {const_cast<char*>("nativeGetCertSnapshot"), const_cast<char*>("(I)Ljava/util/Set;"),  (void*)&Java_bftsmart_demo_intersection_IntersectionServer_nativeGetCertSnapshot},
+            {const_cast<char*>("nativeGetFreshProposePayload"), const_cast<char*>("(I)Ljava/lang/String;"), (void*)&Java_bftsmart_demo_intersection_IntersectionServer_nativeGetFreshProposePayload},
+            {const_cast<char*>("nativeBroadcastClientRequest"), const_cast<char*>("(I[B)V"),        (void*)&Java_bftsmart_demo_intersection_IntersectionServer_nativeBroadcastClientRequest}
         };
-        if (env->RegisterNatives(intersectionServerClass, serverMethods, 6) == 0) {
-            std::cout << "[JNI] JNI_OnLoad: Registered 6 IntersectionServer native methods" << std::endl;
+        if (env->RegisterNatives(intersectionServerClass, serverMethods, 8) == 0) {
+            std::cout << "[JNI] JNI_OnLoad: Registered 8 IntersectionServer native methods" << std::endl;
         }
     }
 
@@ -299,9 +326,11 @@ JNIEXPORT jobject JNICALL Java_bftsmart_demo_intersection_IntersectionServer_nat
     (JNIEnv* env, jobject /*obj*/, jint replicaId)
 {
     jclass hsClass = env->FindClass("java/util/HashSet");
+    if (!hsClass) { env->ExceptionClear(); return nullptr; }
     jmethodID ctor = env->GetMethodID(hsClass, "<init>", "()V");
     jmethodID addM = env->GetMethodID(hsClass, "add", "(Ljava/lang/Object;)Z");
-    jobject set    = env->NewObject(hsClass, ctor);
+    if (!ctor || !addM) { env->ExceptionClear(); env->DeleteLocalRef(hsClass); return nullptr; }
+    jobject set = env->NewObject(hsClass, ctor);
 
     V2VProxyModule* proxy = V2VProxyModule::getProxyForReplica(replicaId);
     if (proxy) {
@@ -311,6 +340,7 @@ JNIEXPORT jobject JNICALL Java_bftsmart_demo_intersection_IntersectionServer_nat
             env->DeleteLocalRef(js);
         }
     }
+    env->DeleteLocalRef(hsClass);
     return set;
 }
 

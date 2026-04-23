@@ -36,11 +36,11 @@
     "ambulance_priority_gain_s": 0.2999999999999998,
     "ambulance_priority_ratio": 0.7857142857142858,
     "propose_all_consensus_latency_s": {
-      "mean": 0.889,
-      "median": 0.889,
-      "p95": 0.889,
-      "min": 0.889,
-      "max": 0.889,
+      "mean": 0.897,
+      "median": 0.897,
+      "p95": 0.897,
+      "min": 0.897,
+      "max": 0.897,
       "n": 1
     },
     "propose_all_consensus_latency_sim_s": {
@@ -60,11 +60,11 @@
       "n": 1
     },
     "bft_decision_time_s": {
-      "mean": 0.889,
-      "median": 0.889,
-      "p95": 0.889,
-      "min": 0.889,
-      "max": 0.889,
+      "mean": 0.897,
+      "median": 0.897,
+      "p95": 0.897,
+      "min": 0.897,
+      "max": 0.897,
       "n": 4
     },
     "total_byzantine_injections": 0,
@@ -95,7 +95,7 @@
     {
       "epoch": 0,
       "n_replicas": 4,
-      "propose_all_consensus_latency_s": 0.889,
+      "propose_all_consensus_latency_s": 0.897,
       "propose_all_consensus_latency_sim_s": 0.9908,
       "stop_to_decision_sim_s": 0.7000000000000001,
       "throughput_s_per_veh": 0.43333333333333335,
@@ -141,10 +141,10 @@
       "delivery_ratio": 0.26666666666666666,
       "estimated_loss_rate": 0.7333333333333334,
       "used_fallback": false,
-      "propose_all_consensus_wall_s": 0.889,
+      "propose_all_consensus_wall_s": 0.897,
       "propose_all_consensus_sim_s": 0.9908,
       "stop_to_decision_sim_s": 1.1,
-      "bft_decision_time_s": 0.889
+      "bft_decision_time_s": 0.897
     },
     {
       "car_id": "veh1",
@@ -163,10 +163,10 @@
       "delivery_ratio": 0.3888888888888889,
       "estimated_loss_rate": 0.6111111111111112,
       "used_fallback": false,
-      "propose_all_consensus_wall_s": 0.889,
+      "propose_all_consensus_wall_s": 0.897,
       "propose_all_consensus_sim_s": null,
       "stop_to_decision_sim_s": 1.1,
-      "bft_decision_time_s": 0.889
+      "bft_decision_time_s": 0.897
     },
     {
       "car_id": "veh2",
@@ -185,10 +185,10 @@
       "delivery_ratio": 0.3888888888888889,
       "estimated_loss_rate": 0.6111111111111112,
       "used_fallback": false,
-      "propose_all_consensus_wall_s": 0.889,
+      "propose_all_consensus_wall_s": 0.897,
       "propose_all_consensus_sim_s": null,
       "stop_to_decision_sim_s": 0.3,
-      "bft_decision_time_s": 0.889
+      "bft_decision_time_s": 0.897
     },
     {
       "car_id": "veh3",
@@ -207,10 +207,10 @@
       "delivery_ratio": 0.3888888888888889,
       "estimated_loss_rate": 0.6111111111111112,
       "used_fallback": false,
-      "propose_all_consensus_wall_s": 0.889,
+      "propose_all_consensus_wall_s": 0.897,
       "propose_all_consensus_sim_s": null,
       "stop_to_decision_sim_s": 0.3,
-      "bft_decision_time_s": 0.889
+      "bft_decision_time_s": 0.897
     }
   ]
 }

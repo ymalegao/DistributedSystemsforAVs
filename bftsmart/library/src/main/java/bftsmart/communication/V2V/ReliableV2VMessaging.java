@@ -784,8 +784,10 @@ public class ReliableV2VMessaging {
 
     public List<V2VMessageEnvelope> checkRetransmissions() {
         long now = SimulationClock.currentTimeMillis();
-        System.out.println("[Reliability " + myReplicaId + "] checkRetransmissions() at t=" + now
+        if  (unackedMessages.size() != 0) {
+            System.out.println("[Reliability " + myReplicaId + "] checkRetransmissions() at t=" + now
                 + "ms, unackedMessages size=" + unackedMessages.size());
+        }
         List<V2VMessageEnvelope> toRetransmit = new ArrayList<>();
         // When using broadcast/multicast, the same physical broadcastSeq is tracked
         // under many

@@ -1,3 +1,214 @@
 {
-  "entries": {}
+  "entries": {
+    "byzantine leader failure change|tf=5|te=12": {
+      "created_epoch": 1776974709,
+      "files": [
+        "bftsmart/metricParser.py::generate_plots",
+        "experiment_orchestrator.py::apply_scale",
+        "fourway/analyze_log.py::fmt_stat",
+        "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+        "fourway/benchmarks/analyze_benchmarks.py::main"
+      ],
+      "mtimes_ns": {
+        "bftsmart/metricParser.py::generate_plots": 1775440285659371988,
+        "experiment_orchestrator.py::apply_scale": 1776794995352383102,
+        "fourway/analyze_log.py::fmt_stat": 1776807806808704152,
+        "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path": 1775836937453129547,
+        "fourway/benchmarks/analyze_benchmarks.py::main": 1775440278468438289
+      },
+      "result": {
+        "ok": true,
+        "query": "byzantine leader failure leader change",
+        "graph_files": [
+          {
+            "id": "bftsmart/metricParser.py::generate_plots",
+            "kind": "symbol",
+            "path": "bftsmart/metricParser.py",
+            "ext": ".py",
+            "size": 127,
+            "keywords": [
+              "generate_plots",
+              "generate",
+              "plots"
+            ],
+            "symbol_type": "use_case",
+            "name": "generate_plots",
+            "line_start": 79,
+            "line_end": 205,
+            "body_hash": "bf8f1894",
+            "confidence": "high",
+            "exported": true,
+            "_score": 11,
+            "_role": "code",
+            "_intent": "debug"
+          },
+          {
+            "id": "experiment_orchestrator.py::apply_scale",
+            "kind": "symbol",
+            "path": "experiment_orchestrator.py",
+            "ext": ".py",
+            "size": 4,
+            "keywords": [
+              "apply_scale",
+              "apply",
+              "scale"
+            ],
+            "symbol_type": "use_case",
+            "name": "apply_scale",
+            "line_start": 222,
+            "line_end": 225,
+            "body_hash": "974c8c0b",
+            "confidence": "high",
+            "exported": true,
+            "_score": 11,
+            "_role": "code",
+            "_intent": "debug"
+          },
+          {
+            "id": "fourway/analyze_log.py::fmt_stat",
+            "kind": "symbol",
+            "path": "fourway/analyze_log.py",
+            "ext": ".py",
+            "size": 189,
+            "keywords": [
+              "fmt_stat",
+              "fmt",
+              "stat"
+            ],
+            "symbol_type": "use_case",
+            "name": "fmt_stat",
+            "line_start": 218,
+            "line_end": 406,
+            "body_hash": "140fa2e4",
+            "confidence": "high",
+            "exported": true,
+            "_score": 11,
+            "_role": "code",
+            "_intent": "debug"
+          },
+          {
+            "id": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+            "kind": "symbol",
+            "path": "fourway/benchmarks/ambulanceWaitTime.py",
+            "ext": ".py",
+            "size": 206,
+            "keywords": [
+              "resolve_log_path",
+              "resolve",
+              "log",
+              "path"
+            ],
+            "symbol_type": "use_case",
+            "name": "resolve_log_path",
+            "line_start": 28,
+            "line_end": 233,
+            "body_hash": "611799bc",
+            "confidence": "high",
+            "exported": true,
+            "_score": 11,
+            "_role": "code",
+            "_intent": "debug"
+          },
+          {
+            "id": "fourway/benchmarks/analyze_benchmarks.py::main",
+            "kind": "symbol",
+            "path": "fourway/benchmarks/analyze_benchmarks.py",
+            "ext": ".py",
+            "size": 150,
+            "keywords": [
+              "main"
+            ],
+            "symbol_type": "use_case",
+            "name": "main",
+            "line_start": 166,
+            "line_end": 315,
+            "body_hash": "45eebc82",
+            "confidence": "high",
+            "exported": true,
+            "_score": 11,
+            "_role": "code",
+            "_intent": "debug"
+          }
+        ],
+        "graph_edges": [
+          {
+            "from": "bftsmart/metricParser.py",
+            "to": "bftsmart/metricParser.py::generate_plots",
+            "rel": "contains"
+          },
+          {
+            "from": "experiment_orchestrator.py",
+            "to": "experiment_orchestrator.py::apply_scale",
+            "rel": "contains"
+          },
+          {
+            "from": "fourway/analyze_log.py",
+            "to": "fourway/analyze_log.py::fmt_stat",
+            "rel": "contains"
+          },
+          {
+            "from": "fourway/benchmarks/ambulanceWaitTime.py",
+            "to": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+            "rel": "contains"
+          },
+          {
+            "from": "fourway/benchmarks/analyze_benchmarks.py",
+            "to": "fourway/benchmarks/analyze_benchmarks.py::main",
+            "rel": "contains"
+          },
+          {
+            "from": "bftsmart/metricParser.py",
+            "to": "csv",
+            "rel": "imports"
+          },
+          {
+            "from": "bftsmart/metricParser.py",
+            "to": "matplotlib.pyplot",
+            "rel": "imports"
+          },
+          {
+            "from": "bftsmart/metricParser.py",
+            "to": "os",
+            "rel": "imports"
+          },
+          {
+            "from": "bftsmart/metricParser.py",
+            "to": "pandas",
+            "rel": "imports"
+          },
+          {
+            "from": "bftsmart/metricParser.py",
+            "to": "re",
+            "rel": "imports"
+          },
+          {
+            "from": "bftsmart/metricParser.py",
+            "to": "sys",
+            "rel": "imports"
+          },
+          {
+            "from": "experiment_orchestrator.py",
+            "to": "__future__",
+            "rel": "imports"
+          }
+        ],
+        "grep_hits": [],
+        "reuse_candidates": [
+          {
+            "file": "fourway/analyze_log.py",
+            "overlap": 1,
+            "cached_chars": 20000,
+            "cached_tokens_est": 5000,
+            "last_action": "edited"
+          }
+        ],
+        "read_budget": {
+          "remaining_chars": 60000,
+          "reuse_gate_candidates": [
+            "fourway/analyze_log.py"
+          ]
+        }
+      }
+    }
+  }
 }

@@ -1,19 +1,5 @@
 [
   {
-    "type": "decision",
-    "content": "Relaxed cert-omission guard: reject only if omitted certs > f (not any single omission)",
-    "tags": [
-      "cert-omission",
-      "check7",
-      "ep5",
-      "honest-leader"
-    ],
-    "files": [
-      "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java"
-    ],
-    "date": "2026-04-22"
-  },
-  {
     "id": "mem:1776028955263",
     "kind": "query_association",
     "content": "Queried during: metrics per-vehicle output JSON Byzantine ambulance",
@@ -612,6 +598,30 @@
     }
   },
   {
+    "id": "mem:1776902434558",
+    "kind": "decision",
+    "content": "Relaxed cert-omission guard: reject only if omitted certs > f (not any single omission)",
+    "tags": [
+      "cert-omission",
+      "check7",
+      "ep5",
+      "honest-leader"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-22",
+    "created_epoch": 1776841200,
+    "updated_at": "2026-04-22",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
     "id": "mem:1776887185819",
     "kind": "decision",
     "content": "totalordermulticast.timeout raised 800\u21924000ms: honest consensus takes ~2000ms sim-time",
@@ -945,6 +955,200 @@
       "recent_action_kinds": [],
       "recent_queries": [],
       "edited": true
+    }
+  },
+  {
+    "id": "mem:1776927463387",
+    "kind": "query_association",
+    "content": "Queried during: batch timeout System.currentTimeMillis wall clock",
+    "tags": [
+      "batch",
+      "timeout",
+      "system",
+      "currenttimemillis",
+      "wall",
+      "clock"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/tom/core/TOMLayer.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/core/TOMLayer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-23T06:57:43.387510+00:00",
+    "created_epoch": 1776927463,
+    "updated_at": "2026-04-23T06:57:43.387523+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "batch timeout System.currentTimeMillis wall clock"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1776825278
+    }
+  },
+  {
+    "id": "mem:1776927464351",
+    "kind": "query_association",
+    "content": "Queried during: invokeOrdered TCP gateway dead code",
+    "tags": [
+      "invokeordered",
+      "tcp",
+      "gateway",
+      "dead",
+      "code"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionGateway.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionGateway.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-23T06:57:44.351460+00:00",
+    "created_epoch": 1776927464,
+    "updated_at": "2026-04-23T06:57:44.351470+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "invokeOrdered TCP gateway dead code"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1776825278
+    }
+  },
+  {
+    "id": "mem:1776927471484",
+    "kind": "query_association",
+    "content": "Queried during: sendConsensusRequest invokeOrdered localClientProxy wall time Thread.sleep",
+    "tags": [
+      "sendconsensusrequest",
+      "invokeordered",
+      "localclientproxy",
+      "wall",
+      "time",
+      "thread",
+      "sleep"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-23T06:57:51.484131+00:00",
+    "created_epoch": 1776927471,
+    "updated_at": "2026-04-23T06:57:51.484142+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "sendConsensusRequest invokeOrdered localClientProxy wall time Thread.sleep"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1776825278
+    }
+  },
+  {
+    "id": "mem:1776927473568",
+    "kind": "query_association",
+    "content": "Queried during: NACK handleStopNack heardByRegency nackReplyCount SimulationClock wall timer STOP_RETX",
+    "tags": [
+      "nack",
+      "handlestopnack",
+      "heardbyregency",
+      "nackreplycount",
+      "simulationclock",
+      "wall",
+      "timer",
+      "stop_retx"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-23T06:57:53.568762+00:00",
+    "created_epoch": 1776927473,
+    "updated_at": "2026-04-23T06:57:53.568773+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "NACK handleStopNack heardByRegency nackReplyCount SimulationClock wall timer STOP_RETX"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1776825278
+    }
+  },
+  {
+    "id": "mem:1776927480984",
+    "kind": "query_association",
+    "content": "Queried during: lastRequest currentTimeMillis batchTimeout batch timer scheduleAtFixedRate",
+    "tags": [
+      "lastrequest",
+      "currenttimemillis",
+      "batchtimeout",
+      "batch",
+      "timer",
+      "scheduleatfixedrate"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/tom/core/TOMLayer.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/core/TOMLayer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-23T06:58:00.984884+00:00",
+    "created_epoch": 1776927480,
+    "updated_at": "2026-04-23T06:58:00.984895+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "lastRequest currentTimeMillis batchTimeout batch timer scheduleAtFixedRate"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1776825278
+    }
+  },
+  {
+    "id": "mem:1776927481983",
+    "kind": "query_association",
+    "content": "Queried during: sendConsensusRequest Thread.sleep invokeOrdered invokeOrderedWithTimeout sleep delay",
+    "tags": [
+      "sendconsensusrequest",
+      "thread",
+      "sleep",
+      "invokeordered",
+      "invokeorderedwithtimeout",
+      "delay"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-23T06:58:01.983836+00:00",
+    "created_epoch": 1776927481,
+    "updated_at": "2026-04-23T06:58:01.983850+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "sendConsensusRequest Thread.sleep invokeOrdered invokeOrderedWithTimeout sleep delay"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1776825278
     }
   }
 ]

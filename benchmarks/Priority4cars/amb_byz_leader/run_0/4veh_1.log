@@ -1,0 +1,5 @@
+[ROUND-METRICS] Epoch 0 Avg_StopSign_Failures: 4.000 (count)
+[RUN-METRICS] Byzantine_Injections_Total: 0
+[RUN-METRICS] Byzantine_Injections_Epoch0: 0
+[RUN-METRICS] Fallback_Count: 4
+[RUN-METRICS] Fallback_Rate: 1.000000

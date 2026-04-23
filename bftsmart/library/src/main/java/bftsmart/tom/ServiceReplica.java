@@ -540,12 +540,17 @@ public class ServiceReplica {
     
     /**
      * Obtains the current replica communication system.
-     * 
+     *
      * @return The replica's communication system
      */
     public ServerCommunicationSystem getServerCommunicationSystem() {
-        
+
         return cs;
+    }
+
+    /** Exposes the internal TOMLayer for direct request injection (intra-vehicle path). */
+    public TOMLayer getTOMLayer() {
+        return tomLayer;
     }
 
     /**

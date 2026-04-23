@@ -113,12 +113,27 @@ V2VProxyModule::~V2VProxyModule()
     cancelAndDelete(checkJavaReadyTimer);
     cancelAndDelete(retxCheckTimer);   
     cancelAndDelete(orderDelayTimer);
-    // Clean up JNI global reference
-    if (javaCallbackObject && jvm) {
+    // Clean up JNI global references
+    if (jvm) {
         JNIEnv* env;
-        jvm->AttachCurrentThread((void**)&env, nullptr);
-        env->DeleteGlobalRef(javaCallbackObject);
-        javaCallbackObject = nullptr;
+        bool attached = false;
+        if (jvm->GetEnv((void**)&env, JNI_VERSION_1_8) == JNI_EDETACHED) {
+            jvm->AttachCurrentThread((void**)&env, nullptr);
+            attached = true;
+        }
+        if (javaCallbackObject) {
+            env->DeleteGlobalRef(javaCallbackObject);
+            javaCallbackObject = nullptr;
+        }
+        if (clockClass) {
+            env->DeleteGlobalRef(clockClass);
+            clockClass = nullptr;
+        }
+        if (intersectionServerGlobalClass) {
+            env->DeleteGlobalRef(intersectionServerGlobalClass);
+            intersectionServerGlobalClass = nullptr;
+        }
+        if (attached) jvm->DetachCurrentThread();
     }
 
     if (ambulancePrivateKey) {
@@ -355,7 +370,7 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                 std::cout << "[V2V-QUEUE] Replica " << replicaId << ": [" << (i+1) << "/" << toProcess.size() 
                           << "] Sending " << pending.fromReplicaId << "->" << pending.toReplicaId 
                           << ", " << pending.data.size() << " bytes" << "\n";
-                sendBFTMessage(pending.fromReplicaId, pending.toReplicaId, pending.data, 0);
+                sendBFTMessage(pending.fromReplicaId, pending.toReplicaId, pending.data, pending.messageType);
             }
         }
 
