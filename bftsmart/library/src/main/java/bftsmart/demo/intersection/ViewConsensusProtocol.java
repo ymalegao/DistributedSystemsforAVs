@@ -6,8 +6,10 @@ import java.security.AlgorithmParameters;
 import java.security.KeyFactory;
 import java.security.PublicKey;
 import java.security.Signature;
+import java.security.spec.ECFieldFp;
 import java.security.spec.ECGenParameterSpec;
 import java.security.spec.ECParameterSpec;
+import java.security.spec.EllipticCurve;
 import java.security.spec.ECPoint;
 import java.security.spec.ECPublicKeySpec;
 import java.util.ArrayList;
@@ -20,8 +22,9 @@ import java.util.Set;
 /**
  * Witness-echo (ARRIVAL_CERT) verification for the V2V consensus layer.
  *
- * <p>Each per-car cert is a list of {@link EchoSig}s: {replicaId, uncompressed
- * P-256 pubkey, DER-encoded ECDSA signature}. The signed message is the same
+ * <p>Each per-car cert is a list of {@link EchoSig}s: {replicaId, raw P-256
+ * public key (compressed 33-byte or legacy uncompressed 65-byte), DER-encoded
+ * ECDSA signature}. The signed message is the same
  * UTF-8 string the C++ replica signs:
  * {@code carId:lane:positionInLane:direction:isAmbulance:replicaId}.
  *
@@ -33,8 +36,11 @@ import java.util.Set;
  */
 final class ViewConsensusProtocol {
 
+    /** Compressed P-256 public-key length: 0x02/0x03 || X(32). */
+    private static final int P256_PUBKEY_COMPRESSED_LEN = 33;
+
     /** Uncompressed P-256 public-key length: 0x04 || X(32) || Y(32). */
-    private static final int P256_PUBKEY_LEN = 65;
+    private static final int P256_PUBKEY_UNCOMPRESSED_LEN = 65;
 
     /** Cached secp256r1 (NIST P-256) parameter spec. */
     private static final ECParameterSpec EC_P256_PARAMS;
@@ -52,7 +58,7 @@ final class ViewConsensusProtocol {
     /** A single witness echo signature attached to a per-car ARRIVAL_CERT. */
     static final class EchoSig {
         final int replicaId;
-        final byte[] pubKey;     // 65-byte uncompressed P-256 public key
+        final byte[] pubKey;     // 33-byte compressed or 65-byte uncompressed P-256 public key
         final byte[] signature;  // DER-encoded ECDSA signature
 
         EchoSig(int replicaId, byte[] pubKey, byte[] signature) {
@@ -114,12 +120,14 @@ final class ViewConsensusProtocol {
     /**
      * Parse the per-car ECDSA cert string from a PROPOSE_ALL payload.
      *
-     * <p>Format: {@code "veh0~r1,pubKeyHex1,sigHex1|r2,pubKeyHex2,sigHex2;veh1~..."}.
-     * Each echo entry is {@code replicaId,uncompressedP256PubKeyHex,DERECDSASigHex}.
+     * <p>Format: {@code "veh0~r1,pubKeyHex1,sigHex1|r2,@keyIdHex,sigHex2;veh1~..."}.
+     * Each echo entry is {@code replicaId,(rawP256PubKeyHex|@keyIdHex),DERECDSASigHex}.
+     * keyIdHex references a pubkey sent earlier in the same payload to reduce size.
      * Malformed entries are skipped (validation will fail naturally for under-quorum).
      */
     static Map<String, List<EchoSig>> parsePerCarCerts(String certsStr) {
         Map<String, List<EchoSig>> result = new HashMap<>();
+        Map<String, byte[]> keyCache = new HashMap<>();
         if (certsStr == null || certsStr.isEmpty()) return result;
         for (String carEntry : certsStr.split(";")) {
             String[] parts = carEntry.split("~", 2);
@@ -131,7 +139,22 @@ final class ViewConsensusProtocol {
                 if (fields.length < 3) continue;
                 try {
                     int rId = Integer.parseInt(fields[0].trim());
-                    byte[] pubKey = hexToBytes(fields[1].trim());
+                    String pubField = fields[1].trim();
+                    byte[] pubKey;
+                    if (pubField.startsWith("@")) {
+                        String keyId = pubField.substring(1);
+                        pubKey = keyCache.get(keyId);
+                        if (pubKey == null) {
+                            // Unknown key reference; skip this echo.
+                            continue;
+                        }
+                    } else {
+                        pubKey = hexToBytes(pubField);
+                        String keyId = shortKeyIdHex(pubKey);
+                        if (keyId != null) {
+                            keyCache.putIfAbsent(keyId, pubKey);
+                        }
+                    }
                     byte[] sigBytes = hexToBytes(fields[2].trim());
                     sigs.add(new EchoSig(rId, pubKey, sigBytes));
                 } catch (Exception ignored) {
@@ -194,19 +217,19 @@ final class ViewConsensusProtocol {
     // ------------------------------------------------------------------------
 
     /**
-     * Verify a SHA256withECDSA signature using a raw uncompressed P-256 public key.
-     * Returns false on any decoding/verification failure (never throws).
+     * Verify a SHA256withECDSA signature using a raw P-256 public key (compressed
+     * or uncompressed octet string). Returns false on any decoding/verification
+     * failure (never throws).
      */
-    private static boolean verifyEcdsaP256(byte[] uncompressedPubKey, byte[] data, byte[] sig) {
-        if (uncompressedPubKey == null || uncompressedPubKey.length != P256_PUBKEY_LEN
-                || uncompressedPubKey[0] != 0x04) {
+    private static boolean verifyEcdsaP256(byte[] pubKeyEnc, byte[] data, byte[] sig) {
+        if (pubKeyEnc == null || !isValidRawP256PubKeyEncoding(pubKeyEnc)) {
             return false;
         }
         if (sig == null || sig.length == 0) {
             return false;
         }
         try {
-            PublicKey pub = decodeUncompressedP256(uncompressedPubKey);
+            PublicKey pub = decodeRawP256PublicKey(pubKeyEnc);
             Signature verifier = Signature.getInstance("SHA256withECDSA");
             verifier.initVerify(pub);
             verifier.update(data);
@@ -214,6 +237,57 @@ final class ViewConsensusProtocol {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    private static boolean isValidRawP256PubKeyEncoding(byte[] enc) {
+        if (enc.length == P256_PUBKEY_UNCOMPRESSED_LEN && enc[0] == 0x04) {
+            return true;
+        }
+        if (enc.length == P256_PUBKEY_COMPRESSED_LEN
+                && (enc[0] == 0x02 || enc[0] == 0x03)) {
+            return true;
+        }
+        return false;
+    }
+
+    private static PublicKey decodeRawP256PublicKey(byte[] enc) throws Exception {
+        if (enc.length == P256_PUBKEY_UNCOMPRESSED_LEN && enc[0] == 0x04) {
+            return decodeUncompressedP256(enc);
+        }
+        if (enc.length == P256_PUBKEY_COMPRESSED_LEN
+                && (enc[0] == 0x02 || enc[0] == 0x03)) {
+            ECPoint point = decompressCompressedP256(enc);
+            ECPublicKeySpec spec = new ECPublicKeySpec(point, EC_P256_PARAMS);
+            return KeyFactory.getInstance("EC").generatePublic(spec);
+        }
+        throw new IllegalArgumentException("Unsupported P-256 public key encoding");
+    }
+
+    /**
+     * Decompress a 33-byte compressed point (SEC1) on secp256r1. NIST P-256 has
+     * p ≡ 3 (mod 4), so y = rhs^((p+1)/4) mod p is a square root of rhs when one exists.
+     */
+    private static ECPoint decompressCompressedP256(byte[] compressed) {
+        byte prefix = compressed[0];
+        byte[] xBytes = new byte[32];
+        System.arraycopy(compressed, 1, xBytes, 0, 32);
+        BigInteger x = new BigInteger(1, xBytes);
+
+        EllipticCurve curve = EC_P256_PARAMS.getCurve();
+        BigInteger p = ((ECFieldFp) curve.getField()).getP();
+        BigInteger a = curve.getA();
+        BigInteger b = curve.getB();
+
+        BigInteger rhs = x.pow(3).add(a.multiply(x)).add(b).mod(p);
+        BigInteger y = rhs.modPow(p.add(BigInteger.ONE).shiftRight(2), p);
+        if (!y.multiply(y).mod(p).equals(rhs)) {
+            throw new IllegalArgumentException("Invalid compressed P-256 point (no sqrt)");
+        }
+        boolean yEven = !y.testBit(0);
+        if ((prefix == 0x02 && !yEven) || (prefix == 0x03 && yEven)) {
+            y = p.subtract(y);
+        }
+        return new ECPoint(x, y);
     }
 
     /** Reconstruct an ECPublicKey from a 65-byte uncompressed secp256r1 encoding. */
@@ -242,6 +316,19 @@ final class ViewConsensusProtocol {
             out[i / 2] = (byte) ((hi << 4) | lo);
         }
         return out;
+    }
+
+    private static String shortKeyIdHex(byte[] pubKey) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(pubKey);
+            StringBuilder sb = new StringBuilder(16);
+            for (int i = 0; i < 8; i++) {
+                sb.append(String.format("%02x", digest[i]));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private ViewConsensusProtocol() {}

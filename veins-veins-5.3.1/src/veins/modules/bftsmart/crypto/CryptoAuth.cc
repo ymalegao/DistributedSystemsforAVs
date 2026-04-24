@@ -50,7 +50,7 @@ CryptoAuth::~CryptoAuth()
 
 // Generate a fresh EC P-256 keypair for a vehicle.
 // Returns the private key (caller must EVP_PKEY_free it).
-// Fills pubKeyOut with 65-byte uncompressed public key.
+// Fills pubKeyOut with 33-byte compressed public key.
 EVP_PKEY* CryptoAuth::generateKeyPair(uint8_t pubKeyOut[CRYPTO_PUBKEY_BYTES])
 {
     return makeKeyPair(pubKeyOut);
@@ -136,7 +136,7 @@ bool CryptoAuth::signBytes(EVP_PKEY* privKey,
     return ecdsaSign(privKey, data, len, sigOut, sigLen);
 }
 
-// Verify arbitrary bytes against a raw uncompressed public key.
+// Verify arbitrary bytes against a raw compressed public key.
 bool CryptoAuth::verifyBytes(const uint8_t pubKey[CRYPTO_PUBKEY_BYTES],
                               const uint8_t* data, size_t len,
                               const uint8_t* sig, uint8_t sigLen)
@@ -160,7 +160,7 @@ bool CryptoAuth::verifyProposalSignature(const VehicleCert& cert,
 // Private helpers
 // ============================================================
 
-// Generate an EC P-256 keypair; export uncompressed public key into pubOut.
+// Generate an EC P-256 keypair; export compressed public key into pubOut.
 EVP_PKEY* CryptoAuth::makeKeyPair(uint8_t pubOut[CRYPTO_PUBKEY_BYTES])
 {
     // Use EVP_PKEY_CTX for key generation (OpenSSL 1.1+)
@@ -174,13 +174,13 @@ EVP_PKEY* CryptoAuth::makeKeyPair(uint8_t pubOut[CRYPTO_PUBKEY_BYTES])
     EVP_PKEY_CTX_free(ctx);
     assert(rc == 1 && pkey);
 
-    // Extract EC_KEY to get the uncompressed public key bytes
+    // Extract EC_KEY to serialize the compressed public key bytes.
     EC_KEY* ecKey = EVP_PKEY_get1_EC_KEY(pkey);
     assert(ecKey);
     const EC_POINT* pub = EC_KEY_get0_public_key(ecKey);
     const EC_GROUP* grp = EC_KEY_get0_group(ecKey);
 
-    size_t len = EC_POINT_point2oct(grp, pub, POINT_CONVERSION_UNCOMPRESSED,
+    size_t len = EC_POINT_point2oct(grp, pub, POINT_CONVERSION_COMPRESSED,
                                     pubOut, CRYPTO_PUBKEY_BYTES, nullptr);
     assert(len == CRYPTO_PUBKEY_BYTES);
     EC_KEY_free(ecKey);
@@ -213,12 +213,12 @@ bool CryptoAuth::ecdsaSign(EVP_PKEY* key,
     return ok;
 }
 
-// ECDSA-verify: reconstruct EVP_PKEY from raw uncompressed bytes, then verify.
+// ECDSA-verify: reconstruct EVP_PKEY from raw compressed bytes, then verify.
 bool CryptoAuth::ecdsaVerify(const uint8_t pubKey[CRYPTO_PUBKEY_BYTES],
                               const uint8_t* data, size_t len,
                               const uint8_t* sig, uint8_t sigLen)
 {
-    // Reconstruct EC_KEY from raw uncompressed public key bytes
+    // Reconstruct EC_KEY from raw compressed public key bytes.
     EC_KEY* ecKey = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
     if (!ecKey) return false;
 
@@ -251,7 +251,7 @@ bool CryptoAuth::ecdsaVerify(const uint8_t pubKey[CRYPTO_PUBKEY_BYTES],
 }
 
 // Build the byte buffer that CAs sign for a certificate:
-//   [ publicKey (65 bytes) | role (16 bytes) | issuer (32 bytes) ]
+//   [ publicKey (33 bytes) | role (16 bytes) | issuer (32 bytes) ]
 std::vector<uint8_t> CryptoAuth::certTBS(const uint8_t pubKey[CRYPTO_PUBKEY_BYTES],
                                           const std::string& role,
                                           const std::string& issuer)

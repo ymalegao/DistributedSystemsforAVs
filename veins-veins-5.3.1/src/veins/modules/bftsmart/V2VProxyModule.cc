@@ -226,7 +226,7 @@ void V2VProxyModule::initialize(int stage)
 
         // Per-replica ECDSA P-256 keypair (for witness echoes + self-signed claims).
         // Generated for EVERY replica regardless of role (IEEE 1609.2 model: every
-        // V2X station has its own EC key). Embedded uncompressed pubkey travels with
+        // V2X station has its own EC key). Embedded compressed pubkey travels with
         // each ARRIVAL_ECHO so any peer can verify without a shared key registry.
         if (replicaPrivateKey) {
             EVP_PKEY_free(static_cast<EVP_PKEY*>(replicaPrivateKey));

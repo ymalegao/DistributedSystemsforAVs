@@ -24,7 +24,7 @@ class VEINS_API V2VProxyModule : public DemoBaseApplLayer {
 public:
     V2VProxyModule();
     ~V2VProxyModule() override;
-    static const int BATCH_SIZE = 4;
+    static const int BATCH_SIZE = 16;
 
     simtime_t consensusStartTime;
     
@@ -131,7 +131,7 @@ protected:
     //
     // Witness-echo authenticity is provided by ECDSA P-256 signatures (IEEE 1609.2 /
     // ETSI TS 103 097 V2X security profile), not the legacy XXHash32 MAC. Each echo
-    // self-contains the signer's uncompressed P-256 public key so that any receiver
+    // self-contains the signer's compressed P-256 public key so that any receiver
     // (C++ or Java) can verify without a shared replica-key registry.
     struct ArrivalEcho {
         int echoingReplicaId;     // Who is sending the echo
@@ -142,7 +142,7 @@ protected:
         bool isAmbulance;
         int epoch;
         // ECDSA P-256 over UTF-8(targetCarId:lane:pos:dir:isAmb:echoingReplicaId).
-        uint8_t signerPubKey[CRYPTO_PUBKEY_BYTES];  // 65-byte uncompressed P-256 pubkey
+        uint8_t signerPubKey[CRYPTO_PUBKEY_BYTES];  // 33-byte compressed P-256 pubkey
         uint8_t signature[CRYPTO_SIG_MAX_BYTES];    // DER-encoded ECDSA signature
         uint8_t signatureLen;                       // actual bytes used in signature[]
     };

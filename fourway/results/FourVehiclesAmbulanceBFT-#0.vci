@@ -1,17 +1,17 @@
                                                                 
 version 3
-run FourVehiclesAmbulanceBFT-0-20260423-12:39:56-2172543
+run FourVehiclesAmbulanceBFT-0-20260423-14:23:17-54321
 attr configname FourVehiclesAmbulanceBFT
-attr datetime 20260423-12:39:56
-attr datetimef 20260423-123956
+attr datetime 20260423-14:23:17
+attr datetimef 20260423-142317
 attr experiment FourVehiclesAmbulanceBFT
-attr inifile /home/yash/DistributedSystemsforAVs/fourway/random_scenario.ini
+attr inifile /Users/yashmalegaonkar/Documents/v2v/fourway/random_scenario.ini
 attr iterationvars ""
 attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network fourWay
-attr processid 2172543
+attr processid 54321
 attr repetition 0
 attr replication #0
 attr resultdir results

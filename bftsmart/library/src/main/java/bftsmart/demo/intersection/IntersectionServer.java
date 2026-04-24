@@ -122,6 +122,11 @@ public final class IntersectionServer extends DefaultRecoverable implements View
             ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(tomBytes));
             TOMMessage tom = (TOMMessage) ois.readObject();
             ois.close();
+            // Java object serialization does not preserve TOMMessage.serializedMessage.
+            // Rebuild it so timeout forwarding (ForwardedMessage.writeExternal) won't NPE.
+            if (tom.serializedMessage == null) {
+                tom.serializedMessage = TOMMessage.messageToBytes(tom);
+            }
             srv.replica.getTOMLayer().requestReceived(tom, false);
         } catch (Exception e) {
             System.err.println("[IntersectionServer " + toReplicaId + "] Failed to inject TOMMessage: " + e.getMessage());

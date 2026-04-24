@@ -58,6 +58,30 @@ static std::vector<uint8_t> fromHex(const std::string& s) {
     return out;
 }
 
+// Stable short key identifier used by PROPOSE_ALL cert compression:
+// keyId = first 8 bytes of SHA-256(pubKey), rendered as 16 hex chars.
+static std::string shortPubKeyIdHex(const uint8_t* pubKey, size_t len) {
+    unsigned char digest[EVP_MAX_MD_SIZE];
+    unsigned int digestLen = 0;
+    EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
+    if (!mdctx) return "";
+    bool ok = (EVP_DigestInit_ex(mdctx, EVP_sha256(), nullptr) == 1)
+           && (EVP_DigestUpdate(mdctx, pubKey, len) == 1)
+           && (EVP_DigestFinal_ex(mdctx, digest, &digestLen) == 1);
+    EVP_MD_CTX_free(mdctx);
+    if (!ok || digestLen < 8) return "";
+
+    static const char* digits = "0123456789abcdef";
+    std::string out;
+    out.reserve(16);
+    for (size_t i = 0; i < 8; ++i) {
+        uint8_t b = digest[i];
+        out += digits[b >> 4];
+        out += digits[b & 0x0f];
+    }
+    return out;
+}
+
 V2VProxyModule::VerificationResult V2VProxyModule::verifyCarPosition(const std::string& carId,
     const std::string& claimedLane,
     double claimedPosition,
@@ -781,7 +805,7 @@ void V2VProxyModule::sendArrivalEcho(const ArrivalAnnouncement& ann) {
     std::string myCarId = "veh" + std::to_string(replicaId);
 
     // ECDSA P-256 sign over UTF-8(targetCarId:lane:pos:dir:isAmb:echoingReplicaId).
-    // Embed the signer's uncompressed pubkey so any peer (C++ or Java) can verify
+    // Embed the signer's compressed pubkey so any peer (C++ or Java) can verify
     // self-containedly (IEEE 1609.2 V2X model).
     std::string toSign = ann.carId + ":" + ann.lane + ":"
         + std::to_string(ann.positionInLane) + ":"
@@ -994,11 +1018,13 @@ std::set<std::string> V2VProxyModule::getCertSnapshotKeys() const {
 std::string V2VProxyModule::buildFreshProposePayload() const {
     std::string vsStr = buildVehicleStatesStr(&collectedCerts);
 
-    // Per-car cert string: "carId~r1,pubKeyHex1,sigHex1|r2,pubKeyHex2,sigHex2;..."
-    // Each echo carries the signer's uncompressed P-256 pubkey + DER ECDSA sig
-    // so the Java leader (and any verifying replica) can self-containedly verify
-    // SHA256withECDSA(carId:lane:pos:dir:isAmb:replicaId).
+    // Per-car cert string with key-cache compression:
+    //   full: carId~r1,pubKeyHex1,sigHex1|...
+    //   ref:  carId~r2,@keyIdHex,sigHex2|...
+    // where keyIdHex = first 8 bytes of SHA-256(pubKey). This avoids repeating
+    // the same signer pubkey across many echoes in one PROPOSE_ALL payload.
     std::string perCarCertsStr;
+    std::map<std::string, std::string> keyIdToPubHex;
     bool firstCar = true;
     for (const auto& kv : collectedCerts) {
         if (!firstCar) perCarCertsStr += ";";
@@ -1012,8 +1038,22 @@ std::string V2VProxyModule::buildFreshProposePayload() const {
                                         echo.signerPubKey + CRYPTO_PUBKEY_BYTES);
             std::vector<uint8_t> sigVec(echo.signature,
                                         echo.signature + echo.signatureLen);
+            std::string pubHex = toHex(pubVec);
+            std::string keyId = shortPubKeyIdHex(echo.signerPubKey, CRYPTO_PUBKEY_BYTES);
+            bool emitReference = false;
+            if (!keyId.empty()) {
+                auto it = keyIdToPubHex.find(keyId);
+                if (it == keyIdToPubHex.end()) {
+                    keyIdToPubHex[keyId] = pubHex;
+                } else if (it->second == pubHex) {
+                    emitReference = true;
+                } else {
+                    // Defensive collision handling: fall back to full pubkey encoding.
+                    emitReference = false;
+                }
+            }
             perCarCertsStr += std::to_string(echo.echoingReplicaId)
-                            + "," + toHex(pubVec)
+                            + "," + (emitReference ? ("@" + keyId) : pubHex)
                             + "," + toHex(sigVec);
         }
     }
@@ -1030,8 +1070,8 @@ void V2VProxyModule::submitViewToBFTConsensus() {
 
     // Wire format: "PROPOSE_ALL:<proposerId>:<vehicleStatesStr>:<perCarCerts>"
     // vehicleStatesStr: "veh0|N|1|S|0|SIGNED;veh1|S|1|L|0|QUIET;..."
-    // perCarCerts:      "veh0~r1,pubKeyHex1,sigHex1|r2,pubKeyHex2,sigHex2;veh1~..."
-    //   (carId ~ signerReplicaId,uncompressedP256PubKeyHex,DERECDSASigHex | ... ; nextCar ...)
+    // perCarCerts:      "veh0~r1,pubKeyHex1,sigHex1|r2,@keyIdHex,sigHex2;veh1~..."
+    //   (carId ~ signerReplicaId,(compressedP256PubKeyHex|@keyIdHex),DERECDSASigHex | ... )
     // Java leader verifies SHA256withECDSA over (carId:lane:pos:dir:isAmb:replicaId)
     // for every echo, then appends the schedule before invoking ordered consensus.
 

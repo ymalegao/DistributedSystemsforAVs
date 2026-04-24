@@ -15,14 +15,14 @@
 #include <vector>
 #include <openssl/evp.h>
 
-// Fixed byte sizes (P-256 uncompressed pubkey = 65, max DER ECDSA sig = 72)
-static constexpr int CRYPTO_PUBKEY_BYTES  = 65;
+// Fixed byte sizes (P-256 compressed pubkey = 33, max DER ECDSA sig = 72)
+static constexpr int CRYPTO_PUBKEY_BYTES  = 33;
 static constexpr int CRYPTO_SIG_MAX_BYTES = 72;
 
 // ---- Certificate: issued by a CA, binds a public key to a role ----
 // Plain C struct so it can be memcpy'd into a network payload.
 struct VehicleCert {
-    uint8_t publicKey[CRYPTO_PUBKEY_BYTES];   // vehicle's EC public key (uncompressed)
+    uint8_t publicKey[CRYPTO_PUBKEY_BYTES];   // vehicle's EC public key (compressed)
     char    role[16];                          // "ambulance" or "normal"
     char    issuer[32];                        // "Emergency_CA" or "Vehicle_CA"
     uint8_t caSignature[CRYPTO_SIG_MAX_BYTES]; // CA's ECDSA signature over (pubkey+role+issuer)
@@ -49,7 +49,7 @@ public:
 
     // Called once per vehicle at initialize():
     //   - Generates an EC P-256 keypair for this vehicle.
-    //   - Fills pubKeyOut[CRYPTO_PUBKEY_BYTES] with the uncompressed public key.
+    //   - Fills pubKeyOut[CRYPTO_PUBKEY_BYTES] with the compressed public key.
     //   - Returns a heap-allocated EVP_PKEY* (caller must EVP_PKEY_free() at finish()).
     EVP_PKEY* generateKeyPair(uint8_t pubKeyOut[CRYPTO_PUBKEY_BYTES]);
 
