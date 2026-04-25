@@ -146,6 +146,7 @@ BFT_BAR_SUPTITLE = (
 # Partner-style colors: ambulance vs normal (mean wait bars)
 AMB_BAR_COLOR = "#e74c3c"
 NORM_BAR_COLOR = "#95a5a6"
+NO_PRIO_BAR_COLOR = "#7f8c8d"
 
 
 def _resolve_paths(patterns: list[str], base_dir: Path) -> list[Path]:
@@ -1078,6 +1079,7 @@ def plot_ambulance_vs_normal_wait(
 ) -> None:
     """
     Mean wait (wait_intersection_s) for ambulance vs normal vehicles, per scenario.
+    Also includes a no-priority baseline (all vehicles from "No ambulance" runs).
     2×2 subplots: one panel per n ∈ {4,8,12,16}.
     """
     assert plt is not None
@@ -1102,10 +1104,23 @@ def plot_ambulance_vs_normal_wait(
     for ax_idx, vc in enumerate(GRID_VEHICLE_COUNTS):
         ax = axes_flat[ax_idx]
         x = np.arange(n_scen, dtype=float)
-        width = 0.34
+        width = 0.24
         amb_vals: list[float | None] = []
         norm_vals: list[float | None] = []
+        no_prio_vals: list[float | None] = []
         labels_short: list[str] = []
+        no_amb_waits: list[float] = []
+
+        # Use the no-ambulance scenario as a baseline for no-priority crossing time.
+        for lab, files_by_vc in bar_series:
+            if "no ambulance" in lab.lower():
+                no_amb_paths = files_by_vc.get(vc) or []
+                if no_amb_paths:
+                    no_amb_waits = scenario_waits(
+                        no_amb_paths, base_dir, "all", exclude_fallback
+                    )
+                break
+        no_prio_baseline = mean_or_none(no_amb_waits)
 
         for lab, files_by_vc in bar_series:
             labels_short.append(lab)
@@ -1113,22 +1128,24 @@ def plot_ambulance_vs_normal_wait(
             if not paths:
                 amb_vals.append(None)
                 norm_vals.append(None)
+                no_prio_vals.append(no_prio_baseline)
                 continue
             am, nm = pooled_waits_by_role(paths, base_dir, exclude_fallback)
             amb_vals.append(mean_or_none(am))
             norm_vals.append(mean_or_none(nm))
+            no_prio_vals.append(no_prio_baseline)
 
         ymax = 0.0
-        for ma, mn in zip(amb_vals, norm_vals):
-            for v in (ma, mn):
+        for ma, mn, npb in zip(amb_vals, norm_vals, no_prio_vals):
+            for v in (ma, mn, npb):
                 if v is not None:
                     ymax = max(ymax, float(v))
 
         for i in range(n_scen):
-            ma, mn = amb_vals[i], norm_vals[i]
-            if ma is not None and mn is not None:
+            ma, mn, npb = amb_vals[i], norm_vals[i], no_prio_vals[i]
+            if ma is not None:
                 ax.bar(
-                    x[i] - width / 2,
+                    x[i] - width,
                     ma,
                     width,
                     color=AMB_BAR_COLOR,
@@ -1137,8 +1154,9 @@ def plot_ambulance_vs_normal_wait(
                     linewidth=0.7,
                     label="_nolegend_",
                 )
+            if mn is not None:
                 ax.bar(
-                    x[i] + width / 2,
+                    x[i],
                     mn,
                     width,
                     color=NORM_BAR_COLOR,
@@ -1147,50 +1165,25 @@ def plot_ambulance_vs_normal_wait(
                     linewidth=0.7,
                     label="_nolegend_",
                 )
-                for xv, val in ((x[i] - width / 2, ma), (x[i] + width / 2, mn)):
-                    if val is not None and val > 0:
-                        ax.text(
-                            xv,
-                            float(val) + 0.05,
-                            f"{float(val):.1f}s",
-                            ha="center",
-                            va="bottom",
-                            fontsize=8,
-                            fontweight="bold",
-                        )
-            elif mn is not None:
+            if npb is not None:
                 ax.bar(
-                    x[i],
-                    mn,
-                    width * 1.65,
-                    color=NORM_BAR_COLOR,
+                    x[i] + width,
+                    npb,
+                    width,
+                    color=NO_PRIO_BAR_COLOR,
                     alpha=0.9,
                     edgecolor="black",
                     linewidth=0.7,
+                    hatch="//",
                 )
+
+            for xv, val in ((x[i] - width, ma), (x[i], mn), (x[i] + width, npb)):
+                if val is None or val <= 0:
+                    continue
                 ax.text(
-                    x[i],
-                    float(mn) + 0.05,
-                    f"{float(mn):.1f}s",
-                    ha="center",
-                    va="bottom",
-                    fontsize=8,
-                    fontweight="bold",
-                )
-            elif ma is not None:
-                ax.bar(
-                    x[i],
-                    ma,
-                    width * 1.65,
-                    color=AMB_BAR_COLOR,
-                    alpha=0.9,
-                    edgecolor="black",
-                    linewidth=0.7,
-                )
-                ax.text(
-                    x[i],
-                    float(ma) + 0.05,
-                    f"{float(ma):.1f}s",
+                    xv,
+                    float(val) + 0.05,
+                    f"{float(val):.1f}s",
                     ha="center",
                     va="bottom",
                     fontsize=8,
@@ -1209,16 +1202,28 @@ def plot_ambulance_vs_normal_wait(
 
     fig.suptitle(
         f"Wait time at intersection: ambulance vs normal vehicles{title_suffix}\n"
-        "Mean of wait_intersection_s (stop → depart); pooled over listed JSON runs",
+        "Mean of wait_intersection_s (stop → depart); includes no-priority baseline from no-ambulance runs",
         fontsize=12,
         fontweight="bold",
     )
     if Patch is not None:
         legend_elements = [
-            Patch(facecolor=AMB_BAR_COLOR, edgecolor="black", label="Ambulance (mean)"),
-            Patch(facecolor=NORM_BAR_COLOR, edgecolor="black", label="Normal vehicles (mean)"),
+            Patch(facecolor=AMB_BAR_COLOR, edgecolor="black", label="Priority vehicle (priority run)"),
+            Patch(facecolor=NORM_BAR_COLOR, edgecolor="black", label="Normal vehicles (priority run)"),
+            Patch(
+                facecolor=NO_PRIO_BAR_COLOR,
+                edgecolor="black",
+                hatch="//",
+                label="All vehicles (no-priority baseline)",
+            ),
         ]
-        axes_flat[0].legend(handles=legend_elements, fontsize=9, loc="upper right")
+        fig.legend(
+            handles=legend_elements,
+            bbox_to_anchor=(0.5, 0.01),
+            loc="lower center",
+            ncol=3,
+            fontsize=9,
+        )
     fig.tight_layout()
     out = output_dir / f"{prefix}ambulance_vs_normal_wait.png"
     fig.savefig(out, dpi=150, bbox_inches="tight")

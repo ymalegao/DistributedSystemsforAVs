@@ -1,8 +1,8 @@
 version 3
-run FourVehiclesBFTOverV2V-0-20260424-12:10:51-2456007
+run FourVehiclesBFTOverV2V-0-20260424-21:15:53-2577711
 attr configname FourVehiclesBFTOverV2V
-attr datetime 20260424-12:10:51
-attr datetimef 20260424-121051
+attr datetime 20260424-21:15:53
+attr datetimef 20260424-211553
 attr experiment FourVehiclesBFTOverV2V
 attr inifile omnetpp.ini
 attr iterationvars ""
@@ -10,7 +10,7 @@ attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network fourWay
-attr processid 2456007
+attr processid 2577711
 attr repetition 0
 attr replication #0
 attr resultdir results
@@ -330,7 +330,7 @@ par fourWay.node[0].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[0].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[0].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[0].nic.phy80211p busyTime 0.0087813333333333
+scalar fourWay.node[0].nic.phy80211p busyTime 0.008776
 scalar fourWay.node[0].nic.phy80211p ncollisions 0
 par fourWay.node[0].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[0].nic.mac1609_4 notAffectedByHostState false
@@ -543,7 +543,7 @@ par fourWay.node[1].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[1].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[1].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[1].nic.phy80211p busyTime 0.011656
+scalar fourWay.node[1].nic.phy80211p busyTime 0.011661333333333
 scalar fourWay.node[1].nic.phy80211p ncollisions 0
 par fourWay.node[1].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[1].nic.mac1609_4 notAffectedByHostState false
@@ -578,8 +578,8 @@ scalar fourWay.node[1].nic.mac1609_4 RXTXLostPackets 0
 scalar fourWay.node[1].nic.mac1609_4 TotalLostPackets 0
 scalar fourWay.node[1].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.node[1].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[1].nic.mac1609_4 TimesIntoBackoff 11
-scalar fourWay.node[1].nic.mac1609_4 SlotsBackoff 22
+scalar fourWay.node[1].nic.mac1609_4 TimesIntoBackoff 10
+scalar fourWay.node[1].nic.mac1609_4 SlotsBackoff 23
 scalar fourWay.node[1].nic.mac1609_4 NumInternalContention 0
 scalar fourWay.node[1].nic.mac1609_4 totalBusyTime 0.042914
 scalar fourWay.node[1].nic.mac1609_4 retriesExceeded:count 0
@@ -756,7 +756,7 @@ par fourWay.node[2].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[2].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[2].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[2].nic.phy80211p busyTime 0.011269333333333
+scalar fourWay.node[2].nic.phy80211p busyTime 0.011266666666667
 scalar fourWay.node[2].nic.phy80211p ncollisions 0
 par fourWay.node[2].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[2].nic.mac1609_4 notAffectedByHostState false
@@ -792,7 +792,7 @@ scalar fourWay.node[2].nic.mac1609_4 TotalLostPackets 0
 scalar fourWay.node[2].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.node[2].nic.mac1609_4 TooLittleTime 0
 scalar fourWay.node[2].nic.mac1609_4 TimesIntoBackoff 12
-scalar fourWay.node[2].nic.mac1609_4 SlotsBackoff 17
+scalar fourWay.node[2].nic.mac1609_4 SlotsBackoff 19
 scalar fourWay.node[2].nic.mac1609_4 NumInternalContention 0
 scalar fourWay.node[2].nic.mac1609_4 totalBusyTime 0.042915
 scalar fourWay.node[2].nic.mac1609_4 retriesExceeded:count 0
@@ -969,7 +969,7 @@ par fourWay.node[3].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[3].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[3].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[3].nic.phy80211p busyTime 0.011197333333333
+scalar fourWay.node[3].nic.phy80211p busyTime 0.0112
 scalar fourWay.node[3].nic.phy80211p ncollisions 0
 par fourWay.node[3].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[3].nic.mac1609_4 notAffectedByHostState false
@@ -1005,7 +1005,7 @@ scalar fourWay.node[3].nic.mac1609_4 TotalLostPackets 0
 scalar fourWay.node[3].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.node[3].nic.mac1609_4 TooLittleTime 0
 scalar fourWay.node[3].nic.mac1609_4 TimesIntoBackoff 12
-scalar fourWay.node[3].nic.mac1609_4 SlotsBackoff 11
+scalar fourWay.node[3].nic.mac1609_4 SlotsBackoff 15
 scalar fourWay.node[3].nic.mac1609_4 NumInternalContention 0
 scalar fourWay.node[3].nic.mac1609_4 totalBusyTime 0.042915
 scalar fourWay.node[3].nic.mac1609_4 retriesExceeded:count 0

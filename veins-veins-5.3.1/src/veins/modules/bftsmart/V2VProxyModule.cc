@@ -77,8 +77,6 @@ V2VProxyModule::V2VProxyModule()
     , certCollectionTimeoutSec(1.5)
     , MAX_MESSAGES_PER_TICK(BATCH_SIZE)  // Will be updated by notifyJavaNewBatchSize() when BFT group size is known
     , consensusStartTime(0)
-    , viewConsensusStartTime(0)
-    , viewConsensusEndTime(0)
     , orderConsensusStartTime(0)
     , orderConsensusEndTime(0)
     , proposeAllSubmitTime(0)
@@ -395,23 +393,16 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                 } else {
                     lastOrderBftRequestRttMs = -1.0;
                 }
-                const bool hasViewSignatureCollection =
+                const bool hasCertCollectionPhase =
                     certCollectionStartTime > 0 &&
-                    certCollectionStartTime >= certCollectionStartTime;
-                const bool hasViewConsensusSim =
-                    viewConsensusStartTime > 0 &&
-                    viewConsensusEndTime >= viewConsensusStartTime;
+                    proposeAllSubmitTime > 0 &&
+                    proposeAllSubmitTime >= certCollectionStartTime;
                 const bool hasOrderConsensusSim =
                     orderConsensusStartTime > 0 &&
                     orderConsensusEndTime >= orderConsensusStartTime;
                 const bool hasStopToDecisionPipeline =
                     consensusStartTime > 0 &&
                     orderConsensusEndTime >= consensusStartTime;
-
-                simtime_t viewConsensusDuration = 0;
-                if (hasViewConsensusSim) {
-                    viewConsensusDuration = viewConsensusEndTime - viewConsensusStartTime;
-                }
 
                 simtime_t orderConsensusDuration = 0;
                 if (hasOrderConsensusSim) {
@@ -440,14 +431,9 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                     o << t;
                     return o.str();
                 };
-                const double durViewV2vSig =
-                    hasViewSignatureCollection
-                        ? (certCollectionStartTime - certCollectionStartTime).dbl()
-                        : -1.0;
-                const double gapV2vToViewBft =
-                    (hasViewConsensusSim && certCollectionStartTime > 0
-                     && viewConsensusStartTime >= certCollectionStartTime)
-                        ? (viewConsensusStartTime - certCollectionStartTime).dbl()
+                const double durCertCollection =
+                    hasCertCollectionPhase
+                        ? (proposeAllSubmitTime - certCollectionStartTime).dbl()
                         : -1.0;
                 const bool hasLocalProposeAllWall =
                     lastProposeAllConsensusEpoch == currentEpoch && lastProposeAllConsensusWallSec > 0.0;
@@ -461,18 +447,17 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                 std::cout << "\n========== CONSENSUS METRICS (Replica " << replicaId << ") epoch=" << currentEpoch
                           << " ==========" << "\n";
                 std::cout << "[PHASE_SUMMARY " << replicaId << "] "
-                          << "Cert_Collection=" << fmtPhaseSec(durViewV2vSig)
-                          << " gap_to_PROPOSE_ALL=" << fmtPhaseSec(gapV2vToViewBft)
+                          << "Cert_Collection=" << fmtPhaseSec(durCertCollection)
                           << " PROPOSE_ALL_BFT(wall)="
                           << (hasLocalProposeAllWall ? fmtPhaseSec(lastProposeAllConsensusWallSec) : std::string("N/A"))
                           << " PROPOSE_ALL_BFT(sim)=" << fmtPhaseSec(durProposeAllSim)
                           << " stop_to_decision(sim)=" << fmtPhaseSec(durStopToDecisionSim)
                           << "\n";
 
-                std::cout << "[METRICS " << replicaId << "] === VIEW SIGNATURE COLLECTION (V2V f+1) ===" << "\n";
+                std::cout << "[METRICS " << replicaId << "] === CERT COLLECTION (V2V f+1 ARRIVAL_CERTs) ===" << "\n";
                 std::cout << "[METRICS " << replicaId << "] Cert_Collection_Start: " << certCollectionStartTime << "\n";
-                std::cout << "[METRICS " << replicaId << "] Cert_Collection_End: " << certCollectionStartTime << "\n";
-                std::cout << "[METRICS " << replicaId << "] Cert_Collection_Duration: " << fmtPhaseSec(durViewV2vSig) << "\n";
+                std::cout << "[METRICS " << replicaId << "] Cert_Collection_End: " << fmtSimInstant(proposeAllSubmitTime) << "\n";
+                std::cout << "[METRICS " << replicaId << "] Cert_Collection_Duration: " << fmtPhaseSec(durCertCollection) << "\n";
 
                 std::cout << "[METRICS " << replicaId << "] === PROPOSE_ALL CONSENSUS (single round BFT) ===" << "\n";
                 std::cout << "[METRICS " << replicaId << "] ProposeAll_Submit_Time: " << fmtSimInstant(proposeAllSubmitTime) << "\n";
@@ -627,7 +612,7 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
         // Only ignore if already moving or departed — a resumeVehicle message is only
         // ever scheduled by notifyVehicleCanGo (GO car) or the consensus timeout fallback.
         // WAIT cars never get a resumeVehicle scheduled, so any message here is legitimate.
-        // We must NOT check currentPhase == ORDER_CONSENSUS because resetForNextRound() or
+        // We must NOT gate on a specific consensus phase because resetForNextRound() or
         // and when it fires (same simulation timestep, later event ID).
         if (currentPhase == EXECUTING || currentPhase == DEPARTED) {
             std::cout << "[V2VProxy " << replicaId << "] IGNORING resume - already in phase " << currentPhase
@@ -790,7 +775,7 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                 stopVehicle();
                 // NEW PROTOCOL: Broadcast ARRIVAL_ANNOUNCE (with full VehicleState) immediately.
                 // VIEW_PROPOSAL is sent after all BATCH_SIZE announcements are collected.
-                currentPhase = PROPOSING_VIEW;  // signals handleArrivalAnnouncement to trigger view proposal
+                currentPhase = COLLECTING_CERTS;  // signals handleArrivalAnnouncement to trigger cert collection
                 broadcastArrivalAnnouncement();
                 certCollectionStartTime = simTime(); 
                 
@@ -843,7 +828,7 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
 
         // Retry a pending VIEW_PROPOSE if Java became ready between attempts
         if (!pendingProposeAllRequest.empty() && javaReady) {
-            std::cout << "[V2VProxy " << replicaId << "] Retrying pending VIEW_PROPOSE from checkPosition\n";
+            std::cout << "[V2VProxy " << replicaId << "] Retrying pending PROPOSE_ALL from checkPosition\n";
             if (triggerJoinViaJNI(pendingProposeAllRequest)) {
                 pendingProposeAllRequest.clear();
             }
@@ -856,13 +841,6 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
     // =========================================================================
     // 4. OTHER TIMERS
     // =========================================================================
-    if (msg == viewConsensusTimer) {
-        if (currentPhase == VIEW_CONSENSUS) {
-            std::cout << "[V2VProxy " << replicaId << "] View consensus timeout - still waiting for BFT response" << "\n";
-        }
-        return;
-    }
-    
     if (msg == retxCheckTimer) {
         syncTimeToJava();
         triggerRetransmissionCheckViaJNI();
@@ -881,7 +859,7 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
 
                 // Retry a VIEW_PROPOSE that failed earlier because Java wasn't ready yet
                 if (!pendingProposeAllRequest.empty()) {
-                    std::cout << "[V2VProxy " << replicaId << "] Retrying pending VIEW_PROPOSE\n";
+                    std::cout << "[V2VProxy " << replicaId << "] Retrying pending PROPOSE_ALL\n";
                     if (triggerJoinViaJNI(pendingProposeAllRequest)) {
                         pendingProposeAllRequest.clear();
                     }
@@ -917,7 +895,7 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
     if (msg == certCollectionTimeoutTimer) {
         // Exclusive Fallback: not all ARRIVAL_CERTs received within certCollectionTimeoutSec.
         // Force-submit PROPOSE_ALL with whatever certs exist; uncertified cars become QUIET.
-        if (viewEstablished) {
+        if (proposeAllSubmitted) {
             return;  // Already reached quorum normally — nothing to do.
         }
         if (zombieFilter()) return;
@@ -931,10 +909,10 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
             return;
         }
 
-        viewEstablished = true;
+        proposeAllSubmitted = true;
         certCollectionStartTime = simTime();
         std::cout << "[V2VProxy " << replicaId << "] ===== EXCLUSIVE FALLBACK: LEADER FORCE-SUBMITTING TO BFT =====\n";
-        submitViewToBFTConsensus();
+        submitProposeAllToBFT();
         return;
     }
 

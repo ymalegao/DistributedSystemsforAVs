@@ -19,9 +19,9 @@ void V2VProxyModule::handleWipeComplete() {
     currentBatchExpected.clear();
     confirmedDeparted.clear();
     expectedToGo.clear();
-    viewState.clear();
+    localVehicleStates.clear();
     arrivalAnnouncementsReceived.clear();
-    viewEstablished = false;
+    proposeAllSubmitted = false;
     myReceivedEchoes.clear();
     collectedCerts.clear();
     physicallyObservedCars.clear();

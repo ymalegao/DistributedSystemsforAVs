@@ -56,7 +56,6 @@ public:
     void handleOrderDecision(const std::string& orderDecision);
     void parseAndNotifyDecision(const std::string& decision);
     void flushReliabilityQueue();
-    void onViewAgreed(const std::set<std::string>& agreedView);
     void recordProposeAllConsensusMetric(int epoch, double wallSeconds);
     void resetForNextRound();
     void handleWipeComplete();  // Called by notifyWipeComplete JNI callback
@@ -64,9 +63,9 @@ public:
     std::set<std::string> getCertSnapshotKeys() const;
 
     // Returns "<vehicleStatesStr>:<perCarCerts>" built from current collectedCerts
-    // ground truth. Shared helper used both by submitViewToBFTConsensus() (initial
-    // leader) and by the Java-side view-change rebuild hook (new leader fetches
-    // fresh payload via JNI when a Byzantine predecessor censored a car).
+    // ground truth. Used both by submitProposeAllToBFT() (initial leader) and by the
+    // Java-side view-change rebuild hook (new leader fetches fresh payload via JNI
+    // when a Byzantine predecessor censored a car).
     std::string buildFreshProposePayload() const;
 
     // Direction and VehicleState are public so static helpers (dirToStr/strToDir) and
@@ -96,9 +95,7 @@ protected:
     void onWSA(DemoServiceAdvertisment* wsa) override;
     
 
-    std::chrono::time_point<std::chrono::high_resolution_clock> realViewConsensusStart;
     std::chrono::time_point<std::chrono::high_resolution_clock> realOrderConsensusStart;
-    std::chrono::time_point<std::chrono::high_resolution_clock> realViewConsensusEnd;
     std::chrono::time_point<std::chrono::high_resolution_clock> realOrderConsensusEnd;
     bool orderDecisionCallbackSeen = false;
     double lastOrderBftRequestRttMs = -1.0;
@@ -169,8 +166,8 @@ protected:
         std::vector<uint8_t> ambulanceSigBytes;
     };
 
-    // VIEW consensus state: agreed VehicleState per car (populated after VIEW_PROPOSE commits)
-    std::map<std::string, VehicleState> viewState;
+    // Per-car VehicleState collected from ARRIVAL_ANNOUNCEs during cert-collection phase.
+    std::map<std::string, VehicleState> localVehicleStates;
 
     // Batch execution state (populated after ORDER_PROPOSE commits)
     std::vector<std::vector<std::string>> pendingBatches; // pendingBatches[batchIdx] = list of vehicleIds
@@ -192,8 +189,8 @@ protected:
     std::set<std::string> physicallyObservedCars;                      // cars verified via TraCI physical check
     bool certCollectionStarted = false;
     bool certBroadcast = false;           // true once I have broadcast my own ARRIVAL_CERT
-    std::set<std::string> establishedView;  // View that got consensus
-    bool viewEstablished = false;
+    std::set<std::string> establishedView;  // snapshot used by delayed-order guard (item 6)
+    bool proposeAllSubmitted = false;     // true once PROPOSE_ALL has been sent to BFT
 
     // Neighbor tracking
     std::set<int> neighborsInRange;
@@ -224,20 +221,15 @@ protected:
     // Consensus phases
     enum ConsensusPhase {
         IDLE,
-        PROPOSING_VIEW,        // Cars send ARRIVAL_ANNOUNCE; replicas echo; cars assemble certs
-        VIEW_CONSENSUS,        // Waiting for BFT PROPOSE_ALL consensus
-        ORDER_CONSENSUS,       // (unused in single-round protocol; kept for compat)
+        COLLECTING_CERTS,      // Cars broadcast ARRIVAL_ANNOUNCE; replicas echo; f+1 certs assembled
         WAITING_FOR_CLEARANCE, // Waiting for clearance from intersection controller
         PULLING_FORWARD,       // Pulling forward to stop line
         EXECUTING,             // Cars crossing intersection
         DEPARTED,              // Car has crossed intersection (zombie mode)
     };
     ConsensusPhase currentPhase = IDLE;
-    std::set<std::string> agreedView;
-    std::vector<std::string> agreedOrder;
 
     // Timers
-    cMessage* viewConsensusTimer = nullptr;
     /** Fires if not all ARRIVAL_CERTs are collected within certCollectionTimeoutSec.
      *  On expiry the leader force-submits PROPOSE_ALL; cars without certs are QUIET
      *  and will receive exclusive-slot scheduling by OrderScheduler. */
@@ -428,7 +420,7 @@ private:
     void handlepreConsensusMessages(BFTMessage* bftMsg);
 
     // Protocol functions
-    void submitViewToBFTConsensus();      // Submit PROPOSE_ALL with per-car certs to BFT
+    void submitProposeAllToBFT();         // Submit PROPOSE_ALL with per-car certs to BFT
     void broadcastArrivalAnnouncement();  // Announce arrival; others echo; we collect cert
 
     bool triggerJoinViaJNI(const std::string& request);
@@ -437,7 +429,7 @@ private:
     
     // View detection (uses TraCI sensors)
     std::set<std::string> getVisibleVehicles(double maxRange);
-    /** Serialize viewState to 5-field "veh0|N|1|S|0;..." format (no cyberStatus).
+    /** Serialize localVehicleStates to 5-field "veh0|N|1|S|0;..." format (no cyberStatus).
      *  Pass certs != nullptr to append the 6th cyberStatus field (SIGNED|QUIET):
      *  a vehicle is SIGNED iff its carId appears in the certs map. */
     std::string buildVehicleStatesStr(const std::map<std::string, ArrivalCert>* certs = nullptr) const;

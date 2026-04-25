@@ -155,6 +155,91 @@
       "meta": {
         "text": "onViewAgreed view protocol stale naming dead code"
       }
+    },
+    {
+      "id": "action:edit:1777085390",
+      "type": "action",
+      "meta": {
+        "summary": "Renamed stale view-protocol names to PROPOSE_ALL protocol names; gutted dead onViewAgreed to JNI stub; fixed two metrics bugs; JNI symbol kept for RegisterNatives compat"
+      }
+    },
+    {
+      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc",
+      "type": "file"
+    },
+    {
+      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc",
+      "type": "file"
+    },
+    {
+      "id": "query:timer parameters ned ini constructor timeout interval configuration",
+      "type": "query",
+      "meta": {
+        "text": "timer parameters NED INI constructor timeout interval configuration"
+      }
+    },
+    {
+      "id": "plot_wait_time_cdf.py::ecdf_binned_smooth",
+      "type": "file"
+    },
+    {
+      "id": "fourway/benchmarks/analyze_two_phase_v2_avg_runs.py",
+      "type": "file"
+    },
+    {
+      "id": "query:timer configs audit effective values overwritten",
+      "type": "query",
+      "meta": {
+        "text": "timer configs audit effective values overwritten"
+      }
+    },
+    {
+      "id": "benchmarks/Priority16cars/effective_timer_audit_16veh.md",
+      "type": "file"
+    },
+    {
+      "id": "fourway/config/system.config",
+      "type": "file"
+    },
+    {
+      "id": "query:timer timeout jitter retransmission",
+      "type": "query",
+      "meta": {
+        "text": "timer timeout JITTER retransmission"
+      }
+    },
+    {
+      "id": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
+      "type": "file"
+    },
+    {
+      "id": "query:sixteenvehicles timer timeout override",
+      "type": "query",
+      "meta": {
+        "text": "SixteenVehicles timer timeout override"
+      }
+    },
+    {
+      "id": "fourway/omnetpp.ini",
+      "type": "file"
+    },
+    {
+      "id": "query:stopdata retransmission cap max retx",
+      "type": "query",
+      "meta": {
+        "text": "STOPDATA retransmission cap max retx"
+      }
+    },
+    {
+      "id": "bftsmart/library/src/main/java/bftsmart/tom/core/Synchronizer.java",
+      "type": "file"
+    },
+    {
+      "id": "action:edit:1777102003",
+      "type": "action",
+      "meta": {
+        "summary": "Expanded timer audit: added Source column, Java RequestsTimer constants, system.config BFT-SMaRt params, flagged orderDelayGap typo and totalordermulticast.timeout discrepancy"
+      }
     }
   ],
   "edges": [
@@ -364,6 +449,153 @@
       "meta": {
         "mode": "query_excerpt"
       }
+    },
+    {
+      "from": "action:edit:1777085390",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
+      "rel": "edited",
+      "ts": 1777085390
+    },
+    {
+      "from": "action:edit:1777085390",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+      "rel": "edited",
+      "ts": 1777085390
+    },
+    {
+      "from": "action:edit:1777085390",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc",
+      "rel": "edited",
+      "ts": 1777085390
+    },
+    {
+      "from": "action:edit:1777085390",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc",
+      "rel": "edited",
+      "ts": 1777085390
+    },
+    {
+      "from": "action:edit:1777085390",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc",
+      "rel": "edited",
+      "ts": 1777085390
+    },
+    {
+      "from": "action:edit:1777085390",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc",
+      "rel": "edited",
+      "ts": 1777085390
+    },
+    {
+      "from": "query:timer parameters ned ini constructor timeout interval configuration",
+      "to": "plot_wait_time_cdf.py::ecdf_binned_smooth",
+      "rel": "retrieved",
+      "ts": 1777100993
+    },
+    {
+      "from": "query:timer parameters ned ini constructor timeout interval configuration",
+      "to": "fourway/benchmarks/analyze_two_phase_v2_avg_runs.py",
+      "rel": "retrieved",
+      "ts": 1777100993
+    },
+    {
+      "from": "query:timer parameters ned ini constructor timeout interval configuration",
+      "to": "bftsmart/metricParser.py::generate_plots",
+      "rel": "retrieved",
+      "ts": 1777100993
+    },
+    {
+      "from": "query:timer parameters ned ini constructor timeout interval configuration",
+      "to": "experiment_orchestrator.py::apply_scale",
+      "rel": "retrieved",
+      "ts": 1777100993
+    },
+    {
+      "from": "query:timer parameters ned ini constructor timeout interval configuration",
+      "to": "fourway/analyze_log.py::fmt_stat",
+      "rel": "retrieved",
+      "ts": 1777100993
+    },
+    {
+      "from": "query:timer configs audit effective values overwritten",
+      "to": "bftsmart/metricParser.py::generate_plots",
+      "rel": "retrieved",
+      "ts": 1777101469
+    },
+    {
+      "from": "query:timer configs audit effective values overwritten",
+      "to": "experiment_orchestrator.py::apply_scale",
+      "rel": "retrieved",
+      "ts": 1777101469
+    },
+    {
+      "from": "query:timer configs audit effective values overwritten",
+      "to": "fourway/analyze_log.py::fmt_stat",
+      "rel": "retrieved",
+      "ts": 1777101469
+    },
+    {
+      "from": "query:timer configs audit effective values overwritten",
+      "to": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+      "rel": "retrieved",
+      "ts": 1777101469
+    },
+    {
+      "from": "query:timer configs audit effective values overwritten",
+      "to": "fourway/benchmarks/analyze_benchmarks.py::main",
+      "rel": "retrieved",
+      "ts": 1777101469
+    },
+    {
+      "from": "query:(empty)",
+      "to": "benchmarks/Priority16cars/effective_timer_audit_16veh.md",
+      "rel": "read",
+      "ts": 1777101473,
+      "meta": {
+        "mode": "full"
+      }
+    },
+    {
+      "from": "query:(empty)",
+      "to": "fourway/config/system.config",
+      "rel": "read",
+      "ts": 1777101473,
+      "meta": {
+        "mode": "full"
+      }
+    },
+    {
+      "from": "query:timer timeout jitter retransmission",
+      "to": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
+      "rel": "read",
+      "ts": 1777101484,
+      "meta": {
+        "mode": "query_excerpt"
+      }
+    },
+    {
+      "from": "query:sixteenvehicles timer timeout override",
+      "to": "fourway/omnetpp.ini",
+      "rel": "read",
+      "ts": 1777101484,
+      "meta": {
+        "mode": "full"
+      }
+    },
+    {
+      "from": "query:stopdata retransmission cap max retx",
+      "to": "bftsmart/library/src/main/java/bftsmart/tom/core/Synchronizer.java",
+      "rel": "read",
+      "ts": 1777101513,
+      "meta": {
+        "mode": "query_excerpt"
+      }
+    },
+    {
+      "from": "action:edit:1777102003",
+      "to": "benchmarks/Priority16cars/effective_timer_audit_16veh.md",
+      "rel": "edited",
+      "ts": 1777102003
     }
   ],
   "files": {
@@ -430,18 +662,19 @@
       "cached_content": "namespace veins {\n\n\n\nclass VEINS_API V2VProxyModule : public DemoBaseApplLayer {\npublic:\n    V2VProxyModule();\n    ~V2VProxyModule() override;\n    static const int BATCH_SIZE = 16;\n\n    simtime_t consensusStartTime;\n    \n    // Separate timing for View and Order consensus\n    simtime_t viewConsensus",
       "cached_chars": 20000,
       "cached_tokens_est": 5000,
-      "last_action": "read",
-      "last_ts": 1777084268
+      "last_action": "edited",
+      "last_ts": "2026-04-25T02:49:50.447759+00:00",
+      "edited_count": 1
     },
     "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc": {
       "last_action": "edited",
-      "last_ts": "2026-04-24T06:11:03.760787+00:00",
-      "edited_count": 1
+      "last_ts": "2026-04-25T02:49:50.447787+00:00",
+      "edited_count": 2
     },
     "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc": {
       "last_action": "edited",
-      "last_ts": "2026-04-24T06:11:03.760791+00:00",
-      "edited_count": 1
+      "last_ts": "2026-04-25T02:49:50.447783+00:00",
+      "edited_count": 2
     },
     "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc": {
       "last_action": "edited",
@@ -466,8 +699,9 @@
       "cached_content": "    , hasRequestedCrossing(false)\n    , isStopped(false)\n    , checkPositionTimer(nullptr)\n    , consensusTimeoutTimer(nullptr)\n    , stopSignTimeoutTimer(nullptr)\n    , certCollectionTimeoutTimer(nullptr)\n    , shouldFlush(false)\n    , consensusTimeoutSec(80.0)  // Default 40 seconds\n    , stopSign",
       "cached_chars": 20000,
       "cached_tokens_est": 5000,
-      "last_action": "read",
-      "last_ts": 1777084268
+      "last_action": "edited",
+      "last_ts": "2026-04-25T02:49:50.447771+00:00",
+      "edited_count": 1
     },
     "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java": {
       "query_terms": [
@@ -493,6 +727,73 @@
       "last_action": "edited",
       "last_ts": "2026-04-24T18:49:26.767909+00:00",
       "edited_count": 1
+    },
+    "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc": {
+      "last_action": "edited",
+      "last_ts": "2026-04-25T02:49:50.447778+00:00",
+      "edited_count": 1
+    },
+    "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc": {
+      "last_action": "edited",
+      "last_ts": "2026-04-25T02:49:50.447793+00:00",
+      "edited_count": 1
+    },
+    "benchmarks/Priority16cars/effective_timer_audit_16veh.md": {
+      "query_terms": [],
+      "cached_content": "# Effective Timer Audit (16-vehicle scenarios)\n\nThis sheet lists effective timer values after INI inheritance/overrides for:\n- `Config SixteenVehiclesBFTOverV2V`\n- `Config SixteenVehiclesAmbulanceBFT` (same timers as above)\n\nUnits are milliseconds unless noted.\n\n## INI / NED effective timers (post-o",
+      "cached_chars": 5347,
+      "cached_tokens_est": 1336,
+      "last_action": "edited",
+      "last_ts": "2026-04-25T07:26:43.391693+00:00",
+      "edited_count": 1
+    },
+    "fourway/config/system.config": {
+      "query_terms": [],
+      "cached_content": "# Copyright (c) 2007-2013 Alysson Bessani, Eduardo Alchieri, Paulo Sousa, and the authors indicated in the @author tags\n#\n# Licensed under the Apache License, Version 2.0 (the \"License\");\n# you may not use this file except in compliance with the License.\n# You may obtain a copy of the License at\n#\n#",
+      "cached_chars": 11858,
+      "cached_tokens_est": 2964,
+      "last_action": "read",
+      "last_ts": 1777101473
+    },
+    "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java": {
+      "query_terms": [
+        "timer",
+        "timeout",
+        "jitter",
+        "retransmission"
+      ],
+      "cached_content": "\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an \"AS IS\" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the Li",
+      "cached_chars": 20000,
+      "cached_tokens_est": 5000,
+      "last_action": "read",
+      "last_ts": 1777101484
+    },
+    "fourway/omnetpp.ini": {
+      "query_terms": [
+        "sixteenvehicles",
+        "timer",
+        "timeout",
+        "override"
+      ],
+      "cached_content": "[General]\nscheduler-class = \"omnetpp::cRealTimeScheduler\"\nrealtimescheduler-scaling = 0.1\ncmdenv-express-mode = false\ncmdenv-autoflush = false\ncmdenv-status-frequency = 1s\n**.cmdenv-log-level = info\n\nimage-path = ../../images\n\nnetwork = fourWay\n\n######################################################",
+      "cached_chars": 13073,
+      "cached_tokens_est": 3268,
+      "last_action": "read",
+      "last_ts": 1777101484
+    },
+    "bftsmart/library/src/main/java/bftsmart/tom/core/Synchronizer.java": {
+      "query_terms": [
+        "stopdata",
+        "retransmission",
+        "cap",
+        "max",
+        "retx"
+      ],
+      "cached_content": " * \n * This class implements all optimizations described at the end of the paper\n * \n * @author joao\n */\npublic class Synchronizer {\n    \n    private Logger logger = LoggerFactory.getLogger(this.getClass());\n\n    // out of context messages related to the leader change are stored here\n    private fin",
+      "cached_chars": 6000,
+      "cached_tokens_est": 1500,
+      "last_action": "read",
+      "last_ts": 1777101513
     }
   },
   "actions": [
@@ -552,6 +853,63 @@
         "kind": "continue_retrieve",
         "query": "stale onViewAgreed rename dead code C++ V2VProxyModule view order protocol rename"
       }
+    },
+    {
+      "ts": 1777085390,
+      "kind": "register_edit",
+      "payload": {
+        "kind": "register_edit"
+      }
+    },
+    {
+      "ts": 1777100993,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "timer parameters NED INI constructor timeout interval configuration"
+      }
+    },
+    {
+      "ts": 1777100993,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "timer parameters NED INI constructor timeout interval configuration"
+      }
+    },
+    {
+      "ts": 1777101469,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "timer configs audit effective values overwritten"
+      }
+    },
+    {
+      "ts": 1777101469,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "timer configs audit effective values overwritten"
+      }
+    },
+    {
+      "ts": 1777101513,
+      "kind": "read_cache_hit",
+      "payload": {
+        "kind": "read_cache_hit",
+        "file": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
+        "query": "STOP_BLIND_EMITS constructor timeout shortTimeout initialization",
+        "mode": "cache_hit",
+        "response_chars": 300
+      }
+    },
+    {
+      "ts": 1777102003,
+      "kind": "register_edit",
+      "payload": {
+        "kind": "register_edit"
+      }
     }
   ],
   "decisions": [
@@ -579,6 +937,27 @@
         "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java"
       ],
       "scope": "global"
+    },
+    {
+      "ts": 1777085390,
+      "summary": "Renamed stale view-protocol names to PROPOSE_ALL protocol names; gutted dead onViewAgreed to JNI stub; fixed two metrics bugs; JNI symbol kept for RegisterNatives compat",
+      "files": [
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc",
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc",
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc",
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc"
+      ],
+      "scope": "global"
+    },
+    {
+      "ts": 1777102003,
+      "summary": "Expanded timer audit: added Source column, Java RequestsTimer constants, system.config BFT-SMaRt params, flagged orderDelayGap typo and totalordermulticast.timeout discrepancy",
+      "files": [
+        "benchmarks/Priority16cars/effective_timer_audit_16veh.md"
+      ],
+      "scope": "file"
     }
   ]
 }

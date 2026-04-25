@@ -1,7 +1,7 @@
 {
   "entries": {
-    "stale onviewagreed rename dead code v2vproxymodule view order|tf=5|te=12": {
-      "created_epoch": 1777084262,
+    "timer configs audit effective values overwritten|tf=5|te=12": {
+      "created_epoch": 1777101469,
       "files": [
         "bftsmart/metricParser.py::generate_plots",
         "experiment_orchestrator.py::apply_scale",
@@ -18,7 +18,7 @@
       },
       "result": {
         "ok": true,
-        "query": "stale onViewAgreed rename dead code C++ V2VProxyModule view order protocol rename",
+        "query": "timer configs audit effective values overwritten",
         "graph_files": [
           {
             "id": "bftsmart/metricParser.py::generate_plots",
@@ -157,21 +157,6 @@
             "rel": "contains"
           },
           {
-            "from": "veins-veins-5.3.1/src/veins/modules/bftsmart/README.md",
-            "to": "veins.modules.bftsmart.V2VProxyModule",
-            "rel": "imports"
-          },
-          {
-            "from": ".claude/agents/prof-v2v-bft.md",
-            "to": "claude/agents/v2v-protocol-ref.md",
-            "rel": "references"
-          },
-          {
-            "from": ".claude/agents/v2v-protocol-ref.md",
-            "to": "/home/yash/BFTSMART_PROTOCOL_README.md",
-            "rel": "references"
-          },
-          {
             "from": "bftsmart/metricParser.py",
             "to": "csv",
             "rel": "imports"
@@ -189,6 +174,21 @@
           {
             "from": "bftsmart/metricParser.py",
             "to": "pandas",
+            "rel": "imports"
+          },
+          {
+            "from": "bftsmart/metricParser.py",
+            "to": "re",
+            "rel": "imports"
+          },
+          {
+            "from": "bftsmart/metricParser.py",
+            "to": "sys",
+            "rel": "imports"
+          },
+          {
+            "from": "experiment_orchestrator.py",
+            "to": "__future__",
             "rel": "imports"
           }
         ],

@@ -289,7 +289,7 @@ void V2VProxyModule::broadcastArrivalAnnouncement() {
     delete mockMsg;
 
     // Store the canonical (serialized/deserialized) version
-    // Self-store in viewState and physicallyObservedCars (I know I am physically here)
+    // Self-store in localVehicleStates and physicallyObservedCars (I know I am physically here)
     {
         VehicleState selfVS;
         selfVS.vehicleId    = canonicalAnn.carId;
@@ -297,7 +297,7 @@ void V2VProxyModule::broadcastArrivalAnnouncement() {
         selfVS.positionInLane = canonicalAnn.positionInLane;
         selfVS.direction    = canonicalAnn.direction;
         selfVS.isAmbulance  = canonicalAnn.isAmbulance;
-        viewState[myCarId]  = selfVS;
+        localVehicleStates[myCarId]  = selfVS;
         arrivalAnnouncementsReceived.insert(myCarId);
         physicallyObservedCars.insert(myCarId);
     }
@@ -380,7 +380,7 @@ void V2VProxyModule::handleArrivalAnnouncement(BFTMessage* bftMsg) {
     }
 
     // Dedup: skip if we already have a VehicleState for this car
-    if (viewState.count(ann.carId)) {
+    if (localVehicleStates.count(ann.carId)) {
         std::cout << "[ANN-RECV] Replica " << replicaId << " DEDUP: already have VehicleState for " << ann.carId << "\n";
         return;
     }
@@ -411,20 +411,20 @@ void V2VProxyModule::handleArrivalAnnouncement(BFTMessage* bftMsg) {
         std::cout << "[ANN-RECV] Replica " << replicaId << " FALSE_LANE from " << ann.carId
                   << ": claimed=" << ann.lane << " actual=" << actualCardinal
                   << " — recording as QUIET (no echo sent)\n";
-        if (!viewState.count(ann.carId)) {
+        if (!localVehicleStates.count(ann.carId)) {
             VehicleState vs;
             vs.vehicleId      = ann.carId;
             vs.lane           = actualCardinal;
             vs.positionInLane = ann.positionInLane;  // rank unchanged
             vs.direction      = ann.direction;        // direction claim kept (can't verify)
             vs.isAmbulance    = false;                // don't trust ambulance claim from liar
-            viewState[ann.carId] = vs;
+            localVehicleStates[ann.carId] = vs;
             arrivalAnnouncementsReceived.insert(ann.carId);
             physicallyObservedCars.insert(ann.carId);
         }
         // Fall through to timer-start logic below (no echo).
         size_t n = physicallyObservedCars.size();
-        if (!certCollectionStarted && !viewEstablished && amITheLeader(physicallyObservedCars)) {
+        if (!certCollectionStarted && !proposeAllSubmitted && amITheLeader(physicallyObservedCars)) {
             certCollectionStarted = true;
             certCollectionStartTime = simTime();
             std::cout << "[V2VProxy " << replicaId << "] Leader: started cert collection timer on first observation"
@@ -482,7 +482,7 @@ void V2VProxyModule::handleArrivalAnnouncement(BFTMessage* bftMsg) {
     vs.direction      = ann.direction;
     vs.isAmbulance    = effectiveIsAmbulance;
 
-    viewState[ann.carId] = vs;
+    localVehicleStates[ann.carId] = vs;
     arrivalAnnouncementsReceived.insert(ann.carId);
 
     // Physical check passed — add to observed set and send echo back to announcing car
@@ -498,7 +498,7 @@ void V2VProxyModule::handleArrivalAnnouncement(BFTMessage* bftMsg) {
     // We always expect BATCH_SIZE certs. A Byzantine car may never pass the physical
     // check (so physicallyObservedCars stays < BATCH_SIZE), but the timer must still
     // fire so that missing cars are marked QUIET rather than stalling the protocol.
-    if (!certCollectionStarted && !viewEstablished && amITheLeader(physicallyObservedCars)) {
+    if (!certCollectionStarted && !proposeAllSubmitted && amITheLeader(physicallyObservedCars)) {
         certCollectionStarted = true;
         certCollectionStartTime = simTime();
         std::cout << "[V2VProxy " << replicaId << "] Leader: started cert collection timer on first observation"
@@ -767,13 +767,13 @@ std::set<std::string> V2VProxyModule::getVisibleVehicles(double maxRange) {
     return visible;
 }
 
-// Build the canonical semicolon-pipe vehicleStates string from the local viewState map.
+// Build the canonical semicolon-pipe vehicleStates string from the local localVehicleStates map.
 // 5-field format (no certs): "veh0|N|1|S|0;veh1|S|1|L|0;veh2|W|2|R|1"
 // 6-field format (certs provided): "veh0|N|1|S|0|SIGNED;veh1|S|1|L|0|QUIET;..."
 //   A vehicle is SIGNED iff its carId appears as a key in the certs map.
 //   All others are QUIET (physically present but could not produce a valid ARRIVAL_CERT).
 std::string V2VProxyModule::buildVehicleStatesStr(const std::map<std::string, ArrivalCert>* certs) const {
-    std::vector<std::pair<std::string, VehicleState>> sorted(viewState.begin(), viewState.end());
+    std::vector<std::pair<std::string, VehicleState>> sorted(localVehicleStates.begin(), localVehicleStates.end());
     std::sort(sorted.begin(), sorted.end(),
               [](const auto& a, const auto& b) { return a.first < b.first; });
 
@@ -872,11 +872,11 @@ void V2VProxyModule::handleArrivalEcho(BFTMessage* bftMsg) {
 
     if ((int)echoes.size() >= required) {
         certBroadcast = true;
-        // Assemble ARRIVAL_CERT from my own viewState entry
+        // Assemble ARRIVAL_CERT from my own localVehicleStates entry
         ArrivalCert cert;
         cert.carId = myCarId;
-        if (viewState.count(myCarId)) {
-            const VehicleState& selfVS = viewState.at(myCarId);
+        if (localVehicleStates.count(myCarId)) {
+            const VehicleState& selfVS = localVehicleStates.at(myCarId);
             cert.lane           = selfVS.lane;
             cert.positionInLane = selfVS.positionInLane;
             cert.direction      = selfVS.direction;
@@ -904,13 +904,13 @@ void V2VProxyModule::broadcastArrivalCert(const ArrivalCert& cert) {
         std::cout << "[CERT-STORED-SELF] Replica " << replicaId << " self-stored ARRIVAL_CERT for "
                   << cert.carId << " (" << collectedCerts.size() << "/" << BATCH_SIZE << " certs)\n";
         // If we are the leader and this was the last missing cert, submit immediately.
-        if (amITheLeader(physicallyObservedCars) && certCollectionStarted && !viewEstablished) {
+        if (amITheLeader(physicallyObservedCars) && certCollectionStarted && !proposeAllSubmitted) {
             if (collectedCerts.size() >= (size_t)BATCH_SIZE) {
                 if (certCollectionTimeoutTimer && certCollectionTimeoutTimer->isScheduled())
                     cancelEvent(certCollectionTimeoutTimer);
-                viewEstablished = true;
+                proposeAllSubmitted = true;
                 std::cout << "[V2VProxy " << replicaId << "] ===== ALL CERTS COLLECTED (via self-store): SUBMITTING TO BFT =====\n";
-                submitViewToBFTConsensus();
+                submitProposeAllToBFT();
             }
         }
     }
@@ -934,14 +934,14 @@ void V2VProxyModule::handleArrivalCert(BFTMessage* bftMsg) {
     // Leader: check if all BATCH_SIZE cars now have certs (Byzantine cars will be
     // absent and marked QUIET when the timer fires — never use physicallyObservedCars
     // as the expected count, since a liar may have failed the physical check).
-    if (amITheLeader(physicallyObservedCars) && certCollectionStarted && !viewEstablished) {
+    if (amITheLeader(physicallyObservedCars) && certCollectionStarted && !proposeAllSubmitted) {
         if (collectedCerts.size() >= (size_t)BATCH_SIZE) {
             if (certCollectionTimeoutTimer && certCollectionTimeoutTimer->isScheduled()) {
                 cancelEvent(certCollectionTimeoutTimer);
             }
-            viewEstablished = true;
+            proposeAllSubmitted = true;
             std::cout << "[V2VProxy " << replicaId << "] ===== ALL CERTS COLLECTED: SUBMITTING TO BFT =====\n";
-            submitViewToBFTConsensus();
+            submitProposeAllToBFT();
         }
     }
 }
@@ -1011,7 +1011,7 @@ std::set<std::string> V2VProxyModule::getCertSnapshotKeys() const {
     return keys;
 }
 
-// Factored out of submitViewToBFTConsensus(): builds the "<vsStr>:<perCarCerts>"
+// Factored out of submitProposeAllToBFT(): builds the "<vsStr>:<perCarCerts>"
 // half of the PROPOSE_ALL wire format from the CURRENT collectedCerts snapshot.
 // The Java layer tacks on the "PROPOSE_ALL:<proposerId>:" prefix and the
 // trailing ":<orderBagStr>" (from OrderScheduler.buildProposal) itself.
@@ -1061,10 +1061,9 @@ std::string V2VProxyModule::buildFreshProposePayload() const {
     return vsStr + ":" + perCarCertsStr;
 }
 
-void V2VProxyModule::submitViewToBFTConsensus() {
-    viewConsensusStartTime = simTime();
+void V2VProxyModule::submitProposeAllToBFT() {
     proposeAllSubmitTime = simTime();
-    realViewConsensusStart = std::chrono::high_resolution_clock::now();
+    realOrderConsensusStart = std::chrono::high_resolution_clock::now();
     std::cout << "[V2VProxy " << replicaId << "] Submitting PROPOSE_ALL to BFT-SMaRt (per-car cert protocol)...\n";
     std::cout << "[METRICS " << replicaId << "] ProposeAll_Submit_Time: " << proposeAllSubmitTime << "\n";
 
@@ -1081,58 +1080,8 @@ void V2VProxyModule::submitViewToBFTConsensus() {
     std::cout << "[V2VProxy " << replicaId << "] BFT PROPOSE_ALL: " << request << "\n";
 
     if (!triggerJoinViaJNI(request)) {
-        std::cerr << "[V2VProxy " << replicaId << "] ERROR: Failed to submit view to BFT — storing for retry when Java ready\n";
+        std::cerr << "[V2VProxy " << replicaId << "] ERROR: Failed to submit PROPOSE_ALL to BFT — storing for retry when Java ready\n";
         pendingProposeAllRequest = request;  // will be retried by checkJavaReadyTimer
     }
 }
 
-void V2VProxyModule::onViewAgreed(const std::set<std::string>& agreedView) {
-    std::lock_guard<std::mutex> lock(jniMutex);
-
-    // Idempotency guard: phase2 must only be triggered once.
-    // The leader can receive this callback TWICE:
-    //   1. From appExecuteBatch (delivery thread, fires for ALL replicas), and
-    //   2. From sendConsensusRequest's proxy reply (only the invokeOrdered caller).
-    // Followers only receive it once from appExecuteBatch.
-    if (viewEstablished) {
-        std::cout << "[V2VProxy " << replicaId << "] onViewAgreed called again - view already established, ignoring." << "\n";
-        return;
-    }
-    
-    // Mark the end of View consensus
-    viewConsensusEndTime = simTime();
-    simtime_t viewConsensusDuration = viewConsensusEndTime - viewConsensusStartTime;
-    realViewConsensusEnd = std::chrono::high_resolution_clock::now();
-    auto realViewConsensusDuration = std::chrono::duration_cast<std::chrono::milliseconds>(realViewConsensusEnd - realViewConsensusStart);
-    std::cout << "[METRICS " << replicaId << "] View_Consensus_Duration: " << realViewConsensusDuration.count() << "ms" << "\n";
-    std::cout << "[METRICS " << replicaId << "] View_Consensus_End: " << viewConsensusEndTime << "\n";
-    std::cout << "[METRICS " << replicaId << "] View_Consensus_Latency: " << viewConsensusDuration.dbl() << " seconds" << "\n";
-    if (lastRoundResetTime >= 0 && lastRoundResetEpoch == currentEpoch) {
-        const double resetToViewEndSec = (viewConsensusEndTime - lastRoundResetTime).dbl();
-        std::cout << "[ROUND-DIAG] Replica " << replicaId
-                  << " epoch=" << currentEpoch
-                  << " resetToViewEnd=" << resetToViewEndSec
-                  << " seconds (resetAt=" << lastRoundResetTime
-                  << ", viewEnd=" << viewConsensusEndTime << ")" << "\n";
-        resetToViewEndByEpochAndReplica[currentEpoch][replicaId] = resetToViewEndSec;
-        const auto& epochResetToView = resetToViewEndByEpochAndReplica[currentEpoch];
-        if (epochResetToView.size() >= 4 && printedResetToViewEndAvgEpochs.count(currentEpoch) == 0) {
-            double sumDelay = 0.0;
-            for (const auto& kv : epochResetToView) {
-                sumDelay += kv.second;
-            }
-            printedResetToViewEndAvgEpochs.insert(currentEpoch);
-            std::cout << "[ROUND-METRICS] Epoch " << currentEpoch
-                      << " Avg_ResetToViewEnd_4Cars: " << (sumDelay / epochResetToView.size())
-                      << " seconds (replicasCounted=" << epochResetToView.size() << ")" << "\n";
-        }
-    }
-    
-
-    establishedView = agreedView;
-    viewEstablished = true;
-    // NEW PROTOCOL: No Phase 2. Java leader internally submits ORDER_PROPOSE after VIEW consensus.
-    // C++ waits for notifyOrderDecided JNI callback to start batch execution.
-    std::cout << "[V2VProxy " << replicaId << "] VIEW CONSENSUS COMPLETE at t=" << simTime()
-              << " — waiting for Java ORDER_PROPOSE consensus\n";
-}

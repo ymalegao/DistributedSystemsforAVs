@@ -133,41 +133,15 @@ JNIEXPORT void JNICALL Java_bftsmart_communication_V2V_V2VNativeBridge_nativeShu
 extern "C" {
 
 /**
- * JNI callback: notifyViewAgreed (NEW for 3-phase consensus)
- *
- * Called by Java when VIEW consensus completes (Phase 1c → Phase 2 transition)
+ * JNI stub: notifyViewAgreed — kept for JNI registration compatibility.
+ * Java declares this as native but never calls it in the single-round PROPOSE_ALL protocol.
+ * The symbol must be registered so RegisterNatives succeeds at JVM startup.
  */
 JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyViewAgreed
-  (JNIEnv* env, jobject javaObj, jint replicaId, jstring viewMembers)
+  (JNIEnv* env, jobject /*javaObj*/, jint replicaId, jstring /*viewMembers*/)
 {
-    const char* viewStr = env->GetStringUTFChars(viewMembers, nullptr);
-    std::cout << "[JNI] notifyViewAgreed: replica " << replicaId
-              << ", view=" << viewStr << std::endl;
-
-    // Find the proxy module for this replica
-    V2VProxyModule* proxy = V2VProxyModule::getProxyForReplica(replicaId);
-
-    if (!proxy) {
-        std::cerr << "[JNI] ERROR: No V2VProxyModule found for replica " << replicaId << std::endl;
-        env->ReleaseStringUTFChars(viewMembers, viewStr);
-        return;
-    }
-
-    // Parse view members from comma-separated string
-    std::set<std::string> view;
-    std::string viewString(viewStr);
-    std::istringstream ss(viewString);
-    std::string carId;
-    while (std::getline(ss, carId, ',')) {
-        if (!carId.empty()) {
-            view.insert(carId);
-        }
-    }
-    
-    env->ReleaseStringUTFChars(viewMembers, viewStr);
-
-    // Notify the proxy that view consensus is complete
-    proxy->onViewAgreed(view);
+    std::cout << "[JNI] notifyViewAgreed: stub called for replica " << replicaId
+              << " (not used in single-round protocol)" << std::endl;
 }
 
 /**

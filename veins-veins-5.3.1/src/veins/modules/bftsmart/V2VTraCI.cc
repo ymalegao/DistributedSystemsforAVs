@@ -131,7 +131,7 @@ void V2VProxyModule::resetForNextRound() {
     lastRoundResetTime = resetNow;
     lastRoundResetEpoch = currentEpoch;
     establishedView.clear();
-    viewState.clear();               // NEW: clear VehicleState map for next epoch
+    localVehicleStates.clear();
     arrivalAnnouncementsReceived.clear();
     pendingBatches.clear();
     currentBatchIndex = 0;
@@ -156,7 +156,7 @@ void V2VProxyModule::resetForNextRound() {
     }
     
     // Reset other flags
-    viewEstablished = false;
+    proposeAllSubmitted = false;
     pendingProposeAllRequest.clear();
     hasRequestedCrossing = false;
     waitingForConsensus = false;
@@ -209,8 +209,6 @@ void V2VProxyModule::resetForNextRound() {
     orderCollectionWindowEnd = 0;
     firstOrderBagProposalTime = 0;
     firstOrderBagProposerReplica = -1;
-    viewConsensusStartTime = 0;
-    viewConsensusEndTime = 0;
     orderConsensusStartTime = 0;
     orderConsensusEndTime = 0;
     proposeAllSubmitTime = 0;
