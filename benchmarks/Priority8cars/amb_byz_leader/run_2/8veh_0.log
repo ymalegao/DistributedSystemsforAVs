@@ -1,37 +1,37 @@
-[ROUND-METRICS] Epoch 0 Avg_ProposeAll_Consensus_Wall: 33.182000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh0: 5.900000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh1: 7.500000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh2: 6.700000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh3: 7.500000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh4: 5.200000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh5: 8.500000 seconds
+[ROUND-METRICS] Epoch 0 Avg_ProposeAll_Consensus_Wall: 31.279000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh0: 6.900000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh1: 7.700000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh2: 7.700000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh3: 9.500000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh4: 8.700000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh5: 10.300000 seconds
 [ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh6: 5.200000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh7: 8.500000 seconds
-[ROUND-METRICS] Epoch 0 Avg_Messages_Sent_PerReplica: 31.625 (count=8)
-[ROUND-METRICS] Epoch 0 Avg_Messages_Received_PerReplica: 69.750 (count=8)
-[ROUND-METRICS] Epoch 0 Avg_Arrival_To_Resume_Time: 6.875000 seconds (goCars=8)
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh7: 5.900000 seconds
+[ROUND-METRICS] Epoch 0 Avg_Messages_Sent_PerReplica: 34.500 (count=8)
+[ROUND-METRICS] Epoch 0 Avg_Messages_Received_PerReplica: 90.000 (count=8)
+[ROUND-METRICS] Epoch 0 Avg_Arrival_To_Resume_Time: 7.737500 seconds (goCars=8)
 [ROUND-METRICS] Epoch 0 Avg_StopSign_Failures: 0.000 (count)
 [ROUND-METRICS] Epoch 1 Avg_StopSign_Failures: 0.000 (count)
-[RUN-METRICS] Throughput_User_Definition: 0.937500 seconds_per_vehicle
-[RUN-METRICS] Throughput_Vehicles_Per_Second: 1.066667 vehicles_per_second
-[RUN-METRICS] Wait_Intersection_All_Mean: 7.500000 seconds
-[RUN-METRICS] Wait_Intersection_All_P95: 9.100000 seconds
-[RUN-METRICS] Wait_Intersection_Normal_Mean: 7.757143 seconds
-[RUN-METRICS] Wait_Intersection_Ambulance_Mean: 5.700000 seconds
-[RUN-METRICS] Arrival_To_Resume_Mean: 6.875000 seconds
-[RUN-METRICS] Resume_To_Depart_Mean: 0.625000 seconds
-[RUN-METRICS] Jains_Fairness_All: 0.969995
-[RUN-METRICS] Jains_Fairness_Normal: 0.976318
-[RUN-METRICS] Ambulance_Priority_Gain: 2.057143 seconds
-[RUN-METRICS] Ambulance_Priority_Ratio: 0.734807
+[RUN-METRICS] Throughput_User_Definition: 1.053125 seconds_per_vehicle
+[RUN-METRICS] Throughput_Vehicles_Per_Second: 0.949555 vehicles_per_second
+[RUN-METRICS] Wait_Intersection_All_Mean: 8.425000 seconds
+[RUN-METRICS] Wait_Intersection_All_P95: 10.820000 seconds
+[RUN-METRICS] Wait_Intersection_Normal_Mean: 8.671429 seconds
+[RUN-METRICS] Wait_Intersection_Ambulance_Mean: 6.700000 seconds
+[RUN-METRICS] Arrival_To_Resume_Mean: 7.737500 seconds
+[RUN-METRICS] Resume_To_Depart_Mean: 0.687500 seconds
+[RUN-METRICS] Jains_Fairness_All: 0.961537
+[RUN-METRICS] Jains_Fairness_Normal: 0.964604
+[RUN-METRICS] Ambulance_Priority_Gain: 1.971429 seconds
+[RUN-METRICS] Ambulance_Priority_Ratio: 0.772652
 [RUN-METRICS] Byzantine_Injections_Total: 1
 [RUN-METRICS] Byzantine_Injections_Epoch0: 1
 [RUN-METRICS] Byzantine_Injections_Epoch1: 0
-[RUN-METRICS] Delivery_Ratio: 0.327063
-[RUN-METRICS] Estimated_Loss_Rate: 0.672937
+[RUN-METRICS] Delivery_Ratio: 0.384453
+[RUN-METRICS] Estimated_Loss_Rate: 0.615547
 [RUN-METRICS] Fallback_Count: 0
 [RUN-METRICS] Fallback_Rate: 0.000000
-[ROUND-METRICS] Epoch 0 Throughput_User_Definition: 0.937500 seconds_per_vehicle
-[ROUND-METRICS] Epoch 0 Throughput_Vehicles_Per_Second: 1.066667 vehicles_per_second
-[ROUND-METRICS] Epoch 0 Wait_Normal_Mean: 7.757143 seconds
-[ROUND-METRICS] Epoch 0 Wait_Ambulance_Mean: 5.700000 seconds
+[ROUND-METRICS] Epoch 0 Throughput_User_Definition: 1.053125 seconds_per_vehicle
+[ROUND-METRICS] Epoch 0 Throughput_Vehicles_Per_Second: 0.949555 vehicles_per_second
+[ROUND-METRICS] Epoch 0 Wait_Normal_Mean: 8.671429 seconds
+[ROUND-METRICS] Epoch 0 Wait_Ambulance_Mean: 6.700000 seconds

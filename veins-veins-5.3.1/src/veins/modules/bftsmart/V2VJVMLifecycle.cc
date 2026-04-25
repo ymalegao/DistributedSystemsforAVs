@@ -152,31 +152,18 @@ void V2VProxyModule::notifyJavaRadioReady()
 
     if (!sharedJVM || !javaCallbackObject) return;
 
-    JNIEnv* env;
-    bool attached = false;
-    if (sharedJVM->GetEnv((void**)&env, JNI_VERSION_1_8) == JNI_EDETACHED) {
-        sharedJVM->AttachCurrentThread((void**)&env, nullptr);
-        attached = true;
-    }
+    JNIEnvGuard jniGuard(sharedJVM);
+    if (!jniGuard.valid()) return;
+    JNIEnv* env = jniGuard.env;
 
-    // Get onRadioReady method if not cached
     if (!onRadioReadyMethod) {
         jclass cls = env->GetObjectClass(javaCallbackObject);
         onRadioReadyMethod = env->GetMethodID(cls, "onRadioReady", "()V");
-        if (!onRadioReadyMethod) {
-            env->ExceptionClear();
-            if (attached) sharedJVM->DetachCurrentThread();
-            return;
-        }
+        if (!onRadioReadyMethod) { env->ExceptionClear(); return; }
     }
 
-    // Call Java's onRadioReady()
     env->CallVoidMethod(javaCallbackObject, onRadioReadyMethod);
-
-    if (env->ExceptionCheck()) {
-        env->ExceptionClear();
-    }
-    if (attached) sharedJVM->DetachCurrentThread();
+    if (env->ExceptionCheck()) env->ExceptionClear();
 }
 
 bool V2VProxyModule::triggerJoinViaJNI(const std::string& request )
@@ -193,24 +180,22 @@ bool V2VProxyModule::triggerJoinViaJNI(const std::string& request )
         return false;
     }
     
-    JNIEnv* env;
-    bool attached = false;
-    if (sharedJVM->GetEnv((void**)&env, JNI_VERSION_1_8) == JNI_EDETACHED) {
-        sharedJVM->AttachCurrentThread((void**)&env, nullptr);
-        attached = true;
+    JNIEnvGuard jniGuard(sharedJVM);
+    if (!jniGuard.valid()) {
+        std::cerr << "[ERROR V2VProxy " << replicaId << "] Could not acquire JNIEnv for triggerJoin" << "\n";
+        return false;
     }
+    JNIEnv* env = jniGuard.env;
 
-    // Find ServerRunner class
     jclass serverRunnerClass = env->FindClass("bftsmart/demo/intersection/ServerRunner");
     if (!serverRunnerClass) {
         std::cerr << "[ERROR V2VProxy " << replicaId << "] Failed to find ServerRunner class" << "\n";
         env->ExceptionDescribe();
         env->ExceptionClear();
-        if (attached) sharedJVM->DetachCurrentThread();
         return false;
     }
 
-    // Check barrier status to see if replicas are coordinating
+    // Check barrier status (logged occasionally to avoid spam)
     jmethodID barrierMethod = env->GetStaticMethodID(serverRunnerClass, "getBarrierStatus", "()Ljava/lang/String;");
     if (barrierMethod) {
         jstring barrierStr = (jstring) env->CallStaticObjectMethod(serverRunnerClass, barrierMethod);
@@ -218,8 +203,7 @@ bool V2VProxyModule::triggerJoinViaJNI(const std::string& request )
             const char* barrierChars = env->GetStringUTFChars(barrierStr, nullptr);
             std::string barrierStatus(barrierChars);
             env->ReleaseStringUTFChars(barrierStr, barrierChars);
-
-            // Only log occasionally to avoid spam
+            env->DeleteLocalRef(barrierStr);
             static int pollCount = 0;
             if (++pollCount % 10 == 1) {
                 std::cout << "[V2VProxy " << replicaId << "] Barrier: " << barrierStatus << "\n";
@@ -230,14 +214,17 @@ bool V2VProxyModule::triggerJoinViaJNI(const std::string& request )
     jmethodID statusMethod = env->GetStaticMethodID(serverRunnerClass, "getStatus", "(I)Ljava/lang/String;");
     if (statusMethod) {
         jstring statusStr = (jstring) env->CallStaticObjectMethod(serverRunnerClass, statusMethod, replicaId);
+        if (!statusStr) {
+            std::cerr << "[V2VProxy " << replicaId << "] ERROR: getStatus returned null" << "\n";
+            return false;
+        }
         const char* statusChars = env->GetStringUTFChars(statusStr, nullptr);
         std::string status(statusChars);
         env->ReleaseStringUTFChars(statusStr, statusChars);
-
+        env->DeleteLocalRef(statusStr);
         if (status != "READY") {
             std::cout << "[V2VProxy " << replicaId << "] FAILED: Server Status = '" << status
                       << "' (expected 'READY') at t=" << simTime() << "\n";
-            if (attached) sharedJVM->DetachCurrentThread();
             return false;
         }
         std::cout << "[V2VProxy " << replicaId << "] PASSED: Server Status = 'READY'" << "\n";
@@ -246,44 +233,36 @@ bool V2VProxyModule::triggerJoinViaJNI(const std::string& request )
     jmethodID readyMethod = env->GetStaticMethodID(serverRunnerClass, "isReplicaReady", "(I)Z");
     if (readyMethod) {
         jboolean isReady = env->CallStaticBooleanMethod(serverRunnerClass, readyMethod, replicaId);
-
         if (!isReady) {
-            std::cout << "[V2VProxy " << replicaId << "] FAILED: isReplicaReady() = false at t="
-                      << simTime() << "\n";
-            if (attached) sharedJVM->DetachCurrentThread();
+            std::cout << "[V2VProxy " << replicaId << "] FAILED: isReplicaReady() = false at t=" << simTime() << "\n";
             return false;
         }
         std::cout << "[V2VProxy " << replicaId << "] PASSED: isReplicaReady() = true" << "\n";
     } else {
         std::cerr << "[ERROR] Could not find isReplicaReady method!" << "\n";
-        if (attached) sharedJVM->DetachCurrentThread();
         return false;
     }
 
-    // Get the static triggerJoinForReplica method with String parameter
     jmethodID triggerMethod = env->GetStaticMethodID(serverRunnerClass, "triggerJoinForReplica", "(ILjava/lang/String;)V");
-
-    bool result = false;
-    if (triggerMethod) {
-        jstring jRequest = env->NewStringUTF(request.c_str());
-        env->CallStaticVoidMethod(serverRunnerClass, triggerMethod, replicaId, jRequest);
-        env->DeleteLocalRef(jRequest);
-
-        if (!env->ExceptionCheck()) {
-            std::cout << "[V2VProxy " << replicaId << "] SUCCESS: Triggered consensus request '"
-                      << request << "' at t=" << simTime() << "\n";
-            result = true;
-        } else {
-            std::cerr << "[V2VProxy " << replicaId << "] Exception calling triggerJoinForReplica" << "\n";
-            env->ExceptionDescribe();
-            env->ExceptionClear();
-        }
-    } else {
+    if (!triggerMethod) {
         std::cerr << "[V2VProxy " << replicaId << "] ERROR: Could not find triggerJoinForReplica(I, String) method" << "\n";
+        return false;
     }
 
-    if (attached) sharedJVM->DetachCurrentThread();
-    return result;
+    jstring jRequest = env->NewStringUTF(request.c_str());
+    env->CallStaticVoidMethod(serverRunnerClass, triggerMethod, replicaId, jRequest);
+    env->DeleteLocalRef(jRequest);
+
+    if (env->ExceptionCheck()) {
+        std::cerr << "[V2VProxy " << replicaId << "] Exception calling triggerJoinForReplica" << "\n";
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        return false;
+    }
+
+    std::cout << "[V2VProxy " << replicaId << "] SUCCESS: Triggered consensus request '"
+              << request << "' at t=" << simTime() << "\n";
+    return true;
 }
 
 bool V2VProxyModule::triggerGlobalResetViaJNI(const std::vector<int>& departedReplicas)
@@ -680,88 +659,69 @@ void V2VProxyModule::startBFTSmartReplica()
         return;
     }
 
-    JNIEnv* env;
-    bool attached = false;
-    if (jvm->GetEnv((void**)&env, JNI_VERSION_1_8) == JNI_EDETACHED) {
-        jvm->AttachCurrentThread((void**)&env, nullptr);
-        attached = true;
+    JNIEnvGuard jniGuard(jvm);
+    if (!jniGuard.valid()) {
+        std::cerr << "[V2VProxyModule] ERROR: Could not acquire JNIEnv to start replica" << "\n";
+        return;
     }
+    JNIEnv* env = jniGuard.env;
 
     std::cout << "[V2VProxyModule] Starting BFTSmart replica " << replicaId << " in background Java thread" << "\n";
 
-    // Find ServerRunner class (wrapper that runs IntersectionServer in a thread)
     jclass runnerClass = env->FindClass("bftsmart/demo/intersection/ServerRunner");
     if (!runnerClass) {
         std::cerr << "[V2VProxyModule] ERROR: Failed to find ServerRunner class" << "\n";
         env->ExceptionDescribe();
-        if (attached) jvm->DetachCurrentThread();
         return;
     }
 
-    // Get ServerRunner constructor: ServerRunner(int replicaId, int numCars)
     jmethodID runnerCtor = env->GetMethodID(runnerClass, "<init>", "(II)V");
     if (!runnerCtor) {
         std::cerr << "[V2VProxyModule] ERROR: Failed to find ServerRunner constructor" << "\n";
         env->ExceptionDescribe();
-        if (attached) jvm->DetachCurrentThread();
         return;
     }
 
-    // Create ServerRunner instance (this is fast, doesn't block)
     jobject runnerInstance = env->NewObject(runnerClass, runnerCtor, replicaId, BATCH_SIZE);
     if (!runnerInstance) {
         std::cerr << "[V2VProxyModule] ERROR: Failed to create ServerRunner instance" << "\n";
         env->ExceptionDescribe();
-        if (attached) jvm->DetachCurrentThread();
         return;
     }
 
-    // Find Thread class
     jclass threadClass = env->FindClass("java/lang/Thread");
     if (!threadClass) {
         std::cerr << "[V2VProxyModule] ERROR: Failed to find Thread class" << "\n";
         env->ExceptionDescribe();
-        if (attached) jvm->DetachCurrentThread();
         return;
     }
 
-    // Get Thread constructor: Thread(Runnable target)
     jmethodID threadCtor = env->GetMethodID(threadClass, "<init>", "(Ljava/lang/Runnable;)V");
     if (!threadCtor) {
         std::cerr << "[V2VProxyModule] ERROR: Failed to find Thread constructor" << "\n";
         env->ExceptionDescribe();
-        if (attached) jvm->DetachCurrentThread();
         return;
     }
 
-    // Create Thread with ServerRunner as the Runnable
     jobject thread = env->NewObject(threadClass, threadCtor, runnerInstance);
     if (!thread) {
         std::cerr << "[V2VProxyModule] ERROR: Failed to create Thread" << "\n";
         env->ExceptionDescribe();
-        if (attached) jvm->DetachCurrentThread();
         return;
     }
 
-    // Get Thread.start() method
     jmethodID startMethod = env->GetMethodID(threadClass, "start", "()V");
     if (!startMethod) {
         std::cerr << "[V2VProxyModule] ERROR: Failed to find Thread.start method" << "\n";
         env->ExceptionDescribe();
-        if (attached) jvm->DetachCurrentThread();
         return;
     }
 
-    // Start the thread (THIS RETURNS IMMEDIATELY - non-blocking!)
     std::cout << "[V2VProxyModule] Starting Java thread for replica " << replicaId << "\n";
     env->CallVoidMethod(thread, startMethod);
-
-    // Keep a global reference to the thread
     bftReplicaThread = env->NewGlobalRef(thread);
-
     std::cout << "[V2VProxyModule] BFTSmart replica " << replicaId << " thread started (non-blocking)" << "\n";
 
-    // Check for exceptions
     if (env->ExceptionCheck()) {
         env->ExceptionDescribe();
         env->ExceptionClear();
@@ -771,14 +731,11 @@ void V2VProxyModule::startBFTSmartReplica()
 void V2VProxyModule::stopBFTSmartReplica()
 {
     if (bftReplicaThread && jvm) {
-        JNIEnv* env;
-        jvm->AttachCurrentThread((void**)&env, nullptr);
-
-        // TODO: Call shutdown method on IntersectionServer if it has one
-
-        env->DeleteGlobalRef(bftReplicaThread);
+        JNIEnvGuard jniGuard(jvm);
+        if (jniGuard.valid()) {
+            jniGuard.env->DeleteGlobalRef(bftReplicaThread);
+        }
         bftReplicaThread = nullptr;
-
         EV_INFO << "BFTSmart replica " << replicaId << " stopped" << "\n";
     }
 }

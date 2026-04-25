@@ -306,24 +306,21 @@ public final class IntersectionServer extends DefaultRecoverable implements View
         }
         proposeAllSubmitted = true;
 
-        // Split C++ packet: PROPOSE_ALL:<proposerId>:<vehicleStatesStr>:<perCarCerts>
-        // vehicleStatesStr and perCarCerts contain no ':', so limit=4 is safe.
-        String[] top = request.split(":", 4);
-        if (top.length < 4 || !"PROPOSE_ALL".equals(top[0])) {
+        ProposalPayload pp = ProposalPayload.parseIncoming(request);
+        if (pp == null) {
             System.err.println("[SERVER " + processId + "] Unexpected request format: " + request);
             proposeAllSubmitted = false;
             return;
         }
-        String proposerStr      = top[1];
-        String vehicleStatesStr = top[2];
-        String perCarCertsStr   = top[3];
+        String proposerStr      = pp.proposerStr;
+        String vehicleStatesStr = pp.vehicleStatesStr;
+        String perCarCertsStr   = pp.perCarCertsStr;
 
         // Build view map (filter departed vehicles)
         List<VehicleState> states = ViewConsensusProtocol.parseVehicleStates(vehicleStatesStr);
         Map<String, VehicleState> viewMap = new LinkedHashMap<>();
         for (VehicleState vs : states) {
-            int rid = Integer.parseInt(vs.vehicleId.substring(3));
-            if (!isReplicaDeparted(rid)) {
+            if (!isReplicaDeparted(vs.replicaId())) {
                 viewMap.put(vs.vehicleId, vs);
             }
         }
@@ -456,23 +453,20 @@ public final class IntersectionServer extends DefaultRecoverable implements View
                             break;
                         }
 
-                        // payload: "<proposerId>:<vehicleStatesStr>:<perCarCerts>:<orderBagStr>"
-                        // vehicleStatesStr and perCarCerts have no ':', so limit=4 is safe.
-                        String[] parts = cmd.payload != null ? cmd.payload.split(":", 4) : new String[0];
-                        if (parts.length < 4) {
+                        ProposalPayload pp = ProposalPayload.parse(cmd.payload);
+                        if (pp == null) {
                             reply = "ERROR:Malformed PROPOSE_ALL payload";
                             break;
                         }
 
-                        String vehicleStatesStr = parts[1];
-                        String orderBagStr      = parts[3]; // epoch:veh0:0;veh1:0;...
+                        String vehicleStatesStr = pp.vehicleStatesStr;
+                        String orderBagStr      = pp.orderBagStr;
 
                         // Build agreed view (filter departed vehicles)
                         List<VehicleState> states = ViewConsensusProtocol.parseVehicleStates(vehicleStatesStr);
                         Map<String, VehicleState> newViewState = new LinkedHashMap<>();
                         for (VehicleState vs : states) {
-                            int rid = Integer.parseInt(vs.vehicleId.substring(3));
-                            if (!isReplicaDeparted(rid)) {
+                            if (!isReplicaDeparted(vs.replicaId())) {
                                 newViewState.put(vs.vehicleId, vs);
                             }
                         }
@@ -530,7 +524,7 @@ public final class IntersectionServer extends DefaultRecoverable implements View
                         }
                         // Notify other vehicles managed by this JVM process
                         for (String vehicleId : newViewState.keySet()) {
-                            int rid = Integer.parseInt(vehicleId.substring(3));
+                            int rid = IntersectionTypes.vehicleIdNumericOrder(vehicleId);
                             if (rid == processId) continue;
                             try {
                                 notifyOrderDecided(rid, batchDecision);
@@ -702,7 +696,7 @@ public final class IntersectionServer extends DefaultRecoverable implements View
         Map<String, VehicleState> stateMap = new LinkedHashMap<>();
         for (VehicleState vs : states) {
             try {
-                int rid = Integer.parseInt(vs.vehicleId.substring(3));
+                int rid = vs.replicaId();
                 if (departedReplicas == null || !departedReplicas.contains(rid)) {
                     stateMap.put(vs.vehicleId, vs);
                 }

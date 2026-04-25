@@ -151,31 +151,39 @@ void V2VProxyModule::deliverMessageToJava(int fromReplicaId, const uint8_t* data
                   << " from replica " << fromReplicaId << " to Java (" << dataLen << " bytes)" << "\n";
     }
     
-    JNIEnv* env;
-    jvm->AttachCurrentThread((void**)&env, nullptr);
-    
-    // Create Java byte array
+    JNIEnvGuard jniGuard(jvm);
+    if (!jniGuard.valid()) {
+        std::cerr << "[V2V-JNI] Replica " << replicaId << ": Could not acquire JNIEnv" << "\n";
+        return;
+    }
+    JNIEnv* env = jniGuard.env;
+
+    if (dataLen <= 0 || dataLen > 65536) {
+        std::cerr << "[V2V-JNI] Replica " << replicaId << ": Invalid dataLen=" << dataLen << ", skipping" << "\n";
+        return;
+    }
+
     jbyteArray javaData = env->NewByteArray(dataLen);
+    if (!javaData) {
+        std::cerr << "[V2V-JNI] Replica " << replicaId << ": NewByteArray failed" << "\n";
+        return;
+    }
     env->SetByteArrayRegion(javaData, 0, dataLen, (jbyte*)data);
-    
-    // Call Java method
+
     std::cout << "[V2V-JNI] Replica " << replicaId << ": Calling Java deliverMessage method..." << "\n";
     std::cout.flush();
     env->CallVoidMethod(javaCallbackObject, deliverMessageMethod, fromReplicaId, javaData);
     std::cout << "[V2V-JNI] Replica " << replicaId << ": Java deliverMessage call returned" << "\n";
     std::cout.flush();
-    
-    // Check for exceptions - PRINT THEM, don't silently hide!
+
     if (env->ExceptionCheck()) {
         std::cerr << "[V2V-JNI]  Replica " << replicaId << ": JAVA EXCEPTION in deliverMessage!" << "\n";
-        std::cerr << "[V2V-JNI] Exception details:" << "\n";
-        env->ExceptionDescribe();  // Print full stack trace to stderr
+        env->ExceptionDescribe();
         env->ExceptionClear();
-        std::cerr << "[V2V-JNI] Exception cleared, continuing..." << "\n";
     } else {
         std::cout << "[V2V-JNI] Replica " << replicaId << ": No Java exception, delivery successful" << "\n";
     }
-    
+
     env->DeleteLocalRef(javaData);
 }
 
@@ -298,13 +306,11 @@ void V2VProxyModule::syncTimeToJava() {
         // std::cerr << "[Warning] syncTimeToJava skipped: Clock not initialized" << "\n";
         return;
     }
-    JNIEnv* env;
-    jint res = jvm->GetEnv((void**)&env, JNI_VERSION_1_8);
-    if (res == JNI_EDETACHED) {
-        jvm->AttachCurrentThread((void**)&env, nullptr);
-    }
-    env->CallStaticVoidMethod(clockClass, updateTimeMethod, simTime().dbl());    
-    // Send current OMNeT++ simulation time (in seconds)
+    JNIEnvGuard jniGuard(jvm);
+    if (!jniGuard.valid()) return;
+    JNIEnv* env = jniGuard.env;
+
+    env->CallStaticVoidMethod(clockClass, updateTimeMethod, simTime().dbl());
     if (env->ExceptionCheck()) {
         env->ExceptionDescribe();
         env->ExceptionClear();
@@ -378,52 +384,48 @@ bool V2VProxyModule::checkJavaReplicaStatus() {
 
     std::lock_guard<std::mutex> lock(jvmMutex);
 
-    JNIEnv* env;
-    jvm->AttachCurrentThread((void**)&env, nullptr);
+    JNIEnvGuard jniGuard(jvm);
+    if (!jniGuard.valid()) return false;
+    JNIEnv* env = jniGuard.env;
 
     jclass serverRunnerClass = env->FindClass("bftsmart/demo/intersection/ServerRunner");
     if (!serverRunnerClass) return false;
 
-    // Check if replica is actually ready (not just "runner created")
     jmethodID statusMethod = env->GetStaticMethodID(serverRunnerClass,
         "getStatus", "(I)Ljava/lang/String;");
+    if (!statusMethod) return false;
 
-    if (statusMethod) {
-        jstring statusStr = (jstring) env->CallStaticObjectMethod(
-            serverRunnerClass, statusMethod, replicaId);
+    jstring statusStr = (jstring) env->CallStaticObjectMethod(
+        serverRunnerClass, statusMethod, replicaId);
+    if (!statusStr) return false;
 
-        if (statusStr) {
-            const char* statusChars = env->GetStringUTFChars(statusStr, nullptr);
-            std::string status(statusChars);
-            env->ReleaseStringUTFChars(statusStr, statusChars);
-
-            return (status == "READY");  // Only true when BFT is actually initialized
-        }
-    }
-
-    return false;
+    const char* statusChars = env->GetStringUTFChars(statusStr, nullptr);
+    std::string status(statusChars);
+    env->ReleaseStringUTFChars(statusStr, statusChars);
+    env->DeleteLocalRef(statusStr);
+    return (status == "READY");
 }
 
 void V2VProxyModule::triggerRetransmissionCheckViaJNI() {
     if (!jvm || !javaReady) return;
     std::lock_guard<std::mutex> lock(jniMutex);
-    JNIEnv* env;
 
-    jvm->AttachCurrentThread((void**)&env, nullptr);
+    JNIEnvGuard jniGuard(jvm);
+    if (!jniGuard.valid()) return;
+    JNIEnv* env = jniGuard.env;
+
     jclass reliabilityClass = env->FindClass("bftsmart/communication/V2V/ReliableV2VMessaging");
-
-    if (!reliabilityClass){
+    if (!reliabilityClass) {
         env->ExceptionDescribe();
         env->ExceptionClear();
         return;
     }
 
-    // Step 1: Check retransmissions for this replica only (H2 fix: was checkRetransmissionsForAllReplicas)
+    // Step 1: Check retransmissions for this replica only
     jmethodID checkMethod = env->GetStaticMethodID(reliabilityClass, "checkRetransmissionsForReplica", "(I)V");
     if (checkMethod) {
         env->CallStaticVoidMethod(reliabilityClass, checkMethod, (jint)replicaId);
     }
-
     if (env->ExceptionCheck()) {
         env->ExceptionDescribe();
         env->ExceptionClear();
@@ -443,12 +445,9 @@ void V2VProxyModule::triggerRetransmissionCheckViaJNI() {
         env->ExceptionClear();
         return;
     }
+    if (retxArray == nullptr) return;
 
-    if (retxArray == nullptr) {
-        return; // No retransmissions
-    }
-
-    // Step 3: Send each retransmission via OMNeT++ (now safe - not in JNI call)
+    // Step 3: Send each retransmission via OMNeT++
     jsize retxCount = env->GetArrayLength(retxArray);
     if (retxCount > 0) {
         std::cout << "[V2VProxy " << replicaId << "] Sending " << retxCount << " queued retransmissions" << "\n";
@@ -462,12 +461,8 @@ void V2VProxyModule::triggerRetransmissionCheckViaJNI() {
         std::vector<uint8_t> data(len);
         env->GetByteArrayRegion(byteArray, 0, len, (jbyte*)data.data());
 
-        // Use sendBFTMessage for proper broadcast - sets fromReplicaId, toReplicaId=-1,
-        // recipientAddress, channel, etc. The envelope has correct from/to inside payload.
-        std::cout << "[V2VProxy " << replicaId << "] sending retransmission #" << i << " from replica " << replicaId << " to all replicas" << "\n";
         sendBFTMessage(replicaId, -1, data, 0);
         sentMessages++;
-
         env->DeleteLocalRef(byteArray);
     }
 

@@ -36,19 +36,19 @@
     "ambulance_priority_gain_s": 1.3142857142857143,
     "ambulance_priority_ratio": 0.4972677595628415,
     "propose_all_consensus_latency_s": {
-      "mean": 1.715,
-      "median": 1.715,
-      "p95": 1.715,
-      "min": 1.715,
-      "max": 1.715,
+      "mean": 1.678,
+      "median": 1.678,
+      "p95": 1.678,
+      "min": 1.678,
+      "max": 1.678,
       "n": 1
     },
     "propose_all_consensus_latency_sim_s": {
-      "mean": 1.0674,
-      "median": 1.0674,
-      "p95": 1.0674,
-      "min": 1.0674,
-      "max": 1.0674,
+      "mean": 1.0412,
+      "median": 1.0412,
+      "p95": 1.0412,
+      "min": 1.0412,
+      "max": 1.0412,
       "n": 1
     },
     "stop_to_decision_sim_s": {
@@ -60,11 +60,11 @@
       "n": 1
     },
     "bft_decision_time_s": {
-      "mean": 1.715,
-      "median": 1.715,
-      "p95": 1.715,
-      "min": 1.715,
-      "max": 1.715,
+      "mean": 1.678,
+      "median": 1.678,
+      "p95": 1.678,
+      "min": 1.678,
+      "max": 1.678,
       "n": 8
     },
     "total_byzantine_injections": 0,
@@ -86,8 +86,8 @@
       "max": 0.7999999999999998,
       "n": 8
     },
-    "delivery_ratio": 0.25444271911663213,
-    "estimated_loss_rate": 0.7455572808833679,
+    "delivery_ratio": 0.2333829365079365,
+    "estimated_loss_rate": 0.7666170634920635,
     "fallback_rate": 0.0,
     "fallback_count": 0
   },
@@ -95,8 +95,8 @@
     {
       "epoch": 0,
       "n_replicas": 8,
-      "propose_all_consensus_latency_s": 1.715,
-      "propose_all_consensus_latency_sim_s": 1.0674,
+      "propose_all_consensus_latency_s": 1.678,
+      "propose_all_consensus_latency_sim_s": 1.0412,
       "stop_to_decision_sim_s": 1.75,
       "throughput_s_per_veh": 0.30625,
       "throughput_veh_per_s": 3.265306122448979,
@@ -118,8 +118,8 @@
       },
       "byzantine_injections": 0,
       "consensus_success": true,
-      "avg_messages_sent_per_replica": 18.625,
-      "avg_messages_recv_per_replica": 32.875,
+      "avg_messages_sent_per_replica": 18.75,
+      "avg_messages_recv_per_replica": 30.25,
       "stop_sign_failures": 0
     },
     {
@@ -152,15 +152,15 @@
       "arrival_to_resume_s": 1.2999999999999998,
       "resume_to_depart_s": 0.6000000000000001,
       "arrival_to_depart_s": 1.9,
-      "messages_sent": 23,
-      "messages_received": 30,
-      "delivery_ratio": 0.18633540372670807,
-      "estimated_loss_rate": 0.8136645962732919,
+      "messages_sent": 24,
+      "messages_received": 27,
+      "delivery_ratio": 0.16071428571428573,
+      "estimated_loss_rate": 0.8392857142857143,
       "used_fallback": false,
-      "propose_all_consensus_wall_s": 1.715,
-      "propose_all_consensus_sim_s": 1.0674,
+      "propose_all_consensus_wall_s": 1.678,
+      "propose_all_consensus_sim_s": 1.0412,
       "stop_to_decision_sim_s": 1.3,
-      "bft_decision_time_s": 1.715
+      "bft_decision_time_s": 1.678
     },
     {
       "car_id": "veh1",
@@ -175,14 +175,14 @@
       "resume_to_depart_s": 0.7999999999999998,
       "arrival_to_depart_s": 2.9,
       "messages_sent": 18,
-      "messages_received": 33,
-      "delivery_ratio": 0.2619047619047619,
-      "estimated_loss_rate": 0.7380952380952381,
+      "messages_received": 30,
+      "delivery_ratio": 0.23809523809523808,
+      "estimated_loss_rate": 0.7619047619047619,
       "used_fallback": false,
-      "propose_all_consensus_wall_s": 1.715,
+      "propose_all_consensus_wall_s": 1.678,
       "propose_all_consensus_sim_s": null,
       "stop_to_decision_sim_s": 2.1,
-      "bft_decision_time_s": 1.715
+      "bft_decision_time_s": 1.678
     },
     {
       "car_id": "veh2",
@@ -197,14 +197,14 @@
       "resume_to_depart_s": 0.6000000000000001,
       "arrival_to_depart_s": 1.9,
       "messages_sent": 18,
-      "messages_received": 32,
-      "delivery_ratio": 0.25396825396825395,
-      "estimated_loss_rate": 0.746031746031746,
+      "messages_received": 31,
+      "delivery_ratio": 0.24603174603174602,
+      "estimated_loss_rate": 0.753968253968254,
       "used_fallback": false,
-      "propose_all_consensus_wall_s": 1.715,
+      "propose_all_consensus_wall_s": 1.678,
       "propose_all_consensus_sim_s": null,
       "stop_to_decision_sim_s": 1.3,
-      "bft_decision_time_s": 1.715
+      "bft_decision_time_s": 1.678
     },
     {
       "car_id": "veh3",
@@ -219,18 +219,18 @@
       "resume_to_depart_s": 0.7999999999999998,
       "arrival_to_depart_s": 2.9,
       "messages_sent": 18,
-      "messages_received": 32,
-      "delivery_ratio": 0.25396825396825395,
-      "estimated_loss_rate": 0.746031746031746,
+      "messages_received": 31,
+      "delivery_ratio": 0.24603174603174602,
+      "estimated_loss_rate": 0.753968253968254,
       "used_fallback": false,
-      "propose_all_consensus_wall_s": 1.715,
+      "propose_all_consensus_wall_s": 1.678,
       "propose_all_consensus_sim_s": null,
       "stop_to_decision_sim_s": 2.1,
-      "bft_decision_time_s": 1.715
+      "bft_decision_time_s": 1.678
     },
     {
       "car_id": "veh4",
-      "role": "ambulance",
+      "role": "normal",
       "epoch": 0,
       "arrival_time_s": 0.6,
       "stop_time_s": 0.6,
@@ -241,14 +241,14 @@
       "resume_to_depart_s": 0.7999999999999998,
       "arrival_to_depart_s": 1.2999999999999998,
       "messages_sent": 18,
-      "messages_received": 34,
-      "delivery_ratio": 0.2698412698412698,
-      "estimated_loss_rate": 0.7301587301587302,
+      "messages_received": 32,
+      "delivery_ratio": 0.25396825396825395,
+      "estimated_loss_rate": 0.746031746031746,
       "used_fallback": false,
-      "propose_all_consensus_wall_s": 1.715,
+      "propose_all_consensus_wall_s": 1.678,
       "propose_all_consensus_sim_s": null,
       "stop_to_decision_sim_s": 0.5,
-      "bft_decision_time_s": 1.715
+      "bft_decision_time_s": 1.678
     },
     {
       "car_id": "veh5",
@@ -263,18 +263,18 @@
       "resume_to_depart_s": 0.5999999999999996,
       "arrival_to_depart_s": 3.6999999999999997,
       "messages_sent": 18,
-      "messages_received": 35,
-      "delivery_ratio": 0.2777777777777778,
-      "estimated_loss_rate": 0.7222222222222222,
+      "messages_received": 32,
+      "delivery_ratio": 0.25396825396825395,
+      "estimated_loss_rate": 0.746031746031746,
       "used_fallback": false,
-      "propose_all_consensus_wall_s": 1.715,
+      "propose_all_consensus_wall_s": 1.678,
       "propose_all_consensus_sim_s": null,
       "stop_to_decision_sim_s": 3.1,
-      "bft_decision_time_s": 1.715
+      "bft_decision_time_s": 1.678
     },
     {
       "car_id": "veh6",
-      "role": "normal",
+      "role": "ambulance",
       "epoch": 0,
       "arrival_time_s": 0.6,
       "stop_time_s": 0.6,
@@ -285,14 +285,14 @@
       "resume_to_depart_s": 0.7999999999999998,
       "arrival_to_depart_s": 1.2999999999999998,
       "messages_sent": 18,
-      "messages_received": 34,
-      "delivery_ratio": 0.2698412698412698,
-      "estimated_loss_rate": 0.7301587301587302,
+      "messages_received": 29,
+      "delivery_ratio": 0.23015873015873015,
+      "estimated_loss_rate": 0.7698412698412699,
       "used_fallback": false,
-      "propose_all_consensus_wall_s": 1.715,
+      "propose_all_consensus_wall_s": 1.678,
       "propose_all_consensus_sim_s": null,
       "stop_to_decision_sim_s": 0.5,
-      "bft_decision_time_s": 1.715
+      "bft_decision_time_s": 1.678
     },
     {
       "car_id": "veh7",
@@ -307,14 +307,14 @@
       "resume_to_depart_s": 0.5999999999999996,
       "arrival_to_depart_s": 3.6999999999999997,
       "messages_sent": 18,
-      "messages_received": 33,
-      "delivery_ratio": 0.2619047619047619,
-      "estimated_loss_rate": 0.7380952380952381,
+      "messages_received": 30,
+      "delivery_ratio": 0.23809523809523808,
+      "estimated_loss_rate": 0.7619047619047619,
       "used_fallback": false,
-      "propose_all_consensus_wall_s": 1.715,
+      "propose_all_consensus_wall_s": 1.678,
       "propose_all_consensus_sim_s": null,
       "stop_to_decision_sim_s": 3.1,
-      "bft_decision_time_s": 1.715
+      "bft_decision_time_s": 1.678
     }
   ]
 }

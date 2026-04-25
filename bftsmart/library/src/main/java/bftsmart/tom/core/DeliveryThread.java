@@ -15,6 +15,7 @@ limitations under the License.
 */
 package bftsmart.tom.core;
 
+import bftsmart.communication.V2V.SimulationClock;
 import bftsmart.consensus.Decision;
 import bftsmart.reconfiguration.ServerViewController;
 import bftsmart.statemanagement.ApplicationState;
@@ -95,7 +96,7 @@ public final class DeliveryThread extends Thread {
 			// clean the ordered messages from the pending buffer
 			TOMMessage[] requests = extractMessagesFromDecision(dec);
 			tomLayer.clientsManager.requestsOrdered(requests);
-			System.out.println("[PHASE_TIMER] CID=" + dec.getConsensusId() + " replica=" + controller.getStaticConf().getProcessId() + " DELIVER wall_ms=" + System.currentTimeMillis());
+			System.out.println("[PHASE_TIMER] CID=" + dec.getConsensusId() + " replica=" + controller.getStaticConf().getProcessId() + " DELIVER sim_ms=" + SimulationClock.currentTimeMillis());
 			logger.info("[DELIVERY] Consensus {} decided; queue size={} (will trigger receiveMessages -> executeBatch -> reply)", dec.getConsensusId(), decided.size());
 			logger.debug("Consensus " + dec.getConsensusId() + " finished. Decided size=" + decided.size());
 		} catch (Exception e) {
@@ -368,7 +369,7 @@ public final class DeliveryThread extends Thread {
 
 		MessageContext msgCtx = new MessageContext(request.getSender(), request.getViewID(), request.getReqType(),
 				request.getSession(), request.getSequence(), request.getOperationId(), request.getReplyServer(),
-				request.serializedMessageSignature, System.currentTimeMillis(), 0, 0, regency, -1, -1, null, null,
+				request.serializedMessageSignature, SimulationClock.currentTimeMillis(), 0, 0, regency, -1, -1, null, null,
 				false); // Since the request is unordered,
 		// there is no consensus info to pass
 

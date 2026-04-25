@@ -52,6 +52,11 @@ final class VehicleState implements Serializable {
     boolean isAmbulance;
     /** "SIGNED" if this vehicle's replica sent a VIEW_AGREEMENT vote; "QUIET" otherwise. */
     String cyberStatus = "SIGNED";
+
+    /** Extracts the numeric replica id from the "vehN" vehicleId format. */
+    int replicaId() {
+        return Integer.parseInt(vehicleId.substring(3));
+    }
 }
 
 final class Batch implements Serializable {

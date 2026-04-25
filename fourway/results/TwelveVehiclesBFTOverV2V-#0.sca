@@ -1,8 +1,8 @@
 version 3
-run TwelveVehiclesBFTOverV2V-0-20260422-23:04:49-1998537
+run TwelveVehiclesBFTOverV2V-0-20260424-12:21:46-2465119
 attr configname TwelveVehiclesBFTOverV2V
-attr datetime 20260422-23:04:49
-attr datetimef 20260422-230449
+attr datetime 20260424-12:21:46
+attr datetimef 20260424-122146
 attr experiment TwelveVehiclesBFTOverV2V
 attr inifile omnetpp.ini
 attr iterationvars ""
@@ -10,7 +10,7 @@ attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network fourWay
-attr processid 1998537
+attr processid 2465119
 attr repetition 0
 attr replication #0
 attr resultdir results
@@ -287,7 +287,7 @@ scalar fourWay.node[0].appl bftMsgReceived:count 41
 attr recordingmode count
 attr source bftMsgReceived
 attr title "BFT messages received, count"
-scalar fourWay.node[0].appl bftMsgSent:count 22
+scalar fourWay.node[0].appl bftMsgSent:count 23
 attr recordingmode count
 attr source bftMsgSent
 attr title "BFT messages sent, count"
@@ -331,7 +331,7 @@ par fourWay.node[0].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[0].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[0].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[0].nic.phy80211p busyTime 0.022432941176471
+scalar fourWay.node[0].nic.phy80211p busyTime 0.02038
 scalar fourWay.node[0].nic.phy80211p ncollisions 13
 par fourWay.node[0].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[0].nic.mac1609_4 notAffectedByHostState false
@@ -357,32 +357,32 @@ par fourWay.node[0].nic.mac1609_4 useAcks false
 par fourWay.node[0].nic.mac1609_4 frameErrorRate 0
 par fourWay.node[0].nic.mac1609_4 ackErrorRate 0
 scalar fourWay.node[0].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[0].nic.mac1609_4 ReceivedBroadcasts 172
-scalar fourWay.node[0].nic.mac1609_4 SentPackets 22
+scalar fourWay.node[0].nic.mac1609_4 ReceivedBroadcasts 174
+scalar fourWay.node[0].nic.mac1609_4 SentPackets 23
 scalar fourWay.node[0].nic.mac1609_4 SentAcknowledgements 0
 scalar fourWay.node[0].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[0].nic.mac1609_4 SNIRLostPackets 30
+scalar fourWay.node[0].nic.mac1609_4 SNIRLostPackets 28
 scalar fourWay.node[0].nic.mac1609_4 RXTXLostPackets 7
-scalar fourWay.node[0].nic.mac1609_4 TotalLostPackets 37
+scalar fourWay.node[0].nic.mac1609_4 TotalLostPackets 35
 scalar fourWay.node[0].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.node[0].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[0].nic.mac1609_4 TimesIntoBackoff 28
-scalar fourWay.node[0].nic.mac1609_4 SlotsBackoff 30
+scalar fourWay.node[0].nic.mac1609_4 TimesIntoBackoff 29
+scalar fourWay.node[0].nic.mac1609_4 SlotsBackoff 31
 scalar fourWay.node[0].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[0].nic.mac1609_4 totalBusyTime 0.212871630554
+scalar fourWay.node[0].nic.mac1609_4 totalBusyTime 0.191992230905
 scalar fourWay.node[0].nic.mac1609_4 retriesExceeded:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigRetriesExceeded
 scalar fourWay.node[0].nic.mac1609_4 sentAcks:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentAck
-scalar fourWay.node[0].nic.mac1609_4 sentPackets:count 22
+scalar fourWay.node[0].nic.mac1609_4 sentPackets:count 23
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentPacket
 scalar fourWay.node[0].nic.mac1609_4 collisions:count 13
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[0].nic.mac1609_4 channelBusy:timeavg 0.031304651552059
+scalar fourWay.node[0].nic.mac1609_4 channelBusy:timeavg 0.028234151603676
 attr recordingmode timeavg
 attr source org_car2x_veins_modules_mac_sigChannelBusy
 par fourWay.node[0].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
@@ -496,7 +496,7 @@ scalar fourWay.node[1].appl generatedBSMs 0
 scalar fourWay.node[1].appl receivedBSMs 0
 scalar fourWay.node[1].appl generatedWSAs 0
 scalar fourWay.node[1].appl receivedWSAs 0
-scalar fourWay.node[1].appl bftMsgReceived:count 45
+scalar fourWay.node[1].appl bftMsgReceived:count 44
 attr recordingmode count
 attr source bftMsgReceived
 attr title "BFT messages received, count"
@@ -544,8 +544,8 @@ par fourWay.node[1].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[1].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[1].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[1].nic.phy80211p busyTime 0.032635151515152
-scalar fourWay.node[1].nic.phy80211p ncollisions 12
+scalar fourWay.node[1].nic.phy80211p busyTime 0.029324848484849
+scalar fourWay.node[1].nic.phy80211p ncollisions 13
 par fourWay.node[1].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[1].nic.mac1609_4 notAffectedByHostState false
 par fourWay.node[1].nic.mac1609_4 headerLength 0bit
@@ -570,19 +570,19 @@ par fourWay.node[1].nic.mac1609_4 useAcks false
 par fourWay.node[1].nic.mac1609_4 frameErrorRate 0
 par fourWay.node[1].nic.mac1609_4 ackErrorRate 0
 scalar fourWay.node[1].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[1].nic.mac1609_4 ReceivedBroadcasts 176
+scalar fourWay.node[1].nic.mac1609_4 ReceivedBroadcasts 178
 scalar fourWay.node[1].nic.mac1609_4 SentPackets 19
 scalar fourWay.node[1].nic.mac1609_4 SentAcknowledgements 0
 scalar fourWay.node[1].nic.mac1609_4 RetriesExceeded 0
 scalar fourWay.node[1].nic.mac1609_4 SNIRLostPackets 33
-scalar fourWay.node[1].nic.mac1609_4 RXTXLostPackets 3
-scalar fourWay.node[1].nic.mac1609_4 TotalLostPackets 36
+scalar fourWay.node[1].nic.mac1609_4 RXTXLostPackets 2
+scalar fourWay.node[1].nic.mac1609_4 TotalLostPackets 35
 scalar fourWay.node[1].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.node[1].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[1].nic.mac1609_4 TimesIntoBackoff 29
-scalar fourWay.node[1].nic.mac1609_4 SlotsBackoff 52
+scalar fourWay.node[1].nic.mac1609_4 TimesIntoBackoff 24
+scalar fourWay.node[1].nic.mac1609_4 SlotsBackoff 40
 scalar fourWay.node[1].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[1].nic.mac1609_4 totalBusyTime 0.212868479355
+scalar fourWay.node[1].nic.mac1609_4 totalBusyTime 0.191988133746
 scalar fourWay.node[1].nic.mac1609_4 retriesExceeded:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigRetriesExceeded
@@ -592,10 +592,10 @@ attr source org_car2x_veins_modules_mac_sigSentAck
 scalar fourWay.node[1].nic.mac1609_4 sentPackets:count 19
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[1].nic.mac1609_4 collisions:count 12
+scalar fourWay.node[1].nic.mac1609_4 collisions:count 13
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[1].nic.mac1609_4 channelBusy:timeavg 0.032252799902273
+scalar fourWay.node[1].nic.mac1609_4 channelBusy:timeavg 0.029089111173636
 attr recordingmode timeavg
 attr source org_car2x_veins_modules_mac_sigChannelBusy
 par fourWay.node[1].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
@@ -709,7 +709,7 @@ scalar fourWay.node[2].appl generatedBSMs 0
 scalar fourWay.node[2].appl receivedBSMs 0
 scalar fourWay.node[2].appl generatedWSAs 0
 scalar fourWay.node[2].appl receivedWSAs 0
-scalar fourWay.node[2].appl bftMsgReceived:count 46
+scalar fourWay.node[2].appl bftMsgReceived:count 45
 attr recordingmode count
 attr source bftMsgReceived
 attr title "BFT messages received, count"
@@ -757,7 +757,7 @@ par fourWay.node[2].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[2].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[2].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[2].nic.phy80211p busyTime 0.032527272727273
+scalar fourWay.node[2].nic.phy80211p busyTime 0.028658181818182
 scalar fourWay.node[2].nic.phy80211p ncollisions 12
 par fourWay.node[2].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[2].nic.mac1609_4 notAffectedByHostState false
@@ -783,19 +783,19 @@ par fourWay.node[2].nic.mac1609_4 useAcks false
 par fourWay.node[2].nic.mac1609_4 frameErrorRate 0
 par fourWay.node[2].nic.mac1609_4 ackErrorRate 0
 scalar fourWay.node[2].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[2].nic.mac1609_4 ReceivedBroadcasts 176
+scalar fourWay.node[2].nic.mac1609_4 ReceivedBroadcasts 179
 scalar fourWay.node[2].nic.mac1609_4 SentPackets 19
 scalar fourWay.node[2].nic.mac1609_4 SentAcknowledgements 0
 scalar fourWay.node[2].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[2].nic.mac1609_4 SNIRLostPackets 33
-scalar fourWay.node[2].nic.mac1609_4 RXTXLostPackets 3
-scalar fourWay.node[2].nic.mac1609_4 TotalLostPackets 36
+scalar fourWay.node[2].nic.mac1609_4 SNIRLostPackets 30
+scalar fourWay.node[2].nic.mac1609_4 RXTXLostPackets 4
+scalar fourWay.node[2].nic.mac1609_4 TotalLostPackets 34
 scalar fourWay.node[2].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.node[2].nic.mac1609_4 TooLittleTime 0
 scalar fourWay.node[2].nic.mac1609_4 TimesIntoBackoff 28
-scalar fourWay.node[2].nic.mac1609_4 SlotsBackoff 40
+scalar fourWay.node[2].nic.mac1609_4 SlotsBackoff 41
 scalar fourWay.node[2].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[2].nic.mac1609_4 totalBusyTime 0.212868922413
+scalar fourWay.node[2].nic.mac1609_4 totalBusyTime 0.191988434142
 scalar fourWay.node[2].nic.mac1609_4 retriesExceeded:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigRetriesExceeded
@@ -808,7 +808,7 @@ attr source org_car2x_veins_modules_mac_sigSentPacket
 scalar fourWay.node[2].nic.mac1609_4 collisions:count 12
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[2].nic.mac1609_4 channelBusy:timeavg 0.032252867032273
+scalar fourWay.node[2].nic.mac1609_4 channelBusy:timeavg 0.029089156688182
 attr recordingmode timeavg
 attr source org_car2x_veins_modules_mac_sigChannelBusy
 par fourWay.node[2].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
@@ -922,7 +922,7 @@ scalar fourWay.node[3].appl generatedBSMs 0
 scalar fourWay.node[3].appl receivedBSMs 0
 scalar fourWay.node[3].appl generatedWSAs 0
 scalar fourWay.node[3].appl receivedWSAs 0
-scalar fourWay.node[3].appl bftMsgReceived:count 46
+scalar fourWay.node[3].appl bftMsgReceived:count 45
 attr recordingmode count
 attr source bftMsgReceived
 attr title "BFT messages received, count"
@@ -970,8 +970,8 @@ par fourWay.node[3].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[3].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[3].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[3].nic.phy80211p busyTime 0.03137696969697
-scalar fourWay.node[3].nic.phy80211p ncollisions 10
+scalar fourWay.node[3].nic.phy80211p busyTime 0.02876
+scalar fourWay.node[3].nic.phy80211p ncollisions 12
 par fourWay.node[3].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[3].nic.mac1609_4 notAffectedByHostState false
 par fourWay.node[3].nic.mac1609_4 headerLength 0bit
@@ -996,19 +996,19 @@ par fourWay.node[3].nic.mac1609_4 useAcks false
 par fourWay.node[3].nic.mac1609_4 frameErrorRate 0
 par fourWay.node[3].nic.mac1609_4 ackErrorRate 0
 scalar fourWay.node[3].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[3].nic.mac1609_4 ReceivedBroadcasts 178
+scalar fourWay.node[3].nic.mac1609_4 ReceivedBroadcasts 179
 scalar fourWay.node[3].nic.mac1609_4 SentPackets 19
 scalar fourWay.node[3].nic.mac1609_4 SentAcknowledgements 0
 scalar fourWay.node[3].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[3].nic.mac1609_4 SNIRLostPackets 26
-scalar fourWay.node[3].nic.mac1609_4 RXTXLostPackets 8
+scalar fourWay.node[3].nic.mac1609_4 SNIRLostPackets 27
+scalar fourWay.node[3].nic.mac1609_4 RXTXLostPackets 7
 scalar fourWay.node[3].nic.mac1609_4 TotalLostPackets 34
 scalar fourWay.node[3].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.node[3].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[3].nic.mac1609_4 TimesIntoBackoff 26
-scalar fourWay.node[3].nic.mac1609_4 SlotsBackoff 44
+scalar fourWay.node[3].nic.mac1609_4 TimesIntoBackoff 28
+scalar fourWay.node[3].nic.mac1609_4 SlotsBackoff 31
 scalar fourWay.node[3].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[3].nic.mac1609_4 totalBusyTime 0.212869160566
+scalar fourWay.node[3].nic.mac1609_4 totalBusyTime 0.191988536425
 scalar fourWay.node[3].nic.mac1609_4 retriesExceeded:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigRetriesExceeded
@@ -1018,10 +1018,10 @@ attr source org_car2x_veins_modules_mac_sigSentAck
 scalar fourWay.node[3].nic.mac1609_4 sentPackets:count 19
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[3].nic.mac1609_4 collisions:count 10
+scalar fourWay.node[3].nic.mac1609_4 collisions:count 12
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[3].nic.mac1609_4 channelBusy:timeavg 0.032252903116061
+scalar fourWay.node[3].nic.mac1609_4 channelBusy:timeavg 0.029089172185606
 attr recordingmode timeavg
 attr source org_car2x_veins_modules_mac_sigChannelBusy
 par fourWay.node[3].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
@@ -1135,7 +1135,7 @@ scalar fourWay.node[4].appl generatedBSMs 0
 scalar fourWay.node[4].appl receivedBSMs 0
 scalar fourWay.node[4].appl generatedWSAs 0
 scalar fourWay.node[4].appl receivedWSAs 0
-scalar fourWay.node[4].appl bftMsgReceived:count 45
+scalar fourWay.node[4].appl bftMsgReceived:count 43
 attr recordingmode count
 attr source bftMsgReceived
 attr title "BFT messages received, count"
@@ -1183,8 +1183,8 @@ par fourWay.node[4].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[4].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[4].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[4].nic.phy80211p busyTime 0.032637575757576
-scalar fourWay.node[4].nic.phy80211p ncollisions 10
+scalar fourWay.node[4].nic.phy80211p busyTime 0.029166060606061
+scalar fourWay.node[4].nic.phy80211p ncollisions 14
 par fourWay.node[4].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[4].nic.mac1609_4 notAffectedByHostState false
 par fourWay.node[4].nic.mac1609_4 headerLength 0bit
@@ -1209,19 +1209,19 @@ par fourWay.node[4].nic.mac1609_4 useAcks false
 par fourWay.node[4].nic.mac1609_4 frameErrorRate 0
 par fourWay.node[4].nic.mac1609_4 ackErrorRate 0
 scalar fourWay.node[4].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[4].nic.mac1609_4 ReceivedBroadcasts 178
+scalar fourWay.node[4].nic.mac1609_4 ReceivedBroadcasts 177
 scalar fourWay.node[4].nic.mac1609_4 SentPackets 19
 scalar fourWay.node[4].nic.mac1609_4 SentAcknowledgements 0
 scalar fourWay.node[4].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[4].nic.mac1609_4 SNIRLostPackets 31
-scalar fourWay.node[4].nic.mac1609_4 RXTXLostPackets 3
-scalar fourWay.node[4].nic.mac1609_4 TotalLostPackets 34
+scalar fourWay.node[4].nic.mac1609_4 SNIRLostPackets 35
+scalar fourWay.node[4].nic.mac1609_4 RXTXLostPackets 1
+scalar fourWay.node[4].nic.mac1609_4 TotalLostPackets 36
 scalar fourWay.node[4].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.node[4].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[4].nic.mac1609_4 TimesIntoBackoff 29
-scalar fourWay.node[4].nic.mac1609_4 SlotsBackoff 51
+scalar fourWay.node[4].nic.mac1609_4 TimesIntoBackoff 24
+scalar fourWay.node[4].nic.mac1609_4 SlotsBackoff 43
 scalar fourWay.node[4].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[4].nic.mac1609_4 totalBusyTime 0.212868324906
+scalar fourWay.node[4].nic.mac1609_4 totalBusyTime 0.19198818724
 scalar fourWay.node[4].nic.mac1609_4 retriesExceeded:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigRetriesExceeded
@@ -1231,10 +1231,10 @@ attr source org_car2x_veins_modules_mac_sigSentAck
 scalar fourWay.node[4].nic.mac1609_4 sentPackets:count 19
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[4].nic.mac1609_4 collisions:count 10
+scalar fourWay.node[4].nic.mac1609_4 collisions:count 14
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[4].nic.mac1609_4 channelBusy:timeavg 0.032252776500909
+scalar fourWay.node[4].nic.mac1609_4 channelBusy:timeavg 0.029089119278788
 attr recordingmode timeavg
 attr source org_car2x_veins_modules_mac_sigChannelBusy
 par fourWay.node[4].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
@@ -1348,7 +1348,7 @@ scalar fourWay.node[5].appl generatedBSMs 0
 scalar fourWay.node[5].appl receivedBSMs 0
 scalar fourWay.node[5].appl generatedWSAs 0
 scalar fourWay.node[5].appl receivedWSAs 0
-scalar fourWay.node[5].appl bftMsgReceived:count 41
+scalar fourWay.node[5].appl bftMsgReceived:count 42
 attr recordingmode count
 attr source bftMsgReceived
 attr title "BFT messages received, count"
@@ -1396,8 +1396,8 @@ par fourWay.node[5].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[5].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[5].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[5].nic.phy80211p busyTime 0.0316
-scalar fourWay.node[5].nic.phy80211p ncollisions 15
+scalar fourWay.node[5].nic.phy80211p busyTime 0.029099393939394
+scalar fourWay.node[5].nic.phy80211p ncollisions 16
 par fourWay.node[5].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[5].nic.mac1609_4 notAffectedByHostState false
 par fourWay.node[5].nic.mac1609_4 headerLength 0bit
@@ -1422,19 +1422,19 @@ par fourWay.node[5].nic.mac1609_4 useAcks false
 par fourWay.node[5].nic.mac1609_4 frameErrorRate 0
 par fourWay.node[5].nic.mac1609_4 ackErrorRate 0
 scalar fourWay.node[5].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[5].nic.mac1609_4 ReceivedBroadcasts 173
+scalar fourWay.node[5].nic.mac1609_4 ReceivedBroadcasts 175
 scalar fourWay.node[5].nic.mac1609_4 SentPackets 19
 scalar fourWay.node[5].nic.mac1609_4 SentAcknowledgements 0
 scalar fourWay.node[5].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[5].nic.mac1609_4 SNIRLostPackets 32
-scalar fourWay.node[5].nic.mac1609_4 RXTXLostPackets 7
-scalar fourWay.node[5].nic.mac1609_4 TotalLostPackets 39
+scalar fourWay.node[5].nic.mac1609_4 SNIRLostPackets 34
+scalar fourWay.node[5].nic.mac1609_4 RXTXLostPackets 4
+scalar fourWay.node[5].nic.mac1609_4 TotalLostPackets 38
 scalar fourWay.node[5].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.node[5].nic.mac1609_4 TooLittleTime 0
 scalar fourWay.node[5].nic.mac1609_4 TimesIntoBackoff 29
-scalar fourWay.node[5].nic.mac1609_4 SlotsBackoff 29
+scalar fourWay.node[5].nic.mac1609_4 SlotsBackoff 49
 scalar fourWay.node[5].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[5].nic.mac1609_4 totalBusyTime 0.21286877243
+scalar fourWay.node[5].nic.mac1609_4 totalBusyTime 0.191988341272
 scalar fourWay.node[5].nic.mac1609_4 retriesExceeded:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigRetriesExceeded
@@ -1444,10 +1444,10 @@ attr source org_car2x_veins_modules_mac_sigSentAck
 scalar fourWay.node[5].nic.mac1609_4 sentPackets:count 19
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[5].nic.mac1609_4 collisions:count 15
+scalar fourWay.node[5].nic.mac1609_4 collisions:count 16
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[5].nic.mac1609_4 channelBusy:timeavg 0.032252844307576
+scalar fourWay.node[5].nic.mac1609_4 channelBusy:timeavg 0.02908914261697
 attr recordingmode timeavg
 attr source org_car2x_veins_modules_mac_sigChannelBusy
 par fourWay.node[5].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
@@ -1561,7 +1561,7 @@ scalar fourWay.node[6].appl generatedBSMs 0
 scalar fourWay.node[6].appl receivedBSMs 0
 scalar fourWay.node[6].appl generatedWSAs 0
 scalar fourWay.node[6].appl receivedWSAs 0
-scalar fourWay.node[6].appl bftMsgReceived:count 41
+scalar fourWay.node[6].appl bftMsgReceived:count 43
 attr recordingmode count
 attr source bftMsgReceived
 attr title "BFT messages received, count"
@@ -1609,8 +1609,8 @@ par fourWay.node[6].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[6].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[6].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[6].nic.phy80211p busyTime 0.032842424242424
-scalar fourWay.node[6].nic.phy80211p ncollisions 12
+scalar fourWay.node[6].nic.phy80211p busyTime 0.029389090909091
+scalar fourWay.node[6].nic.phy80211p ncollisions 14
 par fourWay.node[6].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[6].nic.mac1609_4 notAffectedByHostState false
 par fourWay.node[6].nic.mac1609_4 headerLength 0bit
@@ -1635,19 +1635,19 @@ par fourWay.node[6].nic.mac1609_4 useAcks false
 par fourWay.node[6].nic.mac1609_4 frameErrorRate 0
 par fourWay.node[6].nic.mac1609_4 ackErrorRate 0
 scalar fourWay.node[6].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[6].nic.mac1609_4 ReceivedBroadcasts 176
+scalar fourWay.node[6].nic.mac1609_4 ReceivedBroadcasts 177
 scalar fourWay.node[6].nic.mac1609_4 SentPackets 19
 scalar fourWay.node[6].nic.mac1609_4 SentAcknowledgements 0
 scalar fourWay.node[6].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[6].nic.mac1609_4 SNIRLostPackets 34
-scalar fourWay.node[6].nic.mac1609_4 RXTXLostPackets 2
+scalar fourWay.node[6].nic.mac1609_4 SNIRLostPackets 35
+scalar fourWay.node[6].nic.mac1609_4 RXTXLostPackets 1
 scalar fourWay.node[6].nic.mac1609_4 TotalLostPackets 36
 scalar fourWay.node[6].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.node[6].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[6].nic.mac1609_4 TimesIntoBackoff 28
-scalar fourWay.node[6].nic.mac1609_4 SlotsBackoff 44
+scalar fourWay.node[6].nic.mac1609_4 TimesIntoBackoff 29
+scalar fourWay.node[6].nic.mac1609_4 SlotsBackoff 47
 scalar fourWay.node[6].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[6].nic.mac1609_4 totalBusyTime 0.212868827247
+scalar fourWay.node[6].nic.mac1609_4 totalBusyTime 0.191988411153
 scalar fourWay.node[6].nic.mac1609_4 retriesExceeded:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigRetriesExceeded
@@ -1657,10 +1657,10 @@ attr source org_car2x_veins_modules_mac_sigSentAck
 scalar fourWay.node[6].nic.mac1609_4 sentPackets:count 19
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[6].nic.mac1609_4 collisions:count 12
+scalar fourWay.node[6].nic.mac1609_4 collisions:count 14
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[6].nic.mac1609_4 channelBusy:timeavg 0.032252852613182
+scalar fourWay.node[6].nic.mac1609_4 channelBusy:timeavg 0.029089153205
 attr recordingmode timeavg
 attr source org_car2x_veins_modules_mac_sigChannelBusy
 par fourWay.node[6].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
@@ -1774,7 +1774,7 @@ scalar fourWay.node[7].appl generatedBSMs 0
 scalar fourWay.node[7].appl receivedBSMs 0
 scalar fourWay.node[7].appl generatedWSAs 0
 scalar fourWay.node[7].appl receivedWSAs 0
-scalar fourWay.node[7].appl bftMsgReceived:count 40
+scalar fourWay.node[7].appl bftMsgReceived:count 43
 attr recordingmode count
 attr source bftMsgReceived
 attr title "BFT messages received, count"
@@ -1822,8 +1822,8 @@ par fourWay.node[7].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[7].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[7].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[7].nic.phy80211p busyTime 0.032775757575758
-scalar fourWay.node[7].nic.phy80211p ncollisions 14
+scalar fourWay.node[7].nic.phy80211p busyTime 0.029113939393939
+scalar fourWay.node[7].nic.phy80211p ncollisions 15
 par fourWay.node[7].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[7].nic.mac1609_4 notAffectedByHostState false
 par fourWay.node[7].nic.mac1609_4 headerLength 0bit
@@ -1848,19 +1848,19 @@ par fourWay.node[7].nic.mac1609_4 useAcks false
 par fourWay.node[7].nic.mac1609_4 frameErrorRate 0
 par fourWay.node[7].nic.mac1609_4 ackErrorRate 0
 scalar fourWay.node[7].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[7].nic.mac1609_4 ReceivedBroadcasts 174
+scalar fourWay.node[7].nic.mac1609_4 ReceivedBroadcasts 176
 scalar fourWay.node[7].nic.mac1609_4 SentPackets 19
 scalar fourWay.node[7].nic.mac1609_4 SentAcknowledgements 0
 scalar fourWay.node[7].nic.mac1609_4 RetriesExceeded 0
 scalar fourWay.node[7].nic.mac1609_4 SNIRLostPackets 35
-scalar fourWay.node[7].nic.mac1609_4 RXTXLostPackets 3
-scalar fourWay.node[7].nic.mac1609_4 TotalLostPackets 38
+scalar fourWay.node[7].nic.mac1609_4 RXTXLostPackets 2
+scalar fourWay.node[7].nic.mac1609_4 TotalLostPackets 37
 scalar fourWay.node[7].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.node[7].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[7].nic.mac1609_4 TimesIntoBackoff 29
+scalar fourWay.node[7].nic.mac1609_4 TimesIntoBackoff 25
 scalar fourWay.node[7].nic.mac1609_4 SlotsBackoff 44
 scalar fourWay.node[7].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[7].nic.mac1609_4 totalBusyTime 0.21286891448
+scalar fourWay.node[7].nic.mac1609_4 totalBusyTime 0.191988528205
 scalar fourWay.node[7].nic.mac1609_4 retriesExceeded:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigRetriesExceeded
@@ -1870,10 +1870,10 @@ attr source org_car2x_veins_modules_mac_sigSentAck
 scalar fourWay.node[7].nic.mac1609_4 sentPackets:count 19
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[7].nic.mac1609_4 collisions:count 14
+scalar fourWay.node[7].nic.mac1609_4 collisions:count 15
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[7].nic.mac1609_4 channelBusy:timeavg 0.032252865830303
+scalar fourWay.node[7].nic.mac1609_4 channelBusy:timeavg 0.029089170940152
 attr recordingmode timeavg
 attr source org_car2x_veins_modules_mac_sigChannelBusy
 par fourWay.node[7].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
@@ -1987,7 +1987,7 @@ scalar fourWay.node[8].appl generatedBSMs 0
 scalar fourWay.node[8].appl receivedBSMs 0
 scalar fourWay.node[8].appl generatedWSAs 0
 scalar fourWay.node[8].appl receivedWSAs 0
-scalar fourWay.node[8].appl bftMsgReceived:count 41
+scalar fourWay.node[8].appl bftMsgReceived:count 46
 attr recordingmode count
 attr source bftMsgReceived
 attr title "BFT messages received, count"
@@ -2035,8 +2035,8 @@ par fourWay.node[8].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[8].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[8].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[8].nic.phy80211p busyTime 0.032775757575758
-scalar fourWay.node[8].nic.phy80211p ncollisions 15
+scalar fourWay.node[8].nic.phy80211p busyTime 0.029106666666667
+scalar fourWay.node[8].nic.phy80211p ncollisions 12
 par fourWay.node[8].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[8].nic.mac1609_4 notAffectedByHostState false
 par fourWay.node[8].nic.mac1609_4 headerLength 0bit
@@ -2061,19 +2061,19 @@ par fourWay.node[8].nic.mac1609_4 useAcks false
 par fourWay.node[8].nic.mac1609_4 frameErrorRate 0
 par fourWay.node[8].nic.mac1609_4 ackErrorRate 0
 scalar fourWay.node[8].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[8].nic.mac1609_4 ReceivedBroadcasts 173
+scalar fourWay.node[8].nic.mac1609_4 ReceivedBroadcasts 179
 scalar fourWay.node[8].nic.mac1609_4 SentPackets 19
 scalar fourWay.node[8].nic.mac1609_4 SentAcknowledgements 0
 scalar fourWay.node[8].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[8].nic.mac1609_4 SNIRLostPackets 36
-scalar fourWay.node[8].nic.mac1609_4 RXTXLostPackets 3
-scalar fourWay.node[8].nic.mac1609_4 TotalLostPackets 39
+scalar fourWay.node[8].nic.mac1609_4 SNIRLostPackets 30
+scalar fourWay.node[8].nic.mac1609_4 RXTXLostPackets 4
+scalar fourWay.node[8].nic.mac1609_4 TotalLostPackets 34
 scalar fourWay.node[8].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.node[8].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[8].nic.mac1609_4 TimesIntoBackoff 31
-scalar fourWay.node[8].nic.mac1609_4 SlotsBackoff 56
+scalar fourWay.node[8].nic.mac1609_4 TimesIntoBackoff 25
+scalar fourWay.node[8].nic.mac1609_4 SlotsBackoff 42
 scalar fourWay.node[8].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[8].nic.mac1609_4 totalBusyTime 0.212868549434
+scalar fourWay.node[8].nic.mac1609_4 totalBusyTime 0.191988163707
 scalar fourWay.node[8].nic.mac1609_4 retriesExceeded:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigRetriesExceeded
@@ -2083,10 +2083,10 @@ attr source org_car2x_veins_modules_mac_sigSentAck
 scalar fourWay.node[8].nic.mac1609_4 sentPackets:count 19
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[8].nic.mac1609_4 collisions:count 15
+scalar fourWay.node[8].nic.mac1609_4 collisions:count 12
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[8].nic.mac1609_4 channelBusy:timeavg 0.032252810520303
+scalar fourWay.node[8].nic.mac1609_4 channelBusy:timeavg 0.029089115713182
 attr recordingmode timeavg
 attr source org_car2x_veins_modules_mac_sigChannelBusy
 par fourWay.node[8].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
@@ -2200,7 +2200,7 @@ scalar fourWay.node[9].appl generatedBSMs 0
 scalar fourWay.node[9].appl receivedBSMs 0
 scalar fourWay.node[9].appl generatedWSAs 0
 scalar fourWay.node[9].appl receivedWSAs 0
-scalar fourWay.node[9].appl bftMsgReceived:count 43
+scalar fourWay.node[9].appl bftMsgReceived:count 46
 attr recordingmode count
 attr source bftMsgReceived
 attr title "BFT messages received, count"
@@ -2248,8 +2248,8 @@ par fourWay.node[9].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[9].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[9].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[9].nic.phy80211p busyTime 0.032206060606061
-scalar fourWay.node[9].nic.phy80211p ncollisions 13
+scalar fourWay.node[9].nic.phy80211p busyTime 0.028791515151515
+scalar fourWay.node[9].nic.phy80211p ncollisions 8
 par fourWay.node[9].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[9].nic.mac1609_4 notAffectedByHostState false
 par fourWay.node[9].nic.mac1609_4 headerLength 0bit
@@ -2274,19 +2274,19 @@ par fourWay.node[9].nic.mac1609_4 useAcks false
 par fourWay.node[9].nic.mac1609_4 frameErrorRate 0
 par fourWay.node[9].nic.mac1609_4 ackErrorRate 0
 scalar fourWay.node[9].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[9].nic.mac1609_4 ReceivedBroadcasts 175
+scalar fourWay.node[9].nic.mac1609_4 ReceivedBroadcasts 183
 scalar fourWay.node[9].nic.mac1609_4 SentPackets 19
 scalar fourWay.node[9].nic.mac1609_4 SentAcknowledgements 0
 scalar fourWay.node[9].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[9].nic.mac1609_4 SNIRLostPackets 31
-scalar fourWay.node[9].nic.mac1609_4 RXTXLostPackets 6
-scalar fourWay.node[9].nic.mac1609_4 TotalLostPackets 37
+scalar fourWay.node[9].nic.mac1609_4 SNIRLostPackets 25
+scalar fourWay.node[9].nic.mac1609_4 RXTXLostPackets 5
+scalar fourWay.node[9].nic.mac1609_4 TotalLostPackets 30
 scalar fourWay.node[9].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.node[9].nic.mac1609_4 TooLittleTime 0
 scalar fourWay.node[9].nic.mac1609_4 TimesIntoBackoff 30
-scalar fourWay.node[9].nic.mac1609_4 SlotsBackoff 52
+scalar fourWay.node[9].nic.mac1609_4 SlotsBackoff 43
 scalar fourWay.node[9].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[9].nic.mac1609_4 totalBusyTime 0.212868584167
+scalar fourWay.node[9].nic.mac1609_4 totalBusyTime 0.191988518435
 scalar fourWay.node[9].nic.mac1609_4 retriesExceeded:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigRetriesExceeded
@@ -2296,10 +2296,10 @@ attr source org_car2x_veins_modules_mac_sigSentAck
 scalar fourWay.node[9].nic.mac1609_4 sentPackets:count 19
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[9].nic.mac1609_4 collisions:count 13
+scalar fourWay.node[9].nic.mac1609_4 collisions:count 8
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[9].nic.mac1609_4 channelBusy:timeavg 0.032252815782879
+scalar fourWay.node[9].nic.mac1609_4 channelBusy:timeavg 0.029089169459849
 attr recordingmode timeavg
 attr source org_car2x_veins_modules_mac_sigChannelBusy
 par fourWay.node[9].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
@@ -2413,7 +2413,7 @@ scalar fourWay.node[10].appl generatedBSMs 0
 scalar fourWay.node[10].appl receivedBSMs 0
 scalar fourWay.node[10].appl generatedWSAs 0
 scalar fourWay.node[10].appl receivedWSAs 0
-scalar fourWay.node[10].appl bftMsgReceived:count 44
+scalar fourWay.node[10].appl bftMsgReceived:count 46
 attr recordingmode count
 attr source bftMsgReceived
 attr title "BFT messages received, count"
@@ -2461,8 +2461,8 @@ par fourWay.node[10].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[10].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[10].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[10].nic.phy80211p busyTime 0.031563636363636
-scalar fourWay.node[10].nic.phy80211p ncollisions 10
+scalar fourWay.node[10].nic.phy80211p busyTime 0.028653333333333
+scalar fourWay.node[10].nic.phy80211p ncollisions 9
 par fourWay.node[10].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[10].nic.mac1609_4 notAffectedByHostState false
 par fourWay.node[10].nic.mac1609_4 headerLength 0bit
@@ -2487,19 +2487,19 @@ par fourWay.node[10].nic.mac1609_4 useAcks false
 par fourWay.node[10].nic.mac1609_4 frameErrorRate 0
 par fourWay.node[10].nic.mac1609_4 ackErrorRate 0
 scalar fourWay.node[10].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[10].nic.mac1609_4 ReceivedBroadcasts 178
+scalar fourWay.node[10].nic.mac1609_4 ReceivedBroadcasts 182
 scalar fourWay.node[10].nic.mac1609_4 SentPackets 19
 scalar fourWay.node[10].nic.mac1609_4 SentAcknowledgements 0
 scalar fourWay.node[10].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[10].nic.mac1609_4 SNIRLostPackets 25
-scalar fourWay.node[10].nic.mac1609_4 RXTXLostPackets 9
-scalar fourWay.node[10].nic.mac1609_4 TotalLostPackets 34
+scalar fourWay.node[10].nic.mac1609_4 SNIRLostPackets 24
+scalar fourWay.node[10].nic.mac1609_4 RXTXLostPackets 7
+scalar fourWay.node[10].nic.mac1609_4 TotalLostPackets 31
 scalar fourWay.node[10].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.node[10].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[10].nic.mac1609_4 TimesIntoBackoff 29
-scalar fourWay.node[10].nic.mac1609_4 SlotsBackoff 36
+scalar fourWay.node[10].nic.mac1609_4 TimesIntoBackoff 28
+scalar fourWay.node[10].nic.mac1609_4 SlotsBackoff 39
 scalar fourWay.node[10].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[10].nic.mac1609_4 totalBusyTime 0.212868626567
+scalar fourWay.node[10].nic.mac1609_4 totalBusyTime 0.191988864612
 scalar fourWay.node[10].nic.mac1609_4 retriesExceeded:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigRetriesExceeded
@@ -2509,10 +2509,10 @@ attr source org_car2x_veins_modules_mac_sigSentAck
 scalar fourWay.node[10].nic.mac1609_4 sentPackets:count 19
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[10].nic.mac1609_4 collisions:count 10
+scalar fourWay.node[10].nic.mac1609_4 collisions:count 9
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[10].nic.mac1609_4 channelBusy:timeavg 0.032252822207121
+scalar fourWay.node[10].nic.mac1609_4 channelBusy:timeavg 0.029089221910909
 attr recordingmode timeavg
 attr source org_car2x_veins_modules_mac_sigChannelBusy
 par fourWay.node[10].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
@@ -2626,7 +2626,7 @@ scalar fourWay.node[11].appl generatedBSMs 0
 scalar fourWay.node[11].appl receivedBSMs 0
 scalar fourWay.node[11].appl generatedWSAs 0
 scalar fourWay.node[11].appl receivedWSAs 0
-scalar fourWay.node[11].appl bftMsgReceived:count 44
+scalar fourWay.node[11].appl bftMsgReceived:count 43
 attr recordingmode count
 attr source bftMsgReceived
 attr title "BFT messages received, count"
@@ -2674,8 +2674,8 @@ par fourWay.node[11].nic.phy80211p ccaThreshold -90dBm
 attr unit dBm
 par fourWay.node[11].nic.phy80211p collectCollisionStatistics true
 par fourWay.node[11].nic.phy80211p allowTxDuringRx false
-scalar fourWay.node[11].nic.phy80211p busyTime 0.032358787878788
-scalar fourWay.node[11].nic.phy80211p ncollisions 13
+scalar fourWay.node[11].nic.phy80211p busyTime 0.028693333333333
+scalar fourWay.node[11].nic.phy80211p ncollisions 14
 par fourWay.node[11].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.node[11].nic.mac1609_4 notAffectedByHostState false
 par fourWay.node[11].nic.mac1609_4 headerLength 0bit
@@ -2700,19 +2700,19 @@ par fourWay.node[11].nic.mac1609_4 useAcks false
 par fourWay.node[11].nic.mac1609_4 frameErrorRate 0
 par fourWay.node[11].nic.mac1609_4 ackErrorRate 0
 scalar fourWay.node[11].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.node[11].nic.mac1609_4 ReceivedBroadcasts 175
+scalar fourWay.node[11].nic.mac1609_4 ReceivedBroadcasts 177
 scalar fourWay.node[11].nic.mac1609_4 SentPackets 19
 scalar fourWay.node[11].nic.mac1609_4 SentAcknowledgements 0
 scalar fourWay.node[11].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.node[11].nic.mac1609_4 SNIRLostPackets 33
+scalar fourWay.node[11].nic.mac1609_4 SNIRLostPackets 32
 scalar fourWay.node[11].nic.mac1609_4 RXTXLostPackets 4
-scalar fourWay.node[11].nic.mac1609_4 TotalLostPackets 37
+scalar fourWay.node[11].nic.mac1609_4 TotalLostPackets 36
 scalar fourWay.node[11].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.node[11].nic.mac1609_4 TooLittleTime 0
-scalar fourWay.node[11].nic.mac1609_4 TimesIntoBackoff 27
-scalar fourWay.node[11].nic.mac1609_4 SlotsBackoff 49
+scalar fourWay.node[11].nic.mac1609_4 TimesIntoBackoff 28
+scalar fourWay.node[11].nic.mac1609_4 SlotsBackoff 42
 scalar fourWay.node[11].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.node[11].nic.mac1609_4 totalBusyTime 0.212868889996
+scalar fourWay.node[11].nic.mac1609_4 totalBusyTime 0.19198831339
 scalar fourWay.node[11].nic.mac1609_4 retriesExceeded:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigRetriesExceeded
@@ -2722,10 +2722,10 @@ attr source org_car2x_veins_modules_mac_sigSentAck
 scalar fourWay.node[11].nic.mac1609_4 sentPackets:count 19
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigSentPacket
-scalar fourWay.node[11].nic.mac1609_4 collisions:count 13
+scalar fourWay.node[11].nic.mac1609_4 collisions:count 14
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.node[11].nic.mac1609_4 channelBusy:timeavg 0.032252862120606
+scalar fourWay.node[11].nic.mac1609_4 channelBusy:timeavg 0.029089138392424
 attr recordingmode timeavg
 attr source org_car2x_veins_modules_mac_sigChannelBusy
 par fourWay.node[11].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""
@@ -2826,7 +2826,7 @@ par fourWay.tls[0].nic.phy80211p ccaThreshold -65dBm
 attr unit dBm
 par fourWay.tls[0].nic.phy80211p collectCollisionStatistics false
 par fourWay.tls[0].nic.phy80211p allowTxDuringRx false
-scalar fourWay.tls[0].nic.phy80211p busyTime 0.033649855072464
+scalar fourWay.tls[0].nic.phy80211p busyTime 0.030055652173913
 par fourWay.tls[0].nic.mac1609_4 typename "\"org.car2x.veins.modules.mac.ieee80211p.Mac1609_4\""
 par fourWay.tls[0].nic.mac1609_4 notAffectedByHostState false
 par fourWay.tls[0].nic.mac1609_4 headerLength 0bit
@@ -2851,19 +2851,19 @@ par fourWay.tls[0].nic.mac1609_4 useAcks false
 par fourWay.tls[0].nic.mac1609_4 frameErrorRate 0
 par fourWay.tls[0].nic.mac1609_4 ackErrorRate 0
 scalar fourWay.tls[0].nic.mac1609_4 ReceivedUnicastPackets 0
-scalar fourWay.tls[0].nic.mac1609_4 ReceivedBroadcasts 193
+scalar fourWay.tls[0].nic.mac1609_4 ReceivedBroadcasts 192
 scalar fourWay.tls[0].nic.mac1609_4 SentPackets 0
 scalar fourWay.tls[0].nic.mac1609_4 SentAcknowledgements 0
 scalar fourWay.tls[0].nic.mac1609_4 RetriesExceeded 0
-scalar fourWay.tls[0].nic.mac1609_4 SNIRLostPackets 38
+scalar fourWay.tls[0].nic.mac1609_4 SNIRLostPackets 40
 scalar fourWay.tls[0].nic.mac1609_4 RXTXLostPackets 0
-scalar fourWay.tls[0].nic.mac1609_4 TotalLostPackets 38
+scalar fourWay.tls[0].nic.mac1609_4 TotalLostPackets 40
 scalar fourWay.tls[0].nic.mac1609_4 DroppedPacketsInMac 0
 scalar fourWay.tls[0].nic.mac1609_4 TooLittleTime 0
 scalar fourWay.tls[0].nic.mac1609_4 TimesIntoBackoff 0
 scalar fourWay.tls[0].nic.mac1609_4 SlotsBackoff 0
 scalar fourWay.tls[0].nic.mac1609_4 NumInternalContention 0
-scalar fourWay.tls[0].nic.mac1609_4 totalBusyTime 0.212848276169
+scalar fourWay.tls[0].nic.mac1609_4 totalBusyTime 0.190224162332
 scalar fourWay.tls[0].nic.mac1609_4 retriesExceeded:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigRetriesExceeded
@@ -2876,7 +2876,7 @@ attr source org_car2x_veins_modules_mac_sigSentPacket
 scalar fourWay.tls[0].nic.mac1609_4 collisions:count 0
 attr recordingmode count
 attr source org_car2x_veins_modules_mac_sigCollision
-scalar fourWay.tls[0].nic.mac1609_4 channelBusy:timeavg 0.030847576256377
+scalar fourWay.tls[0].nic.mac1609_4 channelBusy:timeavg 0.027568719178551
 attr recordingmode timeavg
 attr source org_car2x_veins_modules_mac_sigChannelBusy
 par fourWay.tls[0].nic typename "\"org.car2x.veins.modules.nic.Nic80211p\""

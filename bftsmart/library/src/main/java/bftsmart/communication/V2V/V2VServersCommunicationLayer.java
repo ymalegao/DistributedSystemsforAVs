@@ -6,11 +6,8 @@ import bftsmart.reconfiguration.ServerViewController;
 import bftsmart.tom.ServiceReplica;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.HashMap;
-import java.io.*;
-import java.net.*;
 import java.util.Arrays;
 import javax.crypto.SecretKey;
-import bftsmart.tom.core.messages.TOMMessage;
 import bftsmart.communication.client.RequestReceiver;
 // import bftsmart.communication.V2V.SimulationTimer;
 
@@ -109,63 +106,6 @@ public class V2VServersCommunicationLayer extends Thread implements ServersCommu
         System.out.println("[V2V Layer " + me + "] IntersectionServer reference set");
     }
 
-    private void startV2VListener(){
-        new Thread(() -> {
-            try (ServerSocket listener = new ServerSocket(veinsListenPort)){
-                System.out.println("==============================================");
-                System.out.println("[V2V Layer " + me + "] LISTENER STARTED");
-                System.out.println("    Listening on port: " + veinsListenPort);
-                System.out.println("==============================================");
-
-                while (doWork){
-                    System.out.println("[V2V Layer " + me + "] Waiting for incoming connection...");
-                    Socket clientSocket = listener.accept();
-                    System.out.println("[V2V Layer " + me + "] Connection accepted from: " + clientSocket.getRemoteSocketAddress());
-                    new Thread(()-> handleIncomingV2VMessage(clientSocket)).start();
-                }
-            } catch (IOException e) {
-                System.err.println("==============================================");
-                System.err.println("[V2V Layer " + me + "] LISTENER ERROR");
-                System.err.println("    Error: " + e.getMessage());
-                System.err.println("==============================================");
-                e.printStackTrace();
-            }
-
-
-        }).start();
-    }
-
-    private void handleIncomingV2VMessage(Socket socket){
-        System.out.println("=== [V2V Layer " + me + "] RECEIVE: New connection accepted ===");
-        try(ObjectInputStream in = new ObjectInputStream(socket.getInputStream())){
-            V2VMessageEnvelope envelope = (V2VMessageEnvelope) in.readObject();
-            System.out.println("=== [V2V Layer " + me + "] RECEIVE: Message decoded ===");
-            System.out.println("    From replica: " + envelope.fromReplicaId);
-            System.out.println("    Sequence number: " + envelope.sequenceNum);
-            System.out.println("    Envelope type: " + envelope.type);
-            System.out.println("    Payload size: " + (envelope.serializedMessage != null ? envelope.serializedMessage.length + " bytes" : "null"));
-
-            //pass to reliability layer for ordering/deduplication or retransmission -- this is going to be based on reliable UDP I think? 
-            if (envelope.serializedMessage != null){
-                Object msg = deserialize(envelope.serializedMessage);
-                if (msg instanceof TOMMessage){
-                    System.out.println("    -> Message is a TOMMessage");
-                    //handle this by delivering to client handler. 
-                }else{
-                    reliabilityLayer.handleIncomingMessage(envelope);
-                    System.out.println("=== [V2V Layer " + me + "] RECEIVE: Passed to reliability layer ===");
-
-                }
-            }
-            
-           
-
-        } catch (Exception e) {
-            System.err.println("=== [V2V Layer " + me + "] RECEIVE ERROR ===");
-            System.err.println("    Error: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
 
     /**
      * Thread run method - required because this class extends Thread.
@@ -202,18 +142,6 @@ public class V2VServersCommunicationLayer extends Thread implements ServersCommu
 
 
     }
-
-    private Object deserialize(byte[] serialized){
-        try(ByteArrayInputStream bis = new ByteArrayInputStream(serialized);
-            ObjectInputStream ois = new ObjectInputStream(bis)){
-                return ois.readObject();
-            } catch (Exception e) {
-                System.err.println("    -> ERROR: Failed to deserialize message");
-                e.printStackTrace();
-                return null;
-            }
-        }
-
 
     public void deliverToBFTSmart(SystemMessage message){
         // REMOVED: No zombie filtering - using BFT reconfiguration instead

@@ -51,32 +51,31 @@ void V2VProxyModule::notifyJavaNewBatchSize(int newBatchSize) {
         return;                                                                                                                                                                    
     }                                                                                                                                                                              
                                                                                                                                                                                 
-    JNIEnv* env;                                                                                                                                                                   
-    sharedJVM->AttachCurrentThread((void**) &env, nullptr);                                                                                                                        
-                                                                                                                                                                                
-    jclass serverRunnerClass = env->FindClass("bftsmart/demo/intersection/ServerRunner");                                                                                          
-    if (!serverRunnerClass) {                                                                                                                                                      
-        std::cerr << "[V2VProxy " << replicaId << "] ERROR: ServerRunner class not found" << "\n";                                                                            
-        sharedJVM->DetachCurrentThread();                                                                                                                                          
-        return;                                                                                                                                                                    
-    }                                                                                                                                                                              
-                                                                                                                                                                                
-    jmethodID notifyMethod = env->GetStaticMethodID(serverRunnerClass,                                                                                                             
-                                                    "notifyBatchSize",                                                                                                            
-                                                    "(II)V");  // (replicaId, batchSize)                                                                                          
-    if (!notifyMethod) {                                                                                                                                                           
-        std::cerr << "[V2VProxy " << replicaId << "] ERROR: notifyBatchSize method not found" << "\n";                                                                        
-        sharedJVM->DetachCurrentThread();                                                                                                                                           
-        return;                                                                                                                                                                    
-    }                                                                                                                                                                              
+    JNIEnvGuard jniGuard(sharedJVM);
+    if (!jniGuard.valid()) {
+        std::cerr << "[V2VProxy " << replicaId << "] ERROR: Could not acquire JNIEnv for notifyBatchSize" << "\n";
+        return;
+    }
+    JNIEnv* env = jniGuard.env;
 
-                                                                                                                                                                                
-    env->CallStaticVoidMethod(serverRunnerClass, notifyMethod, replicaId, newBatchSize);                                                                                              
-                                                                                                                                                                                
-    std::cout << "[V2VProxy " << replicaId << "] Notified Java of batch size: " << newBatchSize << "\n";                                                                         
-                                                                                                                                                                                
-    sharedJVM->DetachCurrentThread();                                                                                                                                              
- }                                                                                                                                                                                  
+    jclass serverRunnerClass = env->FindClass("bftsmart/demo/intersection/ServerRunner");
+    if (!serverRunnerClass) {
+        std::cerr << "[V2VProxy " << replicaId << "] ERROR: ServerRunner class not found" << "\n";
+        return;
+    }
+
+    jmethodID notifyMethod = env->GetStaticMethodID(serverRunnerClass,
+                                                    "notifyBatchSize",
+                                                    "(II)V");
+    if (!notifyMethod) {
+        std::cerr << "[V2VProxy " << replicaId << "] ERROR: notifyBatchSize method not found" << "\n";
+        return;
+    }
+
+    env->CallStaticVoidMethod(serverRunnerClass, notifyMethod, replicaId, newBatchSize);
+
+    std::cout << "[V2VProxy " << replicaId << "] Notified Java of batch size: " << newBatchSize << "\n";
+}                                                                                                                                                                                  
                                                    
 
 // ============================================================================
@@ -145,13 +144,16 @@ bool V2VProxyModule::triggerWipeAndReinitViaJNI(const std::vector<int>& newParti
         return false;
     }
 
-    JNIEnv* env;
-    sharedJVM->AttachCurrentThread((void**)&env, nullptr);
+    JNIEnvGuard jniGuard(sharedJVM);
+    if (!jniGuard.valid()) {
+        std::cerr << "[PREEMPT] Could not acquire JNIEnv for wipeAndReinit\n";
+        return false;
+    }
+    JNIEnv* env = jniGuard.env;
 
     jclass serverRunnerClass = env->FindClass("bftsmart/demo/intersection/ServerRunner");
     if (!serverRunnerClass) {
         std::cerr << "[PREEMPT] ServerRunner class not found\n";
-        sharedJVM->DetachCurrentThread();
         return false;
     }
 
@@ -160,7 +162,6 @@ bool V2VProxyModule::triggerWipeAndReinitViaJNI(const std::vector<int>& newParti
                                                     "(I[I)V");
     if (!wipeMethod) {
         std::cerr << "[PREEMPT] wipeAndReinitForReplica method not found\n";
-        sharedJVM->DetachCurrentThread();
         return false;
     }
 
@@ -175,12 +176,10 @@ bool V2VProxyModule::triggerWipeAndReinitViaJNI(const std::vector<int>& newParti
         std::cerr << "[PREEMPT] Exception in wipeAndReinitForReplica\n";
         env->ExceptionDescribe();
         env->ExceptionClear();
-        sharedJVM->DetachCurrentThread();
         return false;
     }
 
     std::cout << "[PREEMPT] Replica " << replicaId << " triggered wipeAndReinit for "
               << newParticipants.size() << " participants\n";
-    sharedJVM->DetachCurrentThread();
     return true;
 }

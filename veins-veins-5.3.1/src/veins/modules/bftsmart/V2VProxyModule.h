@@ -11,6 +11,7 @@
 #include "veins/modules/bftsmart/BFTMessage_m.h"
 #include "veins/modules/bftsmart/crypto/CryptoAuth.h"
 #include <jni.h>
+#include "veins/modules/bftsmart/V2VJNIUtils.h"
 #include <map>
 #include <queue>
 #include <mutex>
@@ -27,10 +28,6 @@ public:
     static const int BATCH_SIZE = 16;
 
     simtime_t consensusStartTime;
-    
-    // Separate timing for View and Order consensus
-    simtime_t viewConsensusStartTime;
-    simtime_t viewConsensusEndTime;
     simtime_t orderConsensusStartTime;
     simtime_t orderConsensusEndTime;
     simtime_t proposeAllSubmitTime;

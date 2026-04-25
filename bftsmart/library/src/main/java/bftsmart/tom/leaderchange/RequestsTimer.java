@@ -138,17 +138,17 @@ public class RequestsTimer {
     // Per-regency sim-time of the last actual STOP broadcast. Shared across
     // the one-shot SendStopTask instances so we throttle by sim-time rather
     // than firing on every wall-clock wakeup.
-    private final HashMap<Integer, Long> lastStopSimEmitMs = new HashMap<>();
+    private final ConcurrentHashMap<Integer, Long> lastStopSimEmitMs = new ConcurrentHashMap<>();
 
     // STOP currently being re-emitted per regency. We stash a reference here
     // so a received STOP_NACK can look up our original STOP and unicast it
     // back to the NACK sender without having to reach into SendStopTask.
-    private final HashMap<Integer, LCMessage> currentStopByRegency = new HashMap<>();
+    private final ConcurrentHashMap<Integer, LCMessage> currentStopByRegency = new ConcurrentHashMap<>();
 
     // Per-regency blind-STOP emission count. Kept outside SendStopTask so the
     // counter survives the one-shot task chain (each wake creates a new
     // task, but state belongs to the regency).
-    private final HashMap<Integer, Integer> blindEmitCount = new HashMap<>();
+    private final ConcurrentHashMap<Integer, Integer> blindEmitCount = new ConcurrentHashMap<>();
 
     // Single-choke-point LC escalation debounce. {@link
     // bftsmart.tom.core.Synchronizer#triggerTimeout(java.util.List)} consults

@@ -213,7 +213,15 @@ JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_native
         std::cerr << "[JNI] nativeBroadcastClientRequest: no proxy for replica " << fromReplicaId << std::endl;
         return;
     }
+    if (!tomBytes) {
+        std::cerr << "[JNI] nativeBroadcastClientRequest: null tomBytes from replica " << fromReplicaId << std::endl;
+        return;
+    }
     int len = env->GetArrayLength(tomBytes);
+    if (len <= 0 || len > 65536) {
+        std::cerr << "[JNI] nativeBroadcastClientRequest: invalid len=" << len << " from replica " << fromReplicaId << std::endl;
+        return;
+    }
     std::vector<uint8_t> data(len);
     env->GetByteArrayRegion(tomBytes, 0, len, reinterpret_cast<jbyte*>(data.data()));
     proxy->enqueueBroadcastClientRequest(fromReplicaId, data);

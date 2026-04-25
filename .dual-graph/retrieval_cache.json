@@ -1,7 +1,7 @@
 {
   "entries": {
-    "byzantine leader failure change|tf=5|te=12": {
-      "created_epoch": 1776974709,
+    "stale onviewagreed rename dead code v2vproxymodule view order|tf=5|te=12": {
+      "created_epoch": 1777084262,
       "files": [
         "bftsmart/metricParser.py::generate_plots",
         "experiment_orchestrator.py::apply_scale",
@@ -18,7 +18,7 @@
       },
       "result": {
         "ok": true,
-        "query": "byzantine leader failure leader change",
+        "query": "stale onViewAgreed rename dead code C++ V2VProxyModule view order protocol rename",
         "graph_files": [
           {
             "id": "bftsmart/metricParser.py::generate_plots",
@@ -38,9 +38,9 @@
             "body_hash": "bf8f1894",
             "confidence": "high",
             "exported": true,
-            "_score": 11,
+            "_score": 10,
             "_role": "code",
-            "_intent": "debug"
+            "_intent": "general"
           },
           {
             "id": "experiment_orchestrator.py::apply_scale",
@@ -60,9 +60,9 @@
             "body_hash": "974c8c0b",
             "confidence": "high",
             "exported": true,
-            "_score": 11,
+            "_score": 10,
             "_role": "code",
-            "_intent": "debug"
+            "_intent": "general"
           },
           {
             "id": "fourway/analyze_log.py::fmt_stat",
@@ -82,9 +82,9 @@
             "body_hash": "140fa2e4",
             "confidence": "high",
             "exported": true,
-            "_score": 11,
+            "_score": 10,
             "_role": "code",
-            "_intent": "debug"
+            "_intent": "general"
           },
           {
             "id": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
@@ -105,9 +105,9 @@
             "body_hash": "611799bc",
             "confidence": "high",
             "exported": true,
-            "_score": 11,
+            "_score": 10,
             "_role": "code",
-            "_intent": "debug"
+            "_intent": "general"
           },
           {
             "id": "fourway/benchmarks/analyze_benchmarks.py::main",
@@ -125,9 +125,9 @@
             "body_hash": "45eebc82",
             "confidence": "high",
             "exported": true,
-            "_score": 11,
+            "_score": 10,
             "_role": "code",
-            "_intent": "debug"
+            "_intent": "general"
           }
         ],
         "graph_edges": [
@@ -157,6 +157,21 @@
             "rel": "contains"
           },
           {
+            "from": "veins-veins-5.3.1/src/veins/modules/bftsmart/README.md",
+            "to": "veins.modules.bftsmart.V2VProxyModule",
+            "rel": "imports"
+          },
+          {
+            "from": ".claude/agents/prof-v2v-bft.md",
+            "to": "claude/agents/v2v-protocol-ref.md",
+            "rel": "references"
+          },
+          {
+            "from": ".claude/agents/v2v-protocol-ref.md",
+            "to": "/home/yash/BFTSMART_PROTOCOL_README.md",
+            "rel": "references"
+          },
+          {
             "from": "bftsmart/metricParser.py",
             "to": "csv",
             "rel": "imports"
@@ -175,38 +190,13 @@
             "from": "bftsmart/metricParser.py",
             "to": "pandas",
             "rel": "imports"
-          },
-          {
-            "from": "bftsmart/metricParser.py",
-            "to": "re",
-            "rel": "imports"
-          },
-          {
-            "from": "bftsmart/metricParser.py",
-            "to": "sys",
-            "rel": "imports"
-          },
-          {
-            "from": "experiment_orchestrator.py",
-            "to": "__future__",
-            "rel": "imports"
           }
         ],
         "grep_hits": [],
-        "reuse_candidates": [
-          {
-            "file": "fourway/analyze_log.py",
-            "overlap": 1,
-            "cached_chars": 20000,
-            "cached_tokens_est": 5000,
-            "last_action": "edited"
-          }
-        ],
+        "reuse_candidates": [],
         "read_budget": {
           "remaining_chars": 60000,
-          "reuse_gate_candidates": [
-            "fourway/analyze_log.py"
-          ]
+          "reuse_gate_candidates": []
         }
       }
     }

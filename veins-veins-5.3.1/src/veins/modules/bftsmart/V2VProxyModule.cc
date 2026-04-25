@@ -115,25 +115,14 @@ V2VProxyModule::~V2VProxyModule()
     cancelAndDelete(orderDelayTimer);
     // Clean up JNI global references
     if (jvm) {
-        JNIEnv* env;
-        bool attached = false;
-        if (jvm->GetEnv((void**)&env, JNI_VERSION_1_8) == JNI_EDETACHED) {
-            jvm->AttachCurrentThread((void**)&env, nullptr);
-            attached = true;
+        JNIEnvGuard jniGuard(jvm);
+        if (jniGuard.valid()) {
+            JNIEnv* env = jniGuard.env;
+            if (javaCallbackObject)          { env->DeleteGlobalRef(javaCallbackObject);         javaCallbackObject         = nullptr; }
+            if (clockClass)                  { env->DeleteGlobalRef(clockClass);                  clockClass                  = nullptr; }
+            if (intersectionServerGlobalClass){ env->DeleteGlobalRef(intersectionServerGlobalClass); intersectionServerGlobalClass = nullptr; }
+            if (bftReplicaThread)            { env->DeleteGlobalRef(bftReplicaThread);            bftReplicaThread            = nullptr; }
         }
-        if (javaCallbackObject) {
-            env->DeleteGlobalRef(javaCallbackObject);
-            javaCallbackObject = nullptr;
-        }
-        if (clockClass) {
-            env->DeleteGlobalRef(clockClass);
-            clockClass = nullptr;
-        }
-        if (intersectionServerGlobalClass) {
-            env->DeleteGlobalRef(intersectionServerGlobalClass);
-            intersectionServerGlobalClass = nullptr;
-        }
-        if (attached) jvm->DetachCurrentThread();
     }
 
     if (ambulancePrivateKey) {

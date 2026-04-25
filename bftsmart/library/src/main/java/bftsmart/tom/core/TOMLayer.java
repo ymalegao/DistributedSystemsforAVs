@@ -34,8 +34,6 @@ import bftsmart.tom.core.messages.TOMMessageType;
 import bftsmart.tom.leaderchange.RequestsTimer;
 import bftsmart.tom.server.Recoverable;
 import bftsmart.tom.server.RequestVerifier;
-import bftsmart.tom.server.defaultservices.DefaultRecoverable;
-import bftsmart.tom.server.defaultservices.DefaultSingleRecoverable;
 import bftsmart.tom.util.BatchBuilder;
 import bftsmart.tom.util.BatchReader;
 import bftsmart.tom.util.TOMUtil;
@@ -67,7 +65,6 @@ public final class TOMLayer extends Thread implements RequestReceiver {
     public ExecutionManager execManager; // Execution manager
     public Acceptor acceptor; // Acceptor role of the PaW algorithm
     private final ServerCommunicationSystem communication; // Communication system between replicas
-    //private OutOfContextMessageThread ot; // Thread which manages messages that do not belong to the current consensus
     private final DeliveryThread dt; // Thread which delivers total ordered messages to the appication
     public StateManager stateManager; // object which deals with the state transfer protocol
 
@@ -432,7 +429,7 @@ public final class TOMLayer extends Thread implements RequestReceiver {
 
         logger.debug("Creating a PROPOSE with " + numberOfMessages + " msgs");
 
-        return bb.makeBatch(pendingRequests, numberOfNonces, System.currentTimeMillis(), controller.getStaticConf().getUseSignatures() == 1);
+        return bb.makeBatch(pendingRequests, numberOfNonces, SimulationClock.currentTimeMillis(), controller.getStaticConf().getUseSignatures() == 1);
     }
 
     /**

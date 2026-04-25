@@ -66,20 +66,17 @@ public class OrderRequestVerifier implements RequestVerifier {
      *
      * Payload format (after stripping "PROPOSE_ALL:" prefix):
      *   <proposerId>:<vehicleStatesStr>:<perCarCerts>:<orderBagStr>
-     *
-     * vehicleStatesStr has no ':', perCarCerts has no ':', so split with limit=4 is safe.
-     * orderBagStr may contain ':' (epoch:assignments) and is captured as parts[3].
      */
     private boolean validateProposeAll(String payload) {
-        String[] parts = payload.split(":", 4);
-        if (parts.length < 4) {
+        ProposalPayload pp = ProposalPayload.parse(payload);
+        if (pp == null) {
             System.err.println("[VERIFIER] PROPOSE_ALL payload too short: " + payload);
             return false;
         }
 
-        String vehicleStatesStr = parts[1];
-        String perCarCertsStr   = parts[2];
-        String orderBagStr      = parts[3];
+        String vehicleStatesStr = pp.vehicleStatesStr;
+        String perCarCertsStr   = pp.perCarCertsStr;
+        String orderBagStr      = pp.orderBagStr;
 
         
 

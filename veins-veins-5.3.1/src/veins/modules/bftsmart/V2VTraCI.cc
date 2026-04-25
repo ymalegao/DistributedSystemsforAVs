@@ -357,14 +357,17 @@ void V2VProxyModule::notifyJavaDeparted()
         return;
     }
 
-    JNIEnv* env;
-    sharedJVM->AttachCurrentThread((void**)&env, nullptr);
+    JNIEnvGuard jniGuard(sharedJVM);
+    if (!jniGuard.valid()) {
+        std::cerr << "[V2VProxy " << replicaId << "] ERROR: Could not acquire JNIEnv for notifyJavaDeparted" << "\n";
+        return;
+    }
+    JNIEnv* env = jniGuard.env;
 
     jclass serverRunnerClass = env->FindClass("bftsmart/demo/intersection/ServerRunner");
     if (!serverRunnerClass) {
         std::cerr << "[V2VProxy " << replicaId << "] ERROR: ServerRunner class not found" << "\n";
         env->ExceptionDescribe();
-        sharedJVM->DetachCurrentThread();
         return;
     }
 
@@ -374,13 +377,11 @@ void V2VProxyModule::notifyJavaDeparted()
     if (!notifyMethod) {
         std::cerr << "[V2VProxy " << replicaId << "] ERROR: notifyVehicleDeparted method not found" << "\n";
         env->ExceptionDescribe();
-        sharedJVM->DetachCurrentThread();
         return;
     }
 
     env->CallStaticVoidMethod(serverRunnerClass, notifyMethod, replicaId);
 
-    // Check for JNI exceptions
     if (env->ExceptionCheck()) {
         std::cerr << "[V2VProxy " << replicaId << "] ERROR: Exception calling notifyVehicleDeparted" << "\n";
         env->ExceptionDescribe();
@@ -388,6 +389,4 @@ void V2VProxyModule::notifyJavaDeparted()
     } else {
         std::cout << "[V2VProxy " << replicaId << "] Notified Java of departure (zombie mode activated)" << "\n";
     }
-
-    sharedJVM->DetachCurrentThread();
 }

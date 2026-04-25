@@ -183,7 +183,7 @@
     "symbol_hash": "",
     "created_at": "2026-04-12T22:02:00.814221+00:00",
     "created_epoch": 1776031320,
-    "updated_at": "2026-04-14T03:33:11.099416+00:00",
+    "updated_at": "2026-04-24T06:11:03.773239+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -368,7 +368,9 @@
       "red",
       "via",
       "traci",
-      "first"
+      "first",
+      "added",
+      "jnienvguard"
     ],
     "files": [
       "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h"
@@ -378,7 +380,7 @@
     "symbol_hash": "",
     "created_at": "2026-04-14T03:33:11.105295+00:00",
     "created_epoch": 1776137591,
-    "updated_at": "2026-04-14T03:33:11.105305+00:00",
+    "updated_at": "2026-04-24T06:11:03.765554+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -870,7 +872,9 @@
       "check",
       "reject",
       "only",
-      "omitted"
+      "omitted",
+      "created",
+      "proposalpayload"
     ],
     "files": [
       "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java"
@@ -880,7 +884,7 @@
     "symbol_hash": "",
     "created_at": "2026-04-23T00:00:30.115068+00:00",
     "created_epoch": 1776902430,
-    "updated_at": "2026-04-23T00:00:30.115075+00:00",
+    "updated_at": "2026-04-24T18:49:26.777818+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -936,7 +940,9 @@
       "check",
       "reject",
       "only",
-      "omitted"
+      "omitted",
+      "created",
+      "proposalpayload"
     ],
     "files": [
       "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java"
@@ -946,7 +952,7 @@
     "symbol_hash": "",
     "created_at": "2026-04-23T00:00:30.116503+00:00",
     "created_epoch": 1776902430,
-    "updated_at": "2026-04-23T00:00:30.116510+00:00",
+    "updated_at": "2026-04-24T18:49:26.776140+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -1144,6 +1150,611 @@
     "stale_reason": "",
     "observed_queries": [
       "sendConsensusRequest Thread.sleep invokeOrdered invokeOrderedWithTimeout sleep delay"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1776825278
+    }
+  },
+  {
+    "id": "mem:1777007040808",
+    "kind": "next",
+    "content": "JNI attach pattern inconsistent: V2VTraCI.cc and V2VEpochPreemption.cc still use raw AttachCurrentThread without GetEnv check",
+    "tags": [
+      "jni",
+      "thread-safety",
+      "refactor"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-23",
+    "created_epoch": 1776927600,
+    "updated_at": "2026-04-23",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1776999941402",
+    "kind": "blocker",
+    "content": "2 BLOCKER sim-time violations: System.currentTimeMillis() in TOMLayer.java:435 and DeliveryThread.java:371",
+    "tags": [
+      "sim-time",
+      "blocker",
+      "TOMLayer"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/tom/core/TOMLayer.java",
+      "bftsmart/library/src/main/java/bftsmart/tom/core/DeliveryThread.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/core/TOMLayer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-23",
+    "created_epoch": 1776927600,
+    "updated_at": "2026-04-23",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1776999939545",
+    "kind": "blocker",
+    "content": "4 BLOCKER JNI thread leaks: missing DetachCurrentThread in V2VReliability.cc JNI methods",
+    "tags": [
+      "jni",
+      "thread-leak",
+      "blocker"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-23",
+    "created_epoch": 1776927600,
+    "updated_at": "2026-04-23",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1776999942890",
+    "kind": "blocker",
+    "content": "MAJOR thread safety: lastStopSimEmitMs, currentStopByRegency, blindEmitCount are plain HashMap not ConcurrentHashMap",
+    "tags": [
+      "thread-safety",
+      "major",
+      "RequestsTimer"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-23",
+    "created_epoch": 1776927600,
+    "updated_at": "2026-04-23",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1777007043068",
+    "kind": "next",
+    "content": "PROPOSE_ALL wire format parsed independently in 3 places: IntersectionServer, OrderRequestVerifier, appExecuteBatch \u2014 needs shared parser",
+    "tags": [
+      "duplication",
+      "refactor",
+      "propose-all"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-23",
+    "created_epoch": 1776927600,
+    "updated_at": "2026-04-23",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1777011063771",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "added",
+      "jnienvguard",
+      "raii",
+      "struct",
+      "replaced",
+      "all",
+      "manual",
+      "getenv"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJVMLifecycle.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJVMLifecycle.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-24T06:11:03.771575+00:00",
+    "created_epoch": 1777011063,
+    "updated_at": "2026-04-24T06:11:03.771582+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1777011063768",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "added",
+      "jnienvguard",
+      "raii",
+      "struct",
+      "replaced",
+      "all",
+      "manual",
+      "getenv"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-24T06:11:03.768343+00:00",
+    "created_epoch": 1777011063,
+    "updated_at": "2026-04-24T06:11:03.768349+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1777011063760",
+    "kind": "decision",
+    "content": "Added JNIEnvGuard RAII struct; replaced all manual GetEnv+AttachIfDetached+bool patterns across 5 CC files",
+    "tags": [
+      "added",
+      "jnienvguard",
+      "raii",
+      "struct",
+      "replaced",
+      "all",
+      "manual",
+      "getenv"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIUtils.h",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJVMLifecycle.cc",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIUtils.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-24T06:11:03.761053+00:00",
+    "created_epoch": 1777011063,
+    "updated_at": "2026-04-24T06:11:03.761059+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1777011063763",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "added",
+      "jnienvguard",
+      "raii",
+      "struct",
+      "replaced",
+      "all",
+      "manual",
+      "getenv"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIUtils.h"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIUtils.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-24T06:11:03.763523+00:00",
+    "created_epoch": 1777011063,
+    "updated_at": "2026-04-24T06:11:03.763533+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1777011063766",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "added",
+      "jnienvguard",
+      "raii",
+      "struct",
+      "replaced",
+      "all",
+      "manual",
+      "getenv"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-24T06:11:03.766883+00:00",
+    "created_epoch": 1777011063,
+    "updated_at": "2026-04-24T06:11:03.766889+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1777011063769",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "added",
+      "jnienvguard",
+      "raii",
+      "struct",
+      "replaced",
+      "all",
+      "manual",
+      "getenv"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-24T06:11:03.769760+00:00",
+    "created_epoch": 1777011063,
+    "updated_at": "2026-04-24T06:11:03.769766+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1777056569167",
+    "kind": "decision",
+    "content": "Created ProposalPayload.java with parse/parseIncoming; added VehicleState.replicaId(); eliminated 3 duplicate split sites",
+    "tags": [
+      "dry",
+      "refactor",
+      "propose-all",
+      "ProposalPayload"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/ProposalPayload.java",
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/ProposalPayload.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-24",
+    "created_epoch": 1777014000,
+    "updated_at": "2026-04-24",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1777056263414",
+    "kind": "query_association",
+    "content": "Queried during: ProposalPayload parse PROPOSE_ALL wire format",
+    "tags": [
+      "proposalpayload",
+      "parse",
+      "propose_all",
+      "wire",
+      "format"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-24T18:44:23.414276+00:00",
+    "created_epoch": 1777056263,
+    "updated_at": "2026-04-24T18:44:23.414285+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "ProposalPayload parse PROPOSE_ALL wire format"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1776825278
+    }
+  },
+  {
+    "id": "mem:1777056263811",
+    "kind": "query_association",
+    "content": "Queried during: ProposalPayload parse PROPOSE_ALL wire format",
+    "tags": [
+      "proposalpayload",
+      "parse",
+      "propose_all",
+      "wire",
+      "format"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-24T18:44:23.811528+00:00",
+    "created_epoch": 1777056263,
+    "updated_at": "2026-04-24T18:44:23.811544+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "ProposalPayload parse PROPOSE_ALL wire format"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1776825278
+    }
+  },
+  {
+    "id": "mem:1777056267617",
+    "kind": "query_association",
+    "content": "Queried during: appExecuteBatch parse split PROPOSE_ALL parts",
+    "tags": [
+      "appexecutebatch",
+      "parse",
+      "split",
+      "propose_all",
+      "parts"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-24T18:44:27.617048+00:00",
+    "created_epoch": 1777056267,
+    "updated_at": "2026-04-24T18:44:27.617056+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "appExecuteBatch parse split PROPOSE_ALL parts"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1776825278
+    }
+  },
+  {
+    "id": "mem:1777056566770",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "created",
+      "proposalpayload",
+      "shared",
+      "parser",
+      "added",
+      "vehiclestate",
+      "replicaid",
+      "eliminated"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/ProposalPayload.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/ProposalPayload.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-24T18:49:26.770256+00:00",
+    "created_epoch": 1777056566,
+    "updated_at": "2026-04-24T18:49:26.770265+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1777056566768",
+    "kind": "decision",
+    "content": "Created ProposalPayload shared parser; added VehicleState.replicaId(); eliminated all inline split/substring duplicates across sendConsensusRequest, appExecuteBatch, validateProposeAll, buildFreshProposeAllBytes",
+    "tags": [
+      "created",
+      "proposalpayload",
+      "shared",
+      "parser",
+      "added",
+      "vehiclestate",
+      "replicaid",
+      "eliminated"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/ProposalPayload.java",
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionTypes.java",
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/ProposalPayload.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-24T18:49:26.768154+00:00",
+    "created_epoch": 1777056566,
+    "updated_at": "2026-04-24T18:49:26.768159+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1777056566774",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "created",
+      "proposalpayload",
+      "shared",
+      "parser",
+      "added",
+      "vehiclestate",
+      "replicaid",
+      "eliminated"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionTypes.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionTypes.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-24T18:49:26.774287+00:00",
+    "created_epoch": 1777056566,
+    "updated_at": "2026-04-24T18:49:26.774305+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1777084268419",
+    "kind": "query_association",
+    "content": "Queried during: onViewAgreed view protocol stale naming dead code",
+    "tags": [
+      "onviewagreed",
+      "view",
+      "protocol",
+      "stale",
+      "naming",
+      "dead",
+      "code"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-25T02:31:08.419207+00:00",
+    "created_epoch": 1777084268,
+    "updated_at": "2026-04-25T02:31:08.419215+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "onViewAgreed view protocol stale naming dead code"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1776825278
+    }
+  },
+  {
+    "id": "mem:1777084268128",
+    "kind": "query_association",
+    "content": "Queried during: onViewAgreed view protocol stale naming",
+    "tags": [
+      "onviewagreed",
+      "view",
+      "protocol",
+      "stale",
+      "naming"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-25T02:31:08.128563+00:00",
+    "created_epoch": 1777084268,
+    "updated_at": "2026-04-25T02:31:08.128573+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "onViewAgreed view protocol stale naming"
     ],
     "evidence": {
       "source": "graph_read",
