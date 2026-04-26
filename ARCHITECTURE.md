@@ -253,6 +253,8 @@ New leader installed → rebuildPendingProposals() (EP5 rebuild hook)
 
 **LC escalation debounce:** `tryClaimLCEpoch()` (synchronized) prevents duplicate escalations. One LC per epoch; `dropRegencyState()` (synchronized) resets the epoch flag when SYNC installs.
 
+**f+1-signed certs enable zero-delay re-proposal after leader eviction.** Every `ARRIVAL_CERT` carries `f+1` independent ECDSA P-256 echo signatures from distinct honest replicas, each covering `SHA256withECDSA(carId:lane:pos:dir:isAmb:echoingReplicaId)` with the signer's full 65-byte uncompressed P-256 public key embedded in the cert. The cert's validity is therefore cryptographically self-contained — any replica can verify it without re-querying the TraCI physical layer or the original sender. Consequence: the new leader after Byzantine predecessor eviction does **not** run a new `ARRIVAL_ANNOUNCE → ARRIVAL_ECHO` cert-collection round. It calls `getFreshProposePayload()` via JNI, fetches the already-validated certs from C++ `collectedCerts` (including any cars the Byzantine predecessor censored), and immediately submits a fresh PROPOSE_ALL. EP5 (Termination after LC) therefore costs **one additional BFT round**, not one cert-collection interval plus one BFT round.
+
 ---
 
 ## 7. Architectural Change: TCP/Netty → V2V for PROPOSE_ALL

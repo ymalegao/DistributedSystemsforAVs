@@ -1,14 +1,14 @@
 [
   {
     "type": "fact",
-    "content": "system.config totalordermulticast.timeout is 2000ms, not 4000ms as prior memory said",
+    "content": "Java retx ScheduledExecutorService disabled; C++ retxCheckTimer drives retransmissions in sim time",
     "tags": [
-      "timer",
-      "system.config",
-      "bftsmart"
+      "reliability",
+      "sim-time",
+      "retransmission"
     ],
     "files": [
-      "fourway/config/system.config"
+      "bftsmart/library/src/main/java/bftsmart/communication/V2V/ReliableV2VMessaging.java"
     ],
     "date": "2026-04-25"
   },
@@ -77,6 +77,38 @@
   },
   {
     "id": "mem:1776029455344",
+    "kind": "decision",
+    "content": "Added per-car metrics to JSON output: messages_sent/received, delivery_ratio, estimated_loss_rate, used_fallback, propose_all_consensus_wall_s, bft_decision_time_s. Added run-level delivery_ratio, estimated_loss_rate, fallback_rate to overall JSON. Added RUN-METRICS lines for batch log files.",
+    "tags": [
+      "added",
+      "per",
+      "car",
+      "metrics",
+      "json",
+      "output",
+      "messages_sent",
+      "received"
+    ],
+    "files": [
+      "fourway/analyze_log.py"
+    ],
+    "file_path": "fourway/analyze_log.py",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-12T21:30:55.344233+00:00",
+    "created_epoch": 1776029455,
+    "updated_at": "2026-04-12T21:30:55.344237+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1776029455344",
     "kind": "edit_observation",
     "content": "Edited during active session",
     "tags": [
@@ -109,28 +141,28 @@
     }
   },
   {
-    "id": "mem:1776029455344",
+    "id": "mem:1776031320813",
     "kind": "decision",
-    "content": "Added per-car metrics to JSON output: messages_sent/received, delivery_ratio, estimated_loss_rate, used_fallback, propose_all_consensus_wall_s, bft_decision_time_s. Added run-level delivery_ratio, estimated_loss_rate, fallback_rate to overall JSON. Added RUN-METRICS lines for batch log files.",
+    "content": "Cancel retxCheckTimer immediately when ORDER consensus decision arrives on main thread (pendingCancelOrderTimer block), eliminating retransmit bursts between decision and resumeVehicle that inflate Messages_Sent and skew delivery_ratio.",
     "tags": [
-      "added",
-      "per",
-      "car",
-      "metrics",
-      "json",
-      "output",
-      "messages_sent",
-      "received"
+      "cancel",
+      "retxchecktimer",
+      "immediately",
+      "when",
+      "order",
+      "consensus",
+      "decision",
+      "arrives"
     ],
     "files": [
-      "fourway/analyze_log.py"
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
     ],
-    "file_path": "fourway/analyze_log.py",
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-12T21:30:55.344233+00:00",
-    "created_epoch": 1776029455,
-    "updated_at": "2026-04-12T21:30:55.344237+00:00",
+    "created_at": "2026-04-12T22:02:00.813785+00:00",
+    "created_epoch": 1776031320,
+    "updated_at": "2026-04-12T22:02:00.813789+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -173,38 +205,6 @@
       "recent_action_kinds": [],
       "recent_queries": [],
       "edited": true
-    }
-  },
-  {
-    "id": "mem:1776031320813",
-    "kind": "decision",
-    "content": "Cancel retxCheckTimer immediately when ORDER consensus decision arrives on main thread (pendingCancelOrderTimer block), eliminating retransmit bursts between decision and resumeVehicle that inflate Messages_Sent and skew delivery_ratio.",
-    "tags": [
-      "cancel",
-      "retxchecktimer",
-      "immediately",
-      "when",
-      "order",
-      "consensus",
-      "decision",
-      "arrives"
-    ],
-    "files": [
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
-    ],
-    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-12T22:02:00.813785+00:00",
-    "created_epoch": 1776031320,
-    "updated_at": "2026-04-12T22:02:00.813789+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [],
-    "evidence": {
-      "window_sec": 120,
-      "recent_action_kinds": [],
-      "recent_queries": []
     }
   },
   {
@@ -270,6 +270,38 @@
     }
   },
   {
+    "id": "mem:1776137351080",
+    "kind": "decision",
+    "content": "Added --randomize N F and --sync-java flags for per-run ambulance and Byzantine node randomization via generated random_scenario.ini",
+    "tags": [
+      "added",
+      "randomize",
+      "sync",
+      "java",
+      "flags",
+      "per",
+      "run",
+      "ambulance"
+    ],
+    "files": [
+      "bftsmart/run-omnet-simulation.sh"
+    ],
+    "file_path": "bftsmart/run-omnet-simulation.sh",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-14T03:29:11.080610+00:00",
+    "created_epoch": 1776137351,
+    "updated_at": "2026-04-14T03:29:11.080614+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
     "id": "mem:1776137351081",
     "kind": "edit_observation",
     "content": "Edited during active session",
@@ -305,28 +337,29 @@
     }
   },
   {
-    "id": "mem:1776137351080",
+    "id": "mem:1776137591098",
     "kind": "decision",
-    "content": "Added --randomize N F and --sync-java flags for per-run ambulance and Byzantine node randomization via generated random_scenario.ini",
+    "content": "Set ambulance vehicle color to red via TraCI on first handlePositionUpdate call",
     "tags": [
-      "added",
-      "randomize",
-      "sync",
-      "java",
-      "flags",
-      "per",
-      "run",
-      "ambulance"
+      "set",
+      "ambulance",
+      "vehicle",
+      "color",
+      "red",
+      "via",
+      "traci",
+      "first"
     ],
     "files": [
-      "bftsmart/run-omnet-simulation.sh"
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h"
     ],
-    "file_path": "bftsmart/run-omnet-simulation.sh",
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-14T03:29:11.080610+00:00",
-    "created_epoch": 1776137351,
-    "updated_at": "2026-04-14T03:29:11.080614+00:00",
+    "created_at": "2026-04-14T03:33:11.098634+00:00",
+    "created_epoch": 1776137591,
+    "updated_at": "2026-04-14T03:33:11.098643+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -369,39 +402,6 @@
       "recent_action_kinds": [],
       "recent_queries": [],
       "edited": true
-    }
-  },
-  {
-    "id": "mem:1776137591098",
-    "kind": "decision",
-    "content": "Set ambulance vehicle color to red via TraCI on first handlePositionUpdate call",
-    "tags": [
-      "set",
-      "ambulance",
-      "vehicle",
-      "color",
-      "red",
-      "via",
-      "traci",
-      "first"
-    ],
-    "files": [
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h"
-    ],
-    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-14T03:33:11.098634+00:00",
-    "created_epoch": 1776137591,
-    "updated_at": "2026-04-14T03:33:11.098643+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [],
-    "evidence": {
-      "window_sec": 120,
-      "recent_action_kinds": [],
-      "recent_queries": []
     }
   },
   {
@@ -613,42 +613,19 @@
     }
   },
   {
-    "id": "mem:1776887184463",
+    "id": "mem:1776902434558",
     "kind": "decision",
-    "content": "STOPDATA retx capped at max_stopdata_retx=10 to break SYNC delivery deadlock at non-leaders",
+    "content": "Relaxed cert-omission guard: reject only if omitted certs > f (not any single omission)",
     "tags": [
-      "stopdata",
-      "sync",
-      "lc",
-      "deadlock"
+      "cert-omission",
+      "check7",
+      "ep5",
+      "honest-leader"
     ],
     "files": [
-      "bftsmart/library/src/main/java/bftsmart/tom/core/Synchronizer.java"
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java"
     ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/core/Synchronizer.java",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-22",
-    "created_epoch": 1776841200,
-    "updated_at": "2026-04-22",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [],
-    "evidence": {}
-  },
-  {
-    "id": "mem:1776887181037",
-    "kind": "decision",
-    "content": "Java JITTER_WALL_MS set to 0: C++ sendDelayed provides replicaId*5ms sim-time stagger",
-    "tags": [
-      "jitter",
-      "lc",
-      "reliability"
-    ],
-    "files": [
-      "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java"
-    ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java",
     "symbol_id": "",
     "symbol_hash": "",
     "created_at": "2026-04-22",
@@ -683,19 +660,18 @@
     "evidence": {}
   },
   {
-    "id": "mem:1776902434558",
+    "id": "mem:1776887181037",
     "kind": "decision",
-    "content": "Relaxed cert-omission guard: reject only if omitted certs > f (not any single omission)",
+    "content": "Java JITTER_WALL_MS set to 0: C++ sendDelayed provides replicaId*5ms sim-time stagger",
     "tags": [
-      "cert-omission",
-      "check7",
-      "ep5",
-      "honest-leader"
+      "jitter",
+      "lc",
+      "reliability"
     ],
     "files": [
-      "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java"
+      "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java"
     ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java",
+    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
     "symbol_id": "",
     "symbol_hash": "",
     "created_at": "2026-04-22",
@@ -707,7 +683,31 @@
     "evidence": {}
   },
   {
-    "id": "mem:1776887174744",
+    "id": "mem:1776887184463",
+    "kind": "decision",
+    "content": "STOPDATA retx capped at max_stopdata_retx=10 to break SYNC delivery deadlock at non-leaders",
+    "tags": [
+      "stopdata",
+      "sync",
+      "lc",
+      "deadlock"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/tom/core/Synchronizer.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/core/Synchronizer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-22",
+    "created_epoch": 1776841200,
+    "updated_at": "2026-04-22",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1776887174743",
     "kind": "edit_observation",
     "content": "Edited during active session",
     "tags": [
@@ -721,49 +721,14 @@
       "removed"
     ],
     "files": [
-      "fourway/config/system.config"
+      "bftsmart/library/src/main/java/bftsmart/tom/core/Synchronizer.java"
     ],
-    "file_path": "fourway/config/system.config",
+    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/core/Synchronizer.java",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-22T19:46:14.744789+00:00",
+    "created_at": "2026-04-22T19:46:14.743850+00:00",
     "created_epoch": 1776887174,
-    "updated_at": "2026-04-22T19:46:14.744796+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [],
-    "evidence": {
-      "source": "graph_register_edit",
-      "recent_action_kinds": [],
-      "recent_queries": [],
-      "edited": true
-    }
-  },
-  {
-    "id": "mem:1776887174742",
-    "kind": "edit_observation",
-    "content": "Edited during active session",
-    "tags": [
-      "raised",
-      "totalordermulticast",
-      "timeout",
-      "4000ms",
-      "capped",
-      "stopdata",
-      "retx",
-      "removed",
-      "zeroed",
-      "nack"
-    ],
-    "files": [
-      "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java"
-    ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-22T19:46:14.742706+00:00",
-    "created_epoch": 1776887174,
-    "updated_at": "2026-04-22T20:02:49.820300+00:00",
+    "updated_at": "2026-04-22T19:46:14.743856+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -809,7 +774,42 @@
     }
   },
   {
-    "id": "mem:1776887174743",
+    "id": "mem:1776887174742",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "raised",
+      "totalordermulticast",
+      "timeout",
+      "4000ms",
+      "capped",
+      "stopdata",
+      "retx",
+      "removed",
+      "zeroed",
+      "nack"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-22T19:46:14.742706+00:00",
+    "created_epoch": 1776887174,
+    "updated_at": "2026-04-22T20:02:49.820300+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1776887174744",
     "kind": "edit_observation",
     "content": "Edited during active session",
     "tags": [
@@ -823,14 +823,14 @@
       "removed"
     ],
     "files": [
-      "bftsmart/library/src/main/java/bftsmart/tom/core/Synchronizer.java"
+      "fourway/config/system.config"
     ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/core/Synchronizer.java",
+    "file_path": "fourway/config/system.config",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-22T19:46:14.743850+00:00",
+    "created_at": "2026-04-22T19:46:14.744789+00:00",
     "created_epoch": 1776887174,
-    "updated_at": "2026-04-22T19:46:14.743856+00:00",
+    "updated_at": "2026-04-22T19:46:14.744796+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -874,7 +874,7 @@
     }
   },
   {
-    "id": "mem:1776902430116",
+    "id": "mem:1776902430115",
     "kind": "edit_observation",
     "content": "Edited during active session",
     "tags": [
@@ -890,14 +890,14 @@
       "proposalpayload"
     ],
     "files": [
-      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java"
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java"
     ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-23T00:00:30.116503+00:00",
+    "created_at": "2026-04-23T00:00:30.115068+00:00",
     "created_epoch": 1776902430,
-    "updated_at": "2026-04-24T18:49:26.776140+00:00",
+    "updated_at": "2026-04-24T18:49:26.777818+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -942,7 +942,7 @@
     }
   },
   {
-    "id": "mem:1776902430115",
+    "id": "mem:1776902430116",
     "kind": "edit_observation",
     "content": "Edited during active session",
     "tags": [
@@ -958,14 +958,14 @@
       "proposalpayload"
     ],
     "files": [
-      "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java"
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java"
     ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java",
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-23T00:00:30.115068+00:00",
+    "created_at": "2026-04-23T00:00:30.116503+00:00",
     "created_epoch": 1776902430,
-    "updated_at": "2026-04-24T18:49:26.777818+00:00",
+    "updated_at": "2026-04-24T18:49:26.776140+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -1171,65 +1171,19 @@
     }
   },
   {
-    "id": "mem:1777007043068",
+    "id": "mem:1777007040808",
     "kind": "next",
-    "content": "PROPOSE_ALL wire format parsed independently in 3 places: IntersectionServer, OrderRequestVerifier, appExecuteBatch \u2014 needs shared parser",
-    "tags": [
-      "duplication",
-      "refactor",
-      "propose-all"
-    ],
-    "files": [
-      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
-      "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java"
-    ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-23",
-    "created_epoch": 1776927600,
-    "updated_at": "2026-04-23",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [],
-    "evidence": {}
-  },
-  {
-    "id": "mem:1776999942890",
-    "kind": "blocker",
-    "content": "MAJOR thread safety: lastStopSimEmitMs, currentStopByRegency, blindEmitCount are plain HashMap not ConcurrentHashMap",
-    "tags": [
-      "thread-safety",
-      "major",
-      "RequestsTimer"
-    ],
-    "files": [
-      "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java"
-    ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-23",
-    "created_epoch": 1776927600,
-    "updated_at": "2026-04-23",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [],
-    "evidence": {}
-  },
-  {
-    "id": "mem:1776999939545",
-    "kind": "blocker",
-    "content": "4 BLOCKER JNI thread leaks: missing DetachCurrentThread in V2VReliability.cc JNI methods",
+    "content": "JNI attach pattern inconsistent: V2VTraCI.cc and V2VEpochPreemption.cc still use raw AttachCurrentThread without GetEnv check",
     "tags": [
       "jni",
-      "thread-leak",
-      "blocker"
+      "thread-safety",
+      "refactor"
     ],
     "files": [
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc"
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc"
     ],
-    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc",
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc",
     "symbol_id": "",
     "symbol_hash": "",
     "created_at": "2026-04-23",
@@ -1265,19 +1219,18 @@
     "evidence": {}
   },
   {
-    "id": "mem:1777007040808",
-    "kind": "next",
-    "content": "JNI attach pattern inconsistent: V2VTraCI.cc and V2VEpochPreemption.cc still use raw AttachCurrentThread without GetEnv check",
+    "id": "mem:1776999939545",
+    "kind": "blocker",
+    "content": "4 BLOCKER JNI thread leaks: missing DetachCurrentThread in V2VReliability.cc JNI methods",
     "tags": [
       "jni",
-      "thread-safety",
-      "refactor"
+      "thread-leak",
+      "blocker"
     ],
     "files": [
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc",
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc"
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc"
     ],
-    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc",
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc",
     "symbol_id": "",
     "symbol_hash": "",
     "created_at": "2026-04-23",
@@ -1289,7 +1242,54 @@
     "evidence": {}
   },
   {
-    "id": "mem:1777011063769",
+    "id": "mem:1776999942890",
+    "kind": "blocker",
+    "content": "MAJOR thread safety: lastStopSimEmitMs, currentStopByRegency, blindEmitCount are plain HashMap not ConcurrentHashMap",
+    "tags": [
+      "thread-safety",
+      "major",
+      "RequestsTimer"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-23",
+    "created_epoch": 1776927600,
+    "updated_at": "2026-04-23",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1777007043068",
+    "kind": "next",
+    "content": "PROPOSE_ALL wire format parsed independently in 3 places: IntersectionServer, OrderRequestVerifier, appExecuteBatch \u2014 needs shared parser",
+    "tags": [
+      "duplication",
+      "refactor",
+      "propose-all"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-23",
+    "created_epoch": 1776927600,
+    "updated_at": "2026-04-23",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1777011063771",
     "kind": "edit_observation",
     "content": "Edited during active session",
     "tags": [
@@ -1303,14 +1303,14 @@
       "getenv"
     ],
     "files": [
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc"
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJVMLifecycle.cc"
     ],
-    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc",
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJVMLifecycle.cc",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-24T06:11:03.769760+00:00",
+    "created_at": "2026-04-24T06:11:03.771575+00:00",
     "created_epoch": 1777011063,
-    "updated_at": "2026-04-24T06:11:03.769766+00:00",
+    "updated_at": "2026-04-24T06:11:03.771582+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -1322,7 +1322,7 @@
     }
   },
   {
-    "id": "mem:1777011063766",
+    "id": "mem:1777011063768",
     "kind": "edit_observation",
     "content": "Edited during active session",
     "tags": [
@@ -1338,47 +1338,14 @@
       "stale"
     ],
     "files": [
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc"
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc"
     ],
-    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc",
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-24T06:11:03.766883+00:00",
+    "created_at": "2026-04-24T06:11:03.768343+00:00",
     "created_epoch": 1777011063,
-    "updated_at": "2026-04-25T02:49:50.471424+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [],
-    "evidence": {
-      "source": "graph_register_edit",
-      "recent_action_kinds": [],
-      "recent_queries": [],
-      "edited": true
-    }
-  },
-  {
-    "id": "mem:1777011063763",
-    "kind": "edit_observation",
-    "content": "Edited during active session",
-    "tags": [
-      "added",
-      "jnienvguard",
-      "raii",
-      "struct",
-      "replaced",
-      "all",
-      "manual",
-      "getenv"
-    ],
-    "files": [
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIUtils.h"
-    ],
-    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIUtils.h",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-24T06:11:03.763523+00:00",
-    "created_epoch": 1777011063,
-    "updated_at": "2026-04-24T06:11:03.763533+00:00",
+    "updated_at": "2026-04-25T02:49:50.469751+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -1428,7 +1395,40 @@
     }
   },
   {
-    "id": "mem:1777011063768",
+    "id": "mem:1777011063763",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "added",
+      "jnienvguard",
+      "raii",
+      "struct",
+      "replaced",
+      "all",
+      "manual",
+      "getenv"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIUtils.h"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIUtils.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-24T06:11:03.763523+00:00",
+    "created_epoch": 1777011063,
+    "updated_at": "2026-04-24T06:11:03.763533+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1777011063766",
     "kind": "edit_observation",
     "content": "Edited during active session",
     "tags": [
@@ -1444,14 +1444,14 @@
       "stale"
     ],
     "files": [
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc"
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc"
     ],
-    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc",
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-24T06:11:03.768343+00:00",
+    "created_at": "2026-04-24T06:11:03.766883+00:00",
     "created_epoch": 1777011063,
-    "updated_at": "2026-04-25T02:49:50.469751+00:00",
+    "updated_at": "2026-04-25T02:49:50.471424+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -1463,7 +1463,7 @@
     }
   },
   {
-    "id": "mem:1777011063771",
+    "id": "mem:1777011063769",
     "kind": "edit_observation",
     "content": "Edited during active session",
     "tags": [
@@ -1477,14 +1477,14 @@
       "getenv"
     ],
     "files": [
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJVMLifecycle.cc"
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc"
     ],
-    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJVMLifecycle.cc",
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-24T06:11:03.771575+00:00",
+    "created_at": "2026-04-24T06:11:03.769760+00:00",
     "created_epoch": 1777011063,
-    "updated_at": "2026-04-24T06:11:03.771582+00:00",
+    "updated_at": "2026-04-24T06:11:03.769766+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -1494,6 +1494,31 @@
       "recent_queries": [],
       "edited": true
     }
+  },
+  {
+    "id": "mem:1777085392223",
+    "kind": "decision",
+    "content": "notifyViewAgreed JNI symbol kept as no-op stub; Java RegisterNatives requires it",
+    "tags": [
+      "jni",
+      "rename",
+      "view-protocol",
+      "dead-code"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-24",
+    "created_epoch": 1777014000,
+    "updated_at": "2026-04-24",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
   },
   {
     "id": "mem:1777056569167",
@@ -1522,29 +1547,35 @@
     "evidence": {}
   },
   {
-    "id": "mem:1777085392223",
-    "kind": "decision",
-    "content": "notifyViewAgreed JNI symbol kept as no-op stub; Java RegisterNatives requires it",
+    "id": "mem:1777056263414",
+    "kind": "query_association",
+    "content": "Queried during: ProposalPayload parse PROPOSE_ALL wire format",
     "tags": [
-      "jni",
-      "rename",
-      "view-protocol",
-      "dead-code"
+      "proposalpayload",
+      "parse",
+      "propose_all",
+      "wire",
+      "format"
     ],
     "files": [
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc",
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h"
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java"
     ],
-    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc",
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-24",
-    "created_epoch": 1777014000,
-    "updated_at": "2026-04-24",
+    "created_at": "2026-04-24T18:44:23.414276+00:00",
+    "created_epoch": 1777056263,
+    "updated_at": "2026-04-24T18:44:23.414285+00:00",
     "stale": false,
     "stale_reason": "",
-    "observed_queries": [],
-    "evidence": {}
+    "observed_queries": [
+      "ProposalPayload parse PROPOSE_ALL wire format"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1776825278
+    }
   },
   {
     "id": "mem:1777056263811",
@@ -1566,37 +1597,6 @@
     "created_at": "2026-04-24T18:44:23.811528+00:00",
     "created_epoch": 1777056263,
     "updated_at": "2026-04-24T18:44:23.811544+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [
-      "ProposalPayload parse PROPOSE_ALL wire format"
-    ],
-    "evidence": {
-      "source": "graph_read",
-      "anchor_mode": "file",
-      "session_epoch": 1776825278
-    }
-  },
-  {
-    "id": "mem:1777056263414",
-    "kind": "query_association",
-    "content": "Queried during: ProposalPayload parse PROPOSE_ALL wire format",
-    "tags": [
-      "proposalpayload",
-      "parse",
-      "propose_all",
-      "wire",
-      "format"
-    ],
-    "files": [
-      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java"
-    ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-24T18:44:23.414276+00:00",
-    "created_epoch": 1777056263,
-    "updated_at": "2026-04-24T18:44:23.414285+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [
@@ -1640,7 +1640,7 @@
     }
   },
   {
-    "id": "mem:1777056566774",
+    "id": "mem:1777056566770",
     "kind": "edit_observation",
     "content": "Edited during active session",
     "tags": [
@@ -1654,14 +1654,14 @@
       "eliminated"
     ],
     "files": [
-      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionTypes.java"
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/ProposalPayload.java"
     ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionTypes.java",
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/ProposalPayload.java",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-24T18:49:26.774287+00:00",
+    "created_at": "2026-04-24T18:49:26.770256+00:00",
     "created_epoch": 1777056566,
-    "updated_at": "2026-04-24T18:49:26.774305+00:00",
+    "updated_at": "2026-04-24T18:49:26.770265+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -1708,7 +1708,7 @@
     }
   },
   {
-    "id": "mem:1777056566770",
+    "id": "mem:1777056566774",
     "kind": "edit_observation",
     "content": "Edited during active session",
     "tags": [
@@ -1722,14 +1722,14 @@
       "eliminated"
     ],
     "files": [
-      "bftsmart/library/src/main/java/bftsmart/demo/intersection/ProposalPayload.java"
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionTypes.java"
     ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/ProposalPayload.java",
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionTypes.java",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-24T18:49:26.770256+00:00",
+    "created_at": "2026-04-24T18:49:26.774287+00:00",
     "created_epoch": 1777056566,
-    "updated_at": "2026-04-24T18:49:26.770265+00:00",
+    "updated_at": "2026-04-24T18:49:26.774305+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -1738,37 +1738,6 @@
       "recent_action_kinds": [],
       "recent_queries": [],
       "edited": true
-    }
-  },
-  {
-    "id": "mem:1777084268128",
-    "kind": "query_association",
-    "content": "Queried during: onViewAgreed view protocol stale naming",
-    "tags": [
-      "onviewagreed",
-      "view",
-      "protocol",
-      "stale",
-      "naming"
-    ],
-    "files": [
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h"
-    ],
-    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-25T02:31:08.128563+00:00",
-    "created_epoch": 1777084268,
-    "updated_at": "2026-04-25T02:31:08.128573+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [
-      "onViewAgreed view protocol stale naming"
-    ],
-    "evidence": {
-      "source": "graph_read",
-      "anchor_mode": "file",
-      "session_epoch": 1776825278
     }
   },
   {
@@ -1805,7 +1774,38 @@
     }
   },
   {
-    "id": "mem:1777085390473",
+    "id": "mem:1777084268128",
+    "kind": "query_association",
+    "content": "Queried during: onViewAgreed view protocol stale naming",
+    "tags": [
+      "onviewagreed",
+      "view",
+      "protocol",
+      "stale",
+      "naming"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-25T02:31:08.128563+00:00",
+    "created_epoch": 1777084268,
+    "updated_at": "2026-04-25T02:31:08.128573+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "onViewAgreed view protocol stale naming"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1776825278
+    }
+  },
+  {
+    "id": "mem:1777085390467",
     "kind": "edit_observation",
     "content": "Edited during active session",
     "tags": [
@@ -1819,14 +1819,14 @@
       "dead"
     ],
     "files": [
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc"
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc"
     ],
-    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc",
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-25T02:49:50.473036+00:00",
+    "created_at": "2026-04-25T02:49:50.467936+00:00",
     "created_epoch": 1777085390,
-    "updated_at": "2026-04-25T02:49:50.473042+00:00",
+    "updated_at": "2026-04-25T02:49:50.467948+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -1875,7 +1875,7 @@
     }
   },
   {
-    "id": "mem:1777085390467",
+    "id": "mem:1777085390473",
     "kind": "edit_observation",
     "content": "Edited during active session",
     "tags": [
@@ -1889,14 +1889,14 @@
       "dead"
     ],
     "files": [
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc"
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc"
     ],
-    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc",
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-25T02:49:50.467936+00:00",
+    "created_at": "2026-04-25T02:49:50.473036+00:00",
     "created_epoch": 1777085390,
-    "updated_at": "2026-04-25T02:49:50.467948+00:00",
+    "updated_at": "2026-04-25T02:49:50.473042+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -1908,34 +1908,76 @@
     }
   },
   {
-    "id": "mem:1777101484004",
-    "kind": "query_association",
-    "content": "Queried during: timer timeout JITTER retransmission",
+    "id": "mem:1777148862726",
+    "kind": "fact",
+    "content": "totalordermulticast.timeout confirmed 2000ms in system.config; 4000ms memory is stale",
     "tags": [
-      "timer",
-      "timeout",
-      "jitter",
-      "retransmission"
+      "timers",
+      "system-config",
+      "lc"
     ],
     "files": [
-      "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java"
+      "fourway/config/system.config"
     ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
+    "file_path": "fourway/config/system.config",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-25T07:18:04.004098+00:00",
-    "created_epoch": 1777101484,
-    "updated_at": "2026-04-25T07:18:04.004107+00:00",
+    "created_at": "2026-04-25",
+    "created_epoch": 1777100400,
+    "updated_at": "2026-04-25",
     "stale": false,
     "stale_reason": "",
-    "observed_queries": [
-      "timer timeout JITTER retransmission"
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1777146797958",
+    "kind": "fact",
+    "content": "system.config totalordermulticast.timeout is 2000ms, not 4000ms as prior memory said",
+    "tags": [
+      "timer",
+      "system.config",
+      "bftsmart"
     ],
-    "evidence": {
-      "source": "graph_read",
-      "anchor_mode": "file",
-      "session_epoch": 1776825278
-    }
+    "files": [
+      "fourway/config/system.config"
+    ],
+    "file_path": "fourway/config/system.config",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-25",
+    "created_epoch": 1777100400,
+    "updated_at": "2026-04-25",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1777148063210",
+    "kind": "project",
+    "content": "User writing report.md (DISC 2026 LaTeX paper) and reviewing ARCHITECTURE.md for accuracy",
+    "tags": [
+      "paper",
+      "report",
+      "DISC2026",
+      "code-review"
+    ],
+    "files": [
+      "report.md",
+      "ARCHITECTURE.md",
+      "LC_PROTOCOL_RESEARCH_SUMMARY.md"
+    ],
+    "file_path": "report.md",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-25",
+    "created_epoch": 1777100400,
+    "updated_at": "2026-04-25",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
   },
   {
     "id": "mem:1777101484843",
@@ -1968,15 +2010,14 @@
     }
   },
   {
-    "id": "mem:1777101513180",
+    "id": "mem:1777101484004",
     "kind": "query_association",
-    "content": "Queried during: STOP_BLIND_EMITS constructor timeout shortTimeout initialization",
+    "content": "Queried during: timer timeout JITTER retransmission",
     "tags": [
-      "stop_blind_emits",
-      "constructor",
+      "timer",
       "timeout",
-      "shorttimeout",
-      "initialization"
+      "jitter",
+      "retransmission"
     ],
     "files": [
       "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java"
@@ -1984,13 +2025,13 @@
     "file_path": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-25T07:18:33.180166+00:00",
-    "created_epoch": 1777101513,
-    "updated_at": "2026-04-25T07:18:33.180174+00:00",
+    "created_at": "2026-04-25T07:18:04.004098+00:00",
+    "created_epoch": 1777101484,
+    "updated_at": "2026-04-25T07:18:04.004107+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [
-      "STOP_BLIND_EMITS constructor timeout shortTimeout initialization"
+      "timer timeout JITTER retransmission"
     ],
     "evidence": {
       "source": "graph_read",
@@ -2030,35 +2071,34 @@
     }
   },
   {
-    "id": "mem:1777102003391",
-    "kind": "decision",
-    "content": "Expanded timer audit: added Source column, Java RequestsTimer constants, system.config BFT-SMaRt params, flagged orderDelayGap typo and totalordermulticast.timeout discrepancy",
+    "id": "mem:1777101513180",
+    "kind": "query_association",
+    "content": "Queried during: STOP_BLIND_EMITS constructor timeout shortTimeout initialization",
     "tags": [
-      "expanded",
-      "timer",
-      "audit",
-      "added",
-      "source",
-      "column",
-      "java",
-      "requeststimer"
+      "stop_blind_emits",
+      "constructor",
+      "timeout",
+      "shorttimeout",
+      "initialization"
     ],
     "files": [
-      "benchmarks/Priority16cars/effective_timer_audit_16veh.md"
+      "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java"
     ],
-    "file_path": "benchmarks/Priority16cars/effective_timer_audit_16veh.md",
+    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
     "symbol_id": "",
     "symbol_hash": "",
-    "created_at": "2026-04-25T07:26:43.391987+00:00",
-    "created_epoch": 1777102003,
-    "updated_at": "2026-04-25T07:26:43.391992+00:00",
+    "created_at": "2026-04-25T07:18:33.180166+00:00",
+    "created_epoch": 1777101513,
+    "updated_at": "2026-04-25T07:18:33.180174+00:00",
     "stale": false,
     "stale_reason": "",
-    "observed_queries": [],
+    "observed_queries": [
+      "STOP_BLIND_EMITS constructor timeout shortTimeout initialization"
+    ],
     "evidence": {
-      "window_sec": 120,
-      "recent_action_kinds": [],
-      "recent_queries": []
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1776825278
     }
   },
   {
@@ -2092,6 +2132,201 @@
       "recent_action_kinds": [],
       "recent_queries": [],
       "edited": true
+    }
+  },
+  {
+    "id": "mem:1777102003391",
+    "kind": "decision",
+    "content": "Expanded timer audit: added Source column, Java RequestsTimer constants, system.config BFT-SMaRt params, flagged orderDelayGap typo and totalordermulticast.timeout discrepancy",
+    "tags": [
+      "expanded",
+      "timer",
+      "audit",
+      "added",
+      "source",
+      "column",
+      "java",
+      "requeststimer"
+    ],
+    "files": [
+      "benchmarks/Priority16cars/effective_timer_audit_16veh.md"
+    ],
+    "file_path": "benchmarks/Priority16cars/effective_timer_audit_16veh.md",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-25T07:26:43.391987+00:00",
+    "created_epoch": 1777102003,
+    "updated_at": "2026-04-25T07:26:43.391992+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1777147972540",
+    "kind": "query_association",
+    "content": "Queried during: leader change sim time",
+    "tags": [
+      "leader",
+      "change",
+      "sim",
+      "time"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-25T20:12:52.540699+00:00",
+    "created_epoch": 1777147972,
+    "updated_at": "2026-04-25T20:12:52.540714+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "leader change sim time"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777146790
+    }
+  },
+  {
+    "id": "mem:1777149087580",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "ecdsa",
+      "256",
+      "algorithms",
+      "prose",
+      "byzantine",
+      "subsection",
+      "unified",
+      "car",
+      "wrote",
+      "consensus"
+    ],
+    "files": [
+      "report.md"
+    ],
+    "file_path": "report.md",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-25T20:31:27.580404+00:00",
+    "created_epoch": 1777149087,
+    "updated_at": "2026-04-25T23:59:57.683021+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1777149087577",
+    "kind": "decision",
+    "content": "ECDSA P-256 fix in algorithms/prose; Byzantine LC subsection; unified-car TikZ architecture section; f+1-cert fast-propose property in both files; fixed two \\sectionsection bugs",
+    "tags": [
+      "ecdsa",
+      "256",
+      "algorithms",
+      "prose",
+      "byzantine",
+      "subsection",
+      "unified",
+      "car"
+    ],
+    "files": [
+      "report.md",
+      "ARCHITECTURE.md"
+    ],
+    "file_path": "report.md",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-25T20:31:27.577427+00:00",
+    "created_epoch": 1777149087,
+    "updated_at": "2026-04-25T20:31:27.577431+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1777149087583",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "ecdsa",
+      "256",
+      "algorithms",
+      "prose",
+      "byzantine",
+      "subsection",
+      "unified",
+      "car"
+    ],
+    "files": [
+      "ARCHITECTURE.md"
+    ],
+    "file_path": "ARCHITECTURE.md",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-25T20:31:27.583090+00:00",
+    "created_epoch": 1777149087,
+    "updated_at": "2026-04-25T20:31:27.583102+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1777161597681",
+    "kind": "decision",
+    "content": "Wrote Consensus Core, V2V Communication Layer, and Reliable Messaging subsections based on actual code",
+    "tags": [
+      "wrote",
+      "consensus",
+      "core",
+      "v2v",
+      "communication",
+      "layer",
+      "reliable",
+      "messaging"
+    ],
+    "files": [
+      "report.md"
+    ],
+    "file_path": "report.md",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-25T23:59:57.681116+00:00",
+    "created_epoch": 1777161597,
+    "updated_at": "2026-04-25T23:59:57.681123+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
     }
   }
 ]
