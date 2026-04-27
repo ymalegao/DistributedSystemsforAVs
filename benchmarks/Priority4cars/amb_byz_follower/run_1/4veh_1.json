@@ -1,0 +1,220 @@
+{
+  "overall": {
+    "cars": 4,
+    "epochs": 1,
+    "throughput_s_per_veh": 0.875,
+    "throughput_veh_per_s": 1.1428571428571428,
+    "throughput_formula": "n_cars / mean(depart_time - stop_time)  (s/veh stored as inverse)",
+    "throughput_s_per_veh_legacy_span": 0.40000000000000013,
+    "throughput_veh_per_s_legacy_span": 2.499999999999999,
+    "wait_all_s": {
+      "mean": 3.5,
+      "median": 3.5,
+      "p95": 4.18,
+      "min": 2.7,
+      "max": 4.3,
+      "n": 4
+    },
+    "wait_normal_s": {
+      "mean": 3.7666666666666666,
+      "median": 3.5,
+      "p95": 4.22,
+      "min": 3.5,
+      "max": 4.3,
+      "n": 3
+    },
+    "wait_ambulance_s": {
+      "mean": 2.7,
+      "median": 2.7,
+      "p95": 2.7,
+      "min": 2.7,
+      "max": 2.7,
+      "n": 1
+    },
+    "jains_fairness_all": 0.9745425616547335,
+    "jains_fairness_normal": 0.9900752112894475,
+    "ambulance_priority_gain_s": 1.0666666666666664,
+    "ambulance_priority_ratio": 0.7168141592920354,
+    "propose_all_consensus_latency_s": {
+      "mean": 1.191,
+      "median": 1.191,
+      "p95": 1.191,
+      "min": 1.191,
+      "max": 1.191,
+      "n": 1
+    },
+    "propose_all_consensus_latency_sim_s": {
+      "mean": 0.874,
+      "median": 0.874,
+      "p95": 0.874,
+      "min": 0.874,
+      "max": 0.874,
+      "n": 1
+    },
+    "stop_to_decision_sim_s": {
+      "mean": 2.925,
+      "median": 2.925,
+      "p95": 2.925,
+      "min": 2.925,
+      "max": 2.925,
+      "n": 1
+    },
+    "bft_decision_time_s": {
+      "mean": 1.191,
+      "median": 1.191,
+      "p95": 1.191,
+      "min": 1.191,
+      "max": 1.191,
+      "n": 4
+    },
+    "total_byzantine_injections": 2,
+    "byzantine_by_epoch": {
+      "0": 2
+    },
+    "byzantine_by_replica": {
+      "2": 2
+    },
+    "arrival_to_resume_s": {
+      "mean": 2.925,
+      "median": 2.9,
+      "p95": 3.5799999999999996,
+      "min": 2.1999999999999997,
+      "max": 3.6999999999999997,
+      "n": 4
+    },
+    "resume_to_depart_s": {
+      "mean": 0.575,
+      "median": 0.5999999999999996,
+      "p95": 0.6000000000000004,
+      "min": 0.5,
+      "max": 0.6000000000000005,
+      "n": 4
+    },
+    "delivery_ratio": 0.4025435348964761,
+    "estimated_loss_rate": 0.5974564651035239,
+    "fallback_rate": 0.0,
+    "fallback_count": 0
+  },
+  "per_epoch": [
+    {
+      "epoch": 0,
+      "n_replicas": 4,
+      "propose_all_consensus_latency_s": 1.191,
+      "propose_all_consensus_latency_sim_s": 0.874,
+      "stop_to_decision_sim_s": 2.925,
+      "throughput_s_per_veh": 0.875,
+      "throughput_veh_per_s": 1.1428571428571428,
+      "wait_normal_s": {
+        "mean": 3.7666666666666666,
+        "median": 3.5,
+        "p95": 4.22,
+        "min": 3.5,
+        "max": 4.3,
+        "n": 3
+      },
+      "wait_ambulance_s": {
+        "mean": 2.7,
+        "median": 2.7,
+        "p95": 2.7,
+        "min": 2.7,
+        "max": 2.7,
+        "n": 1
+      },
+      "byzantine_injections": 2,
+      "consensus_success": true,
+      "avg_messages_sent_per_replica": 13.5,
+      "avg_messages_recv_per_replica": 15.75,
+      "stop_sign_failures": 0
+    }
+  ],
+  "per_car": [
+    {
+      "car_id": "veh0",
+      "role": "normal",
+      "epoch": 0,
+      "arrival_time_s": 0.6,
+      "stop_time_s": 0.6,
+      "resume_time_s": 3.5,
+      "depart_time_s": 4.1,
+      "wait_intersection_s": 3.5,
+      "arrival_to_resume_s": 2.9,
+      "resume_to_depart_s": 0.5999999999999996,
+      "arrival_to_depart_s": 3.4999999999999996,
+      "messages_sent": 17,
+      "messages_received": 14,
+      "delivery_ratio": 0.27450980392156865,
+      "estimated_loss_rate": 0.7254901960784313,
+      "used_fallback": false,
+      "propose_all_consensus_wall_s": 1.191,
+      "propose_all_consensus_sim_s": 0.874,
+      "stop_to_decision_sim_s": 2.9,
+      "bft_decision_time_s": 1.191
+    },
+    {
+      "car_id": "veh1",
+      "role": "normal",
+      "epoch": 0,
+      "arrival_time_s": 0.6,
+      "stop_time_s": 0.6,
+      "resume_time_s": 3.5,
+      "depart_time_s": 4.1,
+      "wait_intersection_s": 3.5,
+      "arrival_to_resume_s": 2.9,
+      "resume_to_depart_s": 0.5999999999999996,
+      "arrival_to_depart_s": 3.4999999999999996,
+      "messages_sent": 11,
+      "messages_received": 17,
+      "delivery_ratio": 0.5151515151515151,
+      "estimated_loss_rate": 0.48484848484848486,
+      "used_fallback": false,
+      "propose_all_consensus_wall_s": 1.191,
+      "propose_all_consensus_sim_s": null,
+      "stop_to_decision_sim_s": 2.9,
+      "bft_decision_time_s": 1.191
+    },
+    {
+      "car_id": "veh2",
+      "role": "normal",
+      "epoch": 0,
+      "arrival_time_s": 0.6,
+      "stop_time_s": 0.6,
+      "resume_time_s": 4.3,
+      "depart_time_s": 4.9,
+      "wait_intersection_s": 4.3,
+      "arrival_to_resume_s": 3.6999999999999997,
+      "resume_to_depart_s": 0.6000000000000005,
+      "arrival_to_depart_s": 4.300000000000001,
+      "messages_sent": 13,
+      "messages_received": 16,
+      "delivery_ratio": 0.41025641025641024,
+      "estimated_loss_rate": 0.5897435897435898,
+      "used_fallback": false,
+      "propose_all_consensus_wall_s": 1.191,
+      "propose_all_consensus_sim_s": null,
+      "stop_to_decision_sim_s": 3.7,
+      "bft_decision_time_s": 1.191
+    },
+    {
+      "car_id": "veh3",
+      "role": "ambulance",
+      "epoch": 0,
+      "arrival_time_s": 0.6,
+      "stop_time_s": 0.6,
+      "resume_time_s": 2.8,
+      "depart_time_s": 3.3,
+      "wait_intersection_s": 2.7,
+      "arrival_to_resume_s": 2.1999999999999997,
+      "resume_to_depart_s": 0.5,
+      "arrival_to_depart_s": 2.6999999999999997,
+      "messages_sent": 13,
+      "messages_received": 16,
+      "delivery_ratio": 0.41025641025641024,
+      "estimated_loss_rate": 0.5897435897435898,
+      "used_fallback": false,
+      "propose_all_consensus_wall_s": 1.191,
+      "propose_all_consensus_sim_s": null,
+      "stop_to_decision_sim_s": 2.2,
+      "bft_decision_time_s": 1.191
+    }
+  ]
+}

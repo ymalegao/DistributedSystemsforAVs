@@ -23,6 +23,10 @@
 #   With --byzleader: writes the leader ID (Java consensus fault).
 #   Without --byzleader: writes the FALSE_LANE node IDs (combined C++/Java fault).
 #
+# --no-ambulance
+#   Do not assign any ambulance in random_scenario.ini
+#   (*.node[*].appl.ambulanceReplicaId = -1).
+#
 # Examples:
 #   ./run-omnet-simulation.sh -u Cmdenv -c TwelveVehiclesAmbulanceBFT
 #   ./run-omnet-simulation.sh --randomize 12 3 -u Cmdenv -c TwelveVehiclesAmbulanceBFT
@@ -107,10 +111,11 @@ has_ned_path_arg() {
 # node assignments.  The file uses [General] so it applies to any config.
 # Prints the path to the generated ini file on stdout; all other output goes
 # to stderr so callers can safely capture the path with $(...).
-# Usage: generate_random_scenario <N> <F> <sim_dir> <byz_leader|-1> <sync_java> <allow_r0_follower>
+# Usage: generate_random_scenario <N> <F> <sim_dir> <byz_leader|-1> <sync_java> <allow_r0_follower> <no_ambulance>
 #   byz_leader: replica ID reserved as Java silent leader (-1 = none)
 #   sync_java:  "--sync-java" or ""
 #   allow_r0_follower: "1" = allow replica 0 in FALSE_LANE pool when byz_leader=-1; else exclude 0
+#   no_ambulance: "1" = force no ambulance (ambulanceReplicaId=-1)
 # ---------------------------------------------------------------------------
 generate_random_scenario() {
     local n="$1"
@@ -119,6 +124,7 @@ generate_random_scenario() {
     local byz_leader="$4"   # -1 means no byz leader
     local sync_java="$5"
     local allow_r0_follower="${6:-0}"
+    local no_ambulance="${7:-0}"
 
     local out_ini="${sim_dir}/random_scenario.ini"
 
@@ -142,9 +148,12 @@ generate_random_scenario() {
         echo $_count
     }
 
-    # 1. Pick ambulance (replica ID) from all replicas except the byz leader.
+    # 1. Pick ambulance (replica ID) from all replicas except the byz leader,
+    #    unless --no-ambulance is set.
     local AMB_ID
-    if [[ "${byz_leader}" -ge 0 ]]; then
+    if [[ "${no_ambulance}" == "1" ]]; then
+        AMB_ID=-1
+    elif [[ "${byz_leader}" -ge 0 ]]; then
         local amb_pool=()
         local k
         for (( k=0; k<n; k++ )); do
@@ -162,7 +171,10 @@ generate_random_scenario() {
     local available=()
     local i
     for (( i=0; i<n; i++ )); do
-        [[ $i -eq $AMB_ID || $i -eq $byz_leader ]] && continue
+        [[ $i -eq $byz_leader ]] && continue
+        if [[ "${AMB_ID}" -ge 0 && $i -eq $AMB_ID ]]; then
+            continue
+        fi
         if [[ "${byz_leader}" -lt 0 && "${allow_r0_follower}" != "1" && $i -eq 0 ]]; then
             continue
         fi
@@ -190,7 +202,11 @@ generate_random_scenario() {
 
     echo "==========================================" >&2
     echo "Randomized scenario:" >&2
-    echo "  Ambulance node  : ${AMB_ID} (veh${AMB_ID})" >&2
+    if [[ "${AMB_ID}" -ge 0 ]]; then
+        echo "  Ambulance node  : ${AMB_ID} (veh${AMB_ID})" >&2
+    else
+        echo "  Ambulance node  : none" >&2
+    fi
     if [[ "${byz_leader}" -ge 0 ]]; then
         echo "  Byzantine leader: replica ${byz_leader} (Java silent leader + C++ FALSE_LANE)" >&2
     else
@@ -279,6 +295,7 @@ RANDOMIZE_F=""
 BYZ_LEADER=-1       # -1 = no designated byz leader
 ALLOW_REPLICA0_BYZ_FOLLOWER=0
 SYNC_JAVA=""
+NO_AMBULANCE=0
 EXTRA_INI_ARG=()
 
 args=("$@")
@@ -302,6 +319,9 @@ while [[ $i -lt ${#args[@]} ]]; do
             ;;
         --allow-replica0-byz-follower)
             ALLOW_REPLICA0_BYZ_FOLLOWER=1
+            ;;
+        --no-ambulance)
+            NO_AMBULANCE=1
             ;;
         *)
             filtered_args+=("${args[$i]}")
@@ -371,7 +391,7 @@ if [[ "${RANDOMIZE}" -eq 1 ]]; then
         echo "ERROR: --randomize requires <N> <F> arguments" >&2
         exit 1
     fi
-    RANDOM_INI="$(generate_random_scenario "${RANDOMIZE_N}" "${RANDOMIZE_F}" "${SIM_DIR}" "${BYZ_LEADER}" "${SYNC_JAVA}" "${ALLOW_REPLICA0_BYZ_FOLLOWER}")"
+    RANDOM_INI="$(generate_random_scenario "${RANDOMIZE_N}" "${RANDOMIZE_F}" "${SIM_DIR}" "${BYZ_LEADER}" "${SYNC_JAVA}" "${ALLOW_REPLICA0_BYZ_FOLLOWER}" "${NO_AMBULANCE}")"
     # When any -f flag is given, OMNeT++ stops auto-loading omnetpp.ini.
     # Explicitly load omnetpp.ini first, then the override file so it wins.
     EXTRA_INI_ARG=(-f "omnetpp.ini" -f "${RANDOM_INI}")

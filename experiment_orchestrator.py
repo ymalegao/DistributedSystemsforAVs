@@ -57,18 +57,29 @@ HOST_LINE = re.compile(r"^(\s*#?\s*)(\d+)(\s+127\.0\.0\.1\s+\d+\s+\d+)\s*$")
 SCENARIO_SUBDIR = {
     "ByzLeader_Ambulance": "amb_byz_leader",
     "ByzFollower_Ambulance": "amb_byz_follower",
+    "ByzFollower_NoAmbulance": "no_amb_byz_follower",
     "Honest_Ambulance": "amb_honest",
     "No_Ambulance_Honest": "no_amb",
+    "ByzLeader_NoAmbulance": "no_amb_byz_leader",
 }
 
 # analyze_log.py --scenario codes (also used by --scenario CLI flag)
 ANALYZE_SCENARIO = {
     "ByzLeader_Ambulance": 4,
     "ByzFollower_Ambulance": 3,
+    "ByzFollower_NoAmbulance": 6,
     "Honest_Ambulance": 2,
     "No_Ambulance_Honest": 1,
+    "ByzLeader_NoAmbulance": 5,
 }
-SCENARIO_BY_CODE = {code: name for name, code in ANALYZE_SCENARIO.items()}
+SCENARIO_BY_CODE = {
+    1: "No_Ambulance_Honest",
+    2: "Honest_Ambulance",
+    3: "ByzFollower_Ambulance",
+    4: "ByzLeader_Ambulance",
+    5: "ByzLeader_NoAmbulance",
+    6: "ByzFollower_NoAmbulance",
+}
 
 DEFAULT_N_VALUES = (4, 8, 12, 16)
 REPETITIONS = 5
@@ -239,6 +250,10 @@ def randomize_args_for_scenario(n: int, scenario_name: str) -> List[str]:
         return ["--randomize", str(n), str(f - 1), "--byzleader", "0", "--sync-java"]
     if scenario_name == "ByzFollower_Ambulance":
         return ["--randomize", str(n), str(f), "--sync-java"]
+    if scenario_name == "ByzFollower_NoAmbulance":
+        return ["--randomize", str(n), str(f), "--sync-java", "--no-ambulance"]
+    if scenario_name == "ByzLeader_NoAmbulance":
+        return ["--randomize", str(n), str(f - 1), "--byzleader", "0", "--sync-java", "--no-ambulance"]
     if scenario_name == "Honest_Ambulance":
         return ["--randomize", str(n), "0", "--sync-java"]
     if scenario_name == "No_Ambulance_Honest":
@@ -253,7 +268,7 @@ def run_one_simulation(
     *,
     dry_run: bool,
 ) -> None:
-    ambulance = scenario_name != "No_Ambulance_Honest"
+    ambulance = scenario_name not in ("No_Ambulance_Honest", "ByzLeader_NoAmbulance", "ByzFollower_NoAmbulance")
     cfg = omnet_config_name(n, ambulance=ambulance)
     extra = randomize_args_for_scenario(n, scenario_name)
     seed = run_seed(MASTER_SEED, n, scenario_name, rep)
@@ -315,7 +330,8 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         metavar="CODE",
         help="Restrict to one or more scenario codes (matches analyze_log.py): "
              "1=No_Ambulance_Honest, 2=Honest_Ambulance, 3=ByzFollower_Ambulance, "
-             "4=ByzLeader_Ambulance. Default: all four, in order 4,3,2,1.",
+             "4=ByzLeader_Ambulance, 5=ByzLeader_NoAmbulance, 6=ByzFollower_NoAmbulance. "
+             "Default: baseline four scenarios in order 4,3,2,1.",
     )
     p.add_argument(
         "--start-rep",
@@ -342,9 +358,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                   "omnetpp.ini may not define a matching [Config].", file=sys.stderr)
 
     if args.scenario:
-        # Preserve canonical run order (ByzLeader → ByzFollower → Honest → NoAmb).
-        wanted = {SCENARIO_BY_CODE[c] for c in args.scenario}
-        scenarios = tuple(s for s in SCENARIO_ORDER if s in wanted)
+        # Respect user-requested order and de-duplicate aliases that map to the same scenario.
+        scenarios = tuple(dict.fromkeys(SCENARIO_BY_CODE[c] for c in args.scenario))
     else:
         scenarios = SCENARIO_ORDER
 
@@ -369,7 +384,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         build_veins_and_bft(dry_run=args.dry_run)
 
         for scenario_name in scenarios:
-            if scenario_name in ("Honest_Ambulance", "No_Ambulance_Honest"):
+            if scenario_name in ("Honest_Ambulance", "No_Ambulance_Honest", "ByzLeader_NoAmbulance"):
                 if not args.dry_run:
                     clear_honest_artifacts()
                 else:

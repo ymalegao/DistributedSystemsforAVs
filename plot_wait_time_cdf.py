@@ -1109,22 +1109,47 @@ def plot_ambulance_vs_normal_wait(
         norm_vals: list[float | None] = []
         no_prio_vals: list[float | None] = []
         labels_short: list[str] = []
-        no_amb_waits: list[float] = []
-
-        # Use the no-ambulance scenario as a baseline for no-priority crossing time.
-        for lab, files_by_vc in bar_series:
-            if "no ambulance" in lab.lower():
-                no_amb_paths = files_by_vc.get(vc) or []
-                if no_amb_paths:
-                    no_amb_waits = scenario_waits(
-                        no_amb_paths, base_dir, "all", exclude_fallback
-                    )
-                break
-        no_prio_baseline = mean_or_none(no_amb_waits)
+        # Matching no-priority baseline per scenario.
+        # - honest ambulance / no-ambulance itself -> no_amb
+        # - ambulance+byz followers -> no_amb_byz_follower
+        # - ambulance+byz leader -> no_amb_byz_leader
+        baseline_patterns_by_vc = {
+            4: {
+                "no_amb": ["benchmarks/Priority4cars/no_amb/run_*/4veh_*.json"],
+                "no_amb_byz_follower": ["benchmarks/Priority4cars/no_amb_byz_follower/run_*/4veh_*.json"],
+                "no_amb_byz_leader": ["benchmarks/Priority4cars/no_amb_byz_leader/run_*/4veh_*.json"],
+            },
+            8: {
+                "no_amb": ["benchmarks/Priority8cars/no_amb/run_*/8veh_*.json"],
+                "no_amb_byz_follower": ["benchmarks/Priority8cars/no_amb_byz_follower/run_*/8veh_*.json"],
+                "no_amb_byz_leader": ["benchmarks/Priority8cars/no_amb_byz_leader/run_*/8veh_*.json"],
+            },
+            12: {
+                "no_amb": ["benchmarks/Priority12cars/no_amb/run_*/12veh_*.json"],
+                "no_amb_byz_follower": ["benchmarks/Priority12cars/no_amb_byz_follower/run_*/12veh_*.json"],
+                "no_amb_byz_leader": ["benchmarks/Priority12cars/no_amb_byz_leader/run_*/12veh_*.json"],
+            },
+            16: {
+                "no_amb": ["benchmarks/Priority16cars/no_amb/run_*/16veh_*.json"],
+                "no_amb_byz_follower": ["benchmarks/Priority16cars/no_amb_byz_follower/run_*/16veh_*.json"],
+                "no_amb_byz_leader": ["benchmarks/Priority16cars/no_amb_byz_leader/run_*/16veh_*.json"],
+            },
+        }
 
         for lab, files_by_vc in bar_series:
             labels_short.append(lab)
             paths = files_by_vc.get(vc) or []
+            lab_lower = lab.lower()
+            baseline_key = "no_amb"
+            if "byzantine followers" in lab_lower:
+                baseline_key = "no_amb_byz_follower"
+            elif "byzantine leader" in lab_lower:
+                baseline_key = "no_amb_byz_leader"
+            baseline_patterns = baseline_patterns_by_vc.get(vc, {}).get(baseline_key, [])
+            baseline_waits = scenario_waits(
+                baseline_patterns, base_dir, "all", exclude_fallback
+            ) if baseline_patterns else []
+            no_prio_baseline = mean_or_none(baseline_waits)
             if not paths:
                 amb_vals.append(None)
                 norm_vals.append(None)

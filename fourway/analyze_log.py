@@ -12,7 +12,9 @@ Tracks the single-round PROPOSE_ALL protocol and per-car lifecycle metrics, incl
 Batch / plotting workflow (same base --save-to, e.g. benchmarks/Priority4cars):
   python analyze_log.py combined.log --save-to benchmarks/Priority4cars --scenario 1 --cars 4
   # writes benchmarks/Priority4cars/no_amb/4veh_0.json (then 4veh_1.json, ...)
-  # --scenario: 1=no ambulance, 2=honest ambulance, 3=Byz followers, 4=Byz leader
+  # --scenario: 1=no ambulance, 2=honest ambulance, 3=Byz followers (legacy),
+  #             4=Byz leader with ambulance, 5=Byz leader no ambulance,
+  #             6=Byz followers with no ambulance
   # plot_wait_time_cdf.py pools all matching Nveh_*.json per folder.
 """
 
@@ -34,11 +36,12 @@ _parser.add_argument("log_file", nargs="?", default="/tmp/bft-all-replicas.log",
 _parser.add_argument("--save-to", metavar="DIR",
                      help="Copy metrics into DIR as <N>veh_<i>.log for later batch analysis")
 _parser.add_argument(
-    "--scenario", type=int, choices=[1, 2, 3, 4], default=None,
+    "--scenario", type=int, choices=[1, 2, 3, 4, 5, 6], default=None,
     metavar="N",
     help="Save under a scenario subfolder (requires --save-to): "
          "1=no ambulance, 2=honest ambulance, 3=ambulance+Byzantine followers, "
-         "4=ambulance+Byzantine leader. Use same base DIR and --cars for each run; "
+         "4=ambulance+Byzantine leader, 5=no ambulance+Byzantine leader, "
+         "6=no ambulance+Byzantine followers. Use same base DIR and --cars for each run; "
          "plot_wait_time_cdf.py pools all matching <N>veh_*.json in that folder.")
 _parser.add_argument("--cars", type=int, default=None,
                      help="Total cars/replicas in the scenario (e.g. 12 or 16). "
@@ -59,12 +62,16 @@ SCENARIO_SUBDIR = {
     2: "amb_honest",
     3: "amb_byz_follower",
     4: "amb_byz_leader",
+    5: "no_amb_byz_leader",
+    6: "no_amb_byz_follower",
 }
 SCENARIO_LABEL = {
     1: "no ambulance",
     2: "honest ambulance",
     3: "ambulance + Byzantine followers",
     4: "ambulance + Byzantine leader",
+    5: "no ambulance + Byzantine leader",
+    6: "no ambulance + Byzantine followers",
 }
 
 LOG_FILE = _args.log_file
