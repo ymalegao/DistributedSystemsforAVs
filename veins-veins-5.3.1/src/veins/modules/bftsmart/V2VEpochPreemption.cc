@@ -27,6 +27,7 @@ void V2VProxyModule::handleWipeComplete() {
     physicallyObservedCars.clear();
     certCollectionStarted = false;
     certBroadcast = false;
+    enteredStopZone = false;
     if (certCollectionTimeoutTimer && certCollectionTimeoutTimer->isScheduled())
         cancelEvent(certCollectionTimeoutTimer);
     currentEpoch++;

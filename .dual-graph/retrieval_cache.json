@@ -1,64 +1,25 @@
 {
   "entries": {
-    "v2vserverscommunicationlayer reliablev2vmessaging perfect links reliability bft smart consensus|tf=5|te=12": {
-      "created_epoch": 1777161353,
+    "nack based leader change protocol design rationale|tf=5|te=12": {
+      "created_epoch": 1777413470,
       "files": [
-        "bftsmart/library/docs/javadoc/member-search-index.js",
-        "bftsmart/library/docs/javadoc/package-search-index.js",
-        "bftsmart/library/docs/javadoc/type-search-index.js",
         "bftsmart/metricParser.py::generate_plots",
-        "fourway/benchmarks/analyze_two_phase_v2_avg_runs.py"
+        "experiment_orchestrator.py::apply_scale",
+        "fourway/analyze_log.py::fmt_stat",
+        "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+        "fourway/benchmarks/analyze_benchmarks.py::main"
       ],
       "mtimes_ns": {
-        "bftsmart/library/docs/javadoc/member-search-index.js": 1775440286006038600,
-        "bftsmart/library/docs/javadoc/package-search-index.js": 1775440286006038600,
-        "bftsmart/library/docs/javadoc/type-search-index.js": 1775440286006038600,
         "bftsmart/metricParser.py::generate_plots": 1775440285659371988,
-        "fourway/benchmarks/analyze_two_phase_v2_avg_runs.py": 1775440277265918217
+        "experiment_orchestrator.py::apply_scale": 1777258764180497333,
+        "fourway/analyze_log.py::fmt_stat": 1777258773249045699,
+        "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path": 1775836937453129547,
+        "fourway/benchmarks/analyze_benchmarks.py::main": 1775440278468438289
       },
       "result": {
         "ok": true,
-        "query": "V2VServersCommunicationLayer ReliableV2VMessaging perfect links reliability BFT-SMaRt consensus core PROPOSE WRITE ACCEPT COMMIT",
+        "query": "NACK based leader change protocol design and rationale",
         "graph_files": [
-          {
-            "id": "bftsmart/library/docs/javadoc/member-search-index.js",
-            "kind": "file",
-            "path": "bftsmart/library/docs/javadoc/member-search-index.js",
-            "ext": ".js",
-            "size": 157829,
-            "keywords": [],
-            "summary": "memberSearchIndex = [{\"p\":\"bftsmart.tests\",\"c\":\"AbstractIntegrationTest\",\"l\":\"AbstractIntegrationTest()\",\"url\":\"%3Cinit%.",
-            "file_hash": "0d266019",
-            "_score": 17,
-            "_role": "code",
-            "_intent": "general"
-          },
-          {
-            "id": "bftsmart/library/docs/javadoc/package-search-index.js",
-            "kind": "file",
-            "path": "bftsmart/library/docs/javadoc/package-search-index.js",
-            "ext": ".js",
-            "size": 1237,
-            "keywords": [],
-            "summary": "packageSearchIndex = [{\"l\":\"All Packages\",\"url\":\"allpackages-index.html\"},{\"l\":\"bftsmart.benchmark\"},{\"l\":\"bftsmart.clie.",
-            "file_hash": "761346ee",
-            "_score": 17,
-            "_role": "code",
-            "_intent": "general"
-          },
-          {
-            "id": "bftsmart/library/docs/javadoc/type-search-index.js",
-            "kind": "file",
-            "path": "bftsmart/library/docs/javadoc/type-search-index.js",
-            "ext": ".js",
-            "size": 9710,
-            "keywords": [],
-            "summary": "typeSearchIndex = [{\"p\":\"bftsmart.tests\",\"l\":\"AbstractIntegrationTest\"},{\"p\":\"bftsmart.tom.client\",\"l\":\"AbstractRequestH.",
-            "file_hash": "2603b480",
-            "_score": 17,
-            "_role": "code",
-            "_intent": "general"
-          },
           {
             "id": "bftsmart/metricParser.py::generate_plots",
             "kind": "symbol",
@@ -77,52 +38,96 @@
             "body_hash": "bf8f1894",
             "confidence": "high",
             "exported": true,
-            "_score": 16,
+            "_score": 11,
             "_role": "code",
-            "_intent": "general"
+            "_intent": "edit"
           },
           {
-            "id": "fourway/benchmarks/analyze_two_phase_v2_avg_runs.py",
-            "kind": "file",
-            "path": "fourway/benchmarks/analyze_two_phase_v2_avg_runs.py",
+            "id": "experiment_orchestrator.py::apply_scale",
+            "kind": "symbol",
+            "path": "experiment_orchestrator.py",
             "ext": ".py",
-            "size": 7326,
+            "size": 4,
             "keywords": [
-              "infer_starting_n",
-              "infer",
-              "starting",
-              "parse_run_log",
-              "parse",
-              "run",
-              "log",
-              "load_collection",
-              "load",
-              "collection",
-              "compute_stats",
-              "compute",
-              "stats",
-              "plot_results",
-              "plot",
-              "results",
-              "main",
-              "smart",
-              "intersection",
-              "corrected",
-              "multi",
-              "config",
-              "plotter",
-              "axis",
-              "configuration",
-              "scenario",
-              "bars",
-              "epochs",
-              "batch"
+              "apply_scale",
+              "apply",
+              "scale"
             ],
-            "summary": "BFT-SMaRt V2V Intersection \u2014 Corrected multi-config plotter. X-Axis = Starting Configuration (Scenario) Bars = Epochs (B. Contains 5 functions/classes: infer_starting_n, parse_run_log, load_collection, compute_stats, ....",
-            "file_hash": "cab02090",
-            "_score": 16,
+            "symbol_type": "use_case",
+            "name": "apply_scale",
+            "line_start": 233,
+            "line_end": 236,
+            "body_hash": "974c8c0b",
+            "confidence": "high",
+            "exported": true,
+            "_score": 11,
             "_role": "code",
-            "_intent": "general"
+            "_intent": "edit"
+          },
+          {
+            "id": "fourway/analyze_log.py::fmt_stat",
+            "kind": "symbol",
+            "path": "fourway/analyze_log.py",
+            "ext": ".py",
+            "size": 189,
+            "keywords": [
+              "fmt_stat",
+              "fmt",
+              "stat"
+            ],
+            "symbol_type": "use_case",
+            "name": "fmt_stat",
+            "line_start": 225,
+            "line_end": 413,
+            "body_hash": "140fa2e4",
+            "confidence": "high",
+            "exported": true,
+            "_score": 11,
+            "_role": "code",
+            "_intent": "edit"
+          },
+          {
+            "id": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+            "kind": "symbol",
+            "path": "fourway/benchmarks/ambulanceWaitTime.py",
+            "ext": ".py",
+            "size": 206,
+            "keywords": [
+              "resolve_log_path",
+              "resolve",
+              "log",
+              "path"
+            ],
+            "symbol_type": "use_case",
+            "name": "resolve_log_path",
+            "line_start": 28,
+            "line_end": 233,
+            "body_hash": "611799bc",
+            "confidence": "high",
+            "exported": true,
+            "_score": 11,
+            "_role": "code",
+            "_intent": "edit"
+          },
+          {
+            "id": "fourway/benchmarks/analyze_benchmarks.py::main",
+            "kind": "symbol",
+            "path": "fourway/benchmarks/analyze_benchmarks.py",
+            "ext": ".py",
+            "size": 150,
+            "keywords": [
+              "main"
+            ],
+            "symbol_type": "use_case",
+            "name": "main",
+            "line_start": 166,
+            "line_end": 315,
+            "body_hash": "45eebc82",
+            "confidence": "high",
+            "exported": true,
+            "_score": 11,
+            "_role": "code",
+            "_intent": "edit"
           }
         ],
         "graph_edges": [
@@ -130,6 +135,36 @@
             "from": "bftsmart/metricParser.py",
             "to": "bftsmart/metricParser.py::generate_plots",
             "rel": "contains"
+          },
+          {
+            "from": "experiment_orchestrator.py",
+            "to": "experiment_orchestrator.py::apply_scale",
+            "rel": "contains"
+          },
+          {
+            "from": "fourway/analyze_log.py",
+            "to": "fourway/analyze_log.py::fmt_stat",
+            "rel": "contains"
+          },
+          {
+            "from": "fourway/benchmarks/ambulanceWaitTime.py",
+            "to": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+            "rel": "contains"
+          },
+          {
+            "from": "fourway/benchmarks/analyze_benchmarks.py",
+            "to": "fourway/benchmarks/analyze_benchmarks.py::main",
+            "rel": "contains"
+          },
+          {
+            "from": ".claude/agents/prof-v2v-bft.md",
+            "to": "claude/agents/v2v-protocol-ref.md",
+            "rel": "references"
+          },
+          {
+            "from": ".claude/agents/v2v-protocol-ref.md",
+            "to": "/home/yash/BFTSMART_PROTOCOL_README.md",
+            "rel": "references"
           },
           {
             "from": "bftsmart/metricParser.py",
@@ -154,36 +189,6 @@
           {
             "from": "bftsmart/metricParser.py",
             "to": "re",
-            "rel": "imports"
-          },
-          {
-            "from": "bftsmart/metricParser.py",
-            "to": "sys",
-            "rel": "imports"
-          },
-          {
-            "from": "fourway/benchmarks/analyze_two_phase_v2_avg_runs.py",
-            "to": "matplotlib.pyplot",
-            "rel": "imports"
-          },
-          {
-            "from": "fourway/benchmarks/analyze_two_phase_v2_avg_runs.py",
-            "to": "numpy",
-            "rel": "imports"
-          },
-          {
-            "from": "fourway/benchmarks/analyze_two_phase_v2_avg_runs.py",
-            "to": "os",
-            "rel": "imports"
-          },
-          {
-            "from": "fourway/benchmarks/analyze_two_phase_v2_avg_runs.py",
-            "to": "re",
-            "rel": "imports"
-          },
-          {
-            "from": "fourway/benchmarks/analyze_two_phase_v2_avg_runs.py",
-            "to": "sys",
             "rel": "imports"
           }
         ],

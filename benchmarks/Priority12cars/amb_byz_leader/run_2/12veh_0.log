@@ -1,43 +1,43 @@
-[ROUND-METRICS] Epoch 0 Avg_ProposeAll_Consensus_Wall: 36.266000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh0: 8.700000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh1: 11.100000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh2: 12.900000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh3: 5.600000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh4: 6.300000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh5: 7.300000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh6: 9.300000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh7: 10.100000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh8: 11.900000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh9: 10.100000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh10: 11.900000 seconds
-[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh11: 13.700000 seconds
-[ROUND-METRICS] Epoch 0 Avg_Messages_Sent_PerReplica: 47.583 (count=12)
-[ROUND-METRICS] Epoch 0 Avg_Messages_Received_PerReplica: 115.750 (count=12)
-[ROUND-METRICS] Epoch 0 Avg_Arrival_To_Resume_Time: 9.908333 seconds (goCars=12)
+[ROUND-METRICS] Epoch 0 Avg_ProposeAll_Consensus_Wall: 27.692000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh0: 5.400000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh1: 5.400000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh2: 3.800000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh3: 6.200000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh4: 4.400000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh5: 5.700000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh6: 3.550000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh7: 4.100000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh8: 6.500000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh9: 4.750000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh10: 8.000000 seconds
+[ROUND-METRICS] Epoch 0 Arrival_To_Resume_Time veh11: 7.000000 seconds
+[ROUND-METRICS] Epoch 0 Avg_Messages_Sent_PerReplica: 30.667 (count=12)
+[ROUND-METRICS] Epoch 0 Avg_Messages_Received_PerReplica: 81.917 (count=12)
+[ROUND-METRICS] Epoch 0 Avg_Arrival_To_Resume_Time: 5.400000 seconds (goCars=12)
 [ROUND-METRICS] Epoch 0 Avg_StopSign_Failures: 0.000 (count)
 [ROUND-METRICS] Epoch 1 Avg_StopSign_Failures: 0.000 (count)
 [ROUND-METRICS] Epoch 2 Avg_StopSign_Failures: 0.000 (count)
-[RUN-METRICS] Throughput_User_Definition: 0.887500 seconds_per_vehicle
-[RUN-METRICS] Throughput_Vehicles_Per_Second: 1.126761 vehicles_per_second
-[RUN-METRICS] Wait_Intersection_All_Mean: 10.650000 seconds
-[RUN-METRICS] Wait_Intersection_All_P95: 14.060000 seconds
-[RUN-METRICS] Wait_Intersection_Normal_Mean: 10.863636 seconds
-[RUN-METRICS] Wait_Intersection_Ambulance_Mean: 8.300000 seconds
-[RUN-METRICS] Arrival_To_Resume_Mean: 9.908333 seconds
-[RUN-METRICS] Resume_To_Depart_Mean: 0.741667 seconds
-[RUN-METRICS] Jains_Fairness_All: 0.947266
-[RUN-METRICS] Jains_Fairness_Normal: 0.949015
-[RUN-METRICS] Ambulance_Priority_Gain: 2.563636 seconds
-[RUN-METRICS] Ambulance_Priority_Ratio: 0.764017
+[RUN-METRICS] Throughput_User_Definition: 0.506250 seconds_per_vehicle
+[RUN-METRICS] Throughput_Vehicles_Per_Second: 1.975309 vehicles_per_second
+[RUN-METRICS] Wait_Intersection_All_Mean: 6.075000 seconds
+[RUN-METRICS] Wait_Intersection_All_P95: 8.160000 seconds
+[RUN-METRICS] Wait_Intersection_Normal_Mean: 6.154545 seconds
+[RUN-METRICS] Wait_Intersection_Ambulance_Mean: 5.200000 seconds
+[RUN-METRICS] Arrival_To_Resume_Mean: 5.254545 seconds
+[RUN-METRICS] Resume_To_Depart_Mean: 0.675000 seconds
+[RUN-METRICS] Jains_Fairness_All: 0.957117
+[RUN-METRICS] Jains_Fairness_Normal: 0.956372
+[RUN-METRICS] Ambulance_Priority_Gain: 0.954545 seconds
+[RUN-METRICS] Ambulance_Priority_Ratio: 0.844904
 [RUN-METRICS] Byzantine_Injections_Total: 1
 [RUN-METRICS] Byzantine_Injections_Epoch0: 1
 [RUN-METRICS] Byzantine_Injections_Epoch1: 0
 [RUN-METRICS] Byzantine_Injections_Epoch2: 0
-[RUN-METRICS] Delivery_Ratio: 0.224734
-[RUN-METRICS] Estimated_Loss_Rate: 0.775266
+[RUN-METRICS] Delivery_Ratio: 0.245214
+[RUN-METRICS] Estimated_Loss_Rate: 0.754786
 [RUN-METRICS] Fallback_Count: 0
 [RUN-METRICS] Fallback_Rate: 0.000000
-[ROUND-METRICS] Epoch 0 Throughput_User_Definition: 0.887500 seconds_per_vehicle
-[ROUND-METRICS] Epoch 0 Throughput_Vehicles_Per_Second: 1.126761 vehicles_per_second
-[ROUND-METRICS] Epoch 0 Wait_Normal_Mean: 10.863636 seconds
-[ROUND-METRICS] Epoch 0 Wait_Ambulance_Mean: 8.300000 seconds
+[ROUND-METRICS] Epoch 0 Throughput_User_Definition: 0.506250 seconds_per_vehicle
+[ROUND-METRICS] Epoch 0 Throughput_Vehicles_Per_Second: 1.975309 vehicles_per_second
+[ROUND-METRICS] Epoch 0 Wait_Normal_Mean: 6.154545 seconds
+[ROUND-METRICS] Epoch 0 Wait_Ambulance_Mean: 5.200000 seconds

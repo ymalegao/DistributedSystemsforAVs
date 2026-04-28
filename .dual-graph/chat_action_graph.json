@@ -1,125 +1,10 @@
 {
   "nodes": [
     {
-      "id": "query:(empty)",
+      "id": "query:v2vproxymodule timestopped intersectionstopdistance certcollectiontimer vehicle spawn",
       "type": "query",
       "meta": {
-        "text": ""
-      }
-    },
-    {
-      "id": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
-      "type": "file"
-    },
-    {
-      "id": "bftsmart/library/src/main/java/bftsmart/communication/client/CommunicationSystemClientSideFactory.java",
-      "type": "file"
-    },
-    {
-      "id": "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java",
-      "type": "file"
-    },
-    {
-      "id": "bftsmart/library/src/main/java/bftsmart/communication/V2V/ReliableV2VMessaging.java",
-      "type": "file"
-    },
-    {
-      "id": "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VNativeBridge.java",
-      "type": "file"
-    },
-    {
-      "id": "action:edit:1777011063",
-      "type": "action",
-      "meta": {
-        "summary": "Added JNIEnvGuard RAII struct; replaced all manual GetEnv+AttachIfDetached+bool patterns across 5 CC files"
-      }
-    },
-    {
-      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIUtils.h",
-      "type": "file"
-    },
-    {
-      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
-      "type": "file"
-    },
-    {
-      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc",
-      "type": "file"
-    },
-    {
-      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc",
-      "type": "file"
-    },
-    {
-      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc",
-      "type": "file"
-    },
-    {
-      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJVMLifecycle.cc",
-      "type": "file"
-    },
-    {
-      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
-      "type": "file"
-    },
-    {
-      "id": "query:proposalpayload parse shared parser dry principles clean code",
-      "type": "query",
-      "meta": {
-        "text": "ProposalPayload parse shared parser DRY principles clean code"
-      }
-    },
-    {
-      "id": "bftsmart/metricParser.py",
-      "type": "file"
-    },
-    {
-      "id": "fourway/benchmarks/analyze_two_phase_v2.py",
-      "type": "file"
-    },
-    {
-      "id": "fourway/benchmarks/analyze_two_phase.py",
-      "type": "file"
-    },
-    {
-      "id": "experiment_orchestrator.py::parse_args",
-      "type": "file"
-    },
-    {
-      "id": "fourway/benchmarks/analyze_benchmarks.py::parse_log_file",
-      "type": "file"
-    },
-    {
-      "id": "query:proposalpayload parse propose_all wire format",
-      "type": "query",
-      "meta": {
-        "text": "ProposalPayload parse PROPOSE_ALL wire format"
-      }
-    },
-    {
-      "id": "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java",
-      "type": "file"
-    },
-    {
-      "id": "action:edit:1777056566",
-      "type": "action",
-      "meta": {
-        "summary": "Created ProposalPayload shared parser; added VehicleState.replicaId(); eliminated all inline split/substring duplicates across sendConsensusRequest, appExecuteBatch, validateProposeAll, buildFreshProposeAllBytes"
-      }
-    },
-    {
-      "id": "bftsmart/library/src/main/java/bftsmart/demo/intersection/ProposalPayload.java",
-      "type": "file"
-    },
-    {
-      "id": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionTypes.java",
-      "type": "file"
-    },
-    {
-      "id": "query:stale onviewagreed rename dead code v2vproxymodule view order",
-      "type": "query",
-      "meta": {
-        "text": "stale onViewAgreed rename dead code C++ V2VProxyModule view order protocol rename"
+        "text": "V2VProxyModule timeStopped intersectionStopDistance CertCollectionTimer vehicle spawn"
       }
     },
     {
@@ -143,158 +28,44 @@
       "type": "file"
     },
     {
-      "id": "query:onviewagreed view protocol stale naming",
+      "id": "query:(empty)",
       "type": "query",
       "meta": {
-        "text": "onViewAgreed view protocol stale naming"
+        "text": ""
       }
     },
     {
-      "id": "query:onviewagreed view protocol stale naming dead code",
+      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
+      "type": "file"
+    },
+    {
+      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+      "type": "file"
+    },
+    {
+      "id": "query:handlepositionupdate distance stopdistance collecting_certs broadcastarrivalannouncement",
       "type": "query",
       "meta": {
-        "text": "onViewAgreed view protocol stale naming dead code"
+        "text": "handlePositionUpdate distance stopDistance COLLECTING_CERTS broadcastArrivalAnnouncement"
       }
     },
     {
-      "id": "action:edit:1777085390",
-      "type": "action",
-      "meta": {
-        "summary": "Renamed stale view-protocol names to PROPOSE_ALL protocol names; gutted dead onViewAgreed to JNI stub; fixed two metrics bugs; JNI symbol kept for RegisterNatives compat"
-      }
-    },
-    {
-      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc",
-      "type": "file"
-    },
-    {
-      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc",
-      "type": "file"
-    },
-    {
-      "id": "query:timer parameters ned ini constructor timeout interval configuration",
+      "id": "query:compare bft timing settings raft cft partner ini",
       "type": "query",
       "meta": {
-        "text": "timer parameters NED INI constructor timeout interval configuration"
+        "text": "compare BFT timing settings with Raft CFT partner ini"
       }
     },
     {
-      "id": "plot_wait_time_cdf.py::ecdf_binned_smooth",
+      "id": "experiment_orchestrator.py::bft_f",
       "type": "file"
-    },
-    {
-      "id": "fourway/benchmarks/analyze_two_phase_v2_avg_runs.py",
-      "type": "file"
-    },
-    {
-      "id": "query:timer configs audit effective values overwritten",
-      "type": "query",
-      "meta": {
-        "text": "timer configs audit effective values overwritten"
-      }
-    },
-    {
-      "id": "benchmarks/Priority16cars/effective_timer_audit_16veh.md",
-      "type": "file"
-    },
-    {
-      "id": "fourway/config/system.config",
-      "type": "file"
-    },
-    {
-      "id": "query:timer timeout jitter retransmission",
-      "type": "query",
-      "meta": {
-        "text": "timer timeout JITTER retransmission"
-      }
-    },
-    {
-      "id": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
-      "type": "file"
-    },
-    {
-      "id": "query:sixteenvehicles timer timeout override",
-      "type": "query",
-      "meta": {
-        "text": "SixteenVehicles timer timeout override"
-      }
-    },
-    {
-      "id": "fourway/omnetpp.ini",
-      "type": "file"
-    },
-    {
-      "id": "query:stopdata retransmission cap max retx",
-      "type": "query",
-      "meta": {
-        "text": "STOPDATA retransmission cap max retx"
-      }
-    },
-    {
-      "id": "bftsmart/library/src/main/java/bftsmart/tom/core/Synchronizer.java",
-      "type": "file"
-    },
-    {
-      "id": "action:edit:1777102003",
-      "type": "action",
-      "meta": {
-        "summary": "Expanded timer audit: added Source column, Java RequestsTimer constants, system.config BFT-SMaRt params, flagged orderDelayGap typo and totalordermulticast.timeout discrepancy"
-      }
-    },
-    {
-      "id": "query:code review architecture report lc_protocol_research_summary byzantine leader change",
-      "type": "query",
-      "meta": {
-        "text": "code review ARCHITECTURE.md report.md LC_PROTOCOL_RESEARCH_SUMMARY.md Byzantine leader change sim time proposals f+1 signed"
-      }
-    },
-    {
-      "id": ".claude/agent-memory/prof-v2v-bft/project_simtime_bug.md",
-      "type": "file"
-    },
-    {
-      "id": "experiment_orchestrator.py::run_one_simulation",
-      "type": "file"
-    },
-    {
-      "id": "fourway/analyze_log.py::save_waittime_by_car_plot",
-      "type": "file"
-    },
-    {
-      "id": "plot_wait_time_cdf.py::derive_bar_series_from_scenarios",
-      "type": "file"
-    },
-    {
-      "id": "query:leader change sim time",
-      "type": "query",
-      "meta": {
-        "text": "leader change sim time"
-      }
-    },
-    {
-      "id": "action:edit:1777149087",
-      "type": "action",
-      "meta": {
-        "summary": "ECDSA P-256 fix in algorithms/prose; Byzantine LC subsection; unified-car TikZ architecture section; f+1-cert fast-propose property in both files; fixed two \\sectionsection bugs"
-      }
-    },
-    {
-      "id": "report.md",
-      "type": "file"
-    },
-    {
-      "id": "ARCHITECTURE.md",
-      "type": "file"
-    },
-    {
-      "id": "query:v2vserverscommunicationlayer reliablev2vmessaging perfect links reliability bft smart consensus",
-      "type": "query",
-      "meta": {
-        "text": "V2VServersCommunicationLayer ReliableV2VMessaging perfect links reliability BFT-SMaRt consensus core PROPOSE WRITE ACCEPT COMMIT"
-      }
     },
     {
       "id": "bftsmart/library/docs/javadoc/member-search-index.js",
+      "type": "file"
+    },
+    {
+      "id": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
       "type": "file"
     },
     {
@@ -302,949 +73,307 @@
       "type": "file"
     },
     {
-      "id": "bftsmart/library/docs/javadoc/type-search-index.js",
+      "id": "query:plot_wait_time_cdf wait time data aggregation bug",
+      "type": "query",
+      "meta": {
+        "text": "plot_wait_time_cdf.py wait time data aggregation bug"
+      }
+    },
+    {
+      "id": "plot_wait_time_cdf.py",
       "type": "file"
     },
     {
-      "id": "action:edit:1777161597",
-      "type": "action",
+      "id": "fourway/analyze_log.py::save_waittime_by_car_plot",
+      "type": "file"
+    },
+    {
+      "id": "fourway/benchmarks/analyze_benchmarks_v2.py",
+      "type": "file"
+    },
+    {
+      "id": "fourway/benchmarks/analyze_two_phase_v2.py",
+      "type": "file"
+    },
+    {
+      "id": "query:nack based leader change protocol design rationale",
+      "type": "query",
       "meta": {
-        "summary": "Wrote Consensus Core, V2V Communication Layer, and Reliable Messaging subsections based on actual code"
+        "text": "NACK based leader change protocol design and rationale"
       }
     }
   ],
   "edges": [
     {
-      "from": "query:(empty)",
-      "to": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
-      "rel": "read",
-      "ts": 1776999770,
-      "meta": {
-        "mode": "head"
-      }
-    },
-    {
-      "from": "query:(empty)",
-      "to": "bftsmart/library/src/main/java/bftsmart/communication/client/CommunicationSystemClientSideFactory.java",
-      "rel": "read",
-      "ts": 1776999770,
-      "meta": {
-        "mode": "full"
-      }
-    },
-    {
-      "from": "query:(empty)",
-      "to": "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java",
-      "rel": "read",
-      "ts": 1776999777,
-      "meta": {
-        "mode": "full"
-      }
-    },
-    {
-      "from": "query:(empty)",
-      "to": "bftsmart/library/src/main/java/bftsmart/communication/V2V/ReliableV2VMessaging.java",
-      "rel": "read",
-      "ts": 1776999777,
-      "meta": {
-        "mode": "head"
-      }
-    },
-    {
-      "from": "query:(empty)",
-      "to": "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VNativeBridge.java",
-      "rel": "read",
-      "ts": 1776999778,
-      "meta": {
-        "mode": "head"
-      }
-    },
-    {
-      "from": "action:edit:1777011063",
-      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIUtils.h",
-      "rel": "edited",
-      "ts": 1777011063
-    },
-    {
-      "from": "action:edit:1777011063",
-      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
-      "rel": "edited",
-      "ts": 1777011063
-    },
-    {
-      "from": "action:edit:1777011063",
-      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc",
-      "rel": "edited",
-      "ts": 1777011063
-    },
-    {
-      "from": "action:edit:1777011063",
-      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc",
-      "rel": "edited",
-      "ts": 1777011063
-    },
-    {
-      "from": "action:edit:1777011063",
-      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc",
-      "rel": "edited",
-      "ts": 1777011063
-    },
-    {
-      "from": "action:edit:1777011063",
-      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJVMLifecycle.cc",
-      "rel": "edited",
-      "ts": 1777011063
-    },
-    {
-      "from": "action:edit:1777011063",
-      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
-      "rel": "edited",
-      "ts": 1777011063
-    },
-    {
-      "from": "query:proposalpayload parse shared parser dry principles clean code",
-      "to": "bftsmart/metricParser.py",
-      "rel": "retrieved",
-      "ts": 1777056233
-    },
-    {
-      "from": "query:proposalpayload parse shared parser dry principles clean code",
-      "to": "fourway/benchmarks/analyze_two_phase_v2.py",
-      "rel": "retrieved",
-      "ts": 1777056233
-    },
-    {
-      "from": "query:proposalpayload parse shared parser dry principles clean code",
-      "to": "fourway/benchmarks/analyze_two_phase.py",
-      "rel": "retrieved",
-      "ts": 1777056233
-    },
-    {
-      "from": "query:proposalpayload parse shared parser dry principles clean code",
-      "to": "experiment_orchestrator.py::parse_args",
-      "rel": "retrieved",
-      "ts": 1777056233
-    },
-    {
-      "from": "query:proposalpayload parse shared parser dry principles clean code",
-      "to": "fourway/benchmarks/analyze_benchmarks.py::parse_log_file",
-      "rel": "retrieved",
-      "ts": 1777056233
-    },
-    {
-      "from": "query:proposalpayload parse propose_all wire format",
-      "to": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
-      "rel": "read",
-      "ts": 1777056263,
-      "meta": {
-        "mode": "query_excerpt"
-      }
-    },
-    {
-      "from": "query:proposalpayload parse propose_all wire format",
-      "to": "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java",
-      "rel": "read",
-      "ts": 1777056263,
-      "meta": {
-        "mode": "full"
-      }
-    },
-    {
-      "from": "action:edit:1777056566",
-      "to": "bftsmart/library/src/main/java/bftsmart/demo/intersection/ProposalPayload.java",
-      "rel": "edited",
-      "ts": 1777056566
-    },
-    {
-      "from": "action:edit:1777056566",
-      "to": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionTypes.java",
-      "rel": "edited",
-      "ts": 1777056566
-    },
-    {
-      "from": "action:edit:1777056566",
-      "to": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
-      "rel": "edited",
-      "ts": 1777056566
-    },
-    {
-      "from": "action:edit:1777056566",
-      "to": "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java",
-      "rel": "edited",
-      "ts": 1777056566
-    },
-    {
-      "from": "query:stale onviewagreed rename dead code v2vproxymodule view order",
+      "from": "query:v2vproxymodule timestopped intersectionstopdistance certcollectiontimer vehicle spawn",
       "to": "bftsmart/metricParser.py::generate_plots",
       "rel": "retrieved",
-      "ts": 1777084262
+      "ts": 1777315918
     },
     {
-      "from": "query:stale onviewagreed rename dead code v2vproxymodule view order",
+      "from": "query:v2vproxymodule timestopped intersectionstopdistance certcollectiontimer vehicle spawn",
       "to": "experiment_orchestrator.py::apply_scale",
       "rel": "retrieved",
-      "ts": 1777084262
+      "ts": 1777315918
     },
     {
-      "from": "query:stale onviewagreed rename dead code v2vproxymodule view order",
+      "from": "query:v2vproxymodule timestopped intersectionstopdistance certcollectiontimer vehicle spawn",
       "to": "fourway/analyze_log.py::fmt_stat",
       "rel": "retrieved",
-      "ts": 1777084262
+      "ts": 1777315918
     },
     {
-      "from": "query:stale onviewagreed rename dead code v2vproxymodule view order",
+      "from": "query:v2vproxymodule timestopped intersectionstopdistance certcollectiontimer vehicle spawn",
       "to": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
       "rel": "retrieved",
-      "ts": 1777084262
+      "ts": 1777315918
     },
     {
-      "from": "query:stale onviewagreed rename dead code v2vproxymodule view order",
+      "from": "query:v2vproxymodule timestopped intersectionstopdistance certcollectiontimer vehicle spawn",
       "to": "fourway/benchmarks/analyze_benchmarks.py::main",
       "rel": "retrieved",
-      "ts": 1777084262
-    },
-    {
-      "from": "query:onviewagreed view protocol stale naming",
-      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
-      "rel": "read",
-      "ts": 1777084268,
-      "meta": {
-        "mode": "query_excerpt"
-      }
-    },
-    {
-      "from": "query:onviewagreed view protocol stale naming dead code",
-      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
-      "rel": "read",
-      "ts": 1777084268,
-      "meta": {
-        "mode": "query_excerpt"
-      }
-    },
-    {
-      "from": "action:edit:1777085390",
-      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
-      "rel": "edited",
-      "ts": 1777085390
-    },
-    {
-      "from": "action:edit:1777085390",
-      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
-      "rel": "edited",
-      "ts": 1777085390
-    },
-    {
-      "from": "action:edit:1777085390",
-      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc",
-      "rel": "edited",
-      "ts": 1777085390
-    },
-    {
-      "from": "action:edit:1777085390",
-      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc",
-      "rel": "edited",
-      "ts": 1777085390
-    },
-    {
-      "from": "action:edit:1777085390",
-      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc",
-      "rel": "edited",
-      "ts": 1777085390
-    },
-    {
-      "from": "action:edit:1777085390",
-      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc",
-      "rel": "edited",
-      "ts": 1777085390
-    },
-    {
-      "from": "query:timer parameters ned ini constructor timeout interval configuration",
-      "to": "plot_wait_time_cdf.py::ecdf_binned_smooth",
-      "rel": "retrieved",
-      "ts": 1777100993
-    },
-    {
-      "from": "query:timer parameters ned ini constructor timeout interval configuration",
-      "to": "fourway/benchmarks/analyze_two_phase_v2_avg_runs.py",
-      "rel": "retrieved",
-      "ts": 1777100993
-    },
-    {
-      "from": "query:timer parameters ned ini constructor timeout interval configuration",
-      "to": "bftsmart/metricParser.py::generate_plots",
-      "rel": "retrieved",
-      "ts": 1777100993
-    },
-    {
-      "from": "query:timer parameters ned ini constructor timeout interval configuration",
-      "to": "experiment_orchestrator.py::apply_scale",
-      "rel": "retrieved",
-      "ts": 1777100993
-    },
-    {
-      "from": "query:timer parameters ned ini constructor timeout interval configuration",
-      "to": "fourway/analyze_log.py::fmt_stat",
-      "rel": "retrieved",
-      "ts": 1777100993
-    },
-    {
-      "from": "query:timer configs audit effective values overwritten",
-      "to": "bftsmart/metricParser.py::generate_plots",
-      "rel": "retrieved",
-      "ts": 1777101469
-    },
-    {
-      "from": "query:timer configs audit effective values overwritten",
-      "to": "experiment_orchestrator.py::apply_scale",
-      "rel": "retrieved",
-      "ts": 1777101469
-    },
-    {
-      "from": "query:timer configs audit effective values overwritten",
-      "to": "fourway/analyze_log.py::fmt_stat",
-      "rel": "retrieved",
-      "ts": 1777101469
-    },
-    {
-      "from": "query:timer configs audit effective values overwritten",
-      "to": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
-      "rel": "retrieved",
-      "ts": 1777101469
-    },
-    {
-      "from": "query:timer configs audit effective values overwritten",
-      "to": "fourway/benchmarks/analyze_benchmarks.py::main",
-      "rel": "retrieved",
-      "ts": 1777101469
+      "ts": 1777315918
     },
     {
       "from": "query:(empty)",
-      "to": "benchmarks/Priority16cars/effective_timer_audit_16veh.md",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
       "rel": "read",
-      "ts": 1777101473,
+      "ts": 1777315925,
       "meta": {
-        "mode": "full"
+        "mode": "head"
       }
     },
     {
       "from": "query:(empty)",
-      "to": "fourway/config/system.config",
-      "rel": "read",
-      "ts": 1777101473,
-      "meta": {
-        "mode": "full"
-      }
-    },
-    {
-      "from": "query:timer timeout jitter retransmission",
-      "to": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
-      "rel": "read",
-      "ts": 1777101484,
-      "meta": {
-        "mode": "query_excerpt"
-      }
-    },
-    {
-      "from": "query:sixteenvehicles timer timeout override",
-      "to": "fourway/omnetpp.ini",
-      "rel": "read",
-      "ts": 1777101484,
-      "meta": {
-        "mode": "full"
-      }
-    },
-    {
-      "from": "query:stopdata retransmission cap max retx",
-      "to": "bftsmart/library/src/main/java/bftsmart/tom/core/Synchronizer.java",
-      "rel": "read",
-      "ts": 1777101513,
-      "meta": {
-        "mode": "query_excerpt"
-      }
-    },
-    {
-      "from": "action:edit:1777102003",
-      "to": "benchmarks/Priority16cars/effective_timer_audit_16veh.md",
-      "rel": "edited",
-      "ts": 1777102003
-    },
-    {
-      "from": "query:code review architecture report lc_protocol_research_summary byzantine leader change",
-      "to": ".claude/agent-memory/prof-v2v-bft/project_simtime_bug.md",
-      "rel": "retrieved",
-      "ts": 1777147959
-    },
-    {
-      "from": "query:code review architecture report lc_protocol_research_summary byzantine leader change",
-      "to": "experiment_orchestrator.py::run_one_simulation",
-      "rel": "retrieved",
-      "ts": 1777147959
-    },
-    {
-      "from": "query:code review architecture report lc_protocol_research_summary byzantine leader change",
-      "to": "fourway/analyze_log.py::save_waittime_by_car_plot",
-      "rel": "retrieved",
-      "ts": 1777147959
-    },
-    {
-      "from": "query:code review architecture report lc_protocol_research_summary byzantine leader change",
-      "to": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
-      "rel": "retrieved",
-      "ts": 1777147959
-    },
-    {
-      "from": "query:code review architecture report lc_protocol_research_summary byzantine leader change",
-      "to": "plot_wait_time_cdf.py::derive_bar_series_from_scenarios",
-      "rel": "retrieved",
-      "ts": 1777147959
-    },
-    {
-      "from": "query:leader change sim time",
       "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
       "rel": "read",
-      "ts": 1777147972,
+      "ts": 1777315931,
+      "meta": {
+        "mode": "anchor_fallback_head"
+      }
+    },
+    {
+      "from": "query:handlepositionupdate distance stopdistance collecting_certs broadcastarrivalannouncement",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+      "rel": "read",
+      "ts": 1777315935,
       "meta": {
         "mode": "query_excerpt"
       }
     },
     {
-      "from": "action:edit:1777149087",
-      "to": "report.md",
-      "rel": "edited",
-      "ts": 1777149087
+      "from": "query:compare bft timing settings raft cft partner ini",
+      "to": "experiment_orchestrator.py::bft_f",
+      "rel": "retrieved",
+      "ts": 1777324128
     },
     {
-      "from": "action:edit:1777149087",
-      "to": "ARCHITECTURE.md",
-      "rel": "edited",
-      "ts": 1777149087
-    },
-    {
-      "from": "query:v2vserverscommunicationlayer reliablev2vmessaging perfect links reliability bft smart consensus",
+      "from": "query:compare bft timing settings raft cft partner ini",
       "to": "bftsmart/library/docs/javadoc/member-search-index.js",
       "rel": "retrieved",
-      "ts": 1777161353
+      "ts": 1777324128
     },
     {
-      "from": "query:v2vserverscommunicationlayer reliablev2vmessaging perfect links reliability bft smart consensus",
-      "to": "bftsmart/library/docs/javadoc/package-search-index.js",
-      "rel": "retrieved",
-      "ts": 1777161353
-    },
-    {
-      "from": "query:v2vserverscommunicationlayer reliablev2vmessaging perfect links reliability bft smart consensus",
-      "to": "bftsmart/library/docs/javadoc/type-search-index.js",
-      "rel": "retrieved",
-      "ts": 1777161353
-    },
-    {
-      "from": "query:v2vserverscommunicationlayer reliablev2vmessaging perfect links reliability bft smart consensus",
+      "from": "query:compare bft timing settings raft cft partner ini",
       "to": "bftsmart/metricParser.py::generate_plots",
       "rel": "retrieved",
-      "ts": 1777161353
+      "ts": 1777324128
     },
     {
-      "from": "query:v2vserverscommunicationlayer reliablev2vmessaging perfect links reliability bft smart consensus",
-      "to": "fourway/benchmarks/analyze_two_phase_v2_avg_runs.py",
+      "from": "query:compare bft timing settings raft cft partner ini",
+      "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
       "rel": "retrieved",
-      "ts": 1777161353
+      "ts": 1777324128
     },
     {
-      "from": "action:edit:1777161597",
-      "to": "report.md",
-      "rel": "edited",
-      "ts": 1777161597
+      "from": "query:compare bft timing settings raft cft partner ini",
+      "to": "bftsmart/library/docs/javadoc/package-search-index.js",
+      "rel": "retrieved",
+      "ts": 1777324128
+    },
+    {
+      "from": "query:plot_wait_time_cdf wait time data aggregation bug",
+      "to": "plot_wait_time_cdf.py",
+      "rel": "retrieved",
+      "ts": 1777409906
+    },
+    {
+      "from": "query:plot_wait_time_cdf wait time data aggregation bug",
+      "to": "fourway/analyze_log.py::save_waittime_by_car_plot",
+      "rel": "retrieved",
+      "ts": 1777409906
+    },
+    {
+      "from": "query:plot_wait_time_cdf wait time data aggregation bug",
+      "to": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+      "rel": "retrieved",
+      "ts": 1777409906
+    },
+    {
+      "from": "query:plot_wait_time_cdf wait time data aggregation bug",
+      "to": "fourway/benchmarks/analyze_benchmarks_v2.py",
+      "rel": "retrieved",
+      "ts": 1777409906
+    },
+    {
+      "from": "query:plot_wait_time_cdf wait time data aggregation bug",
+      "to": "fourway/benchmarks/analyze_two_phase_v2.py",
+      "rel": "retrieved",
+      "ts": 1777409906
+    },
+    {
+      "from": "query:(empty)",
+      "to": "plot_wait_time_cdf.py",
+      "rel": "read",
+      "ts": 1777409911,
+      "meta": {
+        "mode": "head"
+      }
+    },
+    {
+      "from": "query:(empty)",
+      "to": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+      "rel": "read",
+      "ts": 1777409911,
+      "meta": {
+        "mode": "symbol_excerpt"
+      }
+    },
+    {
+      "from": "query:nack based leader change protocol design rationale",
+      "to": "bftsmart/metricParser.py::generate_plots",
+      "rel": "retrieved",
+      "ts": 1777413470
+    },
+    {
+      "from": "query:nack based leader change protocol design rationale",
+      "to": "experiment_orchestrator.py::apply_scale",
+      "rel": "retrieved",
+      "ts": 1777413470
+    },
+    {
+      "from": "query:nack based leader change protocol design rationale",
+      "to": "fourway/analyze_log.py::fmt_stat",
+      "rel": "retrieved",
+      "ts": 1777413470
+    },
+    {
+      "from": "query:nack based leader change protocol design rationale",
+      "to": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+      "rel": "retrieved",
+      "ts": 1777413470
+    },
+    {
+      "from": "query:nack based leader change protocol design rationale",
+      "to": "fourway/benchmarks/analyze_benchmarks.py::main",
+      "rel": "retrieved",
+      "ts": 1777413470
     }
   ],
   "files": {
-    "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java": {
-      "query_terms": [
-        "proposalpayload",
-        "parse",
-        "propose_all",
-        "wire",
-        "format"
-      ],
-      "cached_content": "import java.util.Collections;\nimport java.util.HashMap;\nimport java.util.HashSet;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\nimport java.util.TreeSet;\nimport java.util.concurrent.ConcurrentHashMap;\nimport org.bouncycastle.jce.provider.BouncyCas",
-      "cached_chars": 20000,
-      "cached_tokens_est": 5000,
-      "last_action": "edited",
-      "last_ts": "2026-04-24T18:49:26.767916+00:00",
-      "edited_count": 1
-    },
-    "bftsmart/library/src/main/java/bftsmart/communication/client/CommunicationSystemClientSideFactory.java": {
-      "query_terms": [],
-      "cached_content": "/**\nCopyright (c) 2007-2013 Alysson Bessani, Eduardo Alchieri, Paulo Sousa, and the authors indicated in the @author tags\n\nLicensed under the Apache License, Version 2.0 (the \"License\");\nyou may not use this file except in compliance with the License.\nYou may obtain a copy of the License at\n\nhttp://",
-      "cached_chars": 1140,
-      "cached_tokens_est": 285,
-      "last_action": "read",
-      "last_ts": 1776999770
-    },
-    "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java": {
-      "query_terms": [],
-      "cached_content": "package bftsmart.communication.V2V;\n\nimport bftsmart.communication.SystemMessage;\nimport bftsmart.communication.server.ServersCommunicationLayerInterface;\nimport bftsmart.reconfiguration.ServerViewController;\nimport bftsmart.tom.ServiceReplica;\nimport java.util.concurrent.LinkedBlockingQueue;\nimport",
-      "cached_chars": 17312,
-      "cached_tokens_est": 4328,
-      "last_action": "read",
-      "last_ts": 1776999777
-    },
-    "bftsmart/library/src/main/java/bftsmart/communication/V2V/ReliableV2VMessaging.java": {
-      "query_terms": [],
-      "cached_content": "package bftsmart.communication.V2V;\n\nimport bftsmart.communication.SystemMessage;\nimport java.io.*;\nimport java.util.*;\nimport java.util.concurrent.*;\n\npublic class ReliableV2VMessaging {\n    private final int myReplicaId;\n    private final V2VServersCommunicationLayer parent;\n\n    private final Con",
-      "cached_chars": 20000,
-      "cached_tokens_est": 5000,
-      "last_action": "read",
-      "last_ts": 1776999777
-    },
-    "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VNativeBridge.java": {
-      "query_terms": [],
-      "cached_content": "package bftsmart.communication.V2V;\n\npublic class V2VNativeBridge {\n    private static boolean libaryLoaded = false;\n    private final int replicaId;\n    private MessageReceiverCallback callback;\n    private RadioReadyCallback radioReadyCallback;\n    private boolean initialized = false;\n\n\n    static",
-      "cached_chars": 1548,
-      "cached_tokens_est": 387,
-      "last_action": "read",
-      "last_ts": 1776999778
-    },
-    "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIUtils.h": {
-      "last_action": "edited",
-      "last_ts": "2026-04-24T06:11:03.760772+00:00",
-      "edited_count": 1
-    },
     "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h": {
-      "query_terms": [
-        "onviewagreed",
-        "view",
-        "protocol",
-        "stale",
-        "naming"
-      ],
-      "cached_content": "namespace veins {\n\n\n\nclass VEINS_API V2VProxyModule : public DemoBaseApplLayer {\npublic:\n    V2VProxyModule();\n    ~V2VProxyModule() override;\n    static const int BATCH_SIZE = 16;\n\n    simtime_t consensusStartTime;\n    \n    // Separate timing for View and Order consensus\n    simtime_t viewConsensus",
+      "query_terms": [],
+      "cached_content": "//\n// V2VProxyModule.h\n// OMNeT++ module that bridges BFT-SMaRt Java processes to Veins V2V communication\n//\n\n#pragma once\n\n#include \"veins/veins.h\"\n#include \"veins/modules/application/ieee80211p/DemoBaseApplLayer.h\"\n#include \"veins/modules/bftsmart/bftsmart_demo_intersection_IntersectionServer.h\"\n#",
       "cached_chars": 20000,
       "cached_tokens_est": 5000,
-      "last_action": "edited",
-      "last_ts": "2026-04-25T02:49:50.447759+00:00",
-      "edited_count": 1
-    },
-    "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc": {
-      "last_action": "edited",
-      "last_ts": "2026-04-25T02:49:50.447787+00:00",
-      "edited_count": 2
-    },
-    "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc": {
-      "last_action": "edited",
-      "last_ts": "2026-04-25T02:49:50.447783+00:00",
-      "edited_count": 2
-    },
-    "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc": {
-      "last_action": "edited",
-      "last_ts": "2026-04-24T06:11:03.760795+00:00",
-      "edited_count": 1
-    },
-    "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJVMLifecycle.cc": {
-      "last_action": "edited",
-      "last_ts": "2026-04-24T06:11:03.760800+00:00",
-      "edited_count": 1
+      "last_action": "read",
+      "last_ts": 1777315925
     },
     "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc": {
       "query_terms": [
-        "leader",
-        "change",
-        "sim",
-        "time"
+        "handlepositionupdate",
+        "distance",
+        "stopdistance",
+        "collecting_certs",
+        "broadcastarrivalannouncement"
       ],
-      "cached_content": "//\n// V2VProxyModule.cc\n// Implementation of V2V Proxy Module for BFT-SMaRt\n//\n\n#include \"veins/modules/bftsmart/V2VProxyModule.h\"\n#include \"veins/modules/bftsmart/crypto/CryptoAuth.h\"\n#include \"veins/base/utils/SimpleAddress.h\"\n#include \"veins/modules/utility/Consts80211p.h\"\n#include <algorithm>\n#i",
+      "cached_content": "    , deliverMessageMethod(nullptr)\n    , bftReplicaThread(nullptr)\n    , radioBusy(false)\n    , radioReadyMsg(nullptr)\n    , onRadioReadyMethod(nullptr)\n    , clockClass(nullptr)\n    , updateTimeMethod(nullptr)\n    , processQueueTimer(nullptr)\n    , triggerJoinTimer(nullptr)\n    , joinTriggered(fal",
+      "cached_chars": 5000,
+      "cached_tokens_est": 1250,
+      "last_action": "read",
+      "last_ts": 1777315935
+    },
+    "plot_wait_time_cdf.py": {
+      "query_terms": [],
+      "cached_content": "#!/usr/bin/env python3\n\"\"\"\nPlots from analyze_log metrics JSON (per_car + overall):\n\n1. CDF \u2014 2\u00d72 panels for n \u2208 {4,8,12,16}; each panel shows ECDFs for every scenario that\n   has JSON for that n. ``wait_intersection_s``; \u2605 = priority vehicle when role=all.\n   Use ``--scenario`` for a single-panel l",
       "cached_chars": 20000,
       "cached_tokens_est": 5000,
       "last_action": "read",
-      "last_ts": 1777147972
+      "last_ts": 1777409911
     },
-    "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java": {
-      "query_terms": [
-        "proposalpayload",
-        "parse",
-        "propose_all",
-        "wire",
-        "format"
-      ],
-      "cached_content": "package bftsmart.demo.intersection;\n\nimport bftsmart.tom.core.messages.TOMMessage;\nimport bftsmart.tom.server.RequestVerifier;\nimport java.nio.charset.StandardCharsets;\nimport java.util.ArrayList;\nimport java.util.HashMap;\nimport java.util.HashSet;\nimport java.util.List;\nimport java.util.Map;\nimport",
-      "cached_chars": 11582,
-      "cached_tokens_est": 2895,
-      "last_action": "edited",
-      "last_ts": "2026-04-24T18:49:26.767922+00:00",
-      "edited_count": 1
-    },
-    "bftsmart/library/src/main/java/bftsmart/demo/intersection/ProposalPayload.java": {
-      "last_action": "edited",
-      "last_ts": "2026-04-24T18:49:26.767870+00:00",
-      "edited_count": 1
-    },
-    "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionTypes.java": {
-      "last_action": "edited",
-      "last_ts": "2026-04-24T18:49:26.767909+00:00",
-      "edited_count": 1
-    },
-    "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc": {
-      "last_action": "edited",
-      "last_ts": "2026-04-25T02:49:50.447778+00:00",
-      "edited_count": 1
-    },
-    "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc": {
-      "last_action": "edited",
-      "last_ts": "2026-04-25T02:49:50.447793+00:00",
-      "edited_count": 1
-    },
-    "benchmarks/Priority16cars/effective_timer_audit_16veh.md": {
+    "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path": {
       "query_terms": [],
-      "cached_content": "# Effective Timer Audit (16-vehicle scenarios)\n\nThis sheet lists effective timer values after INI inheritance/overrides for:\n- `Config SixteenVehiclesBFTOverV2V`\n- `Config SixteenVehiclesAmbulanceBFT` (same timers as above)\n\nUnits are milliseconds unless noted.\n\n## INI / NED effective timers (post-o",
-      "cached_chars": 5347,
-      "cached_tokens_est": 1336,
-      "last_action": "edited",
-      "last_ts": "2026-04-25T07:26:43.391693+00:00",
-      "edited_count": 1
-    },
-    "fourway/config/system.config": {
-      "query_terms": [],
-      "cached_content": "# Copyright (c) 2007-2013 Alysson Bessani, Eduardo Alchieri, Paulo Sousa, and the authors indicated in the @author tags\n#\n# Licensed under the Apache License, Version 2.0 (the \"License\");\n# you may not use this file except in compliance with the License.\n# You may obtain a copy of the License at\n#\n#",
-      "cached_chars": 11858,
-      "cached_tokens_est": 2964,
+      "cached_content": "def resolve_log_path(base_dir, n, config):\n    \"\"\"Find the correct log path for a given n/config despite naming variations.\"\"\"\n    priority_dir = os.path.join(base_dir, f\"Priority{n}cars\")\n    if not os.path.isdir(priority_dir):\n        return None\n\n    candidates_by_config = {\n        \"NoAmbulanceH",
+      "cached_chars": 7158,
+      "cached_tokens_est": 1789,
       "last_action": "read",
-      "last_ts": 1777101473
-    },
-    "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java": {
-      "query_terms": [
-        "timer",
-        "timeout",
-        "jitter",
-        "retransmission"
-      ],
-      "cached_content": "\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an \"AS IS\" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the Li",
-      "cached_chars": 20000,
-      "cached_tokens_est": 5000,
-      "last_action": "read",
-      "last_ts": 1777101484
-    },
-    "fourway/omnetpp.ini": {
-      "query_terms": [
-        "sixteenvehicles",
-        "timer",
-        "timeout",
-        "override"
-      ],
-      "cached_content": "[General]\nscheduler-class = \"omnetpp::cRealTimeScheduler\"\nrealtimescheduler-scaling = 0.1\ncmdenv-express-mode = false\ncmdenv-autoflush = false\ncmdenv-status-frequency = 1s\n**.cmdenv-log-level = info\n\nimage-path = ../../images\n\nnetwork = fourWay\n\n######################################################",
-      "cached_chars": 13073,
-      "cached_tokens_est": 3268,
-      "last_action": "read",
-      "last_ts": 1777101484
-    },
-    "bftsmart/library/src/main/java/bftsmart/tom/core/Synchronizer.java": {
-      "query_terms": [
-        "stopdata",
-        "retransmission",
-        "cap",
-        "max",
-        "retx"
-      ],
-      "cached_content": " * \n * This class implements all optimizations described at the end of the paper\n * \n * @author joao\n */\npublic class Synchronizer {\n    \n    private Logger logger = LoggerFactory.getLogger(this.getClass());\n\n    // out of context messages related to the leader change are stored here\n    private fin",
-      "cached_chars": 6000,
-      "cached_tokens_est": 1500,
-      "last_action": "read",
-      "last_ts": 1777101513
-    },
-    "report.md": {
-      "last_action": "edited",
-      "last_ts": "2026-04-25T23:59:57.680666+00:00",
-      "edited_count": 2
-    },
-    "ARCHITECTURE.md": {
-      "last_action": "edited",
-      "last_ts": "2026-04-25T20:31:27.577060+00:00",
-      "edited_count": 1
+      "last_ts": 1777409911
     }
   },
   "actions": [
     {
-      "ts": 1777011063,
-      "kind": "register_edit",
-      "payload": {
-        "kind": "register_edit"
-      }
-    },
-    {
-      "ts": 1777056233,
+      "ts": 1777315918,
       "kind": "retrieve",
       "payload": {
         "kind": "retrieve",
-        "query": "ProposalPayload parse shared parser DRY principles clean code"
+        "query": "V2VProxyModule timeStopped intersectionStopDistance CertCollectionTimer vehicle spawn"
       }
     },
     {
-      "ts": 1777056233,
+      "ts": 1777315918,
       "kind": "continue_retrieve",
       "payload": {
         "kind": "continue_retrieve",
-        "query": "ProposalPayload parse shared parser DRY principles clean code"
+        "query": "V2VProxyModule timeStopped intersectionStopDistance CertCollectionTimer vehicle spawn"
       }
     },
     {
-      "ts": 1777056267,
-      "kind": "read_cache_hit",
-      "payload": {
-        "kind": "read_cache_hit",
-        "file": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
-        "query": "appExecuteBatch parse split PROPOSE_ALL parts",
-        "mode": "cache_hit",
-        "response_chars": 300
-      }
-    },
-    {
-      "ts": 1777056566,
-      "kind": "register_edit",
-      "payload": {
-        "kind": "register_edit"
-      }
-    },
-    {
-      "ts": 1777084262,
+      "ts": 1777324128,
       "kind": "retrieve",
       "payload": {
         "kind": "retrieve",
-        "query": "stale onViewAgreed rename dead code C++ V2VProxyModule view order protocol rename"
+        "query": "compare BFT timing settings with Raft CFT partner ini"
       }
     },
     {
-      "ts": 1777084262,
+      "ts": 1777324128,
       "kind": "continue_retrieve",
       "payload": {
         "kind": "continue_retrieve",
-        "query": "stale onViewAgreed rename dead code C++ V2VProxyModule view order protocol rename"
+        "query": "compare BFT timing settings with Raft CFT partner ini"
       }
     },
     {
-      "ts": 1777085390,
-      "kind": "register_edit",
-      "payload": {
-        "kind": "register_edit"
-      }
-    },
-    {
-      "ts": 1777100993,
+      "ts": 1777409906,
       "kind": "retrieve",
       "payload": {
         "kind": "retrieve",
-        "query": "timer parameters NED INI constructor timeout interval configuration"
+        "query": "plot_wait_time_cdf.py wait time data aggregation bug"
       }
     },
     {
-      "ts": 1777100993,
+      "ts": 1777409906,
       "kind": "continue_retrieve",
       "payload": {
         "kind": "continue_retrieve",
-        "query": "timer parameters NED INI constructor timeout interval configuration"
+        "query": "plot_wait_time_cdf.py wait time data aggregation bug"
       }
     },
     {
-      "ts": 1777101469,
+      "ts": 1777413470,
       "kind": "retrieve",
       "payload": {
         "kind": "retrieve",
-        "query": "timer configs audit effective values overwritten"
+        "query": "NACK based leader change protocol design and rationale"
       }
     },
     {
-      "ts": 1777101469,
+      "ts": 1777413470,
       "kind": "continue_retrieve",
       "payload": {
         "kind": "continue_retrieve",
-        "query": "timer configs audit effective values overwritten"
+        "query": "NACK based leader change protocol design and rationale"
       }
-    },
-    {
-      "ts": 1777101513,
-      "kind": "read_cache_hit",
-      "payload": {
-        "kind": "read_cache_hit",
-        "file": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
-        "query": "STOP_BLIND_EMITS constructor timeout shortTimeout initialization",
-        "mode": "cache_hit",
-        "response_chars": 300
-      }
-    },
-    {
-      "ts": 1777102003,
-      "kind": "register_edit",
-      "payload": {
-        "kind": "register_edit"
-      }
-    },
-    {
-      "ts": 1777147959,
-      "kind": "retrieve",
-      "payload": {
-        "kind": "retrieve",
-        "query": "code review ARCHITECTURE.md report.md LC_PROTOCOL_RESEARCH_SUMMARY.md Byzantine leader change sim time proposals f+1 signed"
-      }
-    },
-    {
-      "ts": 1777147959,
-      "kind": "continue_retrieve",
-      "payload": {
-        "kind": "continue_retrieve",
-        "query": "code review ARCHITECTURE.md report.md LC_PROTOCOL_RESEARCH_SUMMARY.md Byzantine leader change sim time proposals f+1 signed"
-      }
-    },
-    {
-      "ts": 1777147967,
-      "kind": "read_blocked_reuse_gate",
-      "payload": {
-        "kind": "read_blocked_reuse_gate",
-        "file": "ARCHITECTURE.md",
-        "query": "Byzantine leader change proposals f+1 signed sim time",
-        "mode": "reuse_gate_blocked"
-      }
-    },
-    {
-      "ts": 1777147967,
-      "kind": "read_blocked_reuse_gate",
-      "payload": {
-        "kind": "read_blocked_reuse_gate",
-        "file": "report.md",
-        "query": "Byzantine leader change proposals f+1 signed",
-        "mode": "reuse_gate_blocked"
-      }
-    },
-    {
-      "ts": 1777147968,
-      "kind": "read_blocked_reuse_gate",
-      "payload": {
-        "kind": "read_blocked_reuse_gate",
-        "file": "LC_PROTOCOL_RESEARCH_SUMMARY.md",
-        "query": "Byzantine leader change sim time f+1 signed proposals",
-        "mode": "reuse_gate_blocked"
-      }
-    },
-    {
-      "ts": 1777147977,
-      "kind": "read_blocked_reuse_gate",
-      "payload": {
-        "kind": "read_blocked_reuse_gate",
-        "file": "ARCHITECTURE.md",
-        "query": "Byzantine leader change proposals f+1 signed sim time",
-        "mode": "reuse_gate_blocked"
-      }
-    },
-    {
-      "ts": 1777147977,
-      "kind": "read_blocked_reuse_gate",
-      "payload": {
-        "kind": "read_blocked_reuse_gate",
-        "file": "report.md",
-        "query": "Byzantine leader change proposals f+1 signed architecture",
-        "mode": "reuse_gate_blocked"
-      }
-    },
-    {
-      "ts": 1777147978,
-      "kind": "read_blocked_reuse_gate",
-      "payload": {
-        "kind": "read_blocked_reuse_gate",
-        "file": "LC_PROTOCOL_RESEARCH_SUMMARY.md",
-        "query": "Byzantine leader change sim time f+1 signed proposals new leader",
-        "mode": "reuse_gate_blocked"
-      }
-    },
-    {
-      "ts": 1777149087,
-      "kind": "register_edit",
-      "payload": {
-        "kind": "register_edit"
-      }
-    },
-    {
-      "ts": 1777161353,
-      "kind": "retrieve",
-      "payload": {
-        "kind": "retrieve",
-        "query": "V2VServersCommunicationLayer ReliableV2VMessaging perfect links reliability BFT-SMaRt consensus core PROPOSE WRITE ACCEPT COMMIT"
-      }
-    },
-    {
-      "ts": 1777161353,
-      "kind": "continue_retrieve",
-      "payload": {
-        "kind": "continue_retrieve",
-        "query": "V2VServersCommunicationLayer ReliableV2VMessaging perfect links reliability BFT-SMaRt consensus core PROPOSE WRITE ACCEPT COMMIT"
-      }
-    },
-    {
-      "ts": 1777161597,
-      "kind": "register_edit",
-      "payload": {
-        "kind": "register_edit"
-      }
-    }
-  ],
-  "decisions": [
-    {
-      "ts": 1777011063,
-      "summary": "Added JNIEnvGuard RAII struct; replaced all manual GetEnv+AttachIfDetached+bool patterns across 5 CC files",
-      "files": [
-        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIUtils.h",
-        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
-        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc",
-        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc",
-        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc",
-        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJVMLifecycle.cc",
-        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
-      ],
-      "scope": "global"
-    },
-    {
-      "ts": 1777056566,
-      "summary": "Created ProposalPayload shared parser; added VehicleState.replicaId(); eliminated all inline split/substring duplicates across sendConsensusRequest, appExecuteBatch, validateProposeAll, buildFreshProposeAllBytes",
-      "files": [
-        "bftsmart/library/src/main/java/bftsmart/demo/intersection/ProposalPayload.java",
-        "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionTypes.java",
-        "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
-        "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java"
-      ],
-      "scope": "global"
-    },
-    {
-      "ts": 1777085390,
-      "summary": "Renamed stale view-protocol names to PROPOSE_ALL protocol names; gutted dead onViewAgreed to JNI stub; fixed two metrics bugs; JNI symbol kept for RegisterNatives compat",
-      "files": [
-        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
-        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
-        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc",
-        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc",
-        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc",
-        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc"
-      ],
-      "scope": "global"
-    },
-    {
-      "ts": 1777102003,
-      "summary": "Expanded timer audit: added Source column, Java RequestsTimer constants, system.config BFT-SMaRt params, flagged orderDelayGap typo and totalordermulticast.timeout discrepancy",
-      "files": [
-        "benchmarks/Priority16cars/effective_timer_audit_16veh.md"
-      ],
-      "scope": "file"
-    },
-    {
-      "ts": 1777149087,
-      "summary": "ECDSA P-256 fix in algorithms/prose; Byzantine LC subsection; unified-car TikZ architecture section; f+1-cert fast-propose property in both files; fixed two \\sectionsection bugs",
-      "files": [
-        "report.md",
-        "ARCHITECTURE.md"
-      ],
-      "scope": "global"
-    },
-    {
-      "ts": 1777161597,
-      "summary": "Wrote Consensus Core, V2V Communication Layer, and Reliable Messaging subsections based on actual code",
-      "files": [
-        "report.md"
-      ],
-      "scope": "file"
     }
   ]
 }

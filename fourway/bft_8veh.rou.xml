@@ -11,12 +11,15 @@
     <route id="rW" edges="W2C C2E"/>
 
     <!-- 8 vehicles total -->
-    <vehicle id="veh0" type="car" route="rN" depart="0" departSpeed="max" departPos="280"/>
-    <vehicle id="veh1" type="car" route="rN" depart="0" departSpeed="max" departPos="270"/>
-    <vehicle id="veh2" type="car" route="rS" depart="0" departSpeed="max" departPos="280"/>
-    <vehicle id="veh3" type="car" route="rS" depart="0" departSpeed="max" departPos="270"/>
-    <vehicle id="veh4" type="car" route="rE" depart="0" departSpeed="max" departPos="280"/>
-    <vehicle id="veh5" type="car" route="rE" depart="0" departSpeed="max" departPos="270"/>
-    <vehicle id="veh6" type="car" route="rW" depart="0" departSpeed="max" departPos="280"/>
-    <vehicle id="veh7" type="car" route="rW" depart="0" departSpeed="max" departPos="270"/>
+    <vehicle id="veh0" type="car" route="rN" depart="0" departSpeed="max" departPos="0"/>
+    <vehicle id="veh1" type="car" route="rN" depart="0" departSpeed="max" departPos="20"/>
+
+    <vehicle id="veh2" type="car" route="rS" depart="0" departSpeed="max" departPos="0"/>
+    <vehicle id="veh3" type="car" route="rS" depart="0" departSpeed="max" departPos="20"/>
+    
+    <vehicle id="veh4" type="car" route="rE" depart="0" departSpeed="max" departPos="0"/>
+    <vehicle id="veh5" type="car" route="rE" depart="0" departSpeed="max" departPos="20"/>
+    
+    <vehicle id="veh6" type="car" route="rW" depart="0" departSpeed="max" departPos="0"/>
+    <vehicle id="veh7" type="car" route="rW" depart="0" departSpeed="max" departPos="20"/>
 </routes>

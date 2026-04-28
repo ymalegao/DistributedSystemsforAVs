@@ -173,6 +173,7 @@ void V2VProxyModule::initialize(int stage)
         intersectionX = par("intersectionX").doubleValue();
         intersectionY = par("intersectionY").doubleValue();
         stopDistance = par("stopDistance").doubleValue();
+        totalVehicles_ = par("totalVehicles").intValue();
         intersectionWidth = par("intersectionWidth").doubleValue();
         avgSpeed = par("avgSpeed").doubleValue();
         safetyGap = par("safetyGap").doubleValue();
@@ -248,9 +249,15 @@ void V2VProxyModule::initialize(int stage)
         // Create timer for checking Java readiness
         checkJavaReadyTimer = new cMessage("checkJavaReady");
         retxCheckTimer = new cMessage("retransmissionCheck");
-        
-        
-        
+
+        // Early cert discovery: schedule ARRIVAL_ANNOUNCE at spawn_time + triggerJoinTime
+        // + per-replica slot. Using simTime() (spawn time) as the base avoids scheduling
+        // in the past (vehicles spawn at different SUMO times). The slot stagger prevents
+        // simultaneous 802.11p collisions regardless of JVM startup timing.
+        triggerJoinTimer = new cMessage("earlyAnnounce");
+        double triggerJoinTime = par("triggerJoinTime").doubleValue();
+        double announceSlot    = par("arrivalSlotSec").doubleValue();
+        scheduleAt(simTime() + triggerJoinTime + replicaId * announceSlot, triggerJoinTimer);
 
         scheduleAt(simTime() + 0.02, retxCheckTimer);
         scheduleAt(simTime() + 0.5, checkJavaReadyTimer); // Start checking after 0.5s
@@ -736,6 +743,7 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
                     isWaitingForClearance = false;
                     currentPhase = IDLE;
                     joinTriggered = false;
+                    enteredStopZone = false;
 
                     if (isStopped) {
                         isStopped = false;
@@ -752,76 +760,87 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
         }
 
         // ---------------------------------------------------------------------
-        // RULE 3: NEW ROUND TRIGGER
-        // If we are parked at the line and the intersection is clear, PROPOSE!
+        // RULE 3a: EARLY CERT DISCOVERY (retry path)
+        // Primary trigger is triggerJoinTimer (globally staggered). This retry
+        // fires only if the JVM wasn't ready at the scheduled slot time.
+        // ---------------------------------------------------------------------
+        if (javaReady && !joinTriggered && currentPhase == IDLE) {
+            laneDiscovered = false;
+            discoverLane();
+            currentPhase = COLLECTING_CERTS;
+            broadcastArrivalAnnouncement();
+            certCollectionStartTime = simTime();
+            certCollectionStarted = true;
+            joinTriggered = true;
+            std::cout << "[V2VProxy " << replicaId << "] Early cert discovery started at t=" << simTime()
+                      << " (JVM-ready retry)\n";
+        }
+
+        // ---------------------------------------------------------------------
+        // RULE 3b: STOP ZONE — proposal trigger
+        // Effective zone = stopDistance * (totalVehicles / 2). All vehicles stop
+        // here; the lane leader proposes immediately if certs are ready.
         // ---------------------------------------------------------------------
         distance = getDistanceToIntersection();
 
-        // Ensure we are physically AT the intersection AND the first car in the lane
-        // If there's a car ahead of us (carAhead != ""), we are just waiting in the queue
-        if (distance < stopDistance + 1.5 && currentPhase == IDLE && !joinTriggered) {
+        // Queued followers can stop behind the lane leader due to SUMO car-following
+        // before they ever cross the stop-zone distance threshold. Record their first
+        // stationary moment so downstream metrics don't lose them when stop_time stays -1.
+        if (currentPhase == COLLECTING_CERTS
+                && stopTime < SIMTIME_ZERO
+                && !carAhead.empty()) {
+            try {
+                if (mobility && mobility->getVehicleCommandInterface()) {
+                    const double speed = mobility->getVehicleCommandInterface()->getSpeed();
+                    if (speed < 0.5) {
+                        stopTime = simTime();
+                        std::cout << "[METRICS " << replicaId << "] Arrival_Time: " << stopTime << "\n";
+                        std::cout << "[METRICS " << replicaId << "] Stop_Time: " << stopTime << "\n";
+                        std::cout << "[V2VProxy " << replicaId
+                                  << "] Queued behind lane leader; recording stop from speed poll at t="
+                                  << stopTime << "\n";
+                    }
+                }
+            } catch (...) {
+            }
+        }
 
-            // Re-discover lane to make sure `carAhead` is accurate this tick.
-            // Force a fresh scan so stale entries (e.g. a departed veh4) are cleared.
+        if (distance < stopDistance * (totalVehicles_ / 2.0)
+                && currentPhase == COLLECTING_CERTS && !enteredStopZone) {
+
+            enteredStopZone = true;
+
             laneDiscovered = false;
             discoverLane();
 
-            // Log arrival time for ALL cars entering the intersection zone (lane leader or queued).
-            // This is used to compute true total intersection delay (arrival → resume).
             std::cout << "[METRICS " << replicaId << "] Arrival_Time: " << simTime() << "\n";
-
-            if (carAhead.empty() || firstOrderBagProposalTime == 0) {
-                std::cout << "[V2VProxy " << replicaId << "] ===== APPROACHING INTERSECTION =====" << "\n";
-                stopVehicle();
-                // NEW PROTOCOL: Broadcast ARRIVAL_ANNOUNCE (with full VehicleState) immediately.
-                // VIEW_PROPOSAL is sent after all BATCH_SIZE announcements are collected.
-                currentPhase = COLLECTING_CERTS;  // signals handleArrivalAnnouncement to trigger cert collection
-                broadcastArrivalAnnouncement();
-                certCollectionStartTime = simTime(); 
-                
-                joinTriggered = true;
+            std::cout << "[V2VProxy " << replicaId << "] ===== ENTERED STOP ZONE =====" << "\n";
+            if (stopTime < SIMTIME_ZERO) {
                 stopTime = simTime();
-                hasRequestedCrossing = true;
-                waitingForConsensus = true;
-                consensusStartTime = simTime();
-                
-                if (!consensusTimeoutTimer->isScheduled()) {
-                     scheduleAt(simTime() + consensusTimeoutSec, consensusTimeoutTimer);
-                }
-                // Stop-sign timer: only for lane leaders (carAhead empty = physically first in queue)
-                if (carAhead.empty() && !stopSignTimeoutTimer->isScheduled()) {
-                    scheduleAt(simTime() + stopSignTimeoutSec, stopSignTimeoutTimer);
-                }
-            } else {
-                // If there's a car ahead but we haven't crossed, 
-                // just wait naturally. SUMO Krauss physics holds us behind them.
-                // We won't propose until they leave and we become the new front car.
-                // Make sure we are in IDLE so we keep checking
-                currentPhase = IDLE;
+            }
 
-                // Ensure SUMO physics takes over and closes the gap if front car leaves.
-                if (isStopped && !carAhead.empty()) {
-                    double ahead_speed = 0.0;
-                    try {
-                        auto traciCmd = mobility->getCommandInterface();
-                        if (traciCmd) {
-                            std::list<std::string> activeVehicles = traciCmd->getVehicleIds();
-                            if (std::find(activeVehicles.begin(), activeVehicles.end(), carAhead) != activeVehicles.end()) {
-                                ahead_speed = traciCmd->vehicle(carAhead).getSpeed();
-                            } else {
-                                // If the car ahead is no longer in SUMO, treat it as departed (speed > 0.1)
-                                // so we pull forward immediately.
-                                ahead_speed = 999.0;
-                            }
-                        }
-                    } catch (...) {}
+            stopVehicle();
+            if (stopTime < SIMTIME_ZERO) {
+                stopTime = simTime();
+            }
+            hasRequestedCrossing = true;
+            waitingForConsensus = true;
+            consensusStartTime = simTime();
 
-                    // Only roll up if the ahead car is moving (or departed), otherwise stay braked.
-                    if (ahead_speed > 0.1) {
-                         isStopped = false;
-                         mobility->getVehicleCommandInterface()->setSpeedMode(0);
-                         mobility->getVehicleCommandInterface()->setSpeed(-1);
-                    }
+            if (!consensusTimeoutTimer->isScheduled())
+                scheduleAt(simTime() + consensusTimeoutSec, consensusTimeoutTimer);
+            if (carAhead.empty() && !stopSignTimeoutTimer->isScheduled())
+                scheduleAt(simTime() + stopSignTimeoutSec, stopSignTimeoutTimer);
+
+            // Lane leader: propose immediately if all certs already collected during travel;
+            // otherwise start a short deadline timer for any remaining stragglers.
+            if (carAhead.empty() && amITheLeader(physicallyObservedCars) && !proposeAllSubmitted) {
+                if (collectedCerts.size() >= (size_t)BATCH_SIZE) {
+                    proposeAllSubmitted = true;
+                    std::cout << "[V2VProxy " << replicaId << "] All certs ready at stop zone — proposing immediately\n";
+                    submitProposeAllToBFT();
+                } else if (certCollectionTimeoutTimer && !certCollectionTimeoutTimer->isScheduled()) {
+                    scheduleAt(simTime() + certCollectionTimeoutSec, certCollectionTimeoutTimer);
                 }
             }
         }
@@ -878,9 +897,27 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
         return;
     }
     if (msg == triggerJoinTimer) {
-        std::cout << "[DEBUG V2VProxy " << replicaId << "] triggerJoinTimer (deprecated in TPWC) at t=" << simTime() << "\n";
+        // Early cert discovery: broadcast ARRIVAL_ANNOUNCE at the globally-staggered slot.
+        // Fires regardless of javaReady so the announce goes out at the scheduled time.
+        // The announcement is retried once Java becomes ready if JVM isn't up yet.
+        if (!joinTriggered && currentPhase == IDLE) {
+            if (javaReady) {
+                laneDiscovered = false;
+                discoverLane();
+                currentPhase = COLLECTING_CERTS;
+                broadcastArrivalAnnouncement();
+                certCollectionStartTime = simTime();
+                certCollectionStarted = true;
+                joinTriggered = true;
+                std::cout << "[V2VProxy " << replicaId << "] Early cert discovery started at t=" << simTime() << "\n";
+            } else {
+                // JVM not ready yet — retry on next checkPositionTimer tick
+                std::cout << "[V2VProxy " << replicaId << "] Early announce slot at t=" << simTime()
+                          << " but JVM not ready — will retry via checkPosition\n";
+            }
+        }
         return;
-    } 
+    }
     
     if (msg == radioReadyMsg) {
         radioBusy = false;
@@ -899,6 +936,7 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
             return;  // Already reached quorum normally — nothing to do.
         }
         if (zombieFilter()) return;
+        if (!amITheLeader(physicallyObservedCars)) return;  // only leader submits
 
         std::cout << "[V2VProxy " << replicaId << "] *** CERT-COLLECTION TIMEOUT *** after "
                   << certCollectionTimeoutSec << "s — forcing PROPOSE_ALL with QUIET vehicles ("

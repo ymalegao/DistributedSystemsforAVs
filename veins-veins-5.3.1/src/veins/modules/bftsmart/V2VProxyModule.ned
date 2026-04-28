@@ -27,7 +27,8 @@ simple V2VProxyModule extends DemoBaseApplLayer
         // Intersection parameters for consensus triggering
         double intersectionX @unit(m) = default(104m);
         double intersectionY @unit(m) = default(82m);
-        double stopDistance @unit(m) = default(50m);
+        double stopDistance @unit(m) = default(5m);
+        int    totalVehicles = default(4);
 
         // Intersection physics for delay calculation
         double intersectionWidth @unit(m) = default(25m);  // Distance to cross intersection

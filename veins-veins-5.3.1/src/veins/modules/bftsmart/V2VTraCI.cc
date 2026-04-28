@@ -180,6 +180,7 @@ void V2VProxyModule::resetForNextRound() {
     physicallyObservedCars.clear();
     certCollectionStarted = false;
     certBroadcast = false;
+    enteredStopZone = false;
     if (certCollectionTimeoutTimer && certCollectionTimeoutTimer->isScheduled()) {
         cancelEvent(certCollectionTimeoutTimer);
     }

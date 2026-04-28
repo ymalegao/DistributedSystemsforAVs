@@ -25,7 +25,7 @@ class VEINS_API V2VProxyModule : public DemoBaseApplLayer {
 public:
     V2VProxyModule();
     ~V2VProxyModule() override;
-    static const int BATCH_SIZE = 16;
+    static const int BATCH_SIZE = 8;
 
     simtime_t consensusStartTime;
     simtime_t orderConsensusStartTime;
@@ -349,6 +349,8 @@ private:
     double intersectionX;
     double intersectionY;
     double stopDistance;
+    int    totalVehicles_ = 4;
+    bool   enteredStopZone = false;
 
     // Intersection physics for delay calculation
     double intersectionWidth;

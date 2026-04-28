@@ -903,8 +903,11 @@ void V2VProxyModule::broadcastArrivalCert(const ArrivalCert& cert) {
         collectedCerts[cert.carId] = cert;
         std::cout << "[CERT-STORED-SELF] Replica " << replicaId << " self-stored ARRIVAL_CERT for "
                   << cert.carId << " (" << collectedCerts.size() << "/" << BATCH_SIZE << " certs)\n";
-        // If we are the leader and this was the last missing cert, submit immediately.
-        if (amITheLeader(physicallyObservedCars) && certCollectionStarted && !proposeAllSubmitted) {
+        // If we are the leader and this was the last missing cert, submit immediately —
+        // but only once we have reached the stop zone (certs collected during travel are
+        // banked; the proposal fires at stop-zone entry or here if slightly delayed).
+        if (amITheLeader(physicallyObservedCars) && certCollectionStarted && !proposeAllSubmitted
+                && enteredStopZone) {
             if (collectedCerts.size() >= (size_t)BATCH_SIZE) {
                 if (certCollectionTimeoutTimer && certCollectionTimeoutTimer->isScheduled())
                     cancelEvent(certCollectionTimeoutTimer);
@@ -931,10 +934,24 @@ void V2VProxyModule::handleArrivalCert(BFTMessage* bftMsg) {
     std::cout << "[CERT-STORED] Replica " << replicaId << " stored ARRIVAL_CERT for "
               << cert.carId << " (" << collectedCerts.size() << "/" << BATCH_SIZE << " certs)\n";
 
-    // Leader: check if all BATCH_SIZE cars now have certs (Byzantine cars will be
-    // absent and marked QUIET when the timer fires — never use physicallyObservedCars
-    // as the expected count, since a liar may have failed the physical check).
-    if (amITheLeader(physicallyObservedCars) && certCollectionStarted && !proposeAllSubmitted) {
+    // If the ARRIVAL_ANNOUNCE for this car was never received (e.g. channel loss at spawn),
+    // localVehicleStates won't have it. Reconstruct from the cert so it appears in proposals.
+    if (!localVehicleStates.count(cert.carId)) {
+        VehicleState vs;
+        vs.vehicleId      = cert.carId;
+        vs.lane           = cert.lane;
+        vs.positionInLane = cert.positionInLane;
+        vs.direction      = cert.direction;
+        vs.isAmbulance    = cert.isAmbulance;
+        localVehicleStates[cert.carId] = vs;
+        physicallyObservedCars.insert(cert.carId);
+        std::cout << "[CERT-STORED] Replica " << replicaId
+                  << " reconstructed VehicleState for " << cert.carId << " from cert (announce was lost)\n";
+    }
+
+    // Leader: check if all BATCH_SIZE cars now have certs — only propose once in stop zone.
+    if (amITheLeader(physicallyObservedCars) && certCollectionStarted && !proposeAllSubmitted
+            && enteredStopZone) {
         if (collectedCerts.size() >= (size_t)BATCH_SIZE) {
             if (certCollectionTimeoutTimer && certCollectionTimeoutTimer->isScheduled()) {
                 cancelEvent(certCollectionTimeoutTimer);

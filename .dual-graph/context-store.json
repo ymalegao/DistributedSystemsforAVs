@@ -1,81 +1,5 @@
 [
   {
-    "type": "fact",
-    "content": "Java retx ScheduledExecutorService disabled; C++ retxCheckTimer drives retransmissions in sim time",
-    "tags": [
-      "reliability",
-      "sim-time",
-      "retransmission"
-    ],
-    "files": [
-      "bftsmart/library/src/main/java/bftsmart/communication/V2V/ReliableV2VMessaging.java"
-    ],
-    "date": "2026-04-25"
-  },
-  {
-    "id": "mem:1776028955263",
-    "kind": "query_association",
-    "content": "Queried during: metrics per-vehicle output JSON Byzantine ambulance",
-    "tags": [
-      "metrics",
-      "per",
-      "vehicle",
-      "output",
-      "json",
-      "byzantine",
-      "ambulance"
-    ],
-    "files": [
-      "fourway/analyze_log.py"
-    ],
-    "file_path": "fourway/analyze_log.py",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-12T21:22:35.263151+00:00",
-    "created_epoch": 1776028955,
-    "updated_at": "2026-04-12T21:22:35.263176+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [
-      "metrics per-vehicle output JSON Byzantine ambulance"
-    ],
-    "evidence": {
-      "source": "graph_read",
-      "anchor_mode": "file",
-      "session_epoch": 1776027145
-    }
-  },
-  {
-    "id": "mem:1776028957831",
-    "kind": "query_association",
-    "content": "Queried during: ambulance wait time metrics",
-    "tags": [
-      "ambulance",
-      "wait",
-      "time",
-      "metrics"
-    ],
-    "files": [
-      "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path"
-    ],
-    "file_path": "fourway/benchmarks/ambulanceWaitTime.py",
-    "symbol_id": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
-    "symbol_hash": "611799bc",
-    "created_at": "2026-04-12T21:22:37.831277+00:00",
-    "created_epoch": 1776028957,
-    "updated_at": "2026-04-12T21:22:37.831284+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [
-      "ambulance wait time metrics"
-    ],
-    "evidence": {
-      "source": "graph_read",
-      "anchor_mode": "symbol",
-      "session_epoch": 1776027145
-    }
-  },
-  {
     "id": "mem:1776029455344",
     "kind": "decision",
     "content": "Added per-car metrics to JSON output: messages_sent/received, delivery_ratio, estimated_loss_rate, used_fallback, propose_all_consensus_wall_s, bft_decision_time_s. Added run-level delivery_ratio, estimated_loss_rate, fallback_rate to overall JSON. Added RUN-METRICS lines for batch log files.",
@@ -1908,6 +1832,29 @@
     }
   },
   {
+    "id": "mem:1777161599452",
+    "kind": "fact",
+    "content": "Java retx ScheduledExecutorService disabled; C++ retxCheckTimer drives retransmissions in sim time",
+    "tags": [
+      "reliability",
+      "sim-time",
+      "retransmission"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/communication/V2V/ReliableV2VMessaging.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/communication/V2V/ReliableV2VMessaging.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-25",
+    "created_epoch": 1777100400,
+    "updated_at": "2026-04-25",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
     "id": "mem:1777148862726",
     "kind": "fact",
     "content": "totalordermulticast.timeout confirmed 2000ms in system.config; 4000ms memory is stale",
@@ -2327,6 +2274,135 @@
       "window_sec": 120,
       "recent_action_kinds": [],
       "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1777303745493",
+    "kind": "query_association",
+    "content": "Queried during: timeStopped_ intersectionStopDistance_ totalVehicles_ dist stop area",
+    "tags": [
+      "timestopped_",
+      "intersectionstopdistance_",
+      "totalvehicles_",
+      "dist",
+      "stop",
+      "area"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-27T15:29:05.492998+00:00",
+    "created_epoch": 1777303745,
+    "updated_at": "2026-04-27T15:29:05.493009+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "timeStopped_ intersectionStopDistance_ totalVehicles_ dist stop area"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777146790
+    }
+  },
+  {
+    "id": "mem:1777303756965",
+    "kind": "query_association",
+    "content": "Queried during: stopTime stopDistance timeStopped intersectionStopDistance totalVehicles stop area",
+    "tags": [
+      "stoptime",
+      "stopdistance",
+      "timestopped",
+      "intersectionstopdistance",
+      "totalvehicles",
+      "stop",
+      "area"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VEpochPreemption.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-27T15:29:16.965553+00:00",
+    "created_epoch": 1777303756,
+    "updated_at": "2026-04-27T15:29:16.965566+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "stopTime stopDistance timeStopped intersectionStopDistance totalVehicles stop area"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777146790
+    }
+  },
+  {
+    "id": "mem:1777303762302",
+    "kind": "query_association",
+    "content": "Queried during: stopTime stopDistance totalVehicles intersectionStopDistance timeStopped member variables",
+    "tags": [
+      "stoptime",
+      "stopdistance",
+      "totalvehicles",
+      "intersectionstopdistance",
+      "timestopped",
+      "member",
+      "variables"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-27T15:29:22.302858+00:00",
+    "created_epoch": 1777303762,
+    "updated_at": "2026-04-27T15:29:22.302869+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "stopTime stopDistance totalVehicles intersectionStopDistance timeStopped member variables"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777146790
+    }
+  },
+  {
+    "id": "mem:1777315936015",
+    "kind": "query_association",
+    "content": "Queried during: handlePositionUpdate distance stopDistance COLLECTING_CERTS broadcastArrivalAnnouncement",
+    "tags": [
+      "handlepositionupdate",
+      "distance",
+      "stopdistance",
+      "collecting_certs",
+      "broadcastarrivalannouncement"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-27T18:52:16.015671+00:00",
+    "created_epoch": 1777315936,
+    "updated_at": "2026-04-27T18:52:16.015696+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "handlePositionUpdate distance stopDistance COLLECTING_CERTS broadcastArrivalAnnouncement"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777146790
     }
   }
 ]
