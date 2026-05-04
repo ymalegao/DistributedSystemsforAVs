@@ -120,7 +120,7 @@
     "symbol_hash": "",
     "created_at": "2026-04-12T22:02:00.814221+00:00",
     "created_epoch": 1776031320,
-    "updated_at": "2026-04-25T02:49:50.464526+00:00",
+    "updated_at": "2026-05-03T00:41:39.587414+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -129,100 +129,6 @@
       "recent_action_kinds": [],
       "recent_queries": [],
       "edited": true
-    }
-  },
-  {
-    "id": "mem:1776120539911",
-    "kind": "query_association",
-    "content": "Queried during: CDF plot steppy data points n=4",
-    "tags": [
-      "cdf",
-      "plot",
-      "steppy",
-      "data",
-      "points"
-    ],
-    "files": [
-      "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path"
-    ],
-    "file_path": "fourway/benchmarks/ambulanceWaitTime.py",
-    "symbol_id": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
-    "symbol_hash": "611799bc",
-    "created_at": "2026-04-13T22:48:59.911249+00:00",
-    "created_epoch": 1776120539,
-    "updated_at": "2026-04-13T22:48:59.911267+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [
-      "CDF plot steppy data points n=4"
-    ],
-    "evidence": {
-      "source": "graph_read",
-      "anchor_mode": "symbol",
-      "session_epoch": 1776027145
-    }
-  },
-  {
-    "id": "mem:1776134948719",
-    "kind": "query_association",
-    "content": "Queried during: throughput calculation vehicles per second",
-    "tags": [
-      "throughput",
-      "calculation",
-      "vehicles",
-      "per",
-      "second"
-    ],
-    "files": [
-      "fourway/analyze_log.py::all_per_epoch"
-    ],
-    "file_path": "fourway/analyze_log.py",
-    "symbol_id": "fourway/analyze_log.py::all_per_epoch",
-    "symbol_hash": "9c32d740",
-    "created_at": "2026-04-14T02:49:08.719299+00:00",
-    "created_epoch": 1776134948,
-    "updated_at": "2026-04-22T02:34:51.169388+00:00",
-    "stale": true,
-    "stale_reason": "symbol removed",
-    "observed_queries": [
-      "throughput calculation vehicles per second"
-    ],
-    "evidence": {
-      "source": "graph_read",
-      "anchor_mode": "symbol",
-      "session_epoch": 1776027145
-    }
-  },
-  {
-    "id": "mem:1776137351080",
-    "kind": "decision",
-    "content": "Added --randomize N F and --sync-java flags for per-run ambulance and Byzantine node randomization via generated random_scenario.ini",
-    "tags": [
-      "added",
-      "randomize",
-      "sync",
-      "java",
-      "flags",
-      "per",
-      "run",
-      "ambulance"
-    ],
-    "files": [
-      "bftsmart/run-omnet-simulation.sh"
-    ],
-    "file_path": "bftsmart/run-omnet-simulation.sh",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-14T03:29:11.080610+00:00",
-    "created_epoch": 1776137351,
-    "updated_at": "2026-04-14T03:29:11.080614+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [],
-    "evidence": {
-      "window_sec": 120,
-      "recent_action_kinds": [],
-      "recent_queries": []
     }
   },
   {
@@ -249,7 +155,7 @@
     "symbol_hash": "",
     "created_at": "2026-04-14T03:29:11.081226+00:00",
     "created_epoch": 1776137351,
-    "updated_at": "2026-04-14T04:22:58.613946+00:00",
+    "updated_at": "2026-04-30T01:17:00.052376+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -317,7 +223,7 @@
     "symbol_hash": "",
     "created_at": "2026-04-14T03:33:11.105295+00:00",
     "created_epoch": 1776137591,
-    "updated_at": "2026-04-25T02:49:50.449588+00:00",
+    "updated_at": "2026-04-30T01:17:00.042223+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -326,38 +232,6 @@
       "recent_action_kinds": [],
       "recent_queries": [],
       "edited": true
-    }
-  },
-  {
-    "id": "mem:1776137897757",
-    "kind": "decision",
-    "content": "Fixed: pure-bash random (no Python), all banner to stderr, explicit -f omnetpp.ini needed when adding extra ini file",
-    "tags": [
-      "fixed",
-      "pure",
-      "bash",
-      "random",
-      "python",
-      "all",
-      "banner",
-      "stderr"
-    ],
-    "files": [
-      "bftsmart/run-omnet-simulation.sh"
-    ],
-    "file_path": "bftsmart/run-omnet-simulation.sh",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-14T03:38:17.757591+00:00",
-    "created_epoch": 1776137897,
-    "updated_at": "2026-04-14T03:38:17.757596+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [],
-    "evidence": {
-      "window_sec": 120,
-      "recent_action_kinds": [],
-      "recent_queries": []
     }
   },
   {
@@ -390,127 +264,6 @@
       "window_sec": 120,
       "recent_action_kinds": [],
       "recent_queries": []
-    }
-  },
-  {
-    "id": "mem:1776144616563",
-    "kind": "query_association",
-    "content": "Queried during: ComputePassOrder buildProposal priority QUIET scheduling",
-    "tags": [
-      "computepassorder",
-      "buildproposal",
-      "priority",
-      "quiet",
-      "scheduling"
-    ],
-    "files": [
-      "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderScheduler.java"
-    ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderScheduler.java",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-14T05:30:16.563367+00:00",
-    "created_epoch": 1776144616,
-    "updated_at": "2026-04-14T05:30:16.563375+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [
-      "ComputePassOrder buildProposal priority QUIET scheduling"
-    ],
-    "evidence": {
-      "source": "graph_read",
-      "anchor_mode": "file",
-      "session_epoch": 1776027145
-    }
-  },
-  {
-    "id": "mem:1776144617265",
-    "kind": "query_association",
-    "content": "Queried during: validatePerCarCerts f+1 signatures QUIET",
-    "tags": [
-      "validatepercarcerts",
-      "signatures",
-      "quiet"
-    ],
-    "files": [
-      "bftsmart/library/src/main/java/bftsmart/demo/intersection/ViewConsensusProtocol.java"
-    ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/ViewConsensusProtocol.java",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-14T05:30:17.265457+00:00",
-    "created_epoch": 1776144617,
-    "updated_at": "2026-04-14T05:30:17.265491+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [
-      "validatePerCarCerts f+1 signatures QUIET"
-    ],
-    "evidence": {
-      "source": "graph_read",
-      "anchor_mode": "file",
-      "session_epoch": 1776027145
-    }
-  },
-  {
-    "id": "mem:1776144622497",
-    "kind": "query_association",
-    "content": "Queried during: validation checks QUIET SIGNED cert schedule",
-    "tags": [
-      "validation",
-      "checks",
-      "quiet",
-      "signed",
-      "cert",
-      "schedule"
-    ],
-    "files": [
-      "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java"
-    ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-14T05:30:22.497748+00:00",
-    "created_epoch": 1776144622,
-    "updated_at": "2026-04-14T05:30:22.497757+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [
-      "validation checks QUIET SIGNED cert schedule"
-    ],
-    "evidence": {
-      "source": "graph_read",
-      "anchor_mode": "file",
-      "session_epoch": 1776027145
-    }
-  },
-  {
-    "id": "mem:1776144623181",
-    "kind": "query_association",
-    "content": "Queried during: isSafeToBatch conflict lanes",
-    "tags": [
-      "issafetobatch",
-      "conflict",
-      "lanes"
-    ],
-    "files": [
-      "bftsmart/library/src/main/java/bftsmart/demo/intersection/ConflictMatrix.java"
-    ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/ConflictMatrix.java",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-14T05:30:23.181517+00:00",
-    "created_epoch": 1776144623,
-    "updated_at": "2026-04-14T05:30:23.181538+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [
-      "isSafeToBatch conflict lanes"
-    ],
-    "evidence": {
-      "source": "graph_read",
-      "anchor_mode": "file",
-      "session_epoch": 1776027145
     }
   },
   {
@@ -1740,7 +1493,9 @@
       "names",
       "propose_all",
       "gutted",
-      "dead"
+      "dead",
+      "leaderreplicaid",
+      "ned"
     ],
     "files": [
       "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc"
@@ -1750,7 +1505,7 @@
     "symbol_hash": "",
     "created_at": "2026-04-25T02:49:50.467936+00:00",
     "created_epoch": 1777085390,
-    "updated_at": "2026-04-25T02:49:50.467948+00:00",
+    "updated_at": "2026-04-30T04:39:47.953975+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -2403,6 +2158,623 @@
       "source": "graph_read",
       "anchor_mode": "file",
       "session_epoch": 1777146790
+    }
+  },
+  {
+    "id": "mem:1777510461091",
+    "kind": "decision",
+    "content": "Added --leader ID flag; rotates system.initial.view so replica ID leads view 0",
+    "tags": [
+      "leader",
+      "bft",
+      "system.config",
+      "run-script"
+    ],
+    "files": [
+      "bftsmart/run-omnet-simulation.sh",
+      "fourway/config/system.config"
+    ],
+    "file_path": "bftsmart/run-omnet-simulation.sh",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-29",
+    "created_epoch": 1777446000,
+    "updated_at": "2026-04-29",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1777506373761",
+    "kind": "query_association",
+    "content": "Queried during: timing mode realtime sim-time-limit express",
+    "tags": [
+      "timing",
+      "mode",
+      "realtime",
+      "sim",
+      "time",
+      "limit",
+      "express"
+    ],
+    "files": [
+      "fourway/omnetpp.ini"
+    ],
+    "file_path": "fourway/omnetpp.ini",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-29T23:46:13.761042+00:00",
+    "created_epoch": 1777506373,
+    "updated_at": "2026-04-29T23:46:13.761049+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "timing mode realtime sim-time-limit express"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777146790
+    }
+  },
+  {
+    "id": "mem:1777509192668",
+    "kind": "query_association",
+    "content": "Queried during: veh0 leader departure position route",
+    "tags": [
+      "veh0",
+      "leader",
+      "departure",
+      "position",
+      "route"
+    ],
+    "files": [
+      "fourway/bft_8veh.rou.xml"
+    ],
+    "file_path": "fourway/bft_8veh.rou.xml",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-30T00:33:12.668637+00:00",
+    "created_epoch": 1777509192,
+    "updated_at": "2026-04-30T00:33:12.668645+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "veh0 leader departure position route"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777146790
+    }
+  },
+  {
+    "id": "mem:1777509193319",
+    "kind": "query_association",
+    "content": "Queried during: leader vehicle position script parameters",
+    "tags": [
+      "leader",
+      "vehicle",
+      "position",
+      "script",
+      "parameters"
+    ],
+    "files": [
+      "bftsmart/run-omnet-simulation.sh"
+    ],
+    "file_path": "bftsmart/run-omnet-simulation.sh",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-30T00:33:13.319910+00:00",
+    "created_epoch": 1777509193,
+    "updated_at": "2026-04-30T00:33:13.319920+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "leader vehicle position script parameters"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777146790
+    }
+  },
+  {
+    "id": "mem:1777509841427",
+    "kind": "query_association",
+    "content": "Queried during: initial view leader view change",
+    "tags": [
+      "initial",
+      "view",
+      "leader",
+      "change"
+    ],
+    "files": [
+      "fourway/config/system.config"
+    ],
+    "file_path": "fourway/config/system.config",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-30T00:44:01.427308+00:00",
+    "created_epoch": 1777509841,
+    "updated_at": "2026-04-30T00:44:01.427320+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "initial view leader view change"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777146790
+    }
+  },
+  {
+    "id": "mem:1777510456297",
+    "kind": "decision",
+    "content": "Added --leader ID flag: rotates system.initial.view so chosen replica leads view 0; reads n from system.servers.num; validates range; deletes currentView before run so BFT-SMaRt re-reads fresh",
+    "tags": [
+      "added",
+      "leader",
+      "flag",
+      "rotates",
+      "system",
+      "initial",
+      "view",
+      "chosen"
+    ],
+    "files": [
+      "bftsmart/run-omnet-simulation.sh"
+    ],
+    "file_path": "bftsmart/run-omnet-simulation.sh",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-30T00:54:16.297192+00:00",
+    "created_epoch": 1777510456,
+    "updated_at": "2026-04-30T00:54:16.297195+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1777511140312",
+    "kind": "decision",
+    "content": "Added --randomize-leader flag: picks seeded random leader per run, passes --leader ID to run-omnet-simulation.sh; defaults to replica 0 when omitted",
+    "tags": [
+      "added",
+      "randomize",
+      "leader",
+      "flag",
+      "picks",
+      "seeded",
+      "random",
+      "per"
+    ],
+    "files": [
+      "experiment_orchestrator.py"
+    ],
+    "file_path": "experiment_orchestrator.py",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-30T01:05:40.312653+00:00",
+    "created_epoch": 1777511140,
+    "updated_at": "2026-04-30T01:05:40.312657+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "leader randomize argparse run-omnet-simulation command arguments",
+      "experiment_orchestrator.py leader randomize arguments run-omnet-simulation"
+    ],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [
+        "read_blocked_reuse_gate",
+        "continue_retrieve",
+        "retrieve"
+      ],
+      "recent_queries": [
+        "leader randomize argparse run-omnet-simulation command arguments",
+        "experiment_orchestrator.py leader randomize arguments run-omnet-simulation"
+      ]
+    }
+  },
+  {
+    "id": "mem:1777511140329",
+    "kind": "edit_observation",
+    "content": "Edited after query: leader randomize argparse run-omnet-simulation command arguments",
+    "tags": [
+      "added",
+      "randomize",
+      "leader",
+      "flag",
+      "picks",
+      "seeded",
+      "random",
+      "per"
+    ],
+    "files": [
+      "experiment_orchestrator.py"
+    ],
+    "file_path": "experiment_orchestrator.py",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-30T01:05:40.329415+00:00",
+    "created_epoch": 1777511140,
+    "updated_at": "2026-04-30T01:05:40.329433+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "leader randomize argparse run-omnet-simulation command arguments",
+      "experiment_orchestrator.py leader randomize arguments run-omnet-simulation"
+    ],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [
+        "read_blocked_reuse_gate",
+        "continue_retrieve",
+        "retrieve"
+      ],
+      "recent_queries": [
+        "leader randomize argparse run-omnet-simulation command arguments",
+        "experiment_orchestrator.py leader randomize arguments run-omnet-simulation"
+      ],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1777511820036",
+    "kind": "decision",
+    "content": "leaderReplicaId NED param controls PROPOSE_ALL leader; getCurrentViewLeader returns configuredLeaderReplicaId; --leader writes leader_override.ini instead of patching system.config",
+    "tags": [
+      "leaderreplicaid",
+      "ned",
+      "param",
+      "controls",
+      "propose_all",
+      "leader",
+      "getcurrentviewleader",
+      "returns"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.ned",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc",
+      "fourway/omnetpp.ini",
+      "bftsmart/run-omnet-simulation.sh"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.ned",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-30T01:17:00.036423+00:00",
+    "created_epoch": 1777511820,
+    "updated_at": "2026-04-30T01:17:00.036427+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1777511820039",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "leaderreplicaid",
+      "ned",
+      "param",
+      "controls",
+      "propose_all",
+      "leader",
+      "getcurrentviewleader",
+      "returns"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.ned"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.ned",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-30T01:17:00.039700+00:00",
+    "created_epoch": 1777511820,
+    "updated_at": "2026-04-30T01:17:00.039711+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1777511820049",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "leaderreplicaid",
+      "ned",
+      "param",
+      "controls",
+      "propose_all",
+      "leader",
+      "getcurrentviewleader",
+      "returns"
+    ],
+    "files": [
+      "fourway/omnetpp.ini"
+    ],
+    "file_path": "fourway/omnetpp.ini",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-30T01:17:00.049864+00:00",
+    "created_epoch": 1777511820,
+    "updated_at": "2026-04-30T01:17:00.049870+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1777523987944",
+    "kind": "decision",
+    "content": "getCurrentViewLeader: use configuredLeaderReplicaId if in physicallyObservedCars, else fall back to min-ID \u2014 fixes ByzLeader regression where Byzantine replica 0 was trying to be PROPOSE_ALL leader and stalling on cert collection timeout",
+    "tags": [
+      "getcurrentviewleader",
+      "configuredleaderreplicaid",
+      "physicallyobservedcars",
+      "else",
+      "fall",
+      "back",
+      "min",
+      "fixes"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-04-30T04:39:47.944386+00:00",
+    "created_epoch": 1777523987,
+    "updated_at": "2026-04-30T04:39:47.944400+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1777856350999",
+    "kind": "decision",
+    "content": "plot_wait_time_cdf.py uses propose_all_consensus_latency_sim_s (500ms sim) not wall-clock (1.728s); new bft_consensus_latency.png chart added",
+    "tags": [
+      "plotting",
+      "consensus-latency",
+      "sim-time"
+    ],
+    "files": [
+      "plot_wait_time_cdf.py",
+      "fourway/analyze_log.py"
+    ],
+    "file_path": "plot_wait_time_cdf.py",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-02",
+    "created_epoch": 1777705200,
+    "updated_at": "2026-05-02",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1777768901979",
+    "kind": "decision",
+    "content": "Self-delivery: Java wraps SystemMessage in unordered V2VMessageEnvelope, routes via bridge.sendMessage(me, bytes); C++ schedules BFTMessage type-100 self-msg with broadcastSlot delay",
+    "tags": [
+      "self-delivery",
+      "jni",
+      "sim-time",
+      "fairness"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-02",
+    "created_epoch": 1777705200,
+    "updated_at": "2026-05-02",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1777768899590",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "self",
+      "delivery",
+      "bypass",
+      "java",
+      "routes",
+      "target",
+      "through",
+      "sim"
+    ],
+    "files": [
+      "plot_wait_time_cdf.py"
+    ],
+    "file_path": "plot_wait_time_cdf.py",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-03T00:41:39.590642+00:00",
+    "created_epoch": 1777768899,
+    "updated_at": "2026-05-03T00:41:39.590658+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1777768899583",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "self",
+      "delivery",
+      "bypass",
+      "java",
+      "routes",
+      "target",
+      "through",
+      "sim"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-03T00:41:39.583851+00:00",
+    "created_epoch": 1777768899,
+    "updated_at": "2026-05-03T00:41:39.583859+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1777768899581",
+    "kind": "decision",
+    "content": "Self-delivery bypass fix: Java routes target==me through C++ sim-time schedule (BFTMessage type 100) instead of instant deliverToBFTSmart. Plot fix: consensus latency now uses propose_all_consensus_latency_sim_s (500ms) not wall clock (1.728s).",
+    "tags": [
+      "self",
+      "delivery",
+      "bypass",
+      "java",
+      "routes",
+      "target",
+      "through",
+      "sim"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+      "plot_wait_time_cdf.py"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-03T00:41:39.581367+00:00",
+    "created_epoch": 1777768899,
+    "updated_at": "2026-05-03T00:41:39.581373+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1777858336692",
+    "kind": "query_association",
+    "content": "Queried during: timing simulation clock Java timers realtimescheduler",
+    "tags": [
+      "timing",
+      "simulation",
+      "clock",
+      "java",
+      "timers",
+      "realtimescheduler"
+    ],
+    "files": [
+      "fourway/omnetpp.ini"
+    ],
+    "file_path": "fourway/omnetpp.ini",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-04T01:32:16.691954+00:00",
+    "created_epoch": 1777858336,
+    "updated_at": "2026-05-04T01:32:16.691964+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "timing simulation clock Java timers realtimescheduler"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777856344
+    }
+  },
+  {
+    "id": "mem:1777858346923",
+    "kind": "query_association",
+    "content": "Queried during: timing send message self-delivery simulation clock timer",
+    "tags": [
+      "timing",
+      "send",
+      "message",
+      "self",
+      "delivery",
+      "simulation",
+      "clock",
+      "timer"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-04T01:32:26.923920+00:00",
+    "created_epoch": 1777858346,
+    "updated_at": "2026-05-04T01:32:26.923927+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "timing send message self-delivery simulation clock timer"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777856344
     }
   }
 ]

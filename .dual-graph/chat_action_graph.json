@@ -101,6 +101,202 @@
       "meta": {
         "text": "NACK based leader change protocol design and rationale"
       }
+    },
+    {
+      "id": "query:omnet simulation timing mode realtime discrete event bft",
+      "type": "query",
+      "meta": {
+        "text": "OMNeT++ simulation timing mode realtime vs discrete-event BFT-SMaRt sim-time-limit express mode omnetpp.ini"
+      }
+    },
+    {
+      "id": "experiment_orchestrator.py",
+      "type": "file"
+    },
+    {
+      "id": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js::boxModelAdjustment",
+      "type": "file"
+    },
+    {
+      "id": "plot_wait_time_cdf.py::plot_ambulance_vs_normal_wait",
+      "type": "file"
+    },
+    {
+      "id": "query:timing mode realtime sim time limit express",
+      "type": "query",
+      "meta": {
+        "text": "timing mode realtime sim-time-limit express"
+      }
+    },
+    {
+      "id": "fourway/omnetpp.ini",
+      "type": "file"
+    },
+    {
+      "id": "query:leader position veh0 bft byzantine vehicle departure route",
+      "type": "query",
+      "meta": {
+        "text": "leader position veh0 BFT byzantine leader vehicle departure position route file run-omnet-simulation script"
+      }
+    },
+    {
+      "id": "fourway/benchmarks/analyze_two_phase_v2_avg_runs.py",
+      "type": "file"
+    },
+    {
+      "id": "bftsmart/metricParser.py::parse_log_file",
+      "type": "file"
+    },
+    {
+      "id": "fourway/benchmarks/analyze_two_phase_runs_avg.py",
+      "type": "file"
+    },
+    {
+      "id": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js::createPositionalPseudo",
+      "type": "file"
+    },
+    {
+      "id": "query:veh0 leader departure position route",
+      "type": "query",
+      "meta": {
+        "text": "veh0 leader departure position route"
+      }
+    },
+    {
+      "id": "fourway/bft_8veh.rou.xml",
+      "type": "file"
+    },
+    {
+      "id": "query:leader vehicle position script parameters",
+      "type": "query",
+      "meta": {
+        "text": "leader vehicle position script parameters"
+      }
+    },
+    {
+      "id": "bftsmart/run-omnet-simulation.sh",
+      "type": "file"
+    },
+    {
+      "id": "query:initial view leader change",
+      "type": "query",
+      "meta": {
+        "text": "initial view leader view change"
+      }
+    },
+    {
+      "id": "fourway/config/system.config",
+      "type": "file"
+    },
+    {
+      "id": "action:edit:1777510456",
+      "type": "action",
+      "meta": {
+        "summary": "Added --leader ID flag: rotates system.initial.view so chosen replica leads view 0; reads n from system.servers.num; validates range; deletes currentView before run so BFT-SMaRt re-reads fresh"
+      }
+    },
+    {
+      "id": "query:experiment_orchestrator leader randomize arguments run omnet simulation",
+      "type": "query",
+      "meta": {
+        "text": "experiment_orchestrator.py leader randomize arguments run-omnet-simulation"
+      }
+    },
+    {
+      "id": "plot_wait_time_cdf.py::extract_run_metrics",
+      "type": "file"
+    },
+    {
+      "id": "veins-veins-5.3.1/src/scripts/veins_run.in.py",
+      "type": "file"
+    },
+    {
+      "id": "action:edit:1777511140",
+      "type": "action",
+      "meta": {
+        "summary": "Added --randomize-leader flag: picks seeded random leader per run, passes --leader ID to run-omnet-simulation.sh; defaults to replica 0 when omitted"
+      }
+    },
+    {
+      "id": "action:edit:1777511820",
+      "type": "action",
+      "meta": {
+        "summary": "leaderReplicaId NED param controls PROPOSE_ALL leader; getCurrentViewLeader returns configuredLeaderReplicaId; --leader writes leader_override.ini instead of patching system.config"
+      }
+    },
+    {
+      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.ned",
+      "type": "file"
+    },
+    {
+      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc",
+      "type": "file"
+    },
+    {
+      "id": "query:hardcoded leader replica propose_all amitheleader leaderreplicaid cert collection",
+      "type": "query",
+      "meta": {
+        "text": "hardcoded leader replica 0 PROPOSE_ALL C++ amITheLeader leaderReplicaId cert collection"
+      }
+    },
+    {
+      "id": "fourway/benchmarks/analyze_two_phase_v2_avg_runs.py::load_collection",
+      "type": "file"
+    },
+    {
+      "id": "action:edit:1777523987",
+      "type": "action",
+      "meta": {
+        "summary": "getCurrentViewLeader: use configuredLeaderReplicaId if in physicallyObservedCars, else fall back to min-ID \u2014 fixes ByzLeader regression where Byzantine replica 0 was trying to be PROPOSE_ALL leader and stalling on cert collection timeout"
+      }
+    },
+    {
+      "id": "query:consensus latency measurement wall clock sim time propose_all",
+      "type": "query",
+      "meta": {
+        "text": "consensus latency measurement wall clock sim time propose_all analyze_log self-delivery JNI radio bypass"
+      }
+    },
+    {
+      "id": "experiment_orchestrator.py::run_one_simulation",
+      "type": "file"
+    },
+    {
+      "id": "plot_wait_time_cdf.py::derive_bar_series_from_scenarios",
+      "type": "file"
+    },
+    {
+      "id": "veins-veins-5.3.1/subprojects/veins_testsims/src/scripts/veins_testsims_run.in.py::relpath",
+      "type": "file"
+    },
+    {
+      "id": "action:edit:1777768899",
+      "type": "action",
+      "meta": {
+        "summary": "Self-delivery bypass fix: Java routes target==me through C++ sim-time schedule (BFTMessage type 100) instead of instant deliverToBFTSmart. Plot fix: consensus latency now uses propose_all_consensus_latency_sim_s (500ms) not wall clock (1.728s)."
+      }
+    },
+    {
+      "id": "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java",
+      "type": "file"
+    },
+    {
+      "id": "query:bft timing discrepancy simulation clock java timers self",
+      "type": "query",
+      "meta": {
+        "text": "BFT timing discrepancy simulation clock Java timers self-delivery radio stack"
+      }
+    },
+    {
+      "id": "fourway/analyze_log.py::normalize_java_epoch",
+      "type": "file"
+    },
+    {
+      "id": "query:timing send message self delivery simulation clock timer",
+      "type": "query",
+      "meta": {
+        "text": "timing send message self-delivery simulation clock timer"
+      }
     }
   ],
   "edges": [
@@ -268,6 +464,303 @@
       "to": "fourway/benchmarks/analyze_benchmarks.py::main",
       "rel": "retrieved",
       "ts": 1777413470
+    },
+    {
+      "from": "query:omnet simulation timing mode realtime discrete event bft",
+      "to": "experiment_orchestrator.py",
+      "rel": "retrieved",
+      "ts": 1777506366
+    },
+    {
+      "from": "query:omnet simulation timing mode realtime discrete event bft",
+      "to": "bftsmart/library/docs/javadoc/member-search-index.js",
+      "rel": "retrieved",
+      "ts": 1777506366
+    },
+    {
+      "from": "query:omnet simulation timing mode realtime discrete event bft",
+      "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js::boxModelAdjustment",
+      "rel": "retrieved",
+      "ts": 1777506366
+    },
+    {
+      "from": "query:omnet simulation timing mode realtime discrete event bft",
+      "to": "plot_wait_time_cdf.py::plot_ambulance_vs_normal_wait",
+      "rel": "retrieved",
+      "ts": 1777506366
+    },
+    {
+      "from": "query:omnet simulation timing mode realtime discrete event bft",
+      "to": "bftsmart/library/docs/javadoc/package-search-index.js",
+      "rel": "retrieved",
+      "ts": 1777506366
+    },
+    {
+      "from": "query:timing mode realtime sim time limit express",
+      "to": "fourway/omnetpp.ini",
+      "rel": "read",
+      "ts": 1777506373,
+      "meta": {
+        "mode": "full"
+      }
+    },
+    {
+      "from": "query:leader position veh0 bft byzantine vehicle departure route",
+      "to": "experiment_orchestrator.py",
+      "rel": "retrieved",
+      "ts": 1777509188
+    },
+    {
+      "from": "query:leader position veh0 bft byzantine vehicle departure route",
+      "to": "fourway/benchmarks/analyze_two_phase_v2_avg_runs.py",
+      "rel": "retrieved",
+      "ts": 1777509188
+    },
+    {
+      "from": "query:leader position veh0 bft byzantine vehicle departure route",
+      "to": "bftsmart/metricParser.py::parse_log_file",
+      "rel": "retrieved",
+      "ts": 1777509188
+    },
+    {
+      "from": "query:leader position veh0 bft byzantine vehicle departure route",
+      "to": "fourway/benchmarks/analyze_two_phase_runs_avg.py",
+      "rel": "retrieved",
+      "ts": 1777509188
+    },
+    {
+      "from": "query:leader position veh0 bft byzantine vehicle departure route",
+      "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js::createPositionalPseudo",
+      "rel": "retrieved",
+      "ts": 1777509188
+    },
+    {
+      "from": "query:veh0 leader departure position route",
+      "to": "fourway/bft_8veh.rou.xml",
+      "rel": "read",
+      "ts": 1777509192,
+      "meta": {
+        "mode": "full"
+      }
+    },
+    {
+      "from": "query:leader vehicle position script parameters",
+      "to": "bftsmart/run-omnet-simulation.sh",
+      "rel": "read",
+      "ts": 1777509193,
+      "meta": {
+        "mode": "full"
+      }
+    },
+    {
+      "from": "query:initial view leader change",
+      "to": "fourway/config/system.config",
+      "rel": "read",
+      "ts": 1777509841,
+      "meta": {
+        "mode": "full"
+      }
+    },
+    {
+      "from": "action:edit:1777510456",
+      "to": "bftsmart/run-omnet-simulation.sh",
+      "rel": "edited",
+      "ts": 1777510456
+    },
+    {
+      "from": "query:experiment_orchestrator leader randomize arguments run omnet simulation",
+      "to": "experiment_orchestrator.py",
+      "rel": "retrieved",
+      "ts": 1777511071
+    },
+    {
+      "from": "query:experiment_orchestrator leader randomize arguments run omnet simulation",
+      "to": "fourway/benchmarks/analyze_two_phase_runs_avg.py",
+      "rel": "retrieved",
+      "ts": 1777511071
+    },
+    {
+      "from": "query:experiment_orchestrator leader randomize arguments run omnet simulation",
+      "to": "fourway/benchmarks/analyze_two_phase_v2_avg_runs.py",
+      "rel": "retrieved",
+      "ts": 1777511071
+    },
+    {
+      "from": "query:experiment_orchestrator leader randomize arguments run omnet simulation",
+      "to": "plot_wait_time_cdf.py::extract_run_metrics",
+      "rel": "retrieved",
+      "ts": 1777511071
+    },
+    {
+      "from": "query:experiment_orchestrator leader randomize arguments run omnet simulation",
+      "to": "veins-veins-5.3.1/src/scripts/veins_run.in.py",
+      "rel": "retrieved",
+      "ts": 1777511071
+    },
+    {
+      "from": "action:edit:1777511140",
+      "to": "experiment_orchestrator.py",
+      "rel": "edited",
+      "ts": 1777511140
+    },
+    {
+      "from": "action:edit:1777511820",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.ned",
+      "rel": "edited",
+      "ts": 1777511820
+    },
+    {
+      "from": "action:edit:1777511820",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
+      "rel": "edited",
+      "ts": 1777511820
+    },
+    {
+      "from": "action:edit:1777511820",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+      "rel": "edited",
+      "ts": 1777511820
+    },
+    {
+      "from": "action:edit:1777511820",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc",
+      "rel": "edited",
+      "ts": 1777511820
+    },
+    {
+      "from": "action:edit:1777511820",
+      "to": "fourway/omnetpp.ini",
+      "rel": "edited",
+      "ts": 1777511820
+    },
+    {
+      "from": "action:edit:1777511820",
+      "to": "bftsmart/run-omnet-simulation.sh",
+      "rel": "edited",
+      "ts": 1777511820
+    },
+    {
+      "from": "query:hardcoded leader replica propose_all amitheleader leaderreplicaid cert collection",
+      "to": "fourway/benchmarks/analyze_two_phase_v2_avg_runs.py::load_collection",
+      "rel": "retrieved",
+      "ts": 1777514690
+    },
+    {
+      "from": "query:hardcoded leader replica propose_all amitheleader leaderreplicaid cert collection",
+      "to": "bftsmart/metricParser.py::generate_plots",
+      "rel": "retrieved",
+      "ts": 1777514690
+    },
+    {
+      "from": "query:hardcoded leader replica propose_all amitheleader leaderreplicaid cert collection",
+      "to": "experiment_orchestrator.py::apply_scale",
+      "rel": "retrieved",
+      "ts": 1777514690
+    },
+    {
+      "from": "query:hardcoded leader replica propose_all amitheleader leaderreplicaid cert collection",
+      "to": "fourway/analyze_log.py::fmt_stat",
+      "rel": "retrieved",
+      "ts": 1777514690
+    },
+    {
+      "from": "query:hardcoded leader replica propose_all amitheleader leaderreplicaid cert collection",
+      "to": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+      "rel": "retrieved",
+      "ts": 1777514690
+    },
+    {
+      "from": "action:edit:1777523987",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc",
+      "rel": "edited",
+      "ts": 1777523987
+    },
+    {
+      "from": "query:consensus latency measurement wall clock sim time propose_all",
+      "to": "fourway/analyze_log.py::save_waittime_by_car_plot",
+      "rel": "retrieved",
+      "ts": 1777766815
+    },
+    {
+      "from": "query:consensus latency measurement wall clock sim time propose_all",
+      "to": "experiment_orchestrator.py::run_one_simulation",
+      "rel": "retrieved",
+      "ts": 1777766815
+    },
+    {
+      "from": "query:consensus latency measurement wall clock sim time propose_all",
+      "to": "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path",
+      "rel": "retrieved",
+      "ts": 1777766815
+    },
+    {
+      "from": "query:consensus latency measurement wall clock sim time propose_all",
+      "to": "plot_wait_time_cdf.py::derive_bar_series_from_scenarios",
+      "rel": "retrieved",
+      "ts": 1777766815
+    },
+    {
+      "from": "query:consensus latency measurement wall clock sim time propose_all",
+      "to": "veins-veins-5.3.1/subprojects/veins_testsims/src/scripts/veins_testsims_run.in.py::relpath",
+      "rel": "retrieved",
+      "ts": 1777766815
+    },
+    {
+      "from": "action:edit:1777768899",
+      "to": "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java",
+      "rel": "edited",
+      "ts": 1777768899
+    },
+    {
+      "from": "action:edit:1777768899",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+      "rel": "edited",
+      "ts": 1777768899
+    },
+    {
+      "from": "action:edit:1777768899",
+      "to": "plot_wait_time_cdf.py",
+      "rel": "edited",
+      "ts": 1777768899
+    },
+    {
+      "from": "query:bft timing discrepancy simulation clock java timers self",
+      "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
+      "rel": "retrieved",
+      "ts": 1777858277
+    },
+    {
+      "from": "query:bft timing discrepancy simulation clock java timers self",
+      "to": "experiment_orchestrator.py",
+      "rel": "retrieved",
+      "ts": 1777858277
+    },
+    {
+      "from": "query:bft timing discrepancy simulation clock java timers self",
+      "to": "fourway/analyze_log.py::normalize_java_epoch",
+      "rel": "retrieved",
+      "ts": 1777858277
+    },
+    {
+      "from": "query:bft timing discrepancy simulation clock java timers self",
+      "to": "bftsmart/library/docs/javadoc/member-search-index.js",
+      "rel": "retrieved",
+      "ts": 1777858277
+    },
+    {
+      "from": "query:bft timing discrepancy simulation clock java timers self",
+      "to": "bftsmart/library/docs/javadoc/package-search-index.js",
+      "rel": "retrieved",
+      "ts": 1777858277
+    },
+    {
+      "from": "query:timing send message self delivery simulation clock timer",
+      "to": "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java",
+      "rel": "read",
+      "ts": 1777858346,
+      "meta": {
+        "mode": "full"
+      }
     }
   ],
   "files": {
@@ -276,8 +769,9 @@
       "cached_content": "//\n// V2VProxyModule.h\n// OMNeT++ module that bridges BFT-SMaRt Java processes to Veins V2V communication\n//\n\n#pragma once\n\n#include \"veins/veins.h\"\n#include \"veins/modules/application/ieee80211p/DemoBaseApplLayer.h\"\n#include \"veins/modules/bftsmart/bftsmart_demo_intersection_IntersectionServer.h\"\n#",
       "cached_chars": 20000,
       "cached_tokens_est": 5000,
-      "last_action": "read",
-      "last_ts": 1777315925
+      "last_action": "edited",
+      "last_ts": "2026-04-30T01:17:00.036197+00:00",
+      "edited_count": 1
     },
     "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc": {
       "query_terms": [
@@ -290,16 +784,18 @@
       "cached_content": "    , deliverMessageMethod(nullptr)\n    , bftReplicaThread(nullptr)\n    , radioBusy(false)\n    , radioReadyMsg(nullptr)\n    , onRadioReadyMethod(nullptr)\n    , clockClass(nullptr)\n    , updateTimeMethod(nullptr)\n    , processQueueTimer(nullptr)\n    , triggerJoinTimer(nullptr)\n    , joinTriggered(fal",
       "cached_chars": 5000,
       "cached_tokens_est": 1250,
-      "last_action": "read",
-      "last_ts": 1777315935
+      "last_action": "edited",
+      "last_ts": "2026-05-03T00:41:39.580877+00:00",
+      "edited_count": 2
     },
     "plot_wait_time_cdf.py": {
       "query_terms": [],
       "cached_content": "#!/usr/bin/env python3\n\"\"\"\nPlots from analyze_log metrics JSON (per_car + overall):\n\n1. CDF \u2014 2\u00d72 panels for n \u2208 {4,8,12,16}; each panel shows ECDFs for every scenario that\n   has JSON for that n. ``wait_intersection_s``; \u2605 = priority vehicle when role=all.\n   Use ``--scenario`` for a single-panel l",
       "cached_chars": 20000,
       "cached_tokens_est": 5000,
-      "last_action": "read",
-      "last_ts": 1777409911
+      "last_action": "edited",
+      "last_ts": "2026-05-03T00:41:39.580883+00:00",
+      "edited_count": 1
     },
     "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path": {
       "query_terms": [],
@@ -308,6 +804,97 @@
       "cached_tokens_est": 1789,
       "last_action": "read",
       "last_ts": 1777409911
+    },
+    "fourway/omnetpp.ini": {
+      "query_terms": [
+        "timing",
+        "mode",
+        "realtime",
+        "sim",
+        "time",
+        "limit",
+        "express"
+      ],
+      "cached_content": "[General]\nscheduler-class = \"omnetpp::cRealTimeScheduler\"\nrealtimescheduler-scaling = 0.1\ncmdenv-express-mode = false\ncmdenv-autoflush = false\ncmdenv-status-frequency = 1s\n**.cmdenv-log-level = info\n\nimage-path = ../../images\n\nnetwork = fourWay\n\n######################################################",
+      "cached_chars": 13441,
+      "cached_tokens_est": 3360,
+      "last_action": "edited",
+      "last_ts": "2026-04-30T01:17:00.036217+00:00",
+      "edited_count": 1
+    },
+    "fourway/bft_8veh.rou.xml": {
+      "query_terms": [
+        "veh0",
+        "leader",
+        "departure",
+        "position",
+        "route"
+      ],
+      "cached_content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<routes>\n    <vType id=\"car\" accel=\"2.6\" decel=\"4.5\" sigma=\"0.5\" length=\"4.5\" minGap=\"2.5\" maxSpeed=\"14\" color=\"1,1,0\"/>\n    <vType id=\"ambulance\" accel=\"2.6\" decel=\"4.5\" sigma=\"0.5\" length=\"4.5\" minGap=\"2.5\" maxSpeed=\"14\" color=\"1,0,0\"/>\n\n\n    <!-- Routes from",
+      "cached_chars": 1243,
+      "cached_tokens_est": 310,
+      "last_action": "read",
+      "last_ts": 1777509192
+    },
+    "bftsmart/run-omnet-simulation.sh": {
+      "query_terms": [
+        "leader",
+        "vehicle",
+        "position",
+        "script",
+        "parameters"
+      ],
+      "cached_content": "#!/bin/bash\n# Wrapper script to run OMNeT++ simulations with portable repo-relative paths.\n#\n# Usage:\n#   ./run-omnet-simulation.sh [sim-dir] [opp_run args...]\n#   ./run-omnet-simulation.sh --randomize <N> <F> [options] [sim-dir] [opp_run args...]\n#\n# --randomize <N> <F>\n#   Picks one ambulance and ",
+      "cached_chars": 16305,
+      "cached_tokens_est": 4076,
+      "last_action": "edited",
+      "last_ts": "2026-04-30T01:17:00.036223+00:00",
+      "edited_count": 2
+    },
+    "fourway/config/system.config": {
+      "query_terms": [
+        "initial",
+        "view",
+        "leader",
+        "change"
+      ],
+      "cached_content": "# Copyright (c) 2007-2013 Alysson Bessani, Eduardo Alchieri, Paulo Sousa, and the authors indicated in the @author tags\n#\n# Licensed under the Apache License, Version 2.0 (the \"License\");\n# you may not use this file except in compliance with the License.\n# You may obtain a copy of the License at\n#\n#",
+      "cached_chars": 11869,
+      "cached_tokens_est": 2967,
+      "last_action": "read",
+      "last_ts": 1777509841
+    },
+    "experiment_orchestrator.py": {
+      "last_action": "edited",
+      "last_ts": "2026-04-30T01:05:40.312450+00:00",
+      "edited_count": 1
+    },
+    "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.ned": {
+      "last_action": "edited",
+      "last_ts": "2026-04-30T01:17:00.036120+00:00",
+      "edited_count": 1
+    },
+    "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc": {
+      "last_action": "edited",
+      "last_ts": "2026-04-30T04:39:47.941845+00:00",
+      "edited_count": 2
+    },
+    "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java": {
+      "query_terms": [
+        "timing",
+        "send",
+        "message",
+        "self",
+        "delivery",
+        "simulation",
+        "clock",
+        "timer"
+      ],
+      "cached_content": "package bftsmart.communication.V2V;\n\nimport bftsmart.communication.SystemMessage;\nimport bftsmart.communication.server.ServersCommunicationLayerInterface;\nimport bftsmart.reconfiguration.ServerViewController;\nimport bftsmart.tom.ServiceReplica;\nimport java.io.*;\nimport java.util.concurrent.LinkedBlo",
+      "cached_chars": 15508,
+      "cached_tokens_est": 3877,
+      "last_action": "read",
+      "last_ts": 1777858346
     }
   },
   "actions": [
@@ -374,6 +961,245 @@
         "kind": "continue_retrieve",
         "query": "NACK based leader change protocol design and rationale"
       }
+    },
+    {
+      "ts": 1777506366,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "OMNeT++ simulation timing mode realtime vs discrete-event BFT-SMaRt sim-time-limit express mode omnetpp.ini"
+      }
+    },
+    {
+      "ts": 1777506366,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "OMNeT++ simulation timing mode realtime vs discrete-event BFT-SMaRt sim-time-limit express mode omnetpp.ini"
+      }
+    },
+    {
+      "ts": 1777509188,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "leader position veh0 BFT byzantine leader vehicle departure position route file run-omnet-simulation script"
+      }
+    },
+    {
+      "ts": 1777509188,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "leader position veh0 BFT byzantine leader vehicle departure position route file run-omnet-simulation script"
+      }
+    },
+    {
+      "ts": 1777510456,
+      "kind": "register_edit",
+      "payload": {
+        "kind": "register_edit"
+      }
+    },
+    {
+      "ts": 1777511071,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "experiment_orchestrator.py leader randomize arguments run-omnet-simulation"
+      }
+    },
+    {
+      "ts": 1777511071,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "experiment_orchestrator.py leader randomize arguments run-omnet-simulation"
+      }
+    },
+    {
+      "ts": 1777511073,
+      "kind": "read_blocked_reuse_gate",
+      "payload": {
+        "kind": "read_blocked_reuse_gate",
+        "file": "experiment_orchestrator.py",
+        "query": "leader randomize argparse run-omnet-simulation command arguments",
+        "mode": "reuse_gate_blocked"
+      }
+    },
+    {
+      "ts": 1777511140,
+      "kind": "register_edit",
+      "payload": {
+        "kind": "register_edit"
+      }
+    },
+    {
+      "ts": 1777511820,
+      "kind": "register_edit",
+      "payload": {
+        "kind": "register_edit"
+      }
+    },
+    {
+      "ts": 1777514690,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "hardcoded leader replica 0 PROPOSE_ALL C++ amITheLeader leaderReplicaId cert collection"
+      }
+    },
+    {
+      "ts": 1777514690,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "hardcoded leader replica 0 PROPOSE_ALL C++ amITheLeader leaderReplicaId cert collection"
+      }
+    },
+    {
+      "ts": 1777523987,
+      "kind": "register_edit",
+      "payload": {
+        "kind": "register_edit"
+      }
+    },
+    {
+      "ts": 1777766815,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "consensus latency measurement wall clock sim time propose_all analyze_log self-delivery JNI radio bypass"
+      }
+    },
+    {
+      "ts": 1777766815,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "consensus latency measurement wall clock sim time propose_all analyze_log self-delivery JNI radio bypass"
+      }
+    },
+    {
+      "ts": 1777766834,
+      "kind": "read_blocked_reuse_gate",
+      "payload": {
+        "kind": "read_blocked_reuse_gate",
+        "file": "fourway/analyze_log.py::save_waittime_by_car_plot",
+        "query": "propose_all_consensus_latency_s sim_s wall clock",
+        "mode": "reuse_gate_blocked"
+      }
+    },
+    {
+      "ts": 1777768899,
+      "kind": "register_edit",
+      "payload": {
+        "kind": "register_edit"
+      }
+    },
+    {
+      "ts": 1777849464,
+      "kind": "continue_memory_first",
+      "payload": {
+        "kind": "continue_memory_first",
+        "query": "BFT byzantine leader view change STOP message self delivery JNI queue"
+      }
+    },
+    {
+      "ts": 1777858277,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "BFT timing discrepancy simulation clock Java timers self-delivery radio stack"
+      }
+    },
+    {
+      "ts": 1777858277,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "BFT timing discrepancy simulation clock Java timers self-delivery radio stack"
+      }
+    },
+    {
+      "ts": 1777858332,
+      "kind": "read_blocked_reuse_gate",
+      "payload": {
+        "kind": "read_blocked_reuse_gate",
+        "file": "fourway/analyze_log.py::normalize_java_epoch",
+        "query": "timing simulation clock Java epoch",
+        "mode": "reuse_gate_blocked"
+      }
+    },
+    {
+      "ts": 1777858333,
+      "kind": "read_blocked_reuse_gate",
+      "payload": {
+        "kind": "read_blocked_reuse_gate",
+        "file": "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java",
+        "query": "timing simulation clock Java timers self-delivery send message",
+        "mode": "reuse_gate_blocked"
+      }
+    },
+    {
+      "ts": 1777858336,
+      "kind": "read_cache_hit",
+      "payload": {
+        "kind": "read_cache_hit",
+        "file": "fourway/omnetpp.ini",
+        "query": "timing simulation clock Java timers realtimescheduler",
+        "mode": "cache_hit",
+        "response_chars": 300
+      }
+    }
+  ],
+  "decisions": [
+    {
+      "ts": 1777510456,
+      "summary": "Added --leader ID flag: rotates system.initial.view so chosen replica leads view 0; reads n from system.servers.num; validates range; deletes currentView before run so BFT-SMaRt re-reads fresh",
+      "files": [
+        "bftsmart/run-omnet-simulation.sh"
+      ],
+      "scope": "file"
+    },
+    {
+      "ts": 1777511140,
+      "summary": "Added --randomize-leader flag: picks seeded random leader per run, passes --leader ID to run-omnet-simulation.sh; defaults to replica 0 when omitted",
+      "files": [
+        "experiment_orchestrator.py"
+      ],
+      "scope": "file"
+    },
+    {
+      "ts": 1777511820,
+      "summary": "leaderReplicaId NED param controls PROPOSE_ALL leader; getCurrentViewLeader returns configuredLeaderReplicaId; --leader writes leader_override.ini instead of patching system.config",
+      "files": [
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.ned",
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc",
+        "fourway/omnetpp.ini",
+        "bftsmart/run-omnet-simulation.sh"
+      ],
+      "scope": "global"
+    },
+    {
+      "ts": 1777523987,
+      "summary": "getCurrentViewLeader: use configuredLeaderReplicaId if in physicallyObservedCars, else fall back to min-ID \u2014 fixes ByzLeader regression where Byzantine replica 0 was trying to be PROPOSE_ALL leader and stalling on cert collection timeout",
+      "files": [
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VArrivalProtocol.cc"
+      ],
+      "scope": "file"
+    },
+    {
+      "ts": 1777768899,
+      "summary": "Self-delivery bypass fix: Java routes target==me through C++ sim-time schedule (BFTMessage type 100) instead of instant deliverToBFTSmart. Plot fix: consensus latency now uses propose_all_consensus_latency_sim_s (500ms) not wall clock (1.728s).",
+      "files": [
+        "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java",
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+        "plot_wait_time_cdf.py"
+      ],
+      "scope": "global"
     }
   ]
 }

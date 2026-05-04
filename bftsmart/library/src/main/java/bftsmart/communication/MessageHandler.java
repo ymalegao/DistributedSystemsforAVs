@@ -137,7 +137,14 @@ public class MessageHandler {
 						return;
 					}
 
-					if (lcMsg.TRIGGER_LC_LOCALLY)
+					// TRIGGER_LC_LOCALLY is a final field set only in the 4-arg constructor;
+					// after Externalizable deserialization (no-arg ctor + readExternal) it is
+					// always false even for a real TRIGGER_LC_LOCALLY message. Derive the
+					// sentinel check from the stable serialized fields instead.
+					boolean isTriggerLocal =
+						lcMsg.getType() == bftsmart.tom.util.TOMUtil.TRIGGER_LC_LOCALLY
+						&& lcMsg.getSender() == -1;
+					if (isTriggerLocal)
 						tomLayer.requestsTimer.run_lc_protocol();
 					else
 						tomLayer.getSynchronizer().deliverTimeoutRequest(lcMsg);

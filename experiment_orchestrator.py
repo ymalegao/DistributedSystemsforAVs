@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import random
 import re
 import shlex
 import subprocess
@@ -90,6 +91,8 @@ SCENARIO_ORDER: Tuple[str, ...] = (
     "ByzFollower_Ambulance",
     "Honest_Ambulance",
     "No_Ambulance_Honest",
+    "ByzLeader_NoAmbulance",
+    "ByzFollower_NoAmbulance",
 )
 
 
@@ -267,13 +270,22 @@ def run_one_simulation(
     rep: int,
     *,
     dry_run: bool,
+    randomize_leader: bool = False,
 ) -> None:
     ambulance = scenario_name not in ("No_Ambulance_Honest", "ByzLeader_NoAmbulance", "ByzFollower_NoAmbulance")
     cfg = omnet_config_name(n, ambulance=ambulance)
     extra = randomize_args_for_scenario(n, scenario_name)
     seed = run_seed(MASTER_SEED, n, scenario_name, rep)
 
-    argv = [str(RUN_SCRIPT), str(FOURWAY_DIR), *extra, "-u", "Cmdenv", "-c", cfg]
+    leader_args: List[str] = []
+    if randomize_leader:
+        # XOR with a constant so leader draw is independent of Byzantine node draw.
+        rng = random.Random(run_seed(MASTER_SEED, n, scenario_name, rep) ^ 0xDEADBEEF)
+        leader_id = rng.randint(0, n - 1)
+        leader_args = ["--leader", str(leader_id)]
+        print(f"  Leader: replica {leader_id} (random)")
+
+    argv = [str(RUN_SCRIPT), str(FOURWAY_DIR), *leader_args, *extra, "-u", "Cmdenv", "-c", cfg]
     # Seed bash $RANDOM for generate_random_scenario in run-omnet-simulation.sh.
     # Harmless when --randomize is omitted (No_Ambulance_Honest).
     inner = f"export RANDOM={seed} && " + " ".join(shlex.quote(a) for a in argv)
@@ -342,6 +354,11 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
              "useful to resume after a partial failure without overwriting earlier run_<i> dirs.",
     )
     p.add_argument(
+        "--randomize-leader",
+        action="store_true",
+        help="Pick a random initial BFT leader (replica ID) per run instead of always using replica 0.",
+    )
+    p.add_argument(
         "--dry-run",
         action="store_true",
         help="Print commands only.",
@@ -392,7 +409,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             for i, rep in enumerate(rep_indices, start=1):
                 print(f"\n--- {scenario_name} rep {i}/{args.reps} (run_{rep}) ---")
-                run_one_simulation(n, scenario_name, rep, dry_run=args.dry_run)
+                run_one_simulation(n, scenario_name, rep, dry_run=args.dry_run, randomize_leader=args.randomize_leader)
                 run_analyze(n, scenario_name, rep, dry_run=args.dry_run)
 
     return 0

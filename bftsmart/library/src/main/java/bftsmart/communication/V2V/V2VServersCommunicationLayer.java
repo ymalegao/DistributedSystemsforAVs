@@ -4,6 +4,7 @@ import bftsmart.communication.SystemMessage;
 import bftsmart.communication.server.ServersCommunicationLayerInterface;
 import bftsmart.reconfiguration.ServerViewController;
 import bftsmart.tom.ServiceReplica;
+import java.io.*;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.HashMap;
 import java.util.Arrays;
@@ -29,6 +30,7 @@ public class V2VServersCommunicationLayer extends Thread implements ServersCommu
     private final ReliableV2VMessaging reliabilityLayer;
     private RequestReceiver requestReceiver;  // Not final - can be set later via setRequestReceiver()
     private bftsmart.demo.intersection.IntersectionServer intersectionServer;
+    private V2VNativeBridge bridge;
     // private SimulationTimer simulationTimer;
     public V2VServersCommunicationLayer(
         ServerViewController controller,
@@ -65,8 +67,8 @@ public class V2VServersCommunicationLayer extends Thread implements ServersCommu
             System.out.println("[V2V Layer " + me + "] Received message from replica " + fromReplicaId + " via JNI");
             // Deserialize and deliver message
             try {
-                java.io.ByteArrayInputStream bis = new java.io.ByteArrayInputStream(messageData);
-                java.io.ObjectInputStream ois = new java.io.ObjectInputStream(bis);
+                ByteArrayInputStream bis = new ByteArrayInputStream(messageData);
+                ObjectInputStream ois = new ObjectInputStream(bis);
                 V2VMessageEnvelope envelope = (V2VMessageEnvelope) ois.readObject();
                 reliabilityLayer.handleIncomingMessage(envelope);
             } catch (Exception e) {
@@ -75,7 +77,7 @@ public class V2VServersCommunicationLayer extends Thread implements ServersCommu
             }
         };
         System.out.println("[V2V Layer " + me + "] DEBUG: Callback created, creating V2VNativeBridge...");
-        V2VNativeBridge bridge = new V2VNativeBridge(me, callback);
+        this.bridge = new V2VNativeBridge(me, callback);
         System.out.println("[V2V Layer " + me + "] DEBUG: Bridge created and callback registered!");
 
         // Small delay to ensure ALL replicas have registered callbacks before anyone starts sending
@@ -180,15 +182,41 @@ public class V2VServersCommunicationLayer extends Thread implements ServersCommu
 
         for (int target: targets){
             if (target == me){
-                // if (intersectionServer != null && intersectionServer.isReplicaDeparted(target)) {
-                //     System.out.println("    -> Skipping send to zombie replica " + target +
-                //                      " (message type: " + sm.getClass().getSimpleName() + ")");
-                //     continue;  // Skip this target
-                // }
-                
                 deliveredToSelf = true;
-                deliverToBFTSmart(sm);
-                
+                // Route through C++ so self-messages experience sim-time delay (same as remote
+                // messages) rather than instant delivery. This removes the asymmetry vs RAFT,
+                // which puts every message — including self — through the radio model.
+                boolean routed = false;
+                if (bridge != null && V2VNativeBridge.isLibraryLoaded()) {
+                    try {
+                        // Serialize the SystemMessage
+                        ByteArrayOutputStream smBaos = new ByteArrayOutputStream();
+                        ObjectOutputStream smOos = new ObjectOutputStream(smBaos);
+                        smOos.writeObject(sm);
+                        smOos.flush();
+                        byte[] smPayload = smBaos.toByteArray();
+                        // Wrap in an unordered (no seq tracking) self-addressed envelope
+                        V2VMessageEnvelope selfEnv = new V2VMessageEnvelope(
+                            V2VMessageEnvelope.MessageType.DATA, me, me, 0L, 0L, smPayload);
+                        selfEnv.isUnordered = true;
+                        // Serialize envelope
+                        ByteArrayOutputStream envBaos = new ByteArrayOutputStream();
+                        ObjectOutputStream envOos = new ObjectOutputStream(envBaos);
+                        envOos.writeObject(selfEnv);
+                        envOos.flush();
+                        byte[] envBytes = envBaos.toByteArray();
+                        // bridge.sendMessage(me, ...) calls nativeSendMessage(me, me, bytes);
+                        // C++ detects fromId==toId==replicaId and schedules a sim-time delay.
+                        routed = bridge.sendMessage(me, envBytes);
+                    } catch (IOException e) {
+                        System.err.println("[V2V Layer " + me + "] Self-delivery serialization failed: " + e.getMessage());
+                    }
+                }
+                if (!routed) {
+                    // Fallback: direct delivery (no sim-time delay, preserves correctness)
+                    System.out.println("    -> Self-delivery FALLBACK (bridge unavailable)");
+                    deliverToBFTSmart(sm);
+                }
             }else{
                 remoteTargetCount++;
             }
