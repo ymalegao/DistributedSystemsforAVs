@@ -80,14 +80,6 @@ public class V2VServersCommunicationLayer extends Thread implements ServersCommu
         this.bridge = new V2VNativeBridge(me, callback);
         System.out.println("[V2V Layer " + me + "] DEBUG: Bridge created and callback registered!");
 
-        // Small delay to ensure ALL replicas have registered callbacks before anyone starts sending
-        // This prevents "callback not registered" errors when messages arrive
-        try {
-            System.out.println("[V2V Layer " + me + "] DEBUG: Waiting 500ms for all peers to register callbacks...");
-            Thread.sleep(500);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
         System.out.println("[V2V Layer " + me + "] DEBUG: Creating connections...");
         for (int replicaId: replicaIds){
             if (replicaId != me){

@@ -1002,19 +1002,24 @@ bool V2VProxyModule::validateArrivalCert(const ArrivalCert& cert) {
 
 int V2VProxyModule::getCurrentViewLeader(const std::set<std::string>& agreedView) {
     if (agreedView.empty()) return -1;
-    
-    int minId = INT_MAX;
-    
-    for (const std::string& veh : agreedView) {
-        try {
-            int currentId = std::stoi(veh.substr(3));
-            minId = std::min(minId, currentId);
-        } catch (const std::exception& e) {
-            EV_ERROR << "[VIEW] Failed to parse vehicle ID from: " << veh << "\n";
-        }
+
+    // Use the configured leader if it is physically observed (announce passed lane check).
+    // If not (e.g. Byzantine FALSE_LANE replica whose announce was rejected), fall back
+    // to the lowest-ID honest replica so the protocol doesn't stall waiting for a cert
+    // that will never be assembled.
+    std::string configuredLeaderVehId = "veh" + std::to_string(configuredLeaderReplicaId);
+    if (agreedView.count(configuredLeaderVehId)) {
+        return configuredLeaderReplicaId;
     }
 
-    return minId;
+    int minId = INT_MAX;
+    for (const std::string& veh : agreedView) {
+        try {
+            int id = std::stoi(veh.substr(3));
+            minId = std::min(minId, id);
+        } catch (...) {}
+    }
+    return (minId == INT_MAX) ? -1 : minId;
 }
 
 bool V2VProxyModule::amITheLeader(const std::set<std::string>& agreedView) {

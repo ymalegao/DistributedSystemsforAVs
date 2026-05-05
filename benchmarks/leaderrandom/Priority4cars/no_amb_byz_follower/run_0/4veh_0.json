@@ -1,0 +1,199 @@
+{
+  "overall": {
+    "cars": 4,
+    "epochs": 1,
+    "throughput_s_per_veh": 1.0222222222222224,
+    "throughput_veh_per_s": 0.9782608695652173,
+    "throughput_formula": "n_cars / mean(depart_time - stop_time)  (s/veh stored as inverse)",
+    "throughput_s_per_veh_legacy_span": 2.9666666666666663,
+    "throughput_veh_per_s_legacy_span": 0.3370786516853933,
+    "wait_all_s": {
+      "mean": 3.066666666666667,
+      "median": 0.1,
+      "p95": 8.11,
+      "min": 0.1,
+      "max": 9.0,
+      "n": 3
+    },
+    "wait_normal_s": {
+      "mean": 3.066666666666667,
+      "median": 0.1,
+      "p95": 8.11,
+      "min": 0.1,
+      "max": 9.0,
+      "n": 3
+    },
+    "wait_ambulance_s": null,
+    "jains_fairness_all": 0.3482267752818234,
+    "jains_fairness_normal": 0.3482267752818234,
+    "ambulance_priority_gain_s": null,
+    "ambulance_priority_ratio": null,
+    "propose_all_consensus_latency_s": {
+      "mean": 0.194,
+      "median": 0.194,
+      "p95": 0.194,
+      "min": 0.194,
+      "max": 0.194,
+      "n": 1
+    },
+    "propose_all_consensus_latency_sim_s": {
+      "mean": 0.399,
+      "median": 0.399,
+      "p95": 0.399,
+      "min": 0.399,
+      "max": 0.399,
+      "n": 1
+    },
+    "stop_to_decision_sim_s": null,
+    "bft_decision_time_s": {
+      "mean": 0.194,
+      "median": 0.194,
+      "p95": 0.194,
+      "min": 0.194,
+      "max": 0.194,
+      "n": 4
+    },
+    "total_byzantine_injections": 2,
+    "byzantine_by_epoch": {
+      "0": 2
+    },
+    "byzantine_by_replica": {
+      "3": 2
+    },
+    "arrival_to_resume_s": {
+      "mean": 5.674999999999999,
+      "median": 4.475,
+      "p95": 12.979999999999997,
+      "min": 0.04999999999999982,
+      "max": 13.7,
+      "n": 4
+    },
+    "resume_to_depart_s": {
+      "mean": 0.06666666666666643,
+      "median": 0.04999999999999982,
+      "p95": 0.09499999999999967,
+      "min": 0.04999999999999982,
+      "max": 0.09999999999999964,
+      "n": 3
+    },
+    "delivery_ratio": 0.4303451178451178,
+    "estimated_loss_rate": 0.5696548821548821,
+    "fallback_rate": 0.0,
+    "fallback_count": 0
+  },
+  "per_epoch": [
+    {
+      "epoch": 0,
+      "n_replicas": 4,
+      "propose_all_consensus_latency_s": 0.194,
+      "propose_all_consensus_latency_sim_s": 0.399,
+      "stop_to_decision_sim_s": null,
+      "throughput_s_per_veh": 1.0222222222222224,
+      "throughput_veh_per_s": 0.9782608695652173,
+      "wait_normal_s": {
+        "mean": 3.066666666666667,
+        "median": 0.1,
+        "p95": 8.11,
+        "min": 0.1,
+        "max": 9.0,
+        "n": 3
+      },
+      "wait_ambulance_s": null,
+      "byzantine_injections": 2,
+      "consensus_success": true,
+      "avg_messages_sent_per_replica": 13.25,
+      "avg_messages_recv_per_replica": 16.25,
+      "stop_sign_failures": 0
+    }
+  ],
+  "per_car": [
+    {
+      "car_id": "veh0",
+      "role": "normal",
+      "epoch": 0,
+      "arrival_time_s": 3.2,
+      "stop_time_s": 3.2,
+      "resume_time_s": 3.25,
+      "depart_time_s": 3.3,
+      "wait_intersection_s": 0.1,
+      "arrival_to_resume_s": 0.04999999999999982,
+      "resume_to_depart_s": 0.04999999999999982,
+      "arrival_to_depart_s": 0.09999999999999964,
+      "messages_sent": 18,
+      "messages_received": 14,
+      "delivery_ratio": 0.25925925925925924,
+      "estimated_loss_rate": 0.7407407407407407,
+      "used_fallback": false,
+      "propose_all_consensus_wall_s": 0.194,
+      "propose_all_consensus_sim_s": 0.399,
+      "stop_to_decision_sim_s": null,
+      "bft_decision_time_s": 0.194
+    },
+    {
+      "car_id": "veh1",
+      "role": "normal",
+      "epoch": 0,
+      "arrival_time_s": 3.2,
+      "stop_time_s": 3.2,
+      "resume_time_s": 3.25,
+      "depart_time_s": 3.3,
+      "wait_intersection_s": 0.1,
+      "arrival_to_resume_s": 0.04999999999999982,
+      "resume_to_depart_s": 0.04999999999999982,
+      "arrival_to_depart_s": 0.09999999999999964,
+      "messages_sent": 11,
+      "messages_received": 18,
+      "delivery_ratio": 0.5454545454545454,
+      "estimated_loss_rate": 0.4545454545454546,
+      "used_fallback": false,
+      "propose_all_consensus_wall_s": 0.194,
+      "propose_all_consensus_sim_s": null,
+      "stop_to_decision_sim_s": null,
+      "bft_decision_time_s": 0.194
+    },
+    {
+      "car_id": "veh2",
+      "role": "normal",
+      "epoch": 0,
+      "arrival_time_s": 3.2,
+      "stop_time_s": 3.2,
+      "resume_time_s": 12.1,
+      "depart_time_s": 12.2,
+      "wait_intersection_s": 9.0,
+      "arrival_to_resume_s": 8.899999999999999,
+      "resume_to_depart_s": 0.09999999999999964,
+      "arrival_to_depart_s": 9.0,
+      "messages_sent": 12,
+      "messages_received": 16,
+      "delivery_ratio": 0.4444444444444444,
+      "estimated_loss_rate": 0.5555555555555556,
+      "used_fallback": false,
+      "propose_all_consensus_wall_s": 0.194,
+      "propose_all_consensus_sim_s": null,
+      "stop_to_decision_sim_s": null,
+      "bft_decision_time_s": 0.194
+    },
+    {
+      "car_id": "veh3",
+      "role": "normal",
+      "epoch": 0,
+      "arrival_time_s": 3.2,
+      "stop_time_s": 3.2,
+      "resume_time_s": 16.9,
+      "depart_time_s": null,
+      "wait_intersection_s": null,
+      "arrival_to_resume_s": 13.7,
+      "resume_to_depart_s": null,
+      "arrival_to_depart_s": null,
+      "messages_sent": 12,
+      "messages_received": 17,
+      "delivery_ratio": 0.4722222222222222,
+      "estimated_loss_rate": 0.5277777777777778,
+      "used_fallback": false,
+      "propose_all_consensus_wall_s": 0.194,
+      "propose_all_consensus_sim_s": null,
+      "stop_to_decision_sim_s": null,
+      "bft_decision_time_s": 0.194
+    }
+  ]
+}

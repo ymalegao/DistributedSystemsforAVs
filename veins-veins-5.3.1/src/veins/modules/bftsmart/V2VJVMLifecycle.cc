@@ -536,8 +536,6 @@ extern "C" {
 extern "C" {
     JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyViewAgreed
         (JNIEnv*, jobject, jint, jstring);
-    JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyProposeAllConsensusMetric
-        (JNIEnv*, jobject, jint, jint, jdouble);
     JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyVehicleCanGo
         (JNIEnv*, jobject, jint, jdouble);
     JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyWipeComplete
@@ -622,14 +620,13 @@ bool V2VProxyModule::registerJNINativeMethods(JNIEnv* env)
         {const_cast<char*>("notifyVehicleCanGo"),    const_cast<char*>("(ID)V"),                (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyVehicleCanGo},
         {const_cast<char*>("notifyViewAgreed"),      const_cast<char*>("(ILjava/lang/String;)V"),(void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyViewAgreed},
         {const_cast<char*>("notifyOrderDecided"),    const_cast<char*>("(ILjava/lang/String;)V"),(void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyOrderDecided},
-        {const_cast<char*>("notifyProposeAllConsensusMetric"), const_cast<char*>("(IID)V"),     (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyProposeAllConsensusMetric},
         {const_cast<char*>("notifyWipeComplete"),    const_cast<char*>("(I)V"),                 (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyWipeComplete},
         {const_cast<char*>("nativeGetCertSnapshot"), const_cast<char*>("(I)Ljava/util/Set;"),  (void*)&Java_bftsmart_demo_intersection_IntersectionServer_nativeGetCertSnapshot},
         {const_cast<char*>("nativeGetFreshProposePayload"), const_cast<char*>("(I)Ljava/lang/String;"), (void*)&Java_bftsmart_demo_intersection_IntersectionServer_nativeGetFreshProposePayload},
         {const_cast<char*>("nativeBroadcastClientRequest"), const_cast<char*>("(I[B)V"),        (void*)&Java_bftsmart_demo_intersection_IntersectionServer_nativeBroadcastClientRequest}
     };
 
-    if (env->RegisterNatives(intersectionServerClass, serverMethods, 8) != 0) {
+    if (env->RegisterNatives(intersectionServerClass, serverMethods, 7) != 0) {
         std::cerr << "[V2VProxy] ERROR: Failed to register IntersectionServer native methods" << "\n";
         env->ExceptionDescribe();
         env->ExceptionClear();

@@ -297,6 +297,200 @@
       "meta": {
         "text": "timing send message self-delivery simulation clock timer"
       }
+    },
+    {
+      "id": "query:v2vproxymodule jni packet size bytelength processing delay simtime",
+      "type": "query",
+      "meta": {
+        "text": "V2VProxyModule JNI packet size byteLength processing delay simTime outbound transmission"
+      }
+    },
+    {
+      "id": "experiment_orchestrator.py::patch_batch_sizes",
+      "type": "file"
+    },
+    {
+      "id": "veins-veins-5.3.1/src/scripts/veins_run.in.py::abspath",
+      "type": "file"
+    },
+    {
+      "id": "action:edit:1777860822",
+      "type": "action",
+      "meta": {
+        "summary": "Added syncTimeToJava() to handleClientRequestBroadcast (type-9 path was missing clock sync). Added [TIMING] ENTRY/QUEUE/EXIT logs at all four message lifecycle points for zero-sim-time diagnosis."
+      }
+    },
+    {
+      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc",
+      "type": "file"
+    },
+    {
+      "id": "query:bft timing diagnosis entry queue exit simtime gap",
+      "type": "query",
+      "meta": {
+        "text": "BFT timing diagnosis ENTRY QUEUE EXIT simTime gap TIMING logs leader PROPOSE_ALL"
+      }
+    },
+    {
+      "id": "query:raft timing parameters raftappbase constructor scheduleoneshotms timers",
+      "type": "query",
+      "meta": {
+        "text": "Raft timing parameters RaftAppBase constructor scheduleOneshotMs timers"
+      }
+    },
+    {
+      "id": "query:bft faster than raft incorrect timing java jni",
+      "type": "query",
+      "meta": {
+        "text": "BFT faster than Raft incorrect timing Java JNI speedup"
+      }
+    },
+    {
+      "id": "action:edit:1777951680",
+      "type": "action",
+      "meta": {
+        "summary": "Trailing car stopTime: ring-entry primary (matches Raft), speed poll fallback, no ORDER-time contamination"
+      }
+    },
+    {
+      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VOrderProtocol.cc",
+      "type": "file"
+    },
+    {
+      "id": "query:simulation runtime fast seconds cpu time simtime bft",
+      "type": "query",
+      "meta": {
+        "text": "simulation runtime fast n=16 4 seconds CPU time simtime BFT Raft wait time measurement"
+      }
+    },
+    {
+      "id": ".claude/agent-memory/prof-v2v-bft/project_simtime_bug.md",
+      "type": "file"
+    },
+    {
+      "id": "query:bft timers simulation time wall clock java bftsmart",
+      "type": "query",
+      "meta": {
+        "text": "BFT timers simulation time wall clock Java BFTSmart timeout view change leader election syncTimeToJava"
+      }
+    },
+    {
+      "id": "bftsmart/library/docs/javadoc/type-search-index.js",
+      "type": "file"
+    },
+    {
+      "id": "bftsmart/library/docs/javadoc/script.js::createElem",
+      "type": "file"
+    },
+    {
+      "id": "query:propose_all trigger stop zone intersection arrival bft consensus",
+      "type": "query",
+      "meta": {
+        "text": "PROPOSE_ALL trigger stop zone intersection arrival BFT consensus proposal vehicle stopped"
+      }
+    },
+    {
+      "id": "action:edit:1777958999",
+      "type": "action",
+      "meta": {
+        "summary": ""
+      }
+    },
+    {
+      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc::certCollectionTimeoutTimer handler",
+      "type": "file"
+    },
+    {
+      "id": "query:order decision execute batch vehicle traci stop resume",
+      "type": "query",
+      "meta": {
+        "text": "ORDER decision execute batch vehicle TraCI stop resume myTurn not known veh5 left simulation"
+      }
+    },
+    {
+      "id": "fourway/test_regex.py",
+      "type": "file"
+    },
+    {
+      "id": "action:edit:1777960165",
+      "type": "action",
+      "meta": {
+        "summary": ""
+      }
+    },
+    {
+      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc::vehicleHasClearedIntersectionTraCI",
+      "type": "file"
+    },
+    {
+      "id": "action:edit:1777963861",
+      "type": "action",
+      "meta": {
+        "summary": ""
+      }
+    },
+    {
+      "id": "fourway/analyze_log.py",
+      "type": "file"
+    },
+    {
+      "id": "query:simtime metrics logging cleanup consensus latency analyzer v2vserverscommunicationlayer",
+      "type": "query",
+      "meta": {
+        "text": "simtime metrics logging cleanup consensus latency analyzer V2VServersCommunicationLayer"
+      }
+    },
+    {
+      "id": "fourway/analyze_log.py::write_car_metrics_csv",
+      "type": "file"
+    },
+    {
+      "id": "action:edit:1778006889",
+      "type": "action",
+      "meta": {
+        "summary": "Simtime cleanup: removed all wall-clock metrics, renamed arrival_to_resume to stop_to_resume, removed Thread.sleep(500), removed notifyProposeAllConsensusMetric JNI chain, SimulationClock returns 0 instead of wall fallback"
+      }
+    },
+    {
+      "id": "bftsmart/library/src/main/java/bftsmart/communication/V2V/SimulationClock.java",
+      "type": "file"
+    },
+    {
+      "id": "bftsmart/library/src/main/java/bftsmart/demo/intersection/ServerRunner.java",
+      "type": "file"
+    },
+    {
+      "id": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
+      "type": "file"
+    },
+    {
+      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc",
+      "type": "file"
+    },
+    {
+      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJVMLifecycle.cc",
+      "type": "file"
+    },
+    {
+      "id": "query:stop zone entry timing stoptime consensus not stopped",
+      "type": "query",
+      "meta": {
+        "text": "stop zone entry timing stopTime consensus not stopped yet"
+      }
+    },
+    {
+      "id": "query:stoptime order decision unset warning",
+      "type": "query",
+      "meta": {
+        "text": "stopTime ORDER decision unset warning"
+      }
+    },
+    {
+      "id": "action:edit:1778010176",
+      "type": "action",
+      "meta": {
+        "summary": "stopTime fallback: if unset at ORDER decision, use simTime() so stop_to_departure is valid"
+      }
     }
   ],
   "edges": [
@@ -761,6 +955,486 @@
       "meta": {
         "mode": "full"
       }
+    },
+    {
+      "from": "query:v2vproxymodule jni packet size bytelength processing delay simtime",
+      "to": "experiment_orchestrator.py::patch_batch_sizes",
+      "rel": "retrieved",
+      "ts": 1777860048
+    },
+    {
+      "from": "query:v2vproxymodule jni packet size bytelength processing delay simtime",
+      "to": "bftsmart/metricParser.py::generate_plots",
+      "rel": "retrieved",
+      "ts": 1777860048
+    },
+    {
+      "from": "query:v2vproxymodule jni packet size bytelength processing delay simtime",
+      "to": "fourway/analyze_log.py::fmt_stat",
+      "rel": "retrieved",
+      "ts": 1777860048
+    },
+    {
+      "from": "query:v2vproxymodule jni packet size bytelength processing delay simtime",
+      "to": "plot_wait_time_cdf.py::derive_bar_series_from_scenarios",
+      "rel": "retrieved",
+      "ts": 1777860048
+    },
+    {
+      "from": "query:v2vproxymodule jni packet size bytelength processing delay simtime",
+      "to": "veins-veins-5.3.1/src/scripts/veins_run.in.py::abspath",
+      "rel": "retrieved",
+      "ts": 1777860048
+    },
+    {
+      "from": "action:edit:1777860822",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc",
+      "rel": "edited",
+      "ts": 1777860822
+    },
+    {
+      "from": "action:edit:1777860822",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+      "rel": "edited",
+      "ts": 1777860822
+    },
+    {
+      "from": "query:bft timing diagnosis entry queue exit simtime gap",
+      "to": "experiment_orchestrator.py::bft_f",
+      "rel": "retrieved",
+      "ts": 1777912652
+    },
+    {
+      "from": "query:bft timing diagnosis entry queue exit simtime gap",
+      "to": "bftsmart/metricParser.py::generate_plots",
+      "rel": "retrieved",
+      "ts": 1777912652
+    },
+    {
+      "from": "query:bft timing diagnosis entry queue exit simtime gap",
+      "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
+      "rel": "retrieved",
+      "ts": 1777912652
+    },
+    {
+      "from": "query:bft timing diagnosis entry queue exit simtime gap",
+      "to": "bftsmart/library/docs/javadoc/member-search-index.js",
+      "rel": "retrieved",
+      "ts": 1777912652
+    },
+    {
+      "from": "query:bft timing diagnosis entry queue exit simtime gap",
+      "to": "bftsmart/library/docs/javadoc/package-search-index.js",
+      "rel": "retrieved",
+      "ts": 1777912652
+    },
+    {
+      "from": "query:raft timing parameters raftappbase constructor scheduleoneshotms timers",
+      "to": "bftsmart/metricParser.py::generate_plots",
+      "rel": "retrieved",
+      "ts": 1777933815
+    },
+    {
+      "from": "query:raft timing parameters raftappbase constructor scheduleoneshotms timers",
+      "to": "experiment_orchestrator.py::apply_scale",
+      "rel": "retrieved",
+      "ts": 1777933815
+    },
+    {
+      "from": "query:raft timing parameters raftappbase constructor scheduleoneshotms timers",
+      "to": "fourway/analyze_log.py::fmt_stat",
+      "rel": "retrieved",
+      "ts": 1777933815
+    },
+    {
+      "from": "query:raft timing parameters raftappbase constructor scheduleoneshotms timers",
+      "to": "plot_wait_time_cdf.py::derive_bar_series_from_scenarios",
+      "rel": "retrieved",
+      "ts": 1777933815
+    },
+    {
+      "from": "query:raft timing parameters raftappbase constructor scheduleoneshotms timers",
+      "to": "veins-veins-5.3.1/src/scripts/veins_run.in.py::abspath",
+      "rel": "retrieved",
+      "ts": 1777933815
+    },
+    {
+      "from": "query:bft faster than raft incorrect timing java jni",
+      "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
+      "rel": "retrieved",
+      "ts": 1777948878
+    },
+    {
+      "from": "query:bft faster than raft incorrect timing java jni",
+      "to": "experiment_orchestrator.py::bft_f",
+      "rel": "retrieved",
+      "ts": 1777948878
+    },
+    {
+      "from": "query:bft faster than raft incorrect timing java jni",
+      "to": "fourway/analyze_log.py::normalize_java_epoch",
+      "rel": "retrieved",
+      "ts": 1777948878
+    },
+    {
+      "from": "query:bft faster than raft incorrect timing java jni",
+      "to": "bftsmart/library/docs/javadoc/member-search-index.js",
+      "rel": "retrieved",
+      "ts": 1777948878
+    },
+    {
+      "from": "query:bft faster than raft incorrect timing java jni",
+      "to": "bftsmart/library/docs/javadoc/package-search-index.js",
+      "rel": "retrieved",
+      "ts": 1777948878
+    },
+    {
+      "from": "query:(empty)",
+      "to": "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java",
+      "rel": "read",
+      "ts": 1777948886,
+      "meta": {
+        "mode": "full"
+      }
+    },
+    {
+      "from": "query:(empty)",
+      "to": "fourway/omnetpp.ini",
+      "rel": "read",
+      "ts": 1777948886,
+      "meta": {
+        "mode": "full"
+      }
+    },
+    {
+      "from": "action:edit:1777951680",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+      "rel": "edited",
+      "ts": 1777951680
+    },
+    {
+      "from": "action:edit:1777951680",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VOrderProtocol.cc",
+      "rel": "edited",
+      "ts": 1777951680
+    },
+    {
+      "from": "query:simulation runtime fast seconds cpu time simtime bft",
+      "to": "fourway/analyze_log.py::save_waittime_by_car_plot",
+      "rel": "retrieved",
+      "ts": 1777958074
+    },
+    {
+      "from": "query:simulation runtime fast seconds cpu time simtime bft",
+      "to": "plot_wait_time_cdf.py",
+      "rel": "retrieved",
+      "ts": 1777958074
+    },
+    {
+      "from": "query:simulation runtime fast seconds cpu time simtime bft",
+      "to": "experiment_orchestrator.py",
+      "rel": "retrieved",
+      "ts": 1777958074
+    },
+    {
+      "from": "query:simulation runtime fast seconds cpu time simtime bft",
+      "to": "bftsmart/metricParser.py::generate_plots",
+      "rel": "retrieved",
+      "ts": 1777958074
+    },
+    {
+      "from": "query:simulation runtime fast seconds cpu time simtime bft",
+      "to": ".claude/agent-memory/prof-v2v-bft/project_simtime_bug.md",
+      "rel": "retrieved",
+      "ts": 1777958074
+    },
+    {
+      "from": "query:(empty)",
+      "to": "fourway/analyze_log.py::save_waittime_by_car_plot",
+      "rel": "read",
+      "ts": 1777958076,
+      "meta": {
+        "mode": "symbol_excerpt"
+      }
+    },
+    {
+      "from": "query:(empty)",
+      "to": "experiment_orchestrator.py",
+      "rel": "read",
+      "ts": 1777958076,
+      "meta": {
+        "mode": "full"
+      }
+    },
+    {
+      "from": "query:bft timers simulation time wall clock java bftsmart",
+      "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
+      "rel": "retrieved",
+      "ts": 1777958595
+    },
+    {
+      "from": "query:bft timers simulation time wall clock java bftsmart",
+      "to": "bftsmart/library/docs/javadoc/member-search-index.js",
+      "rel": "retrieved",
+      "ts": 1777958595
+    },
+    {
+      "from": "query:bft timers simulation time wall clock java bftsmart",
+      "to": "bftsmart/library/docs/javadoc/package-search-index.js",
+      "rel": "retrieved",
+      "ts": 1777958595
+    },
+    {
+      "from": "query:bft timers simulation time wall clock java bftsmart",
+      "to": "bftsmart/library/docs/javadoc/type-search-index.js",
+      "rel": "retrieved",
+      "ts": 1777958595
+    },
+    {
+      "from": "query:bft timers simulation time wall clock java bftsmart",
+      "to": "bftsmart/library/docs/javadoc/script.js::createElem",
+      "rel": "retrieved",
+      "ts": 1777958595
+    },
+    {
+      "from": "query:propose_all trigger stop zone intersection arrival bft consensus",
+      "to": "experiment_orchestrator.py::bft_f",
+      "rel": "retrieved",
+      "ts": 1777958866
+    },
+    {
+      "from": "query:propose_all trigger stop zone intersection arrival bft consensus",
+      "to": "bftsmart/metricParser.py::generate_plots",
+      "rel": "retrieved",
+      "ts": 1777958866
+    },
+    {
+      "from": "query:propose_all trigger stop zone intersection arrival bft consensus",
+      "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
+      "rel": "retrieved",
+      "ts": 1777958866
+    },
+    {
+      "from": "query:propose_all trigger stop zone intersection arrival bft consensus",
+      "to": "bftsmart/library/docs/javadoc/member-search-index.js",
+      "rel": "retrieved",
+      "ts": 1777958866
+    },
+    {
+      "from": "query:propose_all trigger stop zone intersection arrival bft consensus",
+      "to": "bftsmart/library/docs/javadoc/package-search-index.js",
+      "rel": "retrieved",
+      "ts": 1777958866
+    },
+    {
+      "from": "action:edit:1777958999",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc::certCollectionTimeoutTimer handler",
+      "rel": "edited",
+      "ts": 1777958999
+    },
+    {
+      "from": "query:order decision execute batch vehicle traci stop resume",
+      "to": "experiment_orchestrator.py::patch_batch_sizes",
+      "rel": "retrieved",
+      "ts": 1777959998
+    },
+    {
+      "from": "query:order decision execute batch vehicle traci stop resume",
+      "to": "fourway/test_regex.py",
+      "rel": "retrieved",
+      "ts": 1777959998
+    },
+    {
+      "from": "query:order decision execute batch vehicle traci stop resume",
+      "to": "bftsmart/metricParser.py::generate_plots",
+      "rel": "retrieved",
+      "ts": 1777959998
+    },
+    {
+      "from": "query:order decision execute batch vehicle traci stop resume",
+      "to": "fourway/analyze_log.py::fmt_stat",
+      "rel": "retrieved",
+      "ts": 1777959998
+    },
+    {
+      "from": "query:order decision execute batch vehicle traci stop resume",
+      "to": "plot_wait_time_cdf.py::derive_bar_series_from_scenarios",
+      "rel": "retrieved",
+      "ts": 1777959998
+    },
+    {
+      "from": "action:edit:1777960165",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc::vehicleHasClearedIntersectionTraCI",
+      "rel": "edited",
+      "ts": 1777960165
+    },
+    {
+      "from": "action:edit:1777963861",
+      "to": "fourway/analyze_log.py",
+      "rel": "edited",
+      "ts": 1777963861
+    },
+    {
+      "from": "query:simtime metrics logging cleanup consensus latency analyzer v2vserverscommunicationlayer",
+      "to": "fourway/analyze_log.py::write_car_metrics_csv",
+      "rel": "retrieved",
+      "ts": 1778002951
+    },
+    {
+      "from": "query:simtime metrics logging cleanup consensus latency analyzer v2vserverscommunicationlayer",
+      "to": "plot_wait_time_cdf.py::extract_run_metrics",
+      "rel": "retrieved",
+      "ts": 1778002951
+    },
+    {
+      "from": "query:simtime metrics logging cleanup consensus latency analyzer v2vserverscommunicationlayer",
+      "to": "bftsmart/metricParser.py::generate_plots",
+      "rel": "retrieved",
+      "ts": 1778002951
+    },
+    {
+      "from": "query:simtime metrics logging cleanup consensus latency analyzer v2vserverscommunicationlayer",
+      "to": "experiment_orchestrator.py::apply_scale",
+      "rel": "retrieved",
+      "ts": 1778002951
+    },
+    {
+      "from": "query:simtime metrics logging cleanup consensus latency analyzer v2vserverscommunicationlayer",
+      "to": "veins-veins-5.3.1/src/scripts/veins_run.in.py::abspath",
+      "rel": "retrieved",
+      "ts": 1778002951
+    },
+    {
+      "from": "query:(empty)",
+      "to": "fourway/analyze_log.py::write_car_metrics_csv",
+      "rel": "read",
+      "ts": 1778002954,
+      "meta": {
+        "mode": "symbol_excerpt"
+      }
+    },
+    {
+      "from": "query:(empty)",
+      "to": "plot_wait_time_cdf.py::extract_run_metrics",
+      "rel": "read",
+      "ts": 1778002954,
+      "meta": {
+        "mode": "symbol_excerpt"
+      }
+    },
+    {
+      "from": "query:(empty)",
+      "to": "bftsmart/metricParser.py::generate_plots",
+      "rel": "read",
+      "ts": 1778002954,
+      "meta": {
+        "mode": "symbol_excerpt"
+      }
+    },
+    {
+      "from": "action:edit:1778006889",
+      "to": "fourway/analyze_log.py",
+      "rel": "edited",
+      "ts": 1778006889
+    },
+    {
+      "from": "action:edit:1778006889",
+      "to": "plot_wait_time_cdf.py",
+      "rel": "edited",
+      "ts": 1778006889
+    },
+    {
+      "from": "action:edit:1778006889",
+      "to": "bftsmart/library/src/main/java/bftsmart/communication/V2V/SimulationClock.java",
+      "rel": "edited",
+      "ts": 1778006889
+    },
+    {
+      "from": "action:edit:1778006889",
+      "to": "bftsmart/library/src/main/java/bftsmart/demo/intersection/ServerRunner.java",
+      "rel": "edited",
+      "ts": 1778006889
+    },
+    {
+      "from": "action:edit:1778006889",
+      "to": "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java",
+      "rel": "edited",
+      "ts": 1778006889
+    },
+    {
+      "from": "action:edit:1778006889",
+      "to": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
+      "rel": "edited",
+      "ts": 1778006889
+    },
+    {
+      "from": "action:edit:1778006889",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+      "rel": "edited",
+      "ts": 1778006889
+    },
+    {
+      "from": "action:edit:1778006889",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
+      "rel": "edited",
+      "ts": 1778006889
+    },
+    {
+      "from": "action:edit:1778006889",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc",
+      "rel": "edited",
+      "ts": 1778006889
+    },
+    {
+      "from": "action:edit:1778006889",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJVMLifecycle.cc",
+      "rel": "edited",
+      "ts": 1778006889
+    },
+    {
+      "from": "query:stop zone entry timing stoptime consensus not stopped",
+      "to": "bftsmart/metricParser.py::generate_plots",
+      "rel": "retrieved",
+      "ts": 1778010087
+    },
+    {
+      "from": "query:stop zone entry timing stoptime consensus not stopped",
+      "to": "experiment_orchestrator.py::apply_scale",
+      "rel": "retrieved",
+      "ts": 1778010087
+    },
+    {
+      "from": "query:stop zone entry timing stoptime consensus not stopped",
+      "to": "fourway/analyze_log.py::fmt_stat",
+      "rel": "retrieved",
+      "ts": 1778010087
+    },
+    {
+      "from": "query:stop zone entry timing stoptime consensus not stopped",
+      "to": "plot_wait_time_cdf.py::derive_bar_series_from_scenarios",
+      "rel": "retrieved",
+      "ts": 1778010087
+    },
+    {
+      "from": "query:stop zone entry timing stoptime consensus not stopped",
+      "to": "veins-veins-5.3.1/src/scripts/veins_run.in.py::abspath",
+      "rel": "retrieved",
+      "ts": 1778010087
+    },
+    {
+      "from": "query:stoptime order decision unset warning",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+      "rel": "read",
+      "ts": 1778010108,
+      "meta": {
+        "mode": "query_excerpt"
+      }
+    },
+    {
+      "from": "action:edit:1778010176",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VOrderProtocol.cc",
+      "rel": "edited",
+      "ts": 1778010176
     }
   ],
   "files": {
@@ -770,23 +1444,22 @@
       "cached_chars": 20000,
       "cached_tokens_est": 5000,
       "last_action": "edited",
-      "last_ts": "2026-04-30T01:17:00.036197+00:00",
-      "edited_count": 1
+      "last_ts": "2026-05-05T18:48:09.830472+00:00",
+      "edited_count": 2
     },
     "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc": {
       "query_terms": [
-        "handlepositionupdate",
-        "distance",
-        "stopdistance",
-        "collecting_certs",
-        "broadcastarrivalannouncement"
+        "stoptime",
+        "order",
+        "decision",
+        "unset",
+        "warning"
       ],
-      "cached_content": "    , deliverMessageMethod(nullptr)\n    , bftReplicaThread(nullptr)\n    , radioBusy(false)\n    , radioReadyMsg(nullptr)\n    , onRadioReadyMethod(nullptr)\n    , clockClass(nullptr)\n    , updateTimeMethod(nullptr)\n    , processQueueTimer(nullptr)\n    , triggerJoinTimer(nullptr)\n    , joinTriggered(fal",
-      "cached_chars": 5000,
-      "cached_tokens_est": 1250,
-      "last_action": "edited",
-      "last_ts": "2026-05-03T00:41:39.580877+00:00",
-      "edited_count": 2
+      "cached_content": "    , hasRequestedCrossing(false)\n    , isStopped(false)\n    , checkPositionTimer(nullptr)\n    , consensusTimeoutTimer(nullptr)\n    , stopSignTimeoutTimer(nullptr)\n    , certCollectionTimeoutTimer(nullptr)\n    , shouldFlush(false)\n    , consensusTimeoutSec(80.0)  // Default 40 seconds\n    , stopSign",
+      "cached_chars": 20000,
+      "cached_tokens_est": 5000,
+      "last_action": "read",
+      "last_ts": 1778010108
     },
     "plot_wait_time_cdf.py": {
       "query_terms": [],
@@ -794,8 +1467,8 @@
       "cached_chars": 20000,
       "cached_tokens_est": 5000,
       "last_action": "edited",
-      "last_ts": "2026-05-03T00:41:39.580883+00:00",
-      "edited_count": 1
+      "last_ts": "2026-05-05T18:48:09.830422+00:00",
+      "edited_count": 2
     },
     "fourway/benchmarks/ambulanceWaitTime.py::resolve_log_path": {
       "query_terms": [],
@@ -806,21 +1479,12 @@
       "last_ts": 1777409911
     },
     "fourway/omnetpp.ini": {
-      "query_terms": [
-        "timing",
-        "mode",
-        "realtime",
-        "sim",
-        "time",
-        "limit",
-        "express"
-      ],
-      "cached_content": "[General]\nscheduler-class = \"omnetpp::cRealTimeScheduler\"\nrealtimescheduler-scaling = 0.1\ncmdenv-express-mode = false\ncmdenv-autoflush = false\ncmdenv-status-frequency = 1s\n**.cmdenv-log-level = info\n\nimage-path = ../../images\n\nnetwork = fourWay\n\n######################################################",
-      "cached_chars": 13441,
-      "cached_tokens_est": 3360,
-      "last_action": "edited",
-      "last_ts": "2026-04-30T01:17:00.036217+00:00",
-      "edited_count": 1
+      "query_terms": [],
+      "cached_content": "[General]\nscheduler-class = \"omnetpp::cRealTimeScheduler\"\nrealtimescheduler-scaling = 1\ncmdenv-express-mode = true\ncmdenv-autoflush = false\ncmdenv-status-frequency = 1s\n**.cmdenv-log-level = info\n\nimage-path = ../../images\n\nnetwork = fourWay\n\n#########################################################",
+      "cached_chars": 13560,
+      "cached_tokens_est": 3390,
+      "last_action": "read",
+      "last_ts": 1777948886
     },
     "fourway/bft_8veh.rou.xml": {
       "query_terms": [
@@ -865,9 +1529,12 @@
       "last_ts": 1777509841
     },
     "experiment_orchestrator.py": {
-      "last_action": "edited",
-      "last_ts": "2026-04-30T01:05:40.312450+00:00",
-      "edited_count": 1
+      "query_terms": [],
+      "cached_content": "#!/usr/bin/env python3\n\"\"\"\nMulti-scale BFT/V2V experiment driver.\n\nApplies scaling (hosts.config, system.config, BATCH_SIZE in C++/Java), builds once per N,\nruns bftsmart/run-omnet-simulation.sh for each scenario \u00d7 repetition, then analyze_log.py.\n\nLayout: benchmarks/Priority<N>cars/<scenario_subdir",
+      "cached_chars": 14578,
+      "cached_tokens_est": 3644,
+      "last_action": "read",
+      "last_ts": 1777958076
     },
     "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.ned": {
       "last_action": "edited",
@@ -880,21 +1547,95 @@
       "edited_count": 2
     },
     "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java": {
-      "query_terms": [
-        "timing",
-        "send",
-        "message",
-        "self",
-        "delivery",
-        "simulation",
-        "clock",
-        "timer"
-      ],
+      "query_terms": [],
       "cached_content": "package bftsmart.communication.V2V;\n\nimport bftsmart.communication.SystemMessage;\nimport bftsmart.communication.server.ServersCommunicationLayerInterface;\nimport bftsmart.reconfiguration.ServerViewController;\nimport bftsmart.tom.ServiceReplica;\nimport java.io.*;\nimport java.util.concurrent.LinkedBlo",
       "cached_chars": 15508,
       "cached_tokens_est": 3877,
+      "last_action": "edited",
+      "last_ts": "2026-05-05T18:48:09.830452+00:00",
+      "edited_count": 1
+    },
+    "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc": {
+      "last_action": "edited",
+      "last_ts": "2026-05-04T02:13:42.602666+00:00",
+      "edited_count": 1
+    },
+    "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VOrderProtocol.cc": {
+      "last_action": "edited",
+      "last_ts": "2026-05-05T19:42:56.066191+00:00",
+      "edited_count": 2
+    },
+    "fourway/analyze_log.py::save_waittime_by_car_plot": {
+      "query_terms": [],
+      "cached_content": "def save_waittime_by_car_plot(path):\n    if plt is None:\n        return False\n    rows = []\n    for car_id, metrics in car_metrics.items():\n        wait_t = metrics.get(\"wait_intersection\")\n        if wait_t is None:\n            continue\n        rows.append((int(car_id[3:]), car_id, wait_t, metrics.",
+      "cached_chars": 6248,
+      "cached_tokens_est": 1562,
       "last_action": "read",
-      "last_ts": 1777858346
+      "last_ts": 1777958076
+    },
+    "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc::certCollectionTimeoutTimer handler": {
+      "last_action": "edited",
+      "last_ts": "2026-05-05T05:29:59.143668+00:00",
+      "edited_count": 1
+    },
+    "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc::vehicleHasClearedIntersectionTraCI": {
+      "last_action": "edited",
+      "last_ts": "2026-05-05T05:49:25.136854+00:00",
+      "edited_count": 1
+    },
+    "fourway/analyze_log.py": {
+      "last_action": "edited",
+      "last_ts": "2026-05-05T18:48:09.830406+00:00",
+      "edited_count": 2
+    },
+    "fourway/analyze_log.py::write_car_metrics_csv": {
+      "query_terms": [],
+      "cached_content": "\n    fa = jains_fairness(all_waits)\n    fn = jains_fairness(normal_waits)\n\n    # Run-level delivery and fallback metrics (mirrors RAFT delivery_ratio / fallback_rate)\n    _all_dr = [m[\"delivery_ratio\"] for m in car_metrics.values()\n               if m.get(\"delivery_ratio\") is not None]\n    _run_dr =",
+      "cached_chars": 1049,
+      "cached_tokens_est": 262,
+      "last_action": "read",
+      "last_ts": 1778002954
+    },
+    "plot_wait_time_cdf.py::extract_run_metrics": {
+      "query_terms": [],
+      "cached_content": "def extract_run_metrics(path: Path) -> dict[str, float | None]:\n    \"\"\"Map partner-style names to values from one analyze_log metrics JSON.\"\"\"\n    with open(path, encoding=\"utf-8\") as f:\n        data = json.load(f)\n    o = data.get(\"overall\") or {}\n    per_car = data.get(\"per_car\") if isinstance(dat",
+      "cached_chars": 1982,
+      "cached_tokens_est": 495,
+      "last_action": "read",
+      "last_ts": 1778002954
+    },
+    "bftsmart/metricParser.py::generate_plots": {
+      "query_terms": [],
+      "cached_content": "def generate_plots(csv_file):\n    print(\"Generating plots...\")\n    \n    # Load the data\n    try:\n        df = pd.read_csv(csv_file, na_values=['', ' ', 'nan', 'NaN', 'None'])\n    except pd.errors.EmptyDataError:\n        print(\"CSV is empty. Cannot generate plots.\")\n        return\n\n    # Ensure numer",
+      "cached_chars": 4683,
+      "cached_tokens_est": 1170,
+      "last_action": "read",
+      "last_ts": 1778002954
+    },
+    "bftsmart/library/src/main/java/bftsmart/communication/V2V/SimulationClock.java": {
+      "last_action": "edited",
+      "last_ts": "2026-05-05T18:48:09.830433+00:00",
+      "edited_count": 1
+    },
+    "bftsmart/library/src/main/java/bftsmart/demo/intersection/ServerRunner.java": {
+      "last_action": "edited",
+      "last_ts": "2026-05-05T18:48:09.830444+00:00",
+      "edited_count": 1
+    },
+    "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java": {
+      "last_action": "edited",
+      "last_ts": "2026-05-05T18:48:09.830462+00:00",
+      "edited_count": 1
+    },
+    "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc": {
+      "last_action": "edited",
+      "last_ts": "2026-05-05T18:48:09.830487+00:00",
+      "edited_count": 1
+    },
+    "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJVMLifecycle.cc": {
+      "last_action": "edited",
+      "last_ts": "2026-05-05T18:48:09.830499+00:00",
+      "edited_count": 1
     }
   },
   "actions": [
@@ -1151,6 +1892,255 @@
         "mode": "cache_hit",
         "response_chars": 300
       }
+    },
+    {
+      "ts": 1777860048,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "V2VProxyModule JNI packet size byteLength processing delay simTime outbound transmission"
+      }
+    },
+    {
+      "ts": 1777860048,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "V2VProxyModule JNI packet size byteLength processing delay simTime outbound transmission"
+      }
+    },
+    {
+      "ts": 1777860822,
+      "kind": "register_edit",
+      "payload": {
+        "kind": "register_edit"
+      }
+    },
+    {
+      "ts": 1777912652,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "BFT timing diagnosis ENTRY QUEUE EXIT simTime gap TIMING logs leader PROPOSE_ALL"
+      }
+    },
+    {
+      "ts": 1777912652,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "BFT timing diagnosis ENTRY QUEUE EXIT simTime gap TIMING logs leader PROPOSE_ALL"
+      }
+    },
+    {
+      "ts": 1777933815,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "Raft timing parameters RaftAppBase constructor scheduleOneshotMs timers"
+      }
+    },
+    {
+      "ts": 1777933815,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "Raft timing parameters RaftAppBase constructor scheduleOneshotMs timers"
+      }
+    },
+    {
+      "ts": 1777948878,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "BFT faster than Raft incorrect timing Java JNI speedup"
+      }
+    },
+    {
+      "ts": 1777948878,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "BFT faster than Raft incorrect timing Java JNI speedup"
+      }
+    },
+    {
+      "ts": 1777948884,
+      "kind": "read_blocked_reuse_gate",
+      "payload": {
+        "kind": "read_blocked_reuse_gate",
+        "file": "experiment_orchestrator.py::bft_f",
+        "query": "",
+        "mode": "reuse_gate_blocked"
+      }
+    },
+    {
+      "ts": 1777948884,
+      "kind": "read_blocked_reuse_gate",
+      "payload": {
+        "kind": "read_blocked_reuse_gate",
+        "file": "fourway/analyze_log.py::normalize_java_epoch",
+        "query": "",
+        "mode": "reuse_gate_blocked"
+      }
+    },
+    {
+      "ts": 1777948890,
+      "kind": "read_blocked_reuse_gate",
+      "payload": {
+        "kind": "read_blocked_reuse_gate",
+        "file": "experiment_orchestrator.py::bft_f",
+        "query": "",
+        "mode": "reuse_gate_blocked"
+      }
+    },
+    {
+      "ts": 1777948891,
+      "kind": "read_blocked_reuse_gate",
+      "payload": {
+        "kind": "read_blocked_reuse_gate",
+        "file": "fourway/analyze_log.py::normalize_java_epoch",
+        "query": "",
+        "mode": "reuse_gate_blocked"
+      }
+    },
+    {
+      "ts": 1777951680,
+      "kind": "register_edit",
+      "payload": {
+        "kind": "register_edit"
+      }
+    },
+    {
+      "ts": 1777958074,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "simulation runtime fast n=16 4 seconds CPU time simtime BFT Raft wait time measurement"
+      }
+    },
+    {
+      "ts": 1777958074,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "simulation runtime fast n=16 4 seconds CPU time simtime BFT Raft wait time measurement"
+      }
+    },
+    {
+      "ts": 1777958595,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "BFT timers simulation time wall clock Java BFTSmart timeout view change leader election syncTimeToJava"
+      }
+    },
+    {
+      "ts": 1777958595,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "BFT timers simulation time wall clock Java BFTSmart timeout view change leader election syncTimeToJava"
+      }
+    },
+    {
+      "ts": 1777958866,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "PROPOSE_ALL trigger stop zone intersection arrival BFT consensus proposal vehicle stopped"
+      }
+    },
+    {
+      "ts": 1777958866,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "PROPOSE_ALL trigger stop zone intersection arrival BFT consensus proposal vehicle stopped"
+      }
+    },
+    {
+      "ts": 1777958999,
+      "kind": "register_edit",
+      "payload": {
+        "kind": "register_edit"
+      }
+    },
+    {
+      "ts": 1777959998,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "ORDER decision execute batch vehicle TraCI stop resume myTurn not known veh5 left simulation"
+      }
+    },
+    {
+      "ts": 1777959998,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "ORDER decision execute batch vehicle TraCI stop resume myTurn not known veh5 left simulation"
+      }
+    },
+    {
+      "ts": 1777960165,
+      "kind": "register_edit",
+      "payload": {
+        "kind": "register_edit"
+      }
+    },
+    {
+      "ts": 1777963861,
+      "kind": "register_edit",
+      "payload": {
+        "kind": "register_edit"
+      }
+    },
+    {
+      "ts": 1778002951,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "simtime metrics logging cleanup consensus latency analyzer V2VServersCommunicationLayer"
+      }
+    },
+    {
+      "ts": 1778002951,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "simtime metrics logging cleanup consensus latency analyzer V2VServersCommunicationLayer"
+      }
+    },
+    {
+      "ts": 1778006889,
+      "kind": "register_edit",
+      "payload": {
+        "kind": "register_edit"
+      }
+    },
+    {
+      "ts": 1778010087,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "stop zone entry timing stopTime consensus not stopped yet"
+      }
+    },
+    {
+      "ts": 1778010087,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "stop zone entry timing stopTime consensus not stopped yet"
+      }
+    },
+    {
+      "ts": 1778010176,
+      "kind": "register_edit",
+      "payload": {
+        "kind": "register_edit"
+      }
     }
   ],
   "decisions": [
@@ -1200,6 +2190,49 @@
         "plot_wait_time_cdf.py"
       ],
       "scope": "global"
+    },
+    {
+      "ts": 1777860822,
+      "summary": "Added syncTimeToJava() to handleClientRequestBroadcast (type-9 path was missing clock sync). Added [TIMING] ENTRY/QUEUE/EXIT logs at all four message lifecycle points for zero-sim-time diagnosis.",
+      "files": [
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc",
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
+      ],
+      "scope": "global"
+    },
+    {
+      "ts": 1777951680,
+      "summary": "Trailing car stopTime: ring-entry primary (matches Raft), speed poll fallback, no ORDER-time contamination",
+      "files": [
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VOrderProtocol.cc"
+      ],
+      "scope": "global"
+    },
+    {
+      "ts": 1778006889,
+      "summary": "Simtime cleanup: removed all wall-clock metrics, renamed arrival_to_resume to stop_to_resume, removed Thread.sleep(500), removed notifyProposeAllConsensusMetric JNI chain, SimulationClock returns 0 instead of wall fallback",
+      "files": [
+        "fourway/analyze_log.py",
+        "plot_wait_time_cdf.py",
+        "bftsmart/library/src/main/java/bftsmart/communication/V2V/SimulationClock.java",
+        "bftsmart/library/src/main/java/bftsmart/demo/intersection/ServerRunner.java",
+        "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java",
+        "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc",
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJVMLifecycle.cc"
+      ],
+      "scope": "global"
+    },
+    {
+      "ts": 1778010176,
+      "summary": "stopTime fallback: if unset at ORDER decision, use simTime() so stop_to_departure is valid",
+      "files": [
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VOrderProtocol.cc"
+      ],
+      "scope": "file"
     }
   ]
 }

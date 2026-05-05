@@ -61,7 +61,7 @@ public final class IntersectionServer extends DefaultRecoverable implements View
     private final int processId;
     private final ServiceReplica replica;
     private final Map<String, Integer> waitRegistry = new HashMap<>();
-    private final long experimentStartWall = System.currentTimeMillis();
+    private final long experimentStartSim = SimulationClock.currentTimeMillis();
     private final Set<Integer> departedReplicas = new HashSet<>();
     private final Object departedLock = new Object();
 
@@ -71,16 +71,13 @@ public final class IntersectionServer extends DefaultRecoverable implements View
     /** Monotonically increasing sequence number for the virtual client TOMMessages. */
     private volatile long clientSeqNum = 0;
     /** Stamped at proposal submission; read by appExecuteBatch on delivery thread. */
-    private volatile long consensusStartWall = 0;
+    private volatile long consensusStartSim = 0;
 
     /** Notify C++ that wipeAndReinit completed; C++ will command re-announce. */
     private native void notifyWipeComplete(int processId);
 
     /** Kept for JNI registration compatibility with V2VJVMLifecycle. */
     private native void notifyVehicleCanGo(int replicaId, double delaySeconds);
-
-    /** Notify C++ of the single-round PROPOSE_ALL wall-clock consensus latency. */
-    private native void notifyProposeAllConsensusMetric(int replicaId, int epoch, double wallSeconds);
 
     /** Kept for JNI registration compatibility (not called in the single-round protocol). */
     private native void notifyViewAgreed(int replicaId, String viewMembers);
@@ -197,7 +194,7 @@ public final class IntersectionServer extends DefaultRecoverable implements View
 
         System.out.println("[Server " + id + "] DEBUG: About to create ServiceReplica (This might block)...");
         System.out.println("[Server " + id + "] DEBUG: Thread = " + Thread.currentThread().getName());
-        System.out.println("[Server " + id + "] DEBUG: Current time = " + System.currentTimeMillis());
+        System.out.println("[Server " + id + "] DEBUG: SimTime (ms) = " + SimulationClock.currentTimeMillis());
 
         try {
             System.out.println("[Server " + id + "] DEBUG: Calling new ServiceReplica(" + id + ", ...)");
@@ -336,9 +333,9 @@ public final class IntersectionServer extends DefaultRecoverable implements View
 
         System.out.println("[SERVER " + processId + "] >>> Submitting PROPOSE_ALL via V2V broadcast path...");
         bftsmart.communication.V2V.ReliableV2VMessaging.globalResetV2V(null);
-        consensusStartWall = System.currentTimeMillis();
-        System.out.println("[INVOKE_START " + processId + "] wall_offset="
-                + (System.currentTimeMillis() - experimentStartWall) + "ms");
+        consensusStartSim = SimulationClock.currentTimeMillis();
+        System.out.println("[INVOKE_START " + processId + "] sim_offset="
+                + (SimulationClock.currentTimeMillis() - experimentStartSim) + "ms");
 
         // Use epoch as session so sequence 0 is always fresh per round.
         int clientId = processId + 1000;
@@ -493,28 +490,16 @@ public final class IntersectionServer extends DefaultRecoverable implements View
                                 + " batches=" + bag.batches.size()
                                 + " decision=" + batchDecision);
 
-                        // Emit PROPOSE_ALL consensus latency from the original
-                        // submitter (the only replica with consensusStartWall > 0).
-                        // Done at delivery so the EP5 rebuilt-request path also
-                        // records latency (rebuilt requests use a synthetic clientId
-                        // and are delivered here just like normal proposals).
-                        if (consensusStartWall > 0) {
-                            long deliveredWall = System.currentTimeMillis();
-                            double consensusWallSeconds = (deliveredWall - consensusStartWall) / 1000.0;
+                        if (consensusStartSim > 0) {
+                            long deliveredSim = SimulationClock.currentTimeMillis();
                             System.out.println("[BFTCONSENSUS " + processId
                                     + "] PROPOSE_ALL consensus time epoch=" + bag.epoch
-                                    + ": " + (deliveredWall - consensusStartWall) + "ms");
-                            try {
-                                notifyProposeAllConsensusMetric(processId, bag.epoch, consensusWallSeconds);
-                            } catch (UnsatisfiedLinkError e) {
-                                System.err.println("[BFTCONSENSUS] JNI notifyProposeAllConsensusMetric unavailable: "
-                                        + e.getMessage());
-                            }
-                            consensusStartWall = 0;
+                                    + ": " + (deliveredSim - consensusStartSim) + "ms (sim)");
+                            consensusStartSim = 0;
                         }
                         System.out.println("[SERVER] Cars=" + String.join(",",
                                 new TreeSet<>(newViewState.keySet()))
-                                + " wall_offset=" + (System.currentTimeMillis() - experimentStartWall) + "ms");
+                                + " sim_offset=" + (SimulationClock.currentTimeMillis() - experimentStartSim) + "ms");
 
                         // Notify this replica's vehicle
                         try {

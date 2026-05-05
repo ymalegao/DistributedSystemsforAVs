@@ -3,7 +3,8 @@ package bftsmart.demo.intersection;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.io.File; // Add this import
+import java.io.File;
+import bftsmart.communication.V2V.SimulationClock;
 
 /**
  * Wrapper to run IntersectionServer in a separate Java thread.
@@ -14,7 +15,7 @@ public class ServerRunner implements Runnable {
     private final int numCars;
     private IntersectionServer server;
     private volatile String initStatus = "Pending";
-    private static final int BATCH_SIZE = 16;
+    private static final int BATCH_SIZE = 8;
 
     // Static registry so OMNeT++ can find servers by replica ID
     private static final ConcurrentHashMap<Integer, ServerRunner> registry = new ConcurrentHashMap<>();
@@ -120,7 +121,7 @@ public class ServerRunner implements Runnable {
             initStatus = "READY";
             System.out.println("[ServerRunner " + replicaId + "] ========================================");
             System.out.println("[ServerRunner " + replicaId + "] *** REPLICA IS NOW READY ***");
-            System.out.println("[ServerRunner " + replicaId + "] *** Time: " + System.currentTimeMillis() + " ms");
+            System.out.println("[ServerRunner " + replicaId + "] *** SimTime: " + SimulationClock.currentTimeMillis() + " ms");
             System.out.println("[ServerRunner " + replicaId + "] ========================================");
 
         } catch (InterruptedException e) {

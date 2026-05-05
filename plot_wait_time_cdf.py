@@ -381,12 +381,29 @@ def extract_run_metrics(path: Path) -> dict[str, float | None]:
         except (TypeError, ValueError):
             return None
 
+    # propose_all_consensus_latency_sim_s is a _stat() dict; extract mean.
+    # Use _sim_s not the wall-clock _s field — sim time is comparable to RAFT's simTime().
+    sim_lat_raw = o.get("propose_all_consensus_latency_sim_s")
+    consensus_latency_sim_s: float | None = None
+    if isinstance(sim_lat_raw, dict):
+        v = sim_lat_raw.get("mean")
+        try:
+            consensus_latency_sim_s = float(v) if v is not None else None
+        except (TypeError, ValueError):
+            pass
+    elif sim_lat_raw is not None:
+        try:
+            consensus_latency_sim_s = float(sim_lat_raw)
+        except (TypeError, ValueError):
+            pass
+
     return {
         "throughput": fget("throughput_veh_per_s"),
         "fallback_rate": fget("fallback_rate"),
         "messages_sent": float(sent),
         "messages_received": float(recv),
         "estimated_loss_rate": fget("estimated_loss_rate"),
+        "consensus_latency_sim_s": consensus_latency_sim_s,
     }
 
 
@@ -863,6 +880,7 @@ def plot_bars(
         "messages_sent",
         "messages_received",
         "estimated_loss_rate",
+        "consensus_latency_sim_s",
     ]
     data: dict[str, dict[int, dict[str, dict[str, float]]]] = {}
 
@@ -1066,6 +1084,58 @@ def plot_bars(
         fig_m.savefig(mp.with_suffix(".pdf"), bbox_inches="tight")
         print(f"Wrote {mp}")
         plt.close(fig_m)
+
+    # --- Consensus latency (sim time): x = vehicle count, line = scenario ---
+    # Uses propose_all_consensus_latency_sim_s (OMNeT++ simTime(), comparable to RAFT).
+    # The wall-clock variant (propose_all_consensus_latency_s) is intentionally NOT plotted
+    # here because it measures Java CPU speed, not V2V protocol latency.
+    fig_cl, ax_cl = plt.subplots(figsize=(8.5, 5.5))
+    fig_cl.suptitle(
+        f"{BFT_BAR_SUPTITLE}{title_suffix}\n"
+        "BFT consensus latency by fleet size (overall.propose_all_consensus_latency_sim_s, sim time)",
+        fontsize=11,
+        fontweight="bold",
+    )
+    x_cl = np.array(GRID_VEHICLE_COUNTS, dtype=float)
+    has_cl = False
+    for i, sk in enumerate(series_keys):
+        y_vals_cl: list[float] = []
+        for n in GRID_VEHICLE_COUNTS:
+            cell = data.get(sk, {}).get(n, {}).get("consensus_latency_sim_s", {})
+            m = float(cell.get("mean", 0) or 0) if isinstance(cell, dict) else 0.0
+            y_vals_cl.append(m * 1000.0 if m > 0 else float("nan"))  # convert to ms
+        if all(v != v for v in y_vals_cl):  # all NaN
+            continue
+        ax_cl.plot(
+            x_cl,
+            y_vals_cl,
+            color=DEFAULT_COLORS[i % len(DEFAULT_COLORS)],
+            linestyle=DEFAULT_LINESTYLES[i % len(DEFAULT_LINESTYLES)],
+            linewidth=2,
+            marker="o",
+            markersize=6,
+            label=short_cdf_legend_label(sk),
+        )
+        has_cl = True
+    if has_cl:
+        ax_cl.set_xlabel("Number of vehicles", fontsize=10, fontweight="bold")
+        ax_cl.set_ylabel("Consensus latency (ms, sim time)", fontsize=10, fontweight="bold")
+        ax_cl.set_xticks(GRID_VEHICLE_COUNTS)
+        ax_cl.set_xticklabels([f"{n} veh" for n in GRID_VEHICLE_COUNTS], fontsize=9)
+        ax_cl.grid(True, alpha=0.3)
+        ax_cl.set_ylim(bottom=0)
+        ax_cl.legend(fontsize=8, loc="best")
+        fig_cl.tight_layout()
+    else:
+        ax_cl.text(0.5, 0.5, "No consensus latency data available",
+                   ha="center", va="center", transform=ax_cl.transAxes,
+                   fontsize=11, color="gray")
+        fig_cl.tight_layout()
+    cl_path = output_dir / f"{prefix}consensus_latency.png"
+    fig_cl.savefig(cl_path, dpi=150, bbox_inches="tight")
+    fig_cl.savefig(cl_path.with_suffix(".pdf"), bbox_inches="tight")
+    print(f"Wrote {cl_path}")
+    plt.close(fig_cl)
 
 
 def plot_ambulance_vs_normal_wait(

@@ -33,6 +33,8 @@ public:
     simtime_t proposeAllSubmitTime;
     simtime_t orderCollectionWindowStart;
     simtime_t orderCollectionWindowEnd;
+    double lastProposeAllConsensusWallSec;
+    int lastProposeAllConsensusEpoch;
     // OMNeT++ lifecycle
     void initialize(int stage) override;
     void finish() override;
@@ -56,7 +58,6 @@ public:
     void handleOrderDecision(const std::string& orderDecision);
     void parseAndNotifyDecision(const std::string& decision);
     void flushReliabilityQueue();
-    void recordProposeAllConsensusMetric(int epoch, double wallSeconds);
     void resetForNextRound();
     void handleWipeComplete();  // Called by notifyWipeComplete JNI callback
     // Returns a copy of collectedCerts key set (consistent snapshot for JNI).
@@ -99,8 +100,6 @@ protected:
     std::chrono::time_point<std::chrono::high_resolution_clock> realOrderConsensusEnd;
     bool orderDecisionCallbackSeen = false;
     double lastOrderBftRequestRttMs = -1.0;
-    double lastProposeAllConsensusWallSec = -1.0;
-    int lastProposeAllConsensusEpoch = -1;
 
 
     void handleSelfMsg(cMessage* msg) override;
@@ -435,6 +434,9 @@ private:
      *  Pass certs != nullptr to append the 6th cyberStatus field (SIGNED|QUIET):
      *  a vehicle is SIGNED iff its carId appears in the certs map. */
     std::string buildVehicleStatesStr(const std::map<std::string, ArrivalCert>* certs = nullptr) const;
+
+    // Configured PROPOSE_ALL leader replica ID (read from leaderReplicaId NED param).
+    int configuredLeaderReplicaId = 0;
 
     // Byzantine fault injection
     bool isByzantine = false;

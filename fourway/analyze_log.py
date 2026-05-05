@@ -149,12 +149,11 @@ RE_AMBULANCE_WAIT    = re.compile(
 RE_BYZANTINE_INJECTION = re.compile(
     r'\[BYZANTINE INJECTION\] Replica (\d+) CID=(\d+) intentionally broadcasting corrupted consensus hash')
 
-# Single-round PROPOSE_ALL protocol
-RE_BFTCONS_PROPOSE_ALL = re.compile(
-    r'\[BFTCONSENSUS (\d+)\] PROPOSE_ALL consensus time epoch=(\d+): ([\d.]+)ms')
 RE_PHASE_SUMMARY = re.compile(
     r'\[PHASE_SUMMARY (\d+)\] .*PROPOSE_ALL_BFT\(sim\)=(?:([\d.]+)s|N/A) .*stop_to_decision\(sim\)=(?:([\d.]+)s|N/A)'
 )
+RE_CONSENSUS_HEADER = re.compile(r'CONSENSUS METRICS \(Replica (\d+)\) epoch=(\d+)')
+RE_CERT_DUR = re.compile(r'\[METRICS (\d+)\] Cert_Collection_Duration: ([\d.]+)s')
 
 # Pre-computed summary metrics (written by --save-to or the C++ side)
 RE_RUN_METRIC       = re.compile(r'\[RUN-METRICS\] ([\w_]+):\s*([-\d.]+)')
@@ -198,7 +197,6 @@ replica_stopsign_timeout = set()  # replica IDs that hit StopSign_Timeout (used 
 
 # Pre-computed summary metrics read back from saved logs
 run_metrics           = {}                 # key -> float  (from [RUN-METRICS] lines)
-propose_all_wall_raw  = defaultdict(list)  # raw_epoch -> [seconds, ...]
 propose_all_sim_raw   = defaultdict(list)  # epoch -> [seconds, ...]
 stop_to_decision_sim_raw = defaultdict(list) # epoch -> [seconds, ...]
 
@@ -366,13 +364,13 @@ with open(LOG_FILE, "r", errors="replace") as f:
             byzantine_by_replica[replica] += 1
             continue
 
-        # Single-round PROPOSE_ALL consensus latency (Java BFT layer)
-        m = RE_BFTCONS_PROPOSE_ALL.search(line)
+        m = RE_CONSENSUS_HEADER.search(line)
         if m:
-            raw_epoch = int(m.group(2))
-            propose_all_wall_raw[raw_epoch].append(float(m.group(3)) / 1000.0)
+            rep, epoch = int(m.group(1)), int(m.group(2))
+            replica_epoch[rep] = epoch
+            current_gossip_epoch = epoch
             continue
-            
+
         m = RE_PHASE_SUMMARY.search(line)
         if m:
             rep = int(m.group(1))
@@ -388,6 +386,15 @@ with open(LOG_FILE, "r", errors="replace") as f:
                 car_metrics[car_id]["stop_to_decision_sim_s"] = val
             continue
 
+        m = RE_CERT_DUR.search(line)
+        if m:
+            rep, val = int(m.group(1)), float(m.group(2))
+            ep = replica_epoch.get(rep, current_gossip_epoch)
+            car_id = f"veh{rep}"
+            car_metrics[car_id]["cert_collection_s"] = val
+            round_metrics[ep].setdefault("Cert_Collection_Duration", val)
+            continue
+
         # [RUN-METRICS] summary lines (read back from saved log files)
         m = RE_RUN_METRIC.search(line)
         if m:
@@ -400,7 +407,7 @@ with open(LOG_FILE, "r", errors="replace") as f:
             epoch, car_id, val = int(m.group(1)), m.group(2), float(m.group(3))
             car_metrics[car_id].setdefault("epoch", epoch)
             go_decision_epoch.setdefault(car_id, epoch)
-            car_metrics[car_id]["arrival_to_resume"] = val
+            car_metrics[car_id]["stop_to_resume"] = val
             continue
 
         # General [ROUND-METRICS] Epoch N Key: value (catch remaining epoch-keyed lines)
@@ -423,12 +430,6 @@ def normalize_java_epoch(raw_epoch):
     if 0 <= raw_epoch < N_EPOCHS:
         return raw_epoch
     return raw_epoch
-
-for raw_epoch, samples in propose_all_wall_raw.items():
-    if not samples:
-        continue
-    epoch = normalize_java_epoch(raw_epoch)
-    round_metrics[epoch]["ProposeAll_Consensus_Wall"] = statistics.mean(samples)
 
 for ep, samples in propose_all_sim_raw.items():
     if samples:
@@ -458,6 +459,51 @@ for rep, stop_t in replica_stop_time.items():
 for rep, resume_t in replica_resume_time.items():
     car_metrics[f"veh{rep}"]["resume_time"] = resume_t
 
+# ── Per-car phase breakdown: cert_wait / bft_wait / queue_wait ───────────────
+# For each epoch, find the leader (only replica with cert_collection_s set).
+# Derive proposeSubmitTime = orderTime - bftSim, then for every car in that epoch:
+#   cert_wait  = max(0, proposeSubmitTime - car_stop_time)  [waiting for cert collection]
+#   bft_wait   = bftSim                                      [stable BFT consensus]
+#   queue_wait = resume_time - orderTime                     [0 for batch-0, >0 for later batches]
+for ep in sorted(set(car_metrics[c].get("epoch", -1) for c in car_metrics)):
+    if ep < 0:
+        continue
+    # Only compute phases for epochs where we found the PROPOSE_ALL leader
+    # (cert_collection_s is only logged by the replica that submits PROPOSE_ALL).
+    leader_car = None
+    for cid, cm in car_metrics.items():
+        if cm.get("epoch") == ep and cm.get("cert_collection_s") is not None:
+            leader_car = cid
+            break
+    if leader_car is None:
+        continue  # No leader data for this epoch → leave phase fields absent
+    lcm = car_metrics[leader_car]
+    ep_bft = lcm.get("propose_all_consensus_sim_s")
+    l_stop = lcm.get("stop_time")
+    l_std  = lcm.get("stop_to_decision_sim_s")
+    if None in (ep_bft, l_stop, l_std):
+        continue
+    ep_order_time   = l_stop + l_std
+    ep_propose_time = ep_order_time - ep_bft
+    round_metrics[ep]["epoch_order_sim_time"]   = ep_order_time
+    round_metrics[ep]["epoch_propose_sim_time"]  = ep_propose_time
+    # Only tag cars actually in this epoch (epoch tag must match)
+    for cid, cm in car_metrics.items():
+        if cm.get("epoch") != ep:
+            continue
+        c_stop   = cm.get("stop_time")
+        c_resume = cm.get("resume_time")
+        c_std    = cm.get("stop_to_decision_sim_s")
+        if c_stop is None:
+            continue
+        c_order_end = (c_stop + c_std) if c_std is not None else ep_order_time
+        cm["cert_wait_s"]      = max(0.0, ep_propose_time - c_stop)
+        cm["bft_wait_s"]       = ep_bft
+        # Order delivery: gap between when leader decided and when THIS replica got it.
+        # Non-zero because 802.11p DECIDE delivery is not instantaneous.
+        cm["order_delivery_s"] = round(c_order_end - ep_order_time, 4)
+        cm["queue_wait_s"]     = round(c_resume - c_order_end, 4) if c_resume is not None else None
+
 # Per-car message counts, fallback flag, delivery ratio, and BFT decision time
 for rep, sent in replica_messages_sent.items():
     car_metrics[f"veh{rep}"]["messages_sent"] = sent
@@ -477,14 +523,6 @@ for car_id, metrics in car_metrics.items():
         ratio = recv / expected if expected > 0 else None
         metrics["delivery_ratio"] = ratio
         metrics["estimated_loss_rate"] = (1.0 - ratio) if ratio is not None else None
-      # BFT decision time = single-round PROPOSE_ALL consensus latency
-    # for the epoch this car was decided in.
-    if isinstance(ep, int):
-        rm = round_metrics.get(ep, {})
-        pa = rm.get("ProposeAll_Consensus_Wall")
-        if pa and pa > 0:
-            metrics["propose_all_consensus_wall_s"] = pa
-            metrics["bft_decision_time_s"] = pa
 
 # Per-epoch throughput (user definition):
 #   throughput_veh_per_s = n_vehicles_in_epoch / mean(depart - stop) over those vehicles
@@ -505,8 +543,9 @@ for car_id, metrics in car_metrics.items():
     depart_t = metrics.get("depart_time")
     if stop_t is not None and depart_t is not None and "wait_intersection" not in metrics:
         metrics["wait_intersection"] = depart_t - stop_t
-    if arrival_t is not None and resume_t is not None:
-        metrics["arrival_to_resume"] = resume_t - arrival_t
+    base_t = stop_t if stop_t is not None else arrival_t
+    if base_t is not None and resume_t is not None:
+        metrics["stop_to_resume"] = resume_t - base_t
     if resume_t is not None and depart_t is not None:
         metrics["resume_to_depart"] = depart_t - resume_t
     if arrival_t is not None and depart_t is not None:
@@ -556,25 +595,24 @@ def write_metrics_json(path):
     for ep in range(N_EPOCHS):
         n = EPOCH_N[ep]
         rm = round_metrics.get(ep, {})
-        propose_all_lat = rm.get("ProposeAll_Consensus_Wall")
         tp = epoch_throughput.get(ep)
         wn = epoch_wait_normal.get(ep, [])
         wa = epoch_wait_ambulance.get(ep, [])
         byz = byzantine_by_epoch.get(ep, 0)
         msgs_sent = epoch_messages_sent.get(ep, [])
         msgs_recv = epoch_messages_recv.get(ep, [])
+        propose_all_sim = rm.get("ProposeAll_Consensus_Sim")
         epochs_out.append({
             "epoch": ep,
             "n_replicas": n,
-            "propose_all_consensus_latency_s": propose_all_lat,
-            "propose_all_consensus_latency_sim_s": rm.get("ProposeAll_Consensus_Sim"),
+            "propose_all_consensus_latency_sim_s": propose_all_sim,
             "stop_to_decision_sim_s": rm.get("Stop_To_Decision_Sim"),
             "throughput_s_per_veh": tp,
             "throughput_veh_per_s": (1.0 / tp) if tp not in (None, 0) else None,
             "wait_normal_s": _stat(wn),
             "wait_ambulance_s": _stat(wa),
             "byzantine_injections": byz,
-            "consensus_success": bool(propose_all_lat),
+            "consensus_success": bool(propose_all_sim),
             "avg_messages_sent_per_replica": (sum(msgs_sent) / len(msgs_sent)) if msgs_sent else None,
             "avg_messages_recv_per_replica": (sum(msgs_recv) / len(msgs_recv)) if msgs_recv else None,
             "stop_sign_failures": epoch_failures.get(ep, 0),
@@ -592,7 +630,7 @@ def write_metrics_json(path):
             "resume_time_s": m.get("resume_time"),
             "depart_time_s": m.get("depart_time"),
             "wait_intersection_s": m.get("wait_intersection"),
-            "arrival_to_resume_s": m.get("arrival_to_resume"),
+            "stop_to_resume_s": m.get("stop_to_resume"),
             "resume_to_depart_s": m.get("resume_to_depart"),
             "arrival_to_depart_s": m.get("arrival_to_depart"),
             # Message-level metrics (matches RAFT messages_sent/received)
@@ -603,13 +641,13 @@ def write_metrics_json(path):
             "estimated_loss_rate": m.get("estimated_loss_rate"),
             # Fallback: True if this vehicle hit a StopSign_Timeout
             "used_fallback": m.get("used_fallback", False),
-            # BFT consensus latency for the epoch this car was decided in.
-            # propose_all_consensus_wall_s: set when PROPOSE_ALL single-round protocol ran
-            # (all cars in the same epoch share this value; directly comparable to RAFT raft_decision_time)
-            "propose_all_consensus_wall_s": m.get("propose_all_consensus_wall_s"),
             "propose_all_consensus_sim_s": m.get("propose_all_consensus_sim_s"),
             "stop_to_decision_sim_s": m.get("stop_to_decision_sim_s"),
-            "bft_decision_time_s": m.get("bft_decision_time_s"),
+            # Phase breakdown: stop → PROPOSE_ALL submit → ORDER decision → resume
+            "cert_wait_s": m.get("cert_wait_s"),
+            "bft_wait_s": m.get("bft_wait_s"),
+            "order_delivery_s": m.get("order_delivery_s"),
+            "queue_wait_s": m.get("queue_wait_s"),
         })
 
     fa = jains_fairness(all_waits)
@@ -623,18 +661,12 @@ def write_metrics_json(path):
     _fallback_n = sum(1 for m in car_metrics.values() if m.get("used_fallback", False))
     _run_fallback_rate = _fallback_n / CARS if CARS > 0 else None
 
-    # Run-level BFT decision time (per-car bft_decision_time_s values across all epochs)
-    _bft_dt_all = [m["bft_decision_time_s"] for m in car_metrics.values()
-                   if m.get("bft_decision_time_s") is not None]
-
     overall = {
         "cars": CARS,
         "epochs": N_EPOCHS,
         "throughput_s_per_veh": throughput,
         "throughput_veh_per_s": throughput_vps,
         "throughput_formula": "n_cars / mean(depart_time - stop_time)  (s/veh stored as inverse)",
-        "throughput_s_per_veh_legacy_span": throughput_legacy,
-        "throughput_veh_per_s_legacy_span": throughput_vps_legacy,
         "wait_all_s": _stat(all_waits),
         "wait_normal_s": _stat(normal_waits),
         "wait_ambulance_s": _stat(ambulance_waits),
@@ -644,11 +676,6 @@ def write_metrics_json(path):
             if normal_waits and ambulance_waits else None,
         "ambulance_priority_ratio": (statistics.mean(ambulance_waits) / statistics.mean(normal_waits))
             if normal_waits and ambulance_waits and statistics.mean(normal_waits) != 0 else None,
-        "propose_all_consensus_latency_s": _stat([
-            round_metrics[ep]["ProposeAll_Consensus_Wall"]
-            for ep in range(N_EPOCHS)
-            if round_metrics.get(ep, {}).get("ProposeAll_Consensus_Wall", 0) > 0
-        ]),
         "propose_all_consensus_latency_sim_s": _stat([
             round_metrics[ep]["ProposeAll_Consensus_Sim"]
             for ep in range(N_EPOCHS)
@@ -659,12 +686,10 @@ def write_metrics_json(path):
             for ep in range(N_EPOCHS)
             if round_metrics.get(ep, {}).get("Stop_To_Decision_Sim", 0) > 0
         ]),
-        # BFT decision time per vehicle (consensus latency assigned to each car's epoch)
-        "bft_decision_time_s": _stat(_bft_dt_all),
         "total_byzantine_injections": byzantine_total,
         "byzantine_by_epoch": dict(byzantine_by_epoch),
         "byzantine_by_replica": dict(byzantine_by_replica),
-        "arrival_to_resume_s": _stat(arrival_to_resume_all),
+        "stop_to_resume_s": _stat(stop_to_resume_all),
         "resume_to_depart_s": _stat(resume_to_depart_all),
         # Delivery and fallback metrics (same definitions as RAFT counterpart)
         # delivery_ratio = received / (sent * (N-1)); heuristic for message loss
@@ -683,7 +708,7 @@ def write_car_metrics_csv(path):
     with open(path, "w", encoding="utf-8") as f:
         f.write(
             "car_id,role,epoch,arrival_time,stop_time,resume_time,depart_time,"
-            "wait_intersection,arrival_to_resume,resume_to_depart,arrival_to_depart\n"
+            "wait_intersection,stop_to_resume,resume_to_depart,arrival_to_depart\n"
         )
         for car_id in sorted(car_metrics.keys(), key=lambda cid: int(cid[3:])):
             metrics = car_metrics[car_id]
@@ -696,7 +721,7 @@ def write_car_metrics_csv(path):
                 metrics.get("resume_time", ""),
                 metrics.get("depart_time", ""),
                 metrics.get("wait_intersection", ""),
-                metrics.get("arrival_to_resume", ""),
+                metrics.get("stop_to_resume", ""),
                 metrics.get("resume_to_depart", ""),
                 metrics.get("arrival_to_depart", ""),
             ]
@@ -784,31 +809,54 @@ print("=" * 72)
 for epoch in range(N_EPOCHS):
     n  = EPOCH_N[epoch]
     rm = round_metrics.get(epoch, {})
-    propose_all_wall = rm.get("ProposeAll_Consensus_Wall")
+    propose_all_sim = rm.get("ProposeAll_Consensus_Sim")
     print(f"\n{BOLD}── Epoch {epoch}  (n={n} replicas) ──{RESET}")
-    if propose_all_wall is not None and propose_all_wall > 0:
-        print(f"  PROPOSE_ALL latency:     {CYN}{propose_all_wall:.4f}s{RESET}  (wall/Java, single round)")
+    if propose_all_sim is not None and propose_all_sim > 0:
+        print(f"  PROPOSE_ALL latency:     {CYN}{propose_all_sim:.4f}s{RESET}  (sim-time)")
     else:
         print(f"  PROPOSE_ALL latency:     {RED}N/A — epoch did not complete{RESET}")
 
 print(f"\n{'=' * 72}")
 print(f"{BOLD}Per-Car Lifecycle Metrics{RESET}")
 print(f"{'─' * 72}")
-print(f"  {'Car':>6}  {'Role':>10}  {'Wait@Int':>10}  {'Arr→Resume':>12}  {'Resume→Leave':>14}  {'Arr→Leave':>11}")
+print(f"  {'Car':>6}  {'Role':>10}  {'Wait@Int':>10}  {'Stop→Resume':>13}  {'Resume→Leave':>14}  {'Arr→Leave':>11}")
 for car_id in sorted(car_metrics.keys(), key=lambda cid: int(cid[3:])):
     metrics = car_metrics[car_id]
     wait_t = metrics.get("wait_intersection")
-    arr_res = metrics.get("arrival_to_resume")
+    arr_res = metrics.get("stop_to_resume")
     res_dep = metrics.get("resume_to_depart")
     arr_dep = metrics.get("arrival_to_depart")
     role = metrics.get("role", "normal")
     print(
         f"  {car_id:>6}  {role:>10}  "
         f"{(f'{wait_t:.4f}s' if wait_t is not None else 'N/A'):>10}  "
-        f"{(f'{arr_res:.4f}s' if arr_res is not None else 'N/A'):>12}  "
+        f"{(f'{arr_res:.4f}s' if arr_res is not None else 'N/A'):>13}  "
         f"{(f'{res_dep:.4f}s' if res_dep is not None else 'N/A'):>14}  "
         f"{(f'{arr_dep:.4f}s' if arr_dep is not None else 'N/A'):>11}"
     )
+
+# Phase breakdown: cert_wait / bft_wait / queue_wait
+_has_phase = any(car_metrics[c].get("cert_wait_s") is not None for c in car_metrics)
+if _has_phase:
+    print(f"\n{'─' * 72}")
+    print(f"{BOLD}Per-Car Phase Breakdown  (stop → cert done → BFT → ORDER delivery → resume){RESET}")
+    print(f"  {'Car':>6}  {'Role':>10}  {'CertWait':>9}  {'BFT':>6}  {'Deliver':>8}  {'Queue':>7}  {'Total':>7}")
+    print(f"{'─' * 72}")
+    for car_id in sorted(car_metrics.keys(), key=lambda cid: int(cid[3:])):
+        cm = car_metrics[car_id]
+        cw  = cm.get("cert_wait_s")
+        bw  = cm.get("bft_wait_s")
+        dw  = cm.get("order_delivery_s")
+        qw  = cm.get("queue_wait_s")
+        std = cm.get("stop_to_decision_sim_s")
+        role = cm.get("role", "normal")
+        role_tag = f" {CYN}←AMB{RESET}" if role == "ambulance" else ""
+        def _f(v): return f"{v:.2f}s" if v is not None else "N/A"
+        print(
+            f"  {car_id:>6}  {role:>10}  "
+            f"{_f(cw):>9}  {_f(bw):>6}  {_f(dw):>8}  {_f(qw):>7}  {_f(std):>7}"
+            f"{role_tag}"
+        )
 
 normal_waits = [m["wait_intersection"] for m in car_metrics.values()
                 if m.get("role", "normal") == "normal" and m.get("wait_intersection") is not None]
@@ -816,15 +864,13 @@ ambulance_waits = [m["wait_intersection"] for m in car_metrics.values()
                    if m.get("role") == "ambulance" and m.get("wait_intersection") is not None]
 all_waits = [m["wait_intersection"] for m in car_metrics.values()
              if m.get("wait_intersection") is not None]
-arrival_to_resume_all = [m["arrival_to_resume"] for m in car_metrics.values()
-                         if m.get("arrival_to_resume") is not None]
+stop_to_resume_all = [m["stop_to_resume"] for m in car_metrics.values()
+                      if m.get("stop_to_resume") is not None]
 resume_to_depart_all = [m["resume_to_depart"] for m in car_metrics.values()
                         if m.get("resume_to_depart") is not None]
 
 throughput = None
 throughput_vps = None
-throughput_legacy = None
-throughput_vps_legacy = None
 depart_times = sorted(
     m["depart_time"] for m in car_metrics.values() if m.get("depart_time") is not None
 )
@@ -839,12 +885,6 @@ if all_waits:
         throughput_vps = n_w / mean_wait_all          # vehicles per second
         throughput     = mean_wait_all / n_w          # seconds per vehicle (1/vps)
 
-# Legacy span-based throughput (kept as a diagnostic; older runs report this).
-if len(depart_times) >= 2:
-    n_dep = len(depart_times)
-    span = depart_times[-1] - depart_times[0]
-    throughput_legacy = span / n_dep if n_dep > 0 else None
-    throughput_vps_legacy = (1.0 / throughput_legacy) if throughput_legacy not in (None, 0) else None
 missing_departure = [
     car_id for car_id, m in sorted(car_metrics.items(), key=lambda kv: int(kv[0][3:]))
     if m.get("stop_time") is not None and m.get("depart_time") is None
@@ -862,14 +902,6 @@ if throughput is not None:
         f"{len(all_waits)} / {statistics.mean(all_waits):.4f} = "
         f"{throughput_vps:.6f} veh/s"
     )
-    if throughput_legacy is not None:
-        print(f"  Throughput (legacy span-based): {throughput_legacy:.6f}s per vehicle")
-        if throughput_vps_legacy is not None:
-            print(f"  Throughput (legacy span-based): {throughput_vps_legacy:.6f} vehicles/s")
-        print(
-            "    Legacy formula: (last leave - first leave) / cars = "
-            f"({depart_times[-1]:.4f} - {depart_times[0]:.4f}) / {len(depart_times)}"
-        )
 elif "Throughput_User_Definition" in run_metrics:
     throughput = run_metrics["Throughput_User_Definition"]
     throughput_vps = (1.0 / throughput) if throughput not in (None, 0) else None
@@ -894,16 +926,8 @@ def _fmt_or_run(values, run_key, label):
 _fmt_or_run(all_waits,            "Wait_Intersection_All_Mean",      "Wait@intersection, all cars     ")
 _fmt_or_run(normal_waits,         "Wait_Intersection_Normal_Mean",   "Wait@intersection, normal cars  ")
 _fmt_or_run(ambulance_waits,      "Wait_Intersection_Ambulance_Mean","Wait@intersection, ambulance    ")
-_fmt_or_run(arrival_to_resume_all,"Arrival_To_Resume_Mean",          "Arrival→resume, all cars        ")
+_fmt_or_run(stop_to_resume_all,   "Stop_To_Resume_Mean",             "Stop→resume (stop to GO signal) ")
 _fmt_or_run(resume_to_depart_all, "Resume_To_Depart_Mean",           "Resume→leave, all cars          ")
-
-propose_all_wall_all = [
-    round_metrics[ep]["ProposeAll_Consensus_Wall"]
-    for ep in range(N_EPOCHS)
-    if round_metrics.get(ep, {}).get("ProposeAll_Consensus_Wall", 0) > 0
-]
-
-print(f"  PROPOSE_ALL consensus latency:    {fmt_stat(propose_all_wall_all)}")
 
 fairness_all = jains_fairness(all_waits)
 fairness_normal = jains_fairness(normal_waits)
@@ -968,7 +992,7 @@ if byz_total_display > 0:
         for rep in sorted(byzantine_by_replica):
             print(f"  {rep:>8}  {byzantine_by_replica[rep]:>12}")
     consensus_ok = all(
-        round_metrics.get(ep, {}).get("ProposeAll_Consensus_Wall")
+        round_metrics.get(ep, {}).get("ProposeAll_Consensus_Sim")
         for ep in range(N_EPOCHS))
     if consensus_ok:
         print(f"  {GRN}Consensus correctness: all epochs completed → BFT safety upheld{RESET}")
@@ -1029,12 +1053,6 @@ if SAVE_TO:
     # Write a canonical metrics summary with one line per metric.
     with open(dest, 'w') as f:
         for ep in range(N_EPOCHS):
-            rm = round_metrics.get(ep, {})
-            propose_all_wall = rm.get("ProposeAll_Consensus_Wall")
-            if propose_all_wall is not None and propose_all_wall > 0:
-                f.write(f"[ROUND-METRICS] Epoch {ep} Avg_ProposeAll_Consensus_Wall: "
-                        f"{propose_all_wall:.6f} seconds\n")
-
             # Per-car durations (one line per car) so downstream scripts can build CDFs.
             # These are lifecycle timings, not consensus latency.
             per_car = epoch_total_dur_by_car.get(ep, {})
@@ -1080,8 +1098,8 @@ if SAVE_TO:
             f.write(f"[RUN-METRICS] Wait_Intersection_Normal_Mean: {statistics.mean(normal_waits):.6f} seconds\n")
         if ambulance_waits:
             f.write(f"[RUN-METRICS] Wait_Intersection_Ambulance_Mean: {statistics.mean(ambulance_waits):.6f} seconds\n")
-        if arrival_to_resume_all:
-            f.write(f"[RUN-METRICS] Arrival_To_Resume_Mean: {statistics.mean(arrival_to_resume_all):.6f} seconds\n")
+        if stop_to_resume_all:
+            f.write(f"[RUN-METRICS] Stop_To_Resume_Mean: {statistics.mean(stop_to_resume_all):.6f} seconds\n")
         if resume_to_depart_all:
             f.write(f"[RUN-METRICS] Resume_To_Depart_Mean: {statistics.mean(resume_to_depart_all):.6f} seconds\n")
 

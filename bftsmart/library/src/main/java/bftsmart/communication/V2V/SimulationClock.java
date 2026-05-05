@@ -9,11 +9,6 @@ public class SimulationClock {
     }
 
     public static long currentTimeMillis() {
-        // Fallback: If simulation hasn't started (0), use system time
-        // ensuring initialization doesn't hang.
-        if (currentSimTimeMillis == 0) {
-            return System.currentTimeMillis();
-        }
         return currentSimTimeMillis;
     }
 }

@@ -51,6 +51,14 @@ bool V2VProxyModule::vehicleHasClearedIntersectionTraCI(const std::string& carId
     if (!mobility || !mobility->getCommandInterface()) return false;
     TraCICommandInterface* traci = mobility->getCommandInterface();
     try {
+        // Pre-check existence before querying position. debug-on-errors=true raises
+        // SIGINT before cRuntimeError propagates, bypassing catch blocks entirely —
+        // so we must not let the throw happen at all.
+        std::list<std::string> active = traci->getVehicleIds();
+        if (std::find(active.begin(), active.end(), carId) == active.end()) {
+            return true;  // Already left the simulation → treat as cleared
+        }
+
         TraCICommandInterface::Vehicle v = traci->vehicle(carId);
         std::string laneId = v.getLaneId();
         if (laneId.empty()) return false;

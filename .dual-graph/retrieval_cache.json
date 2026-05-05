@@ -1,225 +1,204 @@
 {
   "entries": {
-    "bft timing discrepancy simulation clock java timers self|tf=5|te=12": {
-      "created_epoch": 1777858277,
+    "stop zone entry timing stoptime consensus not stopped|tf=5|te=12": {
+      "created_epoch": 1778010087,
       "files": [
-        "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
-        "experiment_orchestrator.py",
-        "fourway/analyze_log.py::normalize_java_epoch",
-        "bftsmart/library/docs/javadoc/member-search-index.js",
-        "bftsmart/library/docs/javadoc/package-search-index.js"
+        "bftsmart/metricParser.py::generate_plots",
+        "experiment_orchestrator.py::apply_scale",
+        "fourway/analyze_log.py::fmt_stat",
+        "plot_wait_time_cdf.py::derive_bar_series_from_scenarios",
+        "veins-veins-5.3.1/src/scripts/veins_run.in.py::abspath"
       ],
       "mtimes_ns": {
-        "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js": 1775440285995205269,
-        "experiment_orchestrator.py": 1777511196012453918,
-        "fourway/analyze_log.py::normalize_java_epoch": 1777258773249045699,
-        "bftsmart/library/docs/javadoc/member-search-index.js": 1775440286006038600,
-        "bftsmart/library/docs/javadoc/package-search-index.js": 1775440286006038600
+        "bftsmart/metricParser.py::generate_plots": 1775440285659371988,
+        "experiment_orchestrator.py::apply_scale": 1777994541804412644,
+        "fourway/analyze_log.py::fmt_stat": 1778006856572212466,
+        "plot_wait_time_cdf.py::derive_bar_series_from_scenarios": 1777768450031367800,
+        "veins-veins-5.3.1/src/scripts/veins_run.in.py::abspath": 1775440268344210437
       },
       "result": {
         "ok": true,
-        "query": "BFT timing discrepancy simulation clock Java timers self-delivery radio stack",
+        "query": "stop zone entry timing stopTime consensus not stopped yet",
         "graph_files": [
           {
-            "id": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
-            "kind": "file",
-            "path": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
-            "ext": ".js",
-            "size": 287630,
-            "keywords": [],
-            "summary": "! jQuery JavaScript Library v3.5.1 https://jquery.com/ Includes Sizzle.js https://sizzlejs.com/ Copyright JS Foundation . Contains 5 functions/classes: isFunction, isWindow, DOMEval, toType, ....",
-            "file_hash": "23c7c5d2",
-            "_score": 18,
+            "id": "bftsmart/metricParser.py::generate_plots",
+            "kind": "symbol",
+            "path": "bftsmart/metricParser.py",
+            "ext": ".py",
+            "size": 127,
+            "keywords": [
+              "generate_plots",
+              "generate",
+              "plots"
+            ],
+            "symbol_type": "use_case",
+            "name": "generate_plots",
+            "line_start": 79,
+            "line_end": 205,
+            "body_hash": "bf8f1894",
+            "confidence": "high",
+            "exported": true,
+            "_score": 10,
             "_role": "code",
             "_intent": "general"
           },
           {
-            "id": "experiment_orchestrator.py",
-            "kind": "file",
+            "id": "experiment_orchestrator.py::apply_scale",
+            "kind": "symbol",
             "path": "experiment_orchestrator.py",
             "ext": ".py",
-            "size": 14581,
+            "size": 4,
             "keywords": [
-              "bft_f",
-              "bft",
-              "omnet_config_basename",
-              "omnet",
-              "config",
-              "basename",
-              "omnet_config_name",
-              "name",
-              "run_seed",
-              "run",
-              "seed",
-              "patch_hosts_config",
-              "patch",
-              "hosts",
-              "patch_system_config",
-              "system",
-              "patch_batch_sizes",
-              "batch",
-              "sizes",
-              "clear_honest_artifacts",
-              "clear",
-              "honest",
-              "artifacts",
-              "run_in_bash_with_omnet",
-              "bash",
-              "with",
-              "build_veins_and_bft",
-              "build",
-              "veins",
-              "and",
               "apply_scale",
               "apply",
-              "scale",
-              "randomize_args_for_scenario",
-              "randomize",
-              "args",
-              "for",
-              "scenario",
-              "run_one_simulation",
-              "one",
-              "simulation",
-              "run_analyze",
-              "analyze",
-              "parse_args",
-              "parse",
-              "main"
+              "scale"
             ],
-            "summary": "!/usr/bin/env python3. Contains 5 functions/classes: bft_f, omnet_config_basename, omnet_config_name, run_seed, ....",
-            "file_hash": "dd9b18cc",
-            "_score": 16,
+            "symbol_type": "use_case",
+            "name": "apply_scale",
+            "line_start": 236,
+            "line_end": 239,
+            "body_hash": "974c8c0b",
+            "confidence": "high",
+            "exported": true,
+            "_score": 10,
             "_role": "code",
             "_intent": "general"
           },
           {
-            "id": "fourway/analyze_log.py::normalize_java_epoch",
+            "id": "fourway/analyze_log.py::fmt_stat",
             "kind": "symbol",
             "path": "fourway/analyze_log.py",
             "ext": ".py",
-            "size": 122,
+            "size": 189,
             "keywords": [
-              "normalize_java_epoch",
-              "normalize",
-              "java",
-              "epoch"
+              "fmt_stat",
+              "fmt",
+              "stat"
             ],
             "symbol_type": "use_case",
-            "name": "normalize_java_epoch",
-            "line_start": 415,
-            "line_end": 536,
-            "body_hash": "34dd19b9",
+            "name": "fmt_stat",
+            "line_start": 225,
+            "line_end": 413,
+            "body_hash": "140fa2e4",
             "confidence": "high",
             "exported": true,
-            "_score": 15,
+            "_score": 10,
             "_role": "code",
             "_intent": "general"
           },
           {
-            "id": "bftsmart/library/docs/javadoc/member-search-index.js",
-            "kind": "file",
-            "path": "bftsmart/library/docs/javadoc/member-search-index.js",
-            "ext": ".js",
-            "size": 157829,
-            "keywords": [],
-            "summary": "memberSearchIndex = [{\"p\":\"bftsmart.tests\",\"c\":\"AbstractIntegrationTest\",\"l\":\"AbstractIntegrationTest()\",\"url\":\"%3Cinit%.",
-            "file_hash": "0d266019",
-            "_score": 14,
+            "id": "plot_wait_time_cdf.py::derive_bar_series_from_scenarios",
+            "kind": "symbol",
+            "path": "plot_wait_time_cdf.py",
+            "ext": ".py",
+            "size": 17,
+            "keywords": [
+              "derive_bar_series_from_scenarios",
+              "derive",
+              "bar",
+              "series",
+              "from",
+              "scenarios"
+            ],
+            "symbol_type": "use_case",
+            "name": "derive_bar_series_from_scenarios",
+            "line_start": 480,
+            "line_end": 496,
+            "body_hash": "6c13b9bc",
+            "confidence": "high",
+            "exported": true,
+            "_score": 10,
             "_role": "code",
             "_intent": "general"
           },
           {
-            "id": "bftsmart/library/docs/javadoc/package-search-index.js",
-            "kind": "file",
-            "path": "bftsmart/library/docs/javadoc/package-search-index.js",
-            "ext": ".js",
-            "size": 1237,
-            "keywords": [],
-            "summary": "packageSearchIndex = [{\"l\":\"All Packages\",\"url\":\"allpackages-index.html\"},{\"l\":\"bftsmart.benchmark\"},{\"l\":\"bftsmart.clie.",
-            "file_hash": "761346ee",
-            "_score": 14,
+            "id": "veins-veins-5.3.1/src/scripts/veins_run.in.py::abspath",
+            "kind": "symbol",
+            "path": "veins-veins-5.3.1/src/scripts/veins_run.in.py",
+            "ext": ".py",
+            "size": 62,
+            "keywords": [
+              "abspath"
+            ],
+            "symbol_type": "use_case",
+            "name": "abspath",
+            "line_start": 40,
+            "line_end": 101,
+            "body_hash": "647d87b5",
+            "confidence": "high",
+            "exported": true,
+            "_score": 10,
             "_role": "code",
             "_intent": "general"
           }
         ],
         "graph_edges": [
           {
-            "from": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
-            "to": "ajax/jsonp.js",
-            "rel": "references"
-          },
-          {
-            "from": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
-            "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js::Animation",
+            "from": "bftsmart/metricParser.py",
+            "to": "bftsmart/metricParser.py::generate_plots",
             "rel": "contains"
           },
           {
-            "from": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
-            "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js::Data",
+            "from": "experiment_orchestrator.py",
+            "to": "experiment_orchestrator.py::apply_scale",
             "rel": "contains"
           },
           {
-            "from": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
-            "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js::Identity",
+            "from": "fourway/analyze_log.py",
+            "to": "fourway/analyze_log.py::fmt_stat",
             "rel": "contains"
           },
           {
-            "from": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
-            "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js::Sizzle",
+            "from": "plot_wait_time_cdf.py",
+            "to": "plot_wait_time_cdf.py::derive_bar_series_from_scenarios",
             "rel": "contains"
           },
           {
-            "from": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
-            "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js::Thrower",
+            "from": "veins-veins-5.3.1/src/scripts/veins_run.in.py",
+            "to": "veins-veins-5.3.1/src/scripts/veins_run.in.py::abspath",
             "rel": "contains"
           },
           {
-            "from": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
-            "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js::Tween",
-            "rel": "contains"
+            "from": "bftsmart/metricParser.py",
+            "to": "csv",
+            "rel": "imports"
           },
           {
-            "from": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
-            "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js::addCombinator",
-            "rel": "contains"
+            "from": "bftsmart/metricParser.py",
+            "to": "matplotlib.pyplot",
+            "rel": "imports"
           },
           {
-            "from": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
-            "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js::addGetHookIf",
-            "rel": "contains"
+            "from": "bftsmart/metricParser.py",
+            "to": "os",
+            "rel": "imports"
           },
           {
-            "from": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
-            "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js::addHandle",
-            "rel": "contains"
+            "from": "bftsmart/metricParser.py",
+            "to": "pandas",
+            "rel": "imports"
           },
           {
-            "from": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
-            "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js::addToPrefiltersOrTransports",
-            "rel": "contains"
+            "from": "bftsmart/metricParser.py",
+            "to": "re",
+            "rel": "imports"
           },
           {
-            "from": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
-            "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js::adjustCSS",
-            "rel": "contains"
+            "from": "bftsmart/metricParser.py",
+            "to": "sys",
+            "rel": "imports"
+          },
+          {
+            "from": "experiment_orchestrator.py",
+            "to": "__future__",
+            "rel": "imports"
           }
         ],
         "grep_hits": [],
-        "reuse_candidates": [
-          {
-            "file": "fourway/omnetpp.ini",
-            "overlap": 1,
-            "cached_chars": 13441,
-            "cached_tokens_est": 3360,
-            "last_action": "edited"
-          }
-        ],
+        "reuse_candidates": [],
         "read_budget": {
           "remaining_chars": 60000,
-          "reuse_gate_candidates": [
-            "fourway/omnetpp.ini"
-          ]
+          "reuse_gate_candidates": []
         }
       }
     }

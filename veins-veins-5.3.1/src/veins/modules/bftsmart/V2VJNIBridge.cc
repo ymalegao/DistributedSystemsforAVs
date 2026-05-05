@@ -16,8 +16,6 @@ using namespace veins;
 // Forward declaration for JNI_OnLoad (defined below notifyVehicleCanGo)
 extern "C" JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyOrderDecided
     (JNIEnv*, jobject, jint, jstring);
-extern "C" JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyProposeAllConsensusMetric
-    (JNIEnv*, jobject, jint, jint, jdouble);
 extern "C" JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyWipeComplete
     (JNIEnv*, jobject, jint);
 extern "C" JNIEXPORT jobject JNICALL Java_bftsmart_demo_intersection_IntersectionServer_nativeGetCertSnapshot
@@ -233,14 +231,13 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
             {const_cast<char*>("notifyVehicleCanGo"),    const_cast<char*>("(ID)V"),                (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyVehicleCanGo},
             {const_cast<char*>("notifyViewAgreed"),      const_cast<char*>("(ILjava/lang/String;)V"),(void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyViewAgreed},
             {const_cast<char*>("notifyOrderDecided"),    const_cast<char*>("(ILjava/lang/String;)V"),(void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyOrderDecided},
-            {const_cast<char*>("notifyProposeAllConsensusMetric"), const_cast<char*>("(IID)V"),     (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyProposeAllConsensusMetric},
             {const_cast<char*>("notifyWipeComplete"),    const_cast<char*>("(I)V"),                 (void*)&Java_bftsmart_demo_intersection_IntersectionServer_notifyWipeComplete},
             {const_cast<char*>("nativeGetCertSnapshot"), const_cast<char*>("(I)Ljava/util/Set;"),  (void*)&Java_bftsmart_demo_intersection_IntersectionServer_nativeGetCertSnapshot},
             {const_cast<char*>("nativeGetFreshProposePayload"), const_cast<char*>("(I)Ljava/lang/String;"), (void*)&Java_bftsmart_demo_intersection_IntersectionServer_nativeGetFreshProposePayload},
             {const_cast<char*>("nativeBroadcastClientRequest"), const_cast<char*>("(I[B)V"),        (void*)&Java_bftsmart_demo_intersection_IntersectionServer_nativeBroadcastClientRequest}
         };
-        if (env->RegisterNatives(intersectionServerClass, serverMethods, 8) == 0) {
-            std::cout << "[JNI] JNI_OnLoad: Registered 8 IntersectionServer native methods" << std::endl;
+        if (env->RegisterNatives(intersectionServerClass, serverMethods, 7) == 0) {
+            std::cout << "[JNI] JNI_OnLoad: Registered 7 IntersectionServer native methods" << std::endl;
         }
     }
 
@@ -268,21 +265,6 @@ JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notify
 
       env->ReleaseStringUTFChars(orderDecision, decisionStr);
   }
-
-JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyProposeAllConsensusMetric
-    (JNIEnv* env, jobject obj, jint replicaId, jint epoch, jdouble wallSeconds)
-{
-    std::cout << "[JNI-CALLBACK] Replica " << replicaId
-              << " PROPOSE_ALL consensus epoch=" << epoch
-              << " wall=" << wallSeconds << "s" << std::endl;
-
-    V2VProxyModule* proxy = V2VProxyModule::getProxyForReplica(replicaId);
-    if (proxy) {
-        proxy->recordProposeAllConsensusMetric(epoch, wallSeconds);
-    }
-}
-
-
 
 JNIEXPORT void JNICALL Java_bftsmart_demo_intersection_IntersectionServer_notifyWipeComplete
     (JNIEnv* env, jobject obj, jint replicaId)

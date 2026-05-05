@@ -1,5 +1,19 @@
 [
   {
+    "type": "decision",
+    "content": "stopTime unset at ORDER decision: fall back to simTime() not -1",
+    "tags": [
+      "stopTime",
+      "fallback",
+      "order-decision",
+      "metrics"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VOrderProtocol.cc"
+    ],
+    "date": "2026-05-05"
+  },
+  {
     "id": "mem:1776029455344",
     "kind": "decision",
     "content": "Added per-car metrics to JSON output: messages_sent/received, delivery_ratio, estimated_loss_rate, used_fallback, propose_all_consensus_wall_s, bft_decision_time_s. Added run-level delivery_ratio, estimated_loss_rate, fallback_rate to overall JSON. Added RUN-METRICS lines for batch log files.",
@@ -43,7 +57,9 @@
       "json",
       "output",
       "messages_sent",
-      "received"
+      "received",
+      "edited",
+      "during"
     ],
     "files": [
       "fourway/analyze_log.py"
@@ -53,7 +69,7 @@
     "symbol_hash": "",
     "created_at": "2026-04-12T21:30:55.344888+00:00",
     "created_epoch": 1776029455,
-    "updated_at": "2026-04-12T21:30:55.344894+00:00",
+    "updated_at": "2026-05-05T18:48:09.835720+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -62,38 +78,6 @@
       "recent_action_kinds": [],
       "recent_queries": [],
       "edited": true
-    }
-  },
-  {
-    "id": "mem:1776031320813",
-    "kind": "decision",
-    "content": "Cancel retxCheckTimer immediately when ORDER consensus decision arrives on main thread (pendingCancelOrderTimer block), eliminating retransmit bursts between decision and resumeVehicle that inflate Messages_Sent and skew delivery_ratio.",
-    "tags": [
-      "cancel",
-      "retxchecktimer",
-      "immediately",
-      "when",
-      "order",
-      "consensus",
-      "decision",
-      "arrives"
-    ],
-    "files": [
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
-    ],
-    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-12T22:02:00.813785+00:00",
-    "created_epoch": 1776031320,
-    "updated_at": "2026-04-12T22:02:00.813789+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [],
-    "evidence": {
-      "window_sec": 120,
-      "recent_action_kinds": [],
-      "recent_queries": []
     }
   },
   {
@@ -120,7 +104,7 @@
     "symbol_hash": "",
     "created_at": "2026-04-12T22:02:00.814221+00:00",
     "created_epoch": 1776031320,
-    "updated_at": "2026-05-03T00:41:39.587414+00:00",
+    "updated_at": "2026-05-05T18:48:09.860612+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -223,7 +207,7 @@
     "symbol_hash": "",
     "created_at": "2026-04-14T03:33:11.105295+00:00",
     "created_epoch": 1776137591,
-    "updated_at": "2026-04-30T01:17:00.042223+00:00",
+    "updated_at": "2026-05-05T18:48:09.864694+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -642,7 +626,7 @@
     "symbol_hash": "",
     "created_at": "2026-04-23T00:00:30.116503+00:00",
     "created_epoch": 1776902430,
-    "updated_at": "2026-04-24T18:49:26.776140+00:00",
+    "updated_at": "2026-05-05T18:48:09.856462+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -977,7 +961,9 @@
       "replaced",
       "all",
       "manual",
-      "getenv"
+      "getenv",
+      "simtime",
+      "cleanup"
     ],
     "files": [
       "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJVMLifecycle.cc"
@@ -987,7 +973,7 @@
     "symbol_hash": "",
     "created_at": "2026-04-24T06:11:03.771575+00:00",
     "created_epoch": 1777011063,
-    "updated_at": "2026-04-24T06:11:03.771582+00:00",
+    "updated_at": "2026-05-05T18:48:09.873709+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -1151,7 +1137,9 @@
       "replaced",
       "all",
       "manual",
-      "getenv"
+      "getenv",
+      "synctimetojava",
+      "handleclientrequestbroadcast"
     ],
     "files": [
       "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc"
@@ -1161,7 +1149,7 @@
     "symbol_hash": "",
     "created_at": "2026-04-24T06:11:03.769760+00:00",
     "created_epoch": 1777011063,
-    "updated_at": "2026-04-24T06:11:03.769766+00:00",
+    "updated_at": "2026-05-04T02:13:42.606204+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -1565,7 +1553,9 @@
       "names",
       "propose_all",
       "gutted",
-      "dead"
+      "dead",
+      "simtime",
+      "cleanup"
     ],
     "files": [
       "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc"
@@ -1575,7 +1565,7 @@
     "symbol_hash": "",
     "created_at": "2026-04-25T02:49:50.473036+00:00",
     "created_epoch": 1777085390,
-    "updated_at": "2026-04-25T02:49:50.473042+00:00",
+    "updated_at": "2026-05-05T18:48:09.868863+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -2623,7 +2613,9 @@
       "routes",
       "target",
       "through",
-      "sim"
+      "sim",
+      "simtime",
+      "cleanup"
     ],
     "files": [
       "plot_wait_time_cdf.py"
@@ -2633,7 +2625,7 @@
     "symbol_hash": "",
     "created_at": "2026-05-03T00:41:39.590642+00:00",
     "created_epoch": 1777768899,
-    "updated_at": "2026-05-03T00:41:39.590658+00:00",
+    "updated_at": "2026-05-05T18:48:09.840362+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -2656,7 +2648,9 @@
       "routes",
       "target",
       "through",
-      "sim"
+      "sim",
+      "simtime",
+      "cleanup"
     ],
     "files": [
       "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java"
@@ -2666,7 +2660,7 @@
     "symbol_hash": "",
     "created_at": "2026-05-03T00:41:39.583851+00:00",
     "created_epoch": 1777768899,
-    "updated_at": "2026-05-03T00:41:39.583859+00:00",
+    "updated_at": "2026-05-05T18:48:09.852134+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -2710,6 +2704,30 @@
       "recent_action_kinds": [],
       "recent_queries": []
     }
+  },
+  {
+    "id": "mem:1777860823811",
+    "kind": "decision",
+    "content": "syncTimeToJava() added to handleClientRequestBroadcast; was missing, causing stale SimulationClock on type-9 path",
+    "tags": [
+      "timing",
+      "jni",
+      "synctime",
+      "fix"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-03",
+    "created_epoch": 1777791600,
+    "updated_at": "2026-05-03",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
   },
   {
     "id": "mem:1777858336692",
@@ -2775,6 +2793,463 @@
       "source": "graph_read",
       "anchor_mode": "file",
       "session_epoch": 1777856344
+    }
+  },
+  {
+    "id": "mem:1777860822603",
+    "kind": "decision",
+    "content": "Added syncTimeToJava() to handleClientRequestBroadcast (type-9 path was missing clock sync). Added [TIMING] ENTRY/QUEUE/EXIT logs at all four message lifecycle points for zero-sim-time diagnosis.",
+    "tags": [
+      "added",
+      "synctimetojava",
+      "handleclientrequestbroadcast",
+      "type",
+      "path",
+      "was",
+      "missing",
+      "clock"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-04T02:13:42.603189+00:00",
+    "created_epoch": 1777860822,
+    "updated_at": "2026-05-04T02:13:42.603196+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1777963865957",
+    "kind": "fact",
+    "content": "Phase breakdown: BFT=stable 0.55s, cert_wait=0-4.3s (main variance source), Deliver=ORDER-to-resume (includes queue for non-batch-0)",
+    "tags": [
+      "phase-breakdown",
+      "variance",
+      "cert-collection",
+      "analyze-log"
+    ],
+    "files": [
+      "fourway/analyze_log.py"
+    ],
+    "file_path": "fourway/analyze_log.py",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-04",
+    "created_epoch": 1777878000,
+    "updated_at": "2026-05-04",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1777959002949",
+    "kind": "decision",
+    "content": "certCollectionTimeoutTimer now defers propose until enteredStopZone; early timer from travel phase reschedules at 0.5s intervals",
+    "tags": [
+      "propose-all",
+      "stop-zone",
+      "cert-collection",
+      "timing"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-04",
+    "created_epoch": 1777878000,
+    "updated_at": "2026-05-04",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1777951680518",
+    "kind": "decision",
+    "content": "Trailing car stopTime: ring-entry primary (matches Raft), speed poll fallback, no ORDER-time contamination",
+    "tags": [
+      "trailing",
+      "car",
+      "stoptime",
+      "ring",
+      "entry",
+      "primary",
+      "matches",
+      "raft"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VOrderProtocol.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-05T03:28:00.518232+00:00",
+    "created_epoch": 1777951680,
+    "updated_at": "2026-05-05T03:28:00.518237+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1777951680525",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "trailing",
+      "car",
+      "stoptime",
+      "ring",
+      "entry",
+      "primary",
+      "matches",
+      "raft",
+      "fallback",
+      "unset"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VOrderProtocol.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VOrderProtocol.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-05T03:28:00.525286+00:00",
+    "created_epoch": 1777951680,
+    "updated_at": "2026-05-05T19:42:56.071347+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "stop zone entry timing stopTime consensus not stopped yet"
+    ],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [
+        "continue_retrieve",
+        "retrieve"
+      ],
+      "recent_queries": [
+        "stop zone entry timing stopTime consensus not stopped yet"
+      ],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1777958999144",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "edited",
+      "during",
+      "active",
+      "session"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc::certCollectionTimeoutTimer handler"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+    "symbol_id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc::certCollectionTimeoutTimer handler",
+    "symbol_hash": "",
+    "created_at": "2026-05-05T05:29:59.144412+00:00",
+    "created_epoch": 1777958999,
+    "updated_at": "2026-05-05T05:46:38.046718+00:00",
+    "stale": true,
+    "stale_reason": "symbol removed",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1777959998049",
+    "kind": "stale_marker",
+    "content": "Marked stale because symbol removed",
+    "tags": [],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc::certCollectionTimeoutTimer handler"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+    "symbol_id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc::certCollectionTimeoutTimer handler",
+    "symbol_hash": "",
+    "created_at": "2026-05-05T05:46:38.046731+00:00",
+    "created_epoch": 1777959998,
+    "updated_at": "2026-05-05T05:46:38.046735+00:00",
+    "stale": true,
+    "stale_reason": "symbol removed",
+    "observed_queries": [],
+    "evidence": {
+      "source_kind": "edit_observation"
+    }
+  },
+  {
+    "id": "mem:1777960165137",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "edited",
+      "during",
+      "active",
+      "session"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc::vehicleHasClearedIntersectionTraCI"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc",
+    "symbol_id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc::vehicleHasClearedIntersectionTraCI",
+    "symbol_hash": "",
+    "created_at": "2026-05-05T05:49:25.137189+00:00",
+    "created_epoch": 1777960165,
+    "updated_at": "2026-05-05T17:23:43.768764+00:00",
+    "stale": true,
+    "stale_reason": "symbol removed",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778006891061",
+    "kind": "decision",
+    "content": "Removed all wall-clock metrics; only simtime fields remain in JSON output",
+    "tags": [
+      "metrics",
+      "simtime",
+      "cleanup"
+    ],
+    "files": [
+      "fourway/analyze_log.py",
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java"
+    ],
+    "file_path": "fourway/analyze_log.py",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-05",
+    "created_epoch": 1777964400,
+    "updated_at": "2026-05-05",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1778001823775",
+    "kind": "stale_marker",
+    "content": "Marked stale because symbol removed",
+    "tags": [],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc::vehicleHasClearedIntersectionTraCI"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc",
+    "symbol_id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VTraCI.cc::vehicleHasClearedIntersectionTraCI",
+    "symbol_hash": "",
+    "created_at": "2026-05-05T17:23:43.768833+00:00",
+    "created_epoch": 1778001823,
+    "updated_at": "2026-05-05T17:23:43.768844+00:00",
+    "stale": true,
+    "stale_reason": "symbol removed",
+    "observed_queries": [],
+    "evidence": {
+      "source_kind": "edit_observation"
+    }
+  },
+  {
+    "id": "mem:1778006889844",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "simtime",
+      "cleanup",
+      "removed",
+      "all",
+      "wall",
+      "clock",
+      "metrics",
+      "renamed"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/communication/V2V/SimulationClock.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/communication/V2V/SimulationClock.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-05T18:48:09.844232+00:00",
+    "created_epoch": 1778006889,
+    "updated_at": "2026-05-05T18:48:09.844246+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778006889831",
+    "kind": "decision",
+    "content": "Simtime cleanup: removed all wall-clock metrics, renamed arrival_to_resume to stop_to_resume, removed Thread.sleep(500), removed notifyProposeAllConsensusMetric JNI chain, SimulationClock returns 0 instead of wall fallback",
+    "tags": [
+      "simtime",
+      "cleanup",
+      "removed",
+      "all",
+      "wall",
+      "clock",
+      "metrics",
+      "renamed"
+    ],
+    "files": [
+      "fourway/analyze_log.py",
+      "plot_wait_time_cdf.py",
+      "bftsmart/library/src/main/java/bftsmart/communication/V2V/SimulationClock.java",
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/ServerRunner.java",
+      "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java",
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.h",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJNIBridge.cc",
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VJVMLifecycle.cc"
+    ],
+    "file_path": "fourway/analyze_log.py",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-05T18:48:09.831072+00:00",
+    "created_epoch": 1778006889,
+    "updated_at": "2026-05-05T18:48:09.831078+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1778006889848",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "simtime",
+      "cleanup",
+      "removed",
+      "all",
+      "wall",
+      "clock",
+      "metrics",
+      "renamed"
+    ],
+    "files": [
+      "bftsmart/library/src/main/java/bftsmart/demo/intersection/ServerRunner.java"
+    ],
+    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/ServerRunner.java",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-05T18:48:09.848150+00:00",
+    "created_epoch": 1778006889,
+    "updated_at": "2026-05-05T18:48:09.848161+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778010108711",
+    "kind": "query_association",
+    "content": "Queried during: stopTime ORDER decision unset warning",
+    "tags": [
+      "stoptime",
+      "order",
+      "decision",
+      "unset",
+      "warning"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-05T19:41:48.711419+00:00",
+    "created_epoch": 1778010108,
+    "updated_at": "2026-05-05T19:41:48.711457+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "stopTime ORDER decision unset warning"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777856344
+    }
+  },
+  {
+    "id": "mem:1778010176066",
+    "kind": "decision",
+    "content": "stopTime fallback: if unset at ORDER decision, use simTime() so stop_to_departure is valid",
+    "tags": [
+      "stoptime",
+      "fallback",
+      "unset",
+      "order",
+      "decision",
+      "simtime",
+      "stop_to_departure",
+      "valid"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VOrderProtocol.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VOrderProtocol.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-05T19:42:56.066806+00:00",
+    "created_epoch": 1778010176,
+    "updated_at": "2026-05-05T19:42:56.066815+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "stop zone entry timing stopTime consensus not stopped yet"
+    ],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [
+        "continue_retrieve",
+        "retrieve"
+      ],
+      "recent_queries": [
+        "stop zone entry timing stopTime consensus not stopped yet"
+      ]
     }
   }
 ]
