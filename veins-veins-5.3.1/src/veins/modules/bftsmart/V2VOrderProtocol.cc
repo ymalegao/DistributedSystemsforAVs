@@ -124,13 +124,9 @@ void V2VProxyModule::executeBatch(int idx) {
     for (const auto& c : currentBatchExpected) std::cout << c << " ";
     std::cout << ") myTurn=" << myTurn << "\n";
 
-    // Stamp stopTime for any car that never entered the stop zone (queued behind the lane
-    // leader and blocked from crossing the distance threshold). Without this, wait_intersection
-    // is null for trailing cars in n=8+ scenarios.
     if (stopTime < SIMTIME_ZERO) {
-        stopTime = simTime();
-        std::cout << "[METRICS " << replicaId << "] Arrival_Time: " << simTime()
-                  << " (order-time fallback)\n";
+        std::cout << "[METRICS " << replicaId << "] Warning: stopTime unset at ORDER decision"
+                  << " — wait_stop_to_departure will be -1 for this car\n";
     }
 
     if (myTurn) {

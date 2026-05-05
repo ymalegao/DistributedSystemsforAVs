@@ -64,6 +64,10 @@ simple V2VProxyModule extends DemoBaseApplLayer
         // (veh10 before veh2), so per-node isAmbulance targets the wrong car. Default -1 = use isAmbulance only.
         int ambulanceReplicaId = default(-1);
 
+        // Which replica acts as the C++ PROPOSE_ALL leader (collects certs and submits to BFT-SMaRt).
+        // Default 0 preserves the original min-ID behavior. Override per run via --leader in the script.
+        int leaderReplicaId = default(0);
+
         // Byzantine fault injection
         // Set isByzantine=true and byzantineType to one of:
         //   0 = HONEST (default — normal behavior)

@@ -25,7 +25,7 @@ class VEINS_API V2VProxyModule : public DemoBaseApplLayer {
 public:
     V2VProxyModule();
     ~V2VProxyModule() override;
-    static const int BATCH_SIZE = 8;
+    static const int BATCH_SIZE = 16;
 
     simtime_t consensusStartTime;
     simtime_t orderConsensusStartTime;
@@ -435,6 +435,9 @@ private:
      *  Pass certs != nullptr to append the 6th cyberStatus field (SIGNED|QUIET):
      *  a vehicle is SIGNED iff its carId appears in the certs map. */
     std::string buildVehicleStatesStr(const std::map<std::string, ArrivalCert>* certs = nullptr) const;
+
+    // Configured PROPOSE_ALL leader replica ID (read from leaderReplicaId NED param).
+    int configuredLeaderReplicaId = 0;
 
     // Byzantine fault injection
     bool isByzantine = false;

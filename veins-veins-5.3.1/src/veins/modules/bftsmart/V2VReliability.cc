@@ -13,8 +13,8 @@ using namespace veins;
 
 bool V2VProxyModule::sendMessageToReplica(int fromReplicaId, int toReplicaId, const uint8_t* data, int dataLen)
 {
-    std::cout << "[V2V-SEND] Replica " << replicaId << ": Java->C++ sendMessageToReplica("
-              << fromReplicaId << "->" << toReplicaId << ", " << dataLen << " bytes) at t=" << simTime() << "\n";
+    std::cout << "[TIMING] QUEUE  replica=" << replicaId << " " << fromReplicaId << "->" << toReplicaId
+              << " bytes=" << dataLen << " simT=" << simTime() << "\n";
     
     // Create message
     PendingMessage pendingMsg;
@@ -89,7 +89,7 @@ void V2VProxyModule::registerJavaCallback(JNIEnv* env, jobject javaObject)
 
 void V2VProxyModule::handleBFTMessage(BFTMessage* bftMsg)
 {
-    std::cout << "[V2V-CONSENSUS] Replica " << replicaId << ": handleBFTMessage (consensus msg) at t=" << simTime() << "\n";
+    std::cout << "[TIMING] ENTRY  replica=" << replicaId << " type=0 simT=" << simTime() << "\n";
     ASSERT(bftMsg);
     syncTimeToJava();
 
@@ -518,6 +518,8 @@ void V2VProxyModule::handlepreConsensusMessages(BFTMessage* bftMsg) {
 // processQueueTimer) so it is safe to call JNI here without re-entering OMNeT++.
 void V2VProxyModule::handleClientRequestBroadcast(BFTMessage* bftMsg)
 {
+    std::cout << "[TIMING] ENTRY  replica=" << replicaId << " type=9 simT=" << simTime() << "\n";
+    syncTimeToJava();  // fix: was missing, caused stale SimulationClock during PROPOSE generation
     if (!sharedJVM || !intersectionServerGlobalClass || !deliverInjectedClientRequestMethod) {
         EV_WARN << "Replica " << replicaId << ": handleClientRequestBroadcast: JNI not ready, dropping\n";
         return;

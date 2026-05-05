@@ -1,9 +1,9 @@
-                                                                
+file 38534 1777766516                                           
 version 3
-run General-0-20260217-14:01:58-835370
+run General-0-20260502-17:01:44-109358
 attr configname General
-attr datetime 20260217-14:01:58
-attr datetimef 20260217-140158
+attr datetime 20260502-17:01:44
+attr datetimef 20260502-170144
 attr experiment General
 attr inifile omnetpp.ini
 attr iterationvars ""
@@ -11,7 +11,7 @@ attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network fourWay
-attr processid 835370
+attr processid 109358
 attr repetition 0
 attr replication #0
 attr resultdir results
@@ -20,7 +20,7 @@ attr seedset 0
 config scheduler-class omnetpp::cRealTimeScheduler
 config realtimescheduler-scaling 1
 config cmdenv-express-mode true
-config cmdenv-autoflush true
+config cmdenv-autoflush false
 config cmdenv-status-frequency 1s
 config **.cmdenv-log-level info
 config image-path ../../images
@@ -28,6 +28,7 @@ config network fourWay
 config debug-on-errors true
 config print-undisposed true
 config sim-time-limit 50000s
+config *.node[*].appl.leaderReplicaId 0
 config **.scalar-recording true
 config **.vector-recording true
 config *.playgroundSizeX 2500m
@@ -39,11 +40,13 @@ config *.manager.updateInterval 0.1s
 config *.manager.host "\"localhost\""
 config *.manager.port 9999
 config *.manager.autoShutdown true
+config *.manager.shutdownOnIntersectionBatchCleared true
+config *.manager.intersectionDepartureMinMeters 20m
 config *.manager.launchConfig "xmldoc(\"osm.launchd.xml\")"
 config *.manager.trafficLightModuleType "\"org.car2x.veins.nodes.TrafficLight\""
 config *.tls[*].mobility.x 0
 config *.tls[*].mobility.y 0
-config *.tls[*].mobility.z 3
+config *.tls[*].mobility.z 5
 config *.tls[*].applType "\"org.car2x.veins.modules.application.traci.TraCIDemoTrafficLightApp\""
 config *.tls[*].logicType "\"org.car2x.veins.modules.world.traci.trafficLight.logics.TraCITrafficLightSimpleLogic\""
 config *.rsu[0].mobility.x 2000
@@ -56,15 +59,17 @@ config *.rsu[*].appl.dataOnSch false
 config *.rsu[*].appl.beaconInterval 1s
 config *.rsu[*].appl.beaconUserPriority 7
 config *.rsu[*].appl.dataUserPriority 5
-config *.rsu[*].nic.phy80211p.antennaOffsetZ "0 m"
+config *.rsu[*].nic.phy80211p.antennaOffsetZ "1.5 m"
 config *.connectionManager.sendDirect true
 config *.connectionManager.maxInterfDist 2600m
 config *.connectionManager.drawMaxIntfDist false
 config *.connectionManagerName "\"connectionManager\""
 config *.**.nic.mac1609_4.useServiceChannel false
+config *.**.nic.phy80211p.txPower 20mW
 config *.**.nic.mac1609_4.txPower 20mW
 config *.**.nic.mac1609_4.bitrate 6Mbps
 config *.**.nic.phy80211p.minPowerLevel -110dBm
+config *.**.nic.mac1609_4.queueSize 1024
 config *.**.nic.phy80211p.useNoiseFloor true
 config *.**.nic.phy80211p.noiseFloor -98dBm
 config *.**.nic.phy80211p.decider "xmldoc(\"config.xml\")"
@@ -100,4 +105,39 @@ vector 9 fourWay.node[2].nic.phy80211p RadioState ETV
 vector 10 fourWay.node[2].nic.phy80211p RadioChannel ETV
 vector 11 fourWay.manager posx ETV
 vector 12 fourWay.manager posy ETV
-vector 13 fourWay.node[3].nic.p
+vector 13 fourWay.node[3].nic.phy80211p RadioState ETV
+vector 14 fourWay.node[3].nic.phy80211p RadioChannel ETV
+vector 15 fourWay.manager posx ETV
+vector 16 fourWay.manager posy ETV
+vector 17 fourWay.manager acceleration ETV
+vector 18 fourWay.manager co2emission ETV
+vector 19 fourWay.manager speed ETV
+vector 20 fourWay.manager speed ETV
+vector 21 fourWay.manager speed ETV
+vector 22 fourWay.manager acceleration ETV
+vector 23 fourWay.manager co2emission ETV
+vector 24 fourWay.manager acceleration ETV
+vector 25 fourWay.manager co2emission ETV
+vector 26 fourWay.manager acceleration ETV
+vector 27 fourWay.manager co2emission ETV
+2	4862 1788 52 391 5.1 12 70 121.99598610946 132.73086 9017.075356011 1162347.7304319
+3	6650 1776 52 391 5.1 12 70 69.100846562404 106.7386 6521.5250693499 617438.48972031
+4	8426 1736 54 391 5.2 12 69 0 12.810454000313 440.19753721926 3776.9650430735
+7	10162 1734 56 391 5.3 12 68 122.88085213909 138.62388 9179.7027164716 1240684.9288434
+8	11896 1736 56 391 5.3 12 68 92.61012 96.951463604983 6365.4281656271 595974.35526488
+11	13632 1814 56 391 5.3 12 68 121.656 124.36819596305 8404.8529904955 1038870.2624648
+12	15446 1808 56 391 5.3 12 68 79.796 89.44255096509 5899.9939154771 512215.39690186
+15	17254 1794 56 391 5.3 12 68 117.9175 140.70702568728 8413.9445716614 1044289.8752126
+16	19048 1794 56 391 5.3 12 68 95.370305187216 101.642 6802.3228899386 680707.94696055
+17	20842 1345 56 391 5.3 12 68 -4.9500000000001 5.2 123.15454000313 547.70918634161
+18	22187 1807 56 391 5.3 12 68 0.973 16.223421449335 303.83560747841 2558.9748891899
+19	23994 1821 61 391 5.4 12 67 0 7.7473677897066 163.2388100445 817.71655776366
+20	25815 1842 61 391 5.4 12 67 0.096142851842308 9.045 130.10361997399 723.05943758378
+21	27657 1801 61 391 5.4 12 67 0 8.9473414645721 230.86983223242 1421.5571071581
+22	29458 1331 66 391 5.5 12 66 -4.9500000000001 5.0991408201866 72.523677897066 305.69845159609
+23	30789 1752 66 391 5.5 12 66 0.973 9.9249192657997 156.99233683826 722.98026631152
+24	32541 1243 66 391 5.5 12 66 -9 4.5613417724653 -68.486105503198 821.8021443245
+25	33784 1669 66 391 5.5 12 66 0.973 3.6313870321784 81.887657853899 112.50135965221
+26	35453 1325 66 391 5.5 12 66 -4.9500000000001 4.9347900316585 84.52341464572 350.1272375646
+27	36778 1755 66 391 5.5 12 66 0.973 9.2968437361484 185.40492737444 944.7227975788
+

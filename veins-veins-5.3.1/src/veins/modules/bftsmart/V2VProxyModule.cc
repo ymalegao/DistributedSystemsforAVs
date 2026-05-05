@@ -60,7 +60,7 @@ V2VProxyModule::V2VProxyModule()
     , joinTriggered(false)
     , intersectionX(0.0)
     , intersectionY(0.0)
-    , stopDistance(10.0)
+    , stopDistance(5.0)
     , intersectionWidth(25.0)
     , avgSpeed(10.0)
     , safetyGap(2.0)
@@ -180,6 +180,7 @@ void V2VProxyModule::initialize(int stage)
         consensusTimeoutSec = par("consensusTimeoutSec").doubleValue();
         stopSignTimeoutSec = par("stopSignTimeoutSec").doubleValue();
         orderDelayGap = par("orderDelayGap").doubleValue();
+        configuredLeaderReplicaId = par("leaderReplicaId").intValue();
         isByzantine = par("isByzantine").boolValue();
         byzantineType = static_cast<ByzantineType>(par("byzantineType").intValue());
         if (isByzantine) {
@@ -358,13 +359,33 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
         }
         
         if (!toProcess.empty()) {
-            std::cout << "[V2V-QUEUE] Replica " << replicaId << ": Dequeuing " << toProcess.size() << " messages" << "\n";
             for (size_t i = 0; i < toProcess.size(); i++) {
                 const auto& pending = toProcess[i];
-                std::cout << "[V2V-QUEUE] Replica " << replicaId << ": [" << (i+1) << "/" << toProcess.size() 
-                          << "] Sending " << pending.fromReplicaId << "->" << pending.toReplicaId 
-                          << ", " << pending.data.size() << " bytes" << "\n";
-                sendBFTMessage(pending.fromReplicaId, pending.toReplicaId, pending.data, pending.messageType);
+                std::cout << "[TIMING] EXIT   replica=" << replicaId << " " << pending.fromReplicaId
+                          << "->" << pending.toReplicaId << " bytes=" << pending.data.size()
+                          << " simT=" << simTime() << "\n";
+                // Self-delivery: fromId == toId == replicaId.
+                // Schedule via sim-time self-message so the delay is in simulation time,
+                // not instant. This matches how RAFT routes all messages (including self)
+                // through sendDelayedDown().
+                if (pending.fromReplicaId == replicaId && pending.toReplicaId == replicaId) {
+                    double delay = replicaId * par("broadcastSlotSec").doubleValue()
+                                 + uniform(par("broadcastJitterMin").doubleValue(),
+                                           par("broadcastJitterMax").doubleValue());
+                    BFTMessage* selfMsg = new BFTMessage("bftSelfDeliver");
+                    selfMsg->setFromReplicaId(replicaId);
+                    selfMsg->setToReplicaId(replicaId);
+                    selfMsg->setMessageType(100); // SELF_DELIVERY sentinel
+                    selfMsg->setPayloadArraySize(pending.data.size());
+                    for (size_t j = 0; j < pending.data.size(); j++)
+                        selfMsg->setPayload(j, pending.data[j]);
+                    selfMsg->setPayloadLength(pending.data.size());
+                    scheduleAt(simTime() + delay, selfMsg);
+                    std::cout << "[V2V-SELF] Replica " << replicaId
+                              << ": Scheduled self-delivery at t+" << delay << "s\n";
+                } else {
+                    sendBFTMessage(pending.fromReplicaId, pending.toReplicaId, pending.data, pending.messageType);
+                }
             }
         }
 
@@ -783,25 +804,34 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
         // ---------------------------------------------------------------------
         distance = getDistanceToIntersection();
 
-        // Queued followers can stop behind the lane leader due to SUMO car-following
-        // before they ever cross the stop-zone distance threshold. Record their first
-        // stationary moment so downstream metrics don't lose them when stop_time stays -1.
+        // Queued followers: record stopTime at first ring entry (matches Raft's distance-threshold
+        // primary path — may still be moving). For cars that stop outside the ring, fall back to
+        // speed < 0.5 detection. No ORDER-time fallback; unset stopTime stays -1.
         if (currentPhase == COLLECTING_CERTS
                 && stopTime < SIMTIME_ZERO
                 && !carAhead.empty()) {
-            try {
-                if (mobility && mobility->getVehicleCommandInterface()) {
-                    const double speed = mobility->getVehicleCommandInterface()->getSpeed();
-                    if (speed < 0.5) {
-                        stopTime = simTime();
-                        std::cout << "[METRICS " << replicaId << "] Arrival_Time: " << stopTime << "\n";
-                        std::cout << "[METRICS " << replicaId << "] Stop_Time: " << stopTime << "\n";
-                        std::cout << "[V2VProxy " << replicaId
-                                  << "] Queued behind lane leader; recording stop from speed poll at t="
-                                  << stopTime << "\n";
+            if (distance < stopDistance * (totalVehicles_ / 2.0)) {
+                stopTime = simTime();
+                std::cout << "[METRICS " << replicaId << "] Arrival_Time: " << stopTime << "\n";
+                std::cout << "[METRICS " << replicaId << "] Stop_Time: " << stopTime << "\n";
+                std::cout << "[V2VProxy " << replicaId
+                          << "] Queued behind lane leader; recording stop from ring entry at t="
+                          << stopTime << "\n";
+            } else {
+                try {
+                    if (mobility && mobility->getVehicleCommandInterface()) {
+                        const double speed = mobility->getVehicleCommandInterface()->getSpeed();
+                        if (speed < 0.5) {
+                            stopTime = simTime();
+                            std::cout << "[METRICS " << replicaId << "] Arrival_Time: " << stopTime << "\n";
+                            std::cout << "[METRICS " << replicaId << "] Stop_Time: " << stopTime << "\n";
+                            std::cout << "[V2VProxy " << replicaId
+                                      << "] Queued behind lane leader; recording stop from speed poll at t="
+                                      << stopTime << "\n";
+                        }
                     }
+                } catch (...) {
                 }
-            } catch (...) {
             }
         }
 
@@ -1040,13 +1070,27 @@ void V2VProxyModule::handleSelfMsg(cMessage* msg)
         return;
     }
 
+    // Self-delivery BFT message: scheduled by processQueueTimer to give self-messages
+    // a sim-time delay instead of instant delivery, matching RAFT's radio-path treatment.
+    BFTMessage* bftSelf = dynamic_cast<BFTMessage*>(msg);
+    if (bftSelf && bftSelf->getMessageType() == 100) {
+        size_t n = bftSelf->getPayloadArraySize();
+        std::vector<uint8_t> buf(n);
+        for (size_t i = 0; i < n; ++i) buf[i] = bftSelf->getPayload(i);
+        std::cout << "[V2V-SELF] Replica " << replicaId << ": Self-delivery fired at t=" << simTime()
+                  << " (" << n << " bytes)\n";
+        deliverMessageToJava(replicaId, buf.data(), (int)buf.size());
+        delete bftSelf;
+        return;
+    }
+
     std::cout << "[HANDLE-SELF-MSG] Replica " << replicaId << ": msg=" << msg->getName() << "\n";
-    
+
     if (isDeparted) {
         delete msg;
         return;
     }
-    
+
     DemoBaseApplLayer::handleSelfMsg(msg);
 }
 

@@ -297,6 +297,64 @@
       "meta": {
         "text": "timing send message self-delivery simulation clock timer"
       }
+    },
+    {
+      "id": "query:v2vproxymodule jni packet size bytelength processing delay simtime",
+      "type": "query",
+      "meta": {
+        "text": "V2VProxyModule JNI packet size byteLength processing delay simTime outbound transmission"
+      }
+    },
+    {
+      "id": "experiment_orchestrator.py::patch_batch_sizes",
+      "type": "file"
+    },
+    {
+      "id": "veins-veins-5.3.1/src/scripts/veins_run.in.py::abspath",
+      "type": "file"
+    },
+    {
+      "id": "action:edit:1777860822",
+      "type": "action",
+      "meta": {
+        "summary": "Added syncTimeToJava() to handleClientRequestBroadcast (type-9 path was missing clock sync). Added [TIMING] ENTRY/QUEUE/EXIT logs at all four message lifecycle points for zero-sim-time diagnosis."
+      }
+    },
+    {
+      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc",
+      "type": "file"
+    },
+    {
+      "id": "query:bft timing diagnosis entry queue exit simtime gap",
+      "type": "query",
+      "meta": {
+        "text": "BFT timing diagnosis ENTRY QUEUE EXIT simTime gap TIMING logs leader PROPOSE_ALL"
+      }
+    },
+    {
+      "id": "query:raft timing parameters raftappbase constructor scheduleoneshotms timers",
+      "type": "query",
+      "meta": {
+        "text": "Raft timing parameters RaftAppBase constructor scheduleOneshotMs timers"
+      }
+    },
+    {
+      "id": "query:bft faster than raft incorrect timing java jni",
+      "type": "query",
+      "meta": {
+        "text": "BFT faster than Raft incorrect timing Java JNI speedup"
+      }
+    },
+    {
+      "id": "action:edit:1777951680",
+      "type": "action",
+      "meta": {
+        "summary": "Trailing car stopTime: ring-entry primary (matches Raft), speed poll fallback, no ORDER-time contamination"
+      }
+    },
+    {
+      "id": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VOrderProtocol.cc",
+      "type": "file"
     }
   ],
   "edges": [
@@ -761,6 +819,168 @@
       "meta": {
         "mode": "full"
       }
+    },
+    {
+      "from": "query:v2vproxymodule jni packet size bytelength processing delay simtime",
+      "to": "experiment_orchestrator.py::patch_batch_sizes",
+      "rel": "retrieved",
+      "ts": 1777860048
+    },
+    {
+      "from": "query:v2vproxymodule jni packet size bytelength processing delay simtime",
+      "to": "bftsmart/metricParser.py::generate_plots",
+      "rel": "retrieved",
+      "ts": 1777860048
+    },
+    {
+      "from": "query:v2vproxymodule jni packet size bytelength processing delay simtime",
+      "to": "fourway/analyze_log.py::fmt_stat",
+      "rel": "retrieved",
+      "ts": 1777860048
+    },
+    {
+      "from": "query:v2vproxymodule jni packet size bytelength processing delay simtime",
+      "to": "plot_wait_time_cdf.py::derive_bar_series_from_scenarios",
+      "rel": "retrieved",
+      "ts": 1777860048
+    },
+    {
+      "from": "query:v2vproxymodule jni packet size bytelength processing delay simtime",
+      "to": "veins-veins-5.3.1/src/scripts/veins_run.in.py::abspath",
+      "rel": "retrieved",
+      "ts": 1777860048
+    },
+    {
+      "from": "action:edit:1777860822",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc",
+      "rel": "edited",
+      "ts": 1777860822
+    },
+    {
+      "from": "action:edit:1777860822",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+      "rel": "edited",
+      "ts": 1777860822
+    },
+    {
+      "from": "query:bft timing diagnosis entry queue exit simtime gap",
+      "to": "experiment_orchestrator.py::bft_f",
+      "rel": "retrieved",
+      "ts": 1777912652
+    },
+    {
+      "from": "query:bft timing diagnosis entry queue exit simtime gap",
+      "to": "bftsmart/metricParser.py::generate_plots",
+      "rel": "retrieved",
+      "ts": 1777912652
+    },
+    {
+      "from": "query:bft timing diagnosis entry queue exit simtime gap",
+      "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
+      "rel": "retrieved",
+      "ts": 1777912652
+    },
+    {
+      "from": "query:bft timing diagnosis entry queue exit simtime gap",
+      "to": "bftsmart/library/docs/javadoc/member-search-index.js",
+      "rel": "retrieved",
+      "ts": 1777912652
+    },
+    {
+      "from": "query:bft timing diagnosis entry queue exit simtime gap",
+      "to": "bftsmart/library/docs/javadoc/package-search-index.js",
+      "rel": "retrieved",
+      "ts": 1777912652
+    },
+    {
+      "from": "query:raft timing parameters raftappbase constructor scheduleoneshotms timers",
+      "to": "bftsmart/metricParser.py::generate_plots",
+      "rel": "retrieved",
+      "ts": 1777933815
+    },
+    {
+      "from": "query:raft timing parameters raftappbase constructor scheduleoneshotms timers",
+      "to": "experiment_orchestrator.py::apply_scale",
+      "rel": "retrieved",
+      "ts": 1777933815
+    },
+    {
+      "from": "query:raft timing parameters raftappbase constructor scheduleoneshotms timers",
+      "to": "fourway/analyze_log.py::fmt_stat",
+      "rel": "retrieved",
+      "ts": 1777933815
+    },
+    {
+      "from": "query:raft timing parameters raftappbase constructor scheduleoneshotms timers",
+      "to": "plot_wait_time_cdf.py::derive_bar_series_from_scenarios",
+      "rel": "retrieved",
+      "ts": 1777933815
+    },
+    {
+      "from": "query:raft timing parameters raftappbase constructor scheduleoneshotms timers",
+      "to": "veins-veins-5.3.1/src/scripts/veins_run.in.py::abspath",
+      "rel": "retrieved",
+      "ts": 1777933815
+    },
+    {
+      "from": "query:bft faster than raft incorrect timing java jni",
+      "to": "bftsmart/library/docs/javadoc/jquery/external/jquery/jquery.js",
+      "rel": "retrieved",
+      "ts": 1777948878
+    },
+    {
+      "from": "query:bft faster than raft incorrect timing java jni",
+      "to": "experiment_orchestrator.py::bft_f",
+      "rel": "retrieved",
+      "ts": 1777948878
+    },
+    {
+      "from": "query:bft faster than raft incorrect timing java jni",
+      "to": "fourway/analyze_log.py::normalize_java_epoch",
+      "rel": "retrieved",
+      "ts": 1777948878
+    },
+    {
+      "from": "query:bft faster than raft incorrect timing java jni",
+      "to": "bftsmart/library/docs/javadoc/member-search-index.js",
+      "rel": "retrieved",
+      "ts": 1777948878
+    },
+    {
+      "from": "query:bft faster than raft incorrect timing java jni",
+      "to": "bftsmart/library/docs/javadoc/package-search-index.js",
+      "rel": "retrieved",
+      "ts": 1777948878
+    },
+    {
+      "from": "query:(empty)",
+      "to": "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java",
+      "rel": "read",
+      "ts": 1777948886,
+      "meta": {
+        "mode": "full"
+      }
+    },
+    {
+      "from": "query:(empty)",
+      "to": "fourway/omnetpp.ini",
+      "rel": "read",
+      "ts": 1777948886,
+      "meta": {
+        "mode": "full"
+      }
+    },
+    {
+      "from": "action:edit:1777951680",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+      "rel": "edited",
+      "ts": 1777951680
+    },
+    {
+      "from": "action:edit:1777951680",
+      "to": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VOrderProtocol.cc",
+      "rel": "edited",
+      "ts": 1777951680
     }
   ],
   "files": {
@@ -785,8 +1005,8 @@
       "cached_chars": 5000,
       "cached_tokens_est": 1250,
       "last_action": "edited",
-      "last_ts": "2026-05-03T00:41:39.580877+00:00",
-      "edited_count": 2
+      "last_ts": "2026-05-05T03:28:00.517611+00:00",
+      "edited_count": 4
     },
     "plot_wait_time_cdf.py": {
       "query_terms": [],
@@ -806,21 +1026,12 @@
       "last_ts": 1777409911
     },
     "fourway/omnetpp.ini": {
-      "query_terms": [
-        "timing",
-        "mode",
-        "realtime",
-        "sim",
-        "time",
-        "limit",
-        "express"
-      ],
-      "cached_content": "[General]\nscheduler-class = \"omnetpp::cRealTimeScheduler\"\nrealtimescheduler-scaling = 0.1\ncmdenv-express-mode = false\ncmdenv-autoflush = false\ncmdenv-status-frequency = 1s\n**.cmdenv-log-level = info\n\nimage-path = ../../images\n\nnetwork = fourWay\n\n######################################################",
-      "cached_chars": 13441,
-      "cached_tokens_est": 3360,
-      "last_action": "edited",
-      "last_ts": "2026-04-30T01:17:00.036217+00:00",
-      "edited_count": 1
+      "query_terms": [],
+      "cached_content": "[General]\nscheduler-class = \"omnetpp::cRealTimeScheduler\"\nrealtimescheduler-scaling = 1\ncmdenv-express-mode = true\ncmdenv-autoflush = false\ncmdenv-status-frequency = 1s\n**.cmdenv-log-level = info\n\nimage-path = ../../images\n\nnetwork = fourWay\n\n#########################################################",
+      "cached_chars": 13560,
+      "cached_tokens_est": 3390,
+      "last_action": "read",
+      "last_ts": 1777948886
     },
     "fourway/bft_8veh.rou.xml": {
       "query_terms": [
@@ -880,21 +1091,22 @@
       "edited_count": 2
     },
     "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java": {
-      "query_terms": [
-        "timing",
-        "send",
-        "message",
-        "self",
-        "delivery",
-        "simulation",
-        "clock",
-        "timer"
-      ],
+      "query_terms": [],
       "cached_content": "package bftsmart.communication.V2V;\n\nimport bftsmart.communication.SystemMessage;\nimport bftsmart.communication.server.ServersCommunicationLayerInterface;\nimport bftsmart.reconfiguration.ServerViewController;\nimport bftsmart.tom.ServiceReplica;\nimport java.io.*;\nimport java.util.concurrent.LinkedBlo",
       "cached_chars": 15508,
       "cached_tokens_est": 3877,
       "last_action": "read",
-      "last_ts": 1777858346
+      "last_ts": 1777948886
+    },
+    "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc": {
+      "last_action": "edited",
+      "last_ts": "2026-05-04T02:13:42.602666+00:00",
+      "edited_count": 1
+    },
+    "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VOrderProtocol.cc": {
+      "last_action": "edited",
+      "last_ts": "2026-05-05T03:28:00.517633+00:00",
+      "edited_count": 1
     }
   },
   "actions": [
@@ -1151,6 +1363,124 @@
         "mode": "cache_hit",
         "response_chars": 300
       }
+    },
+    {
+      "ts": 1777860048,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "V2VProxyModule JNI packet size byteLength processing delay simTime outbound transmission"
+      }
+    },
+    {
+      "ts": 1777860048,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "V2VProxyModule JNI packet size byteLength processing delay simTime outbound transmission"
+      }
+    },
+    {
+      "ts": 1777860822,
+      "kind": "register_edit",
+      "payload": {
+        "kind": "register_edit"
+      }
+    },
+    {
+      "ts": 1777912652,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "BFT timing diagnosis ENTRY QUEUE EXIT simTime gap TIMING logs leader PROPOSE_ALL"
+      }
+    },
+    {
+      "ts": 1777912652,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "BFT timing diagnosis ENTRY QUEUE EXIT simTime gap TIMING logs leader PROPOSE_ALL"
+      }
+    },
+    {
+      "ts": 1777933815,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "Raft timing parameters RaftAppBase constructor scheduleOneshotMs timers"
+      }
+    },
+    {
+      "ts": 1777933815,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "Raft timing parameters RaftAppBase constructor scheduleOneshotMs timers"
+      }
+    },
+    {
+      "ts": 1777948878,
+      "kind": "retrieve",
+      "payload": {
+        "kind": "retrieve",
+        "query": "BFT faster than Raft incorrect timing Java JNI speedup"
+      }
+    },
+    {
+      "ts": 1777948878,
+      "kind": "continue_retrieve",
+      "payload": {
+        "kind": "continue_retrieve",
+        "query": "BFT faster than Raft incorrect timing Java JNI speedup"
+      }
+    },
+    {
+      "ts": 1777948884,
+      "kind": "read_blocked_reuse_gate",
+      "payload": {
+        "kind": "read_blocked_reuse_gate",
+        "file": "experiment_orchestrator.py::bft_f",
+        "query": "",
+        "mode": "reuse_gate_blocked"
+      }
+    },
+    {
+      "ts": 1777948884,
+      "kind": "read_blocked_reuse_gate",
+      "payload": {
+        "kind": "read_blocked_reuse_gate",
+        "file": "fourway/analyze_log.py::normalize_java_epoch",
+        "query": "",
+        "mode": "reuse_gate_blocked"
+      }
+    },
+    {
+      "ts": 1777948890,
+      "kind": "read_blocked_reuse_gate",
+      "payload": {
+        "kind": "read_blocked_reuse_gate",
+        "file": "experiment_orchestrator.py::bft_f",
+        "query": "",
+        "mode": "reuse_gate_blocked"
+      }
+    },
+    {
+      "ts": 1777948891,
+      "kind": "read_blocked_reuse_gate",
+      "payload": {
+        "kind": "read_blocked_reuse_gate",
+        "file": "fourway/analyze_log.py::normalize_java_epoch",
+        "query": "",
+        "mode": "reuse_gate_blocked"
+      }
+    },
+    {
+      "ts": 1777951680,
+      "kind": "register_edit",
+      "payload": {
+        "kind": "register_edit"
+      }
     }
   ],
   "decisions": [
@@ -1198,6 +1528,24 @@
         "bftsmart/library/src/main/java/bftsmart/communication/V2V/V2VServersCommunicationLayer.java",
         "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
         "plot_wait_time_cdf.py"
+      ],
+      "scope": "global"
+    },
+    {
+      "ts": 1777860822,
+      "summary": "Added syncTimeToJava() to handleClientRequestBroadcast (type-9 path was missing clock sync). Added [TIMING] ENTRY/QUEUE/EXIT logs at all four message lifecycle points for zero-sim-time diagnosis.",
+      "files": [
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VReliability.cc",
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc"
+      ],
+      "scope": "global"
+    },
+    {
+      "ts": 1777951680,
+      "summary": "Trailing car stopTime: ring-entry primary (matches Raft), speed poll fallback, no ORDER-time contamination",
+      "files": [
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VProxyModule.cc",
+        "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VOrderProtocol.cc"
       ],
       "scope": "global"
     }
