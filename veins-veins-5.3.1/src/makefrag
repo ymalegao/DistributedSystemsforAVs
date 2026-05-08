@@ -55,11 +55,37 @@ $O/$(TARGET): $(DEFFILE)
   endif
 endif
 
+# OpenSSL is required by CryptoAuth on all platforms.
+# Keep in makefrag so regenerated src/Makefile still links it.
+LIBS += -lcrypto -lssl
+
+
 
 VEINS_NEED_MSG6 := $(shell echo ${OMNETPP_VERSION} | grep "^5" >/dev/null 2>&1; echo $$?)
 ifeq ($(VEINS_NEED_MSG6),0)
   MSGCOPTS += --msg6
 endif
+
+# ResilientDB integration requires modern C++ ABI/features.
+# Keep this in makefrag so it survives src/Makefile regeneration.
+CFLAGS += -std=c++17
+CXXFLAGS += -std=c++17
+
+# ── ResilientDB bridge ─────────────────────────────────────────────────────────
+# Header-only include: lets ResDBIntersectionApp.h find resdb_omnet_bridge.h
+# without pulling in any internal ResDB C++ headers.
+RESDB_ROOT ?= $(dir $(abspath $(lastword $(MAKEFILE_LIST))))../../incubator-resilientdb
+CXXFLAGS += -I$(RESDB_ROOT)/integration/omnet
+
+# Linker: link against the shared library produced by Bazel.
+#   cd incubator-resilientdb && bazel build //integration/omnet:resdb_omnet_bridge
+# Set RESDB_LIB_DIR to the Bazel output path, e.g.:
+#   export RESDB_LIB_DIR=/home/yash/DistributedSystemsforAVs/incubator-resilientdb/bazel-bin/integration/omnet
+RESDB_LIB_DIR ?= $(RESDB_ROOT)/bazel-bin/integration/omnet
+ifneq ($(wildcard $(RESDB_LIB_DIR)/libresdb_omnet_bridge.so),)
+  LDFLAGS += -L$(RESDB_LIB_DIR) -lresdb_omnet_bridge -Wl,-rpath,$(RESDB_LIB_DIR)
+endif
+# ──────────────────────────────────────────────────────────────────────────────
 
 
 ifeq ($(WITH_OSG), yes)

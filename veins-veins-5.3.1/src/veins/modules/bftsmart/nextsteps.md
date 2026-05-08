@@ -144,3 +144,21 @@ How are stale ReadyQCs expired?
 Only BFT-SMaRt replicas holding active ReadyQCs participate in ordering, even though all nodes exist in the network.
 
 Emphasize: ArrivalTime is only valid if verified, otherwise it's not used for ordering.
+
+
+
+
+
+
+
+
+
+
+
+
+ Issue 1: parse data info fail (lines 258, 259, 264, 270, 273, 276)
+
+  consensus_manager.cpp:171 fires for every delivered packet. The injection pipe works (rc=0), but ResDB's PBFT layer
+  can't decode the payload as a valid BFT request. If the smoke test sends raw bytes (a "hello" probe), this is expected
+   — it just means Step 3's wire format (BFTMessage type 8 wrapper) is not yet applied. Not a blocker for Step 2 itself,
+   but worth noting so the handoff doc is clear: the smoke test proves the pipe exists, not that consensus flows.

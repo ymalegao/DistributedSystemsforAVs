@@ -1,6 +1,6 @@
 #include "TraCIDemo11p.h"
-#include "/home/yash/veins-veins-5.3.1/src/veins/modules/mobility/traci/TraCIMobility.h"
-#include "/home/yash/veins-veins-5.3.1/src/veins/modules/world/traci/TraCICommandInterface.h"
+#include "veins/modules/mobility/traci/TraCIMobility.h"
+#include "veins/modules/mobility/traci/TraCICommandInterface.h"
 
 using namespace veins;
 

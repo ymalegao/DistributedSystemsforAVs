@@ -4,7 +4,7 @@
 //
 
 #include "veins/modules/bftsmart/V2VProxyModule.h"
-#include "veins/modules/bftsmart/crypto/CryptoAuth.h"
+#include "veins/modules/application/resDB/crypto/CryptoAuth.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>

@@ -4,7 +4,6 @@
 //
 
 #include "veins/modules/bftsmart/V2VProxyModule.h"
-#include "veins/modules/bftsmart/crypto/CryptoAuth.h"
 #include "veins/base/utils/SimpleAddress.h"
 #include "veins/modules/utility/Consts80211p.h"
 #include <algorithm>

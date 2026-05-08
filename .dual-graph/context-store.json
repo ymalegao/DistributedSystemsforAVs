@@ -1,17 +1,17 @@
 [
   {
-    "type": "decision",
-    "content": "stopTime unset at ORDER decision: fall back to simTime() not -1",
+    "type": "fact",
+    "content": "makefrag needs CXXFLAGS += -I/usr/include for clang to find protobuf headers on WSL2",
     "tags": [
-      "stopTime",
-      "fallback",
-      "order-decision",
-      "metrics"
+      "build",
+      "protobuf",
+      "wsl2",
+      "clang"
     ],
     "files": [
-      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VOrderProtocol.cc"
+      "veins-veins-5.3.1/src/makefrag"
     ],
-    "date": "2026-05-05"
+    "date": "2026-05-08"
   },
   {
     "id": "mem:1776029455344",
@@ -638,200 +638,6 @@
     }
   },
   {
-    "id": "mem:1776927463387",
-    "kind": "query_association",
-    "content": "Queried during: batch timeout System.currentTimeMillis wall clock",
-    "tags": [
-      "batch",
-      "timeout",
-      "system",
-      "currenttimemillis",
-      "wall",
-      "clock"
-    ],
-    "files": [
-      "bftsmart/library/src/main/java/bftsmart/tom/core/TOMLayer.java"
-    ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/core/TOMLayer.java",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-23T06:57:43.387510+00:00",
-    "created_epoch": 1776927463,
-    "updated_at": "2026-04-23T06:57:43.387523+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [
-      "batch timeout System.currentTimeMillis wall clock"
-    ],
-    "evidence": {
-      "source": "graph_read",
-      "anchor_mode": "file",
-      "session_epoch": 1776825278
-    }
-  },
-  {
-    "id": "mem:1776927464351",
-    "kind": "query_association",
-    "content": "Queried during: invokeOrdered TCP gateway dead code",
-    "tags": [
-      "invokeordered",
-      "tcp",
-      "gateway",
-      "dead",
-      "code"
-    ],
-    "files": [
-      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionGateway.java"
-    ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionGateway.java",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-23T06:57:44.351460+00:00",
-    "created_epoch": 1776927464,
-    "updated_at": "2026-04-23T06:57:44.351470+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [
-      "invokeOrdered TCP gateway dead code"
-    ],
-    "evidence": {
-      "source": "graph_read",
-      "anchor_mode": "file",
-      "session_epoch": 1776825278
-    }
-  },
-  {
-    "id": "mem:1776927471484",
-    "kind": "query_association",
-    "content": "Queried during: sendConsensusRequest invokeOrdered localClientProxy wall time Thread.sleep",
-    "tags": [
-      "sendconsensusrequest",
-      "invokeordered",
-      "localclientproxy",
-      "wall",
-      "time",
-      "thread",
-      "sleep"
-    ],
-    "files": [
-      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java"
-    ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-23T06:57:51.484131+00:00",
-    "created_epoch": 1776927471,
-    "updated_at": "2026-04-23T06:57:51.484142+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [
-      "sendConsensusRequest invokeOrdered localClientProxy wall time Thread.sleep"
-    ],
-    "evidence": {
-      "source": "graph_read",
-      "anchor_mode": "file",
-      "session_epoch": 1776825278
-    }
-  },
-  {
-    "id": "mem:1776927473568",
-    "kind": "query_association",
-    "content": "Queried during: NACK handleStopNack heardByRegency nackReplyCount SimulationClock wall timer STOP_RETX",
-    "tags": [
-      "nack",
-      "handlestopnack",
-      "heardbyregency",
-      "nackreplycount",
-      "simulationclock",
-      "wall",
-      "timer",
-      "stop_retx"
-    ],
-    "files": [
-      "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java"
-    ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/leaderchange/RequestsTimer.java",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-23T06:57:53.568762+00:00",
-    "created_epoch": 1776927473,
-    "updated_at": "2026-04-23T06:57:53.568773+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [
-      "NACK handleStopNack heardByRegency nackReplyCount SimulationClock wall timer STOP_RETX"
-    ],
-    "evidence": {
-      "source": "graph_read",
-      "anchor_mode": "file",
-      "session_epoch": 1776825278
-    }
-  },
-  {
-    "id": "mem:1776927480984",
-    "kind": "query_association",
-    "content": "Queried during: lastRequest currentTimeMillis batchTimeout batch timer scheduleAtFixedRate",
-    "tags": [
-      "lastrequest",
-      "currenttimemillis",
-      "batchtimeout",
-      "batch",
-      "timer",
-      "scheduleatfixedrate"
-    ],
-    "files": [
-      "bftsmart/library/src/main/java/bftsmart/tom/core/TOMLayer.java"
-    ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/tom/core/TOMLayer.java",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-23T06:58:00.984884+00:00",
-    "created_epoch": 1776927480,
-    "updated_at": "2026-04-23T06:58:00.984895+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [
-      "lastRequest currentTimeMillis batchTimeout batch timer scheduleAtFixedRate"
-    ],
-    "evidence": {
-      "source": "graph_read",
-      "anchor_mode": "file",
-      "session_epoch": 1776825278
-    }
-  },
-  {
-    "id": "mem:1776927481983",
-    "kind": "query_association",
-    "content": "Queried during: sendConsensusRequest Thread.sleep invokeOrdered invokeOrderedWithTimeout sleep delay",
-    "tags": [
-      "sendconsensusrequest",
-      "thread",
-      "sleep",
-      "invokeordered",
-      "invokeorderedwithtimeout",
-      "delay"
-    ],
-    "files": [
-      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java"
-    ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-23T06:58:01.983836+00:00",
-    "created_epoch": 1776927481,
-    "updated_at": "2026-04-23T06:58:01.983850+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [
-      "sendConsensusRequest Thread.sleep invokeOrdered invokeOrderedWithTimeout sleep delay"
-    ],
-    "evidence": {
-      "source": "graph_read",
-      "anchor_mode": "file",
-      "session_epoch": 1776825278
-    }
-  },
-  {
     "id": "mem:1777007040808",
     "kind": "next",
     "content": "JNI attach pattern inconsistent: V2VTraCI.cc and V2VEpochPreemption.cc still use raw AttachCurrentThread without GetEnv check",
@@ -1210,99 +1016,6 @@
     "stale_reason": "",
     "observed_queries": [],
     "evidence": {}
-  },
-  {
-    "id": "mem:1777056263414",
-    "kind": "query_association",
-    "content": "Queried during: ProposalPayload parse PROPOSE_ALL wire format",
-    "tags": [
-      "proposalpayload",
-      "parse",
-      "propose_all",
-      "wire",
-      "format"
-    ],
-    "files": [
-      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java"
-    ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-24T18:44:23.414276+00:00",
-    "created_epoch": 1777056263,
-    "updated_at": "2026-04-24T18:44:23.414285+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [
-      "ProposalPayload parse PROPOSE_ALL wire format"
-    ],
-    "evidence": {
-      "source": "graph_read",
-      "anchor_mode": "file",
-      "session_epoch": 1776825278
-    }
-  },
-  {
-    "id": "mem:1777056263811",
-    "kind": "query_association",
-    "content": "Queried during: ProposalPayload parse PROPOSE_ALL wire format",
-    "tags": [
-      "proposalpayload",
-      "parse",
-      "propose_all",
-      "wire",
-      "format"
-    ],
-    "files": [
-      "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java"
-    ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/OrderRequestVerifier.java",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-24T18:44:23.811528+00:00",
-    "created_epoch": 1777056263,
-    "updated_at": "2026-04-24T18:44:23.811544+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [
-      "ProposalPayload parse PROPOSE_ALL wire format"
-    ],
-    "evidence": {
-      "source": "graph_read",
-      "anchor_mode": "file",
-      "session_epoch": 1776825278
-    }
-  },
-  {
-    "id": "mem:1777056267617",
-    "kind": "query_association",
-    "content": "Queried during: appExecuteBatch parse split PROPOSE_ALL parts",
-    "tags": [
-      "appexecutebatch",
-      "parse",
-      "split",
-      "propose_all",
-      "parts"
-    ],
-    "files": [
-      "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java"
-    ],
-    "file_path": "bftsmart/library/src/main/java/bftsmart/demo/intersection/IntersectionServer.java",
-    "symbol_id": "",
-    "symbol_hash": "",
-    "created_at": "2026-04-24T18:44:27.617048+00:00",
-    "created_epoch": 1777056267,
-    "updated_at": "2026-04-24T18:44:27.617056+00:00",
-    "stale": false,
-    "stale_reason": "",
-    "observed_queries": [
-      "appExecuteBatch parse split PROPOSE_ALL parts"
-    ],
-    "evidence": {
-      "source": "graph_read",
-      "anchor_mode": "file",
-      "session_epoch": 1776825278
-    }
   },
   {
     "id": "mem:1777056566770",
@@ -2499,7 +2212,9 @@
       "propose_all",
       "leader",
       "getcurrentviewleader",
-      "returns"
+      "returns",
+      "step",
+      "iv2vtransport"
     ],
     "files": [
       "fourway/omnetpp.ini"
@@ -2509,7 +2224,7 @@
     "symbol_hash": "",
     "created_at": "2026-04-30T01:17:00.049864+00:00",
     "created_epoch": 1777511820,
-    "updated_at": "2026-04-30T01:17:00.049870+00:00",
+    "updated_at": "2026-05-08T18:58:51.089516+00:00",
     "stale": false,
     "stale_reason": "",
     "observed_queries": [],
@@ -3031,6 +2746,30 @@
     }
   },
   {
+    "id": "mem:1778010177071",
+    "kind": "decision",
+    "content": "stopTime unset at ORDER decision: fall back to simTime() not -1",
+    "tags": [
+      "stopTime",
+      "fallback",
+      "order-decision",
+      "metrics"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VOrderProtocol.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/bftsmart/V2VOrderProtocol.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-05",
+    "created_epoch": 1777964400,
+    "updated_at": "2026-05-05",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
     "id": "mem:1778006891061",
     "kind": "decision",
     "content": "Removed all wall-clock metrics; only simtime fields remain in JSON output",
@@ -3250,6 +2989,1927 @@
       "recent_queries": [
         "stop zone entry timing stopTime consensus not stopped yet"
       ]
+    }
+  },
+  {
+    "id": "mem:1778128210268",
+    "kind": "decision",
+    "content": "Step 1 hollow shell: ResDBIntersectionApp extends DemoBaseApplLayer, owns opaque ResDB handle",
+    "tags": [
+      "resdb",
+      "step1",
+      "omnet",
+      "migration"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.h"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-06",
+    "created_epoch": 1778050800,
+    "updated_at": "2026-05-06",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1778135543577",
+    "kind": "decision",
+    "content": "Two separate crypto layers: P-256 CryptoAuth for V2V transport signing; ResDB ED25519 for BFT-internal consensus auth",
+    "tags": [
+      "crypto",
+      "step2",
+      "transport",
+      "resdb"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/crypto/CryptoAuth.h"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-06",
+    "created_epoch": 1778050800,
+    "updated_at": "2026-05-06",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1778128207942",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "step",
+      "resdbintersectionapp",
+      "hollow",
+      "shell",
+      "proto",
+      "definitions",
+      "makefrag",
+      "resdb",
+      "intersectionexecutor",
+      "triggerconsensus"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/makefrag"
+    ],
+    "file_path": "veins-veins-5.3.1/src/makefrag",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T04:30:07.942403+00:00",
+    "created_epoch": 1778128207,
+    "updated_at": "2026-05-08T18:58:51.084687+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778128207934",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "step",
+      "resdbintersectionapp",
+      "hollow",
+      "shell",
+      "proto",
+      "definitions",
+      "makefrag",
+      "resdb",
+      "guard",
+      "null"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T04:30:07.934315+00:00",
+    "created_epoch": 1778128207,
+    "updated_at": "2026-05-08T18:58:51.068990+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778128207925",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "step",
+      "resdbintersectionapp",
+      "hollow",
+      "shell",
+      "proto",
+      "definitions",
+      "makefrag",
+      "resdb",
+      "iv2vtransport",
+      "abc"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.ned"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.ned",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T04:30:07.925649+00:00",
+    "created_epoch": 1778128207,
+    "updated_at": "2026-05-08T18:58:51.074076+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778128207921",
+    "kind": "decision",
+    "content": "Step 1: ResDBIntersectionApp hollow shell + proto definitions + makefrag ResDB build flags",
+    "tags": [
+      "step",
+      "resdbintersectionapp",
+      "hollow",
+      "shell",
+      "proto",
+      "definitions",
+      "makefrag",
+      "resdb"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.ned",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.h",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/messages/intersection.proto",
+      "veins-veins-5.3.1/src/makefrag"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.ned",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T04:30:07.921169+00:00",
+    "created_epoch": 1778128207,
+    "updated_at": "2026-05-07T04:30:07.921176+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1778128207929",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "step",
+      "resdbintersectionapp",
+      "hollow",
+      "shell",
+      "proto",
+      "definitions",
+      "makefrag",
+      "resdb",
+      "iv2vtransport",
+      "abc"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.h"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T04:30:07.929647+00:00",
+    "created_epoch": 1778128207,
+    "updated_at": "2026-05-08T18:58:51.063718+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778128207938",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "step",
+      "resdbintersectionapp",
+      "hollow",
+      "shell",
+      "proto",
+      "definitions",
+      "makefrag",
+      "resdb",
+      "intersectionexecutor",
+      "triggerconsensus"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/messages/intersection.proto"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/application/resDB/messages/intersection.proto",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T04:30:07.938462+00:00",
+    "created_epoch": 1778128207,
+    "updated_at": "2026-05-08T18:58:51.079374+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778132985636",
+    "kind": "decision",
+    "content": "Guard null char* \u2192 std::string constructions: seed_s, bd_raw (basedir), serverVersion fallback",
+    "tags": [
+      "guard",
+      "null",
+      "char",
+      "std",
+      "string",
+      "constructions",
+      "seed_s",
+      "bd_raw"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/mobility/traci/TraCIScenarioManagerLaunchd.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/mobility/traci/TraCIScenarioManagerLaunchd.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T05:49:45.636569+00:00",
+    "created_epoch": 1778132985,
+    "updated_at": "2026-05-07T05:49:45.636576+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1778132985641",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "guard",
+      "null",
+      "char",
+      "std",
+      "string",
+      "constructions",
+      "seed_s",
+      "bd_raw"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/mobility/traci/TraCIScenarioManagerLaunchd.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/mobility/traci/TraCIScenarioManagerLaunchd.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T05:49:45.641676+00:00",
+    "created_epoch": 1778132985,
+    "updated_at": "2026-05-07T05:49:45.641690+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778133622493",
+    "kind": "decision",
+    "content": "Guard null-config crash: skip CreateKvServer when config_file_ empty; inner-library std::string(nullptr) was the throw site",
+    "tags": [
+      "guard",
+      "null",
+      "config",
+      "crash",
+      "skip",
+      "createkvserver",
+      "when",
+      "config_file_"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T06:00:22.493773+00:00",
+    "created_epoch": 1778133622,
+    "updated_at": "2026-05-07T06:00:22.493778+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1778135541313",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "step",
+      "iv2vtransport",
+      "abc",
+      "loggingtransport",
+      "settransport",
+      "testbroadcast",
+      "bridge",
+      "256"
+    ],
+    "files": [
+      "fourway/resdb_crypto/gen_resdb_keys.sh"
+    ],
+    "file_path": "fourway/resdb_crypto/gen_resdb_keys.sh",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T06:32:21.313244+00:00",
+    "created_epoch": 1778135541,
+    "updated_at": "2026-05-07T06:32:21.313258+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778135541304",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "step",
+      "iv2vtransport",
+      "abc",
+      "loggingtransport",
+      "settransport",
+      "testbroadcast",
+      "bridge",
+      "256",
+      "socketless",
+      "servicenetwork"
+    ],
+    "files": [
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc"
+    ],
+    "file_path": "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T06:32:21.304892+00:00",
+    "created_epoch": 1778135541,
+    "updated_at": "2026-05-08T18:58:51.047774+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778135541297",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "step",
+      "iv2vtransport",
+      "abc",
+      "loggingtransport",
+      "settransport",
+      "testbroadcast",
+      "bridge",
+      "256"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/IV2VTransport.h"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/application/resDB/IV2VTransport.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T06:32:21.297163+00:00",
+    "created_epoch": 1778135541,
+    "updated_at": "2026-05-07T06:32:21.297174+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778135541269",
+    "kind": "decision",
+    "content": "Step 2: IV2VTransport ABC, LoggingTransport, SetTransport/TestBroadcast bridge, P-256 keypair per replica, smokeTestBroadcast self-msg, gen_resdb_keys.sh",
+    "tags": [
+      "step",
+      "iv2vtransport",
+      "abc",
+      "loggingtransport",
+      "settransport",
+      "testbroadcast",
+      "bridge",
+      "256"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.h",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.ned",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/IV2VTransport.h",
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h",
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc",
+      "fourway/omnetpp.ini",
+      "fourway/resdb_crypto/gen_resdb_keys.sh"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T06:32:21.269700+00:00",
+    "created_epoch": 1778135541,
+    "updated_at": "2026-05-07T06:32:21.269707+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1778135541301",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "step",
+      "iv2vtransport",
+      "abc",
+      "loggingtransport",
+      "settransport",
+      "testbroadcast",
+      "bridge",
+      "256",
+      "socketless",
+      "servicenetwork"
+    ],
+    "files": [
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h"
+    ],
+    "file_path": "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T06:32:21.300980+00:00",
+    "created_epoch": 1778135541,
+    "updated_at": "2026-05-08T18:58:51.042367+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778256271437",
+    "kind": "next",
+    "content": "Add bridge API to submit a dummy client request to trigger PBFT over V2V.",
+    "tags": [
+      "step3",
+      "smoke",
+      "client_request"
+    ],
+    "files": [
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h",
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc"
+    ],
+    "file_path": "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07",
+    "created_epoch": 1778137200,
+    "updated_at": "2026-05-07",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1778194394732",
+    "kind": "decision",
+    "content": "Step 3 uses BFTMessage type 8 with P-256 signed ResDB payload wrapper.",
+    "tags": [
+      "step3",
+      "wireformat",
+      "transport"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResdbV2VWire.h",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/application/resDB/ResdbV2VWire.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07",
+    "created_epoch": 1778137200,
+    "updated_at": "2026-05-07",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1778191078744",
+    "kind": "fact",
+    "content": "ServiceNetwork::Run blocks; bridge now runs it in background thread.",
+    "tags": [
+      "resdb",
+      "service_network",
+      "threading"
+    ],
+    "files": [
+      "incubator-resilientdb/platform/networkstrate/service_network.cpp",
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc"
+    ],
+    "file_path": "incubator-resilientdb/platform/networkstrate/service_network.cpp",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07",
+    "created_epoch": 1778137200,
+    "updated_at": "2026-05-07",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1778186323585",
+    "kind": "next",
+    "content": "Step 3: implement VeinsTransport; find ServiceNetwork receive injection point first",
+    "tags": [
+      "step3",
+      "transport",
+      "resdb",
+      "next"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc",
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07",
+    "created_epoch": 1778137200,
+    "updated_at": "2026-05-07",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1778190410464",
+    "kind": "task",
+    "content": "Implement Step 3 ResDB V2V transport and bridge packet injection.",
+    "tags": [
+      "resdb",
+      "omnet",
+      "step3",
+      "transport"
+    ],
+    "files": [
+      "JavaToC++/5stepplan.md",
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc"
+    ],
+    "file_path": "JavaToC++/5stepplan.md",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07",
+    "created_epoch": 1778137200,
+    "updated_at": "2026-05-07",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1778194476524",
+    "kind": "next",
+    "content": "Next: replace ReplicaCommunicator/NetChannel TCP sends with ResdbOmnetTransportCallbacks.",
+    "tags": [
+      "step3",
+      "next",
+      "outbound"
+    ],
+    "files": [
+      "incubator-resilientdb/platform/networkstrate/consensus_manager.cpp",
+      "incubator-resilientdb/platform/networkstrate/replica_communicator.*",
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc"
+    ],
+    "file_path": "incubator-resilientdb/platform/networkstrate/consensus_manager.cpp",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07",
+    "created_epoch": 1778137200,
+    "updated_at": "2026-05-07",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1778213295700",
+    "kind": "decision",
+    "content": "terminate crash fixed: ~ConsensusManagerPBFT() joins recovery_thread_ before destroy",
+    "tags": [
+      "shutdown",
+      "terminate",
+      "thread",
+      "pbft"
+    ],
+    "files": [
+      "incubator-resilientdb/platform/consensus/ordering/pbft/consensus_manager_pbft.cpp",
+      "incubator-resilientdb/platform/consensus/ordering/pbft/consensus_manager_pbft.h"
+    ],
+    "file_path": "incubator-resilientdb/platform/consensus/ordering/pbft/consensus_manager_pbft.cpp",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07",
+    "created_epoch": 1778137200,
+    "updated_at": "2026-05-07",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1778215902573",
+    "kind": "decision",
+    "content": "PBFT outbound uses OmnetReplicaCommunicator calling ResdbOmnetTransportCallbacks (no TCP).",
+    "tags": [
+      "step3",
+      "pbft",
+      "outbound",
+      "transport"
+    ],
+    "files": [
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc",
+      "incubator-resilientdb/platform/networkstrate/consensus_manager.cpp"
+    ],
+    "file_path": "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07",
+    "created_epoch": 1778137200,
+    "updated_at": "2026-05-07",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1778216129105",
+    "kind": "fact",
+    "content": "OMNeT path wraps Request in ResDBMessage; signature verification disabled in simulation.",
+    "tags": [
+      "step3",
+      "wireformat",
+      "signature"
+    ],
+    "files": [
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc",
+      "incubator-resilientdb/platform/networkstrate/consensus_manager.cpp"
+    ],
+    "file_path": "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07",
+    "created_epoch": 1778137200,
+    "updated_at": "2026-05-07",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1778186321139",
+    "kind": "decision",
+    "content": "Full handoff document: Steps 1-2 complete with gotchas, Steps 3-5 detailed implementation plans",
+    "tags": [
+      "full",
+      "handoff",
+      "document",
+      "steps",
+      "complete",
+      "gotchas",
+      "detailed",
+      "implementation"
+    ],
+    "files": [
+      "JavaToC++/5stepplan.md"
+    ],
+    "file_path": "JavaToC++/5stepplan.md",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T20:38:41.139730+00:00",
+    "created_epoch": 1778186321,
+    "updated_at": "2026-05-07T20:38:41.139740+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1778186321148",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "full",
+      "handoff",
+      "document",
+      "steps",
+      "complete",
+      "gotchas",
+      "detailed",
+      "implementation",
+      "enriched",
+      "java"
+    ],
+    "files": [
+      "JavaToC++/5stepplan.md"
+    ],
+    "file_path": "JavaToC++/5stepplan.md",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T20:38:41.148212+00:00",
+    "created_epoch": 1778186321,
+    "updated_at": "2026-05-08T04:55:05.477056+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778186493889",
+    "kind": "decision",
+    "content": "Enriched Steps 3-5 with Java-side specifics: exact JNI call sites, 8 verifier checks, RequestsTimer dual-timer logic, VeinsResDbChannel thread-safety, metrics format",
+    "tags": [
+      "enriched",
+      "steps",
+      "java",
+      "side",
+      "specifics",
+      "exact",
+      "jni",
+      "call"
+    ],
+    "files": [
+      "JavaToC++/5stepplan.md"
+    ],
+    "file_path": "JavaToC++/5stepplan.md",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T20:41:33.889521+00:00",
+    "created_epoch": 1778186493,
+    "updated_at": "2026-05-07T20:41:33.889526+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1778194257724",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "step",
+      "socketless",
+      "servicenetwork",
+      "injection",
+      "deliverpacket",
+      "api",
+      "veins",
+      "radio"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResdbV2VWire.h"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/application/resDB/ResdbV2VWire.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T22:50:57.724771+00:00",
+    "created_epoch": 1778194257,
+    "updated_at": "2026-05-07T22:50:57.724787+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778194257693",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "step",
+      "socketless",
+      "servicenetwork",
+      "injection",
+      "deliverpacket",
+      "api",
+      "veins",
+      "radio"
+    ],
+    "files": [
+      "incubator-resilientdb/platform/networkstrate/service_network.cpp"
+    ],
+    "file_path": "incubator-resilientdb/platform/networkstrate/service_network.cpp",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T22:50:57.693650+00:00",
+    "created_epoch": 1778194257,
+    "updated_at": "2026-05-07T22:50:57.693667+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778194257674",
+    "kind": "decision",
+    "content": "Step 3: socketless ServiceNetwork injection, DeliverPacket API, Veins radio transport with P-256 signing, updated handoff doc.",
+    "tags": [
+      "step",
+      "socketless",
+      "servicenetwork",
+      "injection",
+      "deliverpacket",
+      "api",
+      "veins",
+      "radio"
+    ],
+    "files": [
+      "JavaToC++/5stepplan.md",
+      "incubator-resilientdb/platform/networkstrate/service_network.h",
+      "incubator-resilientdb/platform/networkstrate/service_network.cpp",
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h",
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.h",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.ned",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResdbV2VWire.h",
+      "fourway/omnetpp.ini"
+    ],
+    "file_path": "JavaToC++/5stepplan.md",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T22:50:57.674858+00:00",
+    "created_epoch": 1778194257,
+    "updated_at": "2026-05-07T22:50:57.674867+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1778194257688",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "step",
+      "socketless",
+      "servicenetwork",
+      "injection",
+      "deliverpacket",
+      "api",
+      "veins",
+      "radio"
+    ],
+    "files": [
+      "incubator-resilientdb/platform/networkstrate/service_network.h"
+    ],
+    "file_path": "incubator-resilientdb/platform/networkstrate/service_network.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-07T22:50:57.688049+00:00",
+    "created_epoch": 1778194257,
+    "updated_at": "2026-05-07T22:50:57.688140+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778211998771",
+    "kind": "query_association",
+    "content": "Queried during: finish shutdown endSimulation thread stop",
+    "tags": [
+      "finish",
+      "shutdown",
+      "endsimulation",
+      "thread",
+      "stop"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T03:46:38.771117+00:00",
+    "created_epoch": 1778211998,
+    "updated_at": "2026-05-08T03:46:38.771133+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "finish shutdown endSimulation thread stop"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777856344
+    }
+  },
+  {
+    "id": "mem:1778211999683",
+    "kind": "query_association",
+    "content": "Queried during: stop shutdown thread cleanup",
+    "tags": [
+      "stop",
+      "shutdown",
+      "thread",
+      "cleanup"
+    ],
+    "files": [
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h"
+    ],
+    "file_path": "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T03:46:39.683649+00:00",
+    "created_epoch": 1778211999,
+    "updated_at": "2026-05-08T03:46:39.683670+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "stop shutdown thread cleanup"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777856344
+    }
+  },
+  {
+    "id": "mem:1778212004171",
+    "kind": "query_association",
+    "content": "Queried during: StopServer DestroyServer thread join stop",
+    "tags": [
+      "stopserver",
+      "destroyserver",
+      "thread",
+      "join",
+      "stop"
+    ],
+    "files": [
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc"
+    ],
+    "file_path": "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T03:46:44.171325+00:00",
+    "created_epoch": 1778212004,
+    "updated_at": "2026-05-08T03:46:44.171339+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "StopServer DestroyServer thread join stop"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777856344
+    }
+  },
+  {
+    "id": "mem:1778212004597",
+    "kind": "query_association",
+    "content": "Queried during: stop shutdown thread running",
+    "tags": [
+      "stop",
+      "shutdown",
+      "thread",
+      "running"
+    ],
+    "files": [
+      "incubator-resilientdb/platform/networkstrate/service_network.h"
+    ],
+    "file_path": "incubator-resilientdb/platform/networkstrate/service_network.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T03:46:44.597414+00:00",
+    "created_epoch": 1778212004,
+    "updated_at": "2026-05-08T03:46:44.597433+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "stop shutdown thread running"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777856344
+    }
+  },
+  {
+    "id": "mem:1778212050055",
+    "kind": "query_association",
+    "content": "Queried during: Run Stop IsRunning thread join InputProcess internal threads",
+    "tags": [
+      "run",
+      "stop",
+      "isrunning",
+      "thread",
+      "join",
+      "inputprocess",
+      "internal",
+      "threads"
+    ],
+    "files": [
+      "incubator-resilientdb/platform/networkstrate/service_network.cpp"
+    ],
+    "file_path": "incubator-resilientdb/platform/networkstrate/service_network.cpp",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T03:47:30.055509+00:00",
+    "created_epoch": 1778212050,
+    "updated_at": "2026-05-08T03:47:30.055534+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "Run Stop IsRunning thread join InputProcess internal threads"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777856344
+    }
+  },
+  {
+    "id": "mem:1778212115043",
+    "kind": "query_association",
+    "content": "Queried during: Start Stop thread join destructor IsRunning",
+    "tags": [
+      "start",
+      "stop",
+      "thread",
+      "join",
+      "destructor",
+      "isrunning"
+    ],
+    "files": [
+      "incubator-resilientdb/platform/consensus/ordering/pbft/consensus_manager_pbft.cpp"
+    ],
+    "file_path": "incubator-resilientdb/platform/consensus/ordering/pbft/consensus_manager_pbft.cpp",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T03:48:35.043793+00:00",
+    "created_epoch": 1778212115,
+    "updated_at": "2026-05-08T03:48:35.043814+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "Start Stop thread join destructor IsRunning"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777856344
+    }
+  },
+  {
+    "id": "mem:1778212159311",
+    "kind": "query_association",
+    "content": "Queried during: Pop timeout blocking",
+    "tags": [
+      "pop",
+      "timeout",
+      "blocking"
+    ],
+    "files": [
+      "incubator-resilientdb/platform/common/queue/lock_free_queue.h"
+    ],
+    "file_path": "incubator-resilientdb/platform/common/queue/lock_free_queue.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T03:49:19.311261+00:00",
+    "created_epoch": 1778212159,
+    "updated_at": "2026-05-08T03:49:19.311283+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "Pop timeout blocking"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777856344
+    }
+  },
+  {
+    "id": "mem:1778212159946",
+    "kind": "query_association",
+    "content": "Queried during: recovery_thread recovery_queue destructor Stop",
+    "tags": [
+      "recovery_thread",
+      "recovery_queue",
+      "destructor",
+      "stop"
+    ],
+    "files": [
+      "incubator-resilientdb/platform/consensus/ordering/pbft/consensus_manager_pbft.h"
+    ],
+    "file_path": "incubator-resilientdb/platform/consensus/ordering/pbft/consensus_manager_pbft.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T03:49:19.946429+00:00",
+    "created_epoch": 1778212159,
+    "updated_at": "2026-05-08T03:49:19.946449+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "recovery_thread recovery_queue destructor Stop"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777856344
+    }
+  },
+  {
+    "id": "mem:1778212218161",
+    "kind": "query_association",
+    "content": "Queried during: Start Stop thread join destructor is_running",
+    "tags": [
+      "start",
+      "stop",
+      "thread",
+      "join",
+      "destructor",
+      "is_running"
+    ],
+    "files": [
+      "incubator-resilientdb/platform/networkstrate/consensus_manager.h"
+    ],
+    "file_path": "incubator-resilientdb/platform/networkstrate/consensus_manager.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T03:50:18.161700+00:00",
+    "created_epoch": 1778212218,
+    "updated_at": "2026-05-08T03:50:18.161724+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "Start Stop thread join destructor is_running"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777856344
+    }
+  },
+  {
+    "id": "mem:1778212221320",
+    "kind": "query_association",
+    "content": "Queried during: Start Stop destructor heartbeat_thread join IsRunning",
+    "tags": [
+      "start",
+      "stop",
+      "destructor",
+      "heartbeat_thread",
+      "join",
+      "isrunning"
+    ],
+    "files": [
+      "incubator-resilientdb/platform/networkstrate/consensus_manager.cpp"
+    ],
+    "file_path": "incubator-resilientdb/platform/networkstrate/consensus_manager.cpp",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T03:50:21.320284+00:00",
+    "created_epoch": 1778212221,
+    "updated_at": "2026-05-08T03:50:21.320308+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "Start Stop destructor heartbeat_thread join IsRunning"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1777856344
+    }
+  },
+  {
+    "id": "mem:1778212276881",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "add",
+      "consensusmanagerpbft",
+      "destructor",
+      "join",
+      "recovery_thread_",
+      "prevent",
+      "std",
+      "terminate"
+    ],
+    "files": [
+      "incubator-resilientdb/platform/consensus/ordering/pbft/consensus_manager_pbft.cpp"
+    ],
+    "file_path": "incubator-resilientdb/platform/consensus/ordering/pbft/consensus_manager_pbft.cpp",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T03:51:16.881468+00:00",
+    "created_epoch": 1778212276,
+    "updated_at": "2026-05-08T03:51:16.881484+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778212276870",
+    "kind": "decision",
+    "content": "Add ~ConsensusManagerPBFT() destructor to join recovery_thread_ and prevent std::terminate()",
+    "tags": [
+      "add",
+      "consensusmanagerpbft",
+      "destructor",
+      "join",
+      "recovery_thread_",
+      "prevent",
+      "std",
+      "terminate"
+    ],
+    "files": [
+      "incubator-resilientdb/platform/consensus/ordering/pbft/consensus_manager_pbft.h",
+      "incubator-resilientdb/platform/consensus/ordering/pbft/consensus_manager_pbft.cpp"
+    ],
+    "file_path": "incubator-resilientdb/platform/consensus/ordering/pbft/consensus_manager_pbft.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T03:51:16.870680+00:00",
+    "created_epoch": 1778212276,
+    "updated_at": "2026-05-08T03:51:16.870686+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1778212276876",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "add",
+      "consensusmanagerpbft",
+      "destructor",
+      "join",
+      "recovery_thread_",
+      "prevent",
+      "std",
+      "terminate"
+    ],
+    "files": [
+      "incubator-resilientdb/platform/consensus/ordering/pbft/consensus_manager_pbft.h"
+    ],
+    "file_path": "incubator-resilientdb/platform/consensus/ordering/pbft/consensus_manager_pbft.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T03:51:16.876250+00:00",
+    "created_epoch": 1778212276,
+    "updated_at": "2026-05-08T03:51:16.876266+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778215872767",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "step",
+      "outbound",
+      "omnet",
+      "communicator",
+      "uses",
+      "transport",
+      "callbacks",
+      "tcp"
+    ],
+    "files": [
+      "incubator-resilientdb/platform/networkstrate/replica_communicator.cpp"
+    ],
+    "file_path": "incubator-resilientdb/platform/networkstrate/replica_communicator.cpp",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T04:51:12.767721+00:00",
+    "created_epoch": 1778215872,
+    "updated_at": "2026-05-08T04:51:12.767731+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778215872758",
+    "kind": "decision",
+    "content": "Step 3 outbound: OMNeT communicator uses transport callbacks (no TCP), defer bc_client init until Start, ignore self-delivery, update handoff.",
+    "tags": [
+      "step",
+      "outbound",
+      "omnet",
+      "communicator",
+      "uses",
+      "transport",
+      "callbacks",
+      "tcp"
+    ],
+    "files": [
+      "incubator-resilientdb/platform/networkstrate/replica_communicator.h",
+      "incubator-resilientdb/platform/networkstrate/replica_communicator.cpp",
+      "incubator-resilientdb/platform/networkstrate/consensus_manager.cpp",
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc",
+      "JavaToC++/5stepplan.md"
+    ],
+    "file_path": "incubator-resilientdb/platform/networkstrate/replica_communicator.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T04:51:12.758963+00:00",
+    "created_epoch": 1778215872,
+    "updated_at": "2026-05-08T04:51:12.758966+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1778215872762",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "step",
+      "outbound",
+      "omnet",
+      "communicator",
+      "uses",
+      "transport",
+      "callbacks",
+      "tcp"
+    ],
+    "files": [
+      "incubator-resilientdb/platform/networkstrate/replica_communicator.h"
+    ],
+    "file_path": "incubator-resilientdb/platform/networkstrate/replica_communicator.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T04:51:12.762805+00:00",
+    "created_epoch": 1778215872,
+    "updated_at": "2026-05-08T04:51:12.762813+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778215872772",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "step",
+      "outbound",
+      "omnet",
+      "communicator",
+      "uses",
+      "transport",
+      "callbacks",
+      "tcp"
+    ],
+    "files": [
+      "incubator-resilientdb/platform/networkstrate/consensus_manager.cpp"
+    ],
+    "file_path": "incubator-resilientdb/platform/networkstrate/consensus_manager.cpp",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T04:51:12.772363+00:00",
+    "created_epoch": 1778215872,
+    "updated_at": "2026-05-08T04:51:12.772371+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778216105467",
+    "kind": "decision",
+    "content": "Wrap PBFT outbound in ResDBMessage (no signature) and disable signature verifier; update Step 3 doc.",
+    "tags": [
+      "wrap",
+      "pbft",
+      "outbound",
+      "resdbmessage",
+      "signature",
+      "disable",
+      "verifier",
+      "step"
+    ],
+    "files": [
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc",
+      "JavaToC++/5stepplan.md"
+    ],
+    "file_path": "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T04:55:05.467422+00:00",
+    "created_epoch": 1778216105,
+    "updated_at": "2026-05-08T04:55:05.467426+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1778266735079",
+    "kind": "decision",
+    "content": "Step 5 complete: IntersectionExecutor replaces KVExecutor; BFTMessage type 9 for state announce",
+    "tags": [
+      "step5",
+      "intersection",
+      "executor",
+      "order",
+      "protobuf"
+    ],
+    "files": [
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc"
+    ],
+    "file_path": "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08",
+    "created_epoch": 1778223600,
+    "updated_at": "2026-05-08",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {}
+  },
+  {
+    "id": "mem:1778256453503",
+    "kind": "query_association",
+    "content": "Queried during: Step 3 complete status next steps Step 4 5",
+    "tags": [
+      "step",
+      "complete",
+      "status",
+      "next",
+      "steps"
+    ],
+    "files": [
+      "JavaToC++/5stepplan.md"
+    ],
+    "file_path": "JavaToC++/5stepplan.md",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T16:07:33.503177+00:00",
+    "created_epoch": 1778256453,
+    "updated_at": "2026-05-08T16:07:33.503193+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "Step 3 complete status next steps Step 4 5"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1778256263
+    }
+  },
+  {
+    "id": "mem:1778260113572",
+    "kind": "query_association",
+    "content": "Queried during: Step 4 time virtualization complete status done gotchas Step 5",
+    "tags": [
+      "step",
+      "time",
+      "virtualization",
+      "complete",
+      "status",
+      "done",
+      "gotchas"
+    ],
+    "files": [
+      "JavaToC++/5stepplan.md"
+    ],
+    "file_path": "JavaToC++/5stepplan.md",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T17:08:33.572619+00:00",
+    "created_epoch": 1778260113,
+    "updated_at": "2026-05-08T17:08:33.572645+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "Step 4 time virtualization complete status done gotchas Step 5"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1778256263
+    }
+  },
+  {
+    "id": "mem:1778260983799",
+    "kind": "query_association",
+    "content": "Queried during: Step 5 implementation",
+    "tags": [
+      "step",
+      "implementation"
+    ],
+    "files": [
+      "JavaToC++/5stepplan.md"
+    ],
+    "file_path": "JavaToC++/5stepplan.md",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T17:23:03.799300+00:00",
+    "created_epoch": 1778260983,
+    "updated_at": "2026-05-08T17:23:03.799320+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "Step 5 implementation"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1778256263
+    }
+  },
+  {
+    "id": "mem:1778260993474",
+    "kind": "query_association",
+    "content": "Queried during: Step 5 order callback remove replica",
+    "tags": [
+      "step",
+      "order",
+      "callback",
+      "remove",
+      "replica"
+    ],
+    "files": [
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h"
+    ],
+    "file_path": "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T17:23:13.474508+00:00",
+    "created_epoch": 1778260993,
+    "updated_at": "2026-05-08T17:23:13.474529+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "Step 5 order callback remove replica"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1778256263
+    }
+  },
+  {
+    "id": "mem:1778260994039",
+    "kind": "query_association",
+    "content": "Queried during: Step 5 order decided metrics",
+    "tags": [
+      "step",
+      "order",
+      "decided",
+      "metrics"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.h"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T17:23:14.039825+00:00",
+    "created_epoch": 1778260994,
+    "updated_at": "2026-05-08T17:23:14.039836+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "Step 5 order decided metrics"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1778256263
+    }
+  },
+  {
+    "id": "mem:1778260998671",
+    "kind": "query_association",
+    "content": "Queried during: Step 5 order callback ProcessTxn",
+    "tags": [
+      "step",
+      "order",
+      "callback",
+      "processtxn"
+    ],
+    "files": [
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc"
+    ],
+    "file_path": "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T17:23:18.671872+00:00",
+    "created_epoch": 1778260998,
+    "updated_at": "2026-05-08T17:23:18.671891+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "Step 5 order callback ProcessTxn"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1778256263
+    }
+  },
+  {
+    "id": "mem:1778260999175",
+    "kind": "query_association",
+    "content": "Queried during: Step 5 order decided metrics callback",
+    "tags": [
+      "step",
+      "order",
+      "decided",
+      "metrics",
+      "callback"
+    ],
+    "files": [
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc"
+    ],
+    "file_path": "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T17:23:19.175304+00:00",
+    "created_epoch": 1778260999,
+    "updated_at": "2026-05-08T17:23:19.175324+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [
+      "Step 5 order decided metrics callback"
+    ],
+    "evidence": {
+      "source": "graph_read",
+      "anchor_mode": "file",
+      "session_epoch": 1778256263
+    }
+  },
+  {
+    "id": "mem:1778266731058",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "step",
+      "intersectionexecutor",
+      "triggerconsensus",
+      "setordercallback",
+      "state",
+      "announce",
+      "proposeall",
+      "onorderdecided"
+    ],
+    "files": [
+      "incubator-resilientdb/integration/omnet/intersection.proto"
+    ],
+    "file_path": "incubator-resilientdb/integration/omnet/intersection.proto",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T18:58:51.058476+00:00",
+    "created_epoch": 1778266731,
+    "updated_at": "2026-05-08T18:58:51.058489+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
+    }
+  },
+  {
+    "id": "mem:1778266731036",
+    "kind": "decision",
+    "content": "Step 5: IntersectionExecutor, TriggerConsensus, SetOrderCallback, state announce, proposeAll, onOrderDecided, TraCI resume, metrics",
+    "tags": [
+      "step",
+      "intersectionexecutor",
+      "triggerconsensus",
+      "setordercallback",
+      "state",
+      "announce",
+      "proposeall",
+      "onorderdecided"
+    ],
+    "files": [
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h",
+      "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc",
+      "incubator-resilientdb/integration/omnet/BUILD",
+      "incubator-resilientdb/integration/omnet/intersection.proto",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.h",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.ned",
+      "veins-veins-5.3.1/src/veins/modules/application/resDB/messages/intersection.proto",
+      "veins-veins-5.3.1/src/makefrag",
+      "fourway/omnetpp.ini"
+    ],
+    "file_path": "incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T18:58:51.036179+00:00",
+    "created_epoch": 1778266731,
+    "updated_at": "2026-05-08T18:58:51.036184+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "window_sec": 120,
+      "recent_action_kinds": [],
+      "recent_queries": []
+    }
+  },
+  {
+    "id": "mem:1778266731053",
+    "kind": "edit_observation",
+    "content": "Edited during active session",
+    "tags": [
+      "step",
+      "intersectionexecutor",
+      "triggerconsensus",
+      "setordercallback",
+      "state",
+      "announce",
+      "proposeall",
+      "onorderdecided"
+    ],
+    "files": [
+      "incubator-resilientdb/integration/omnet/BUILD"
+    ],
+    "file_path": "incubator-resilientdb/integration/omnet/BUILD",
+    "symbol_id": "",
+    "symbol_hash": "",
+    "created_at": "2026-05-08T18:58:51.053182+00:00",
+    "created_epoch": 1778266731,
+    "updated_at": "2026-05-08T18:58:51.053196+00:00",
+    "stale": false,
+    "stale_reason": "",
+    "observed_queries": [],
+    "evidence": {
+      "source": "graph_register_edit",
+      "recent_action_kinds": [],
+      "recent_queries": [],
+      "edited": true
     }
   }
 ]

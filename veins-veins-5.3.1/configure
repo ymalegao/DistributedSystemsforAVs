@@ -62,6 +62,34 @@ makemake_flags.extend([
 ])
 makemake_flags.extend(['-L' + os.path.join(java_home, 'lib', 'server'), '-ljvm'])
 
+# ResilientDB bridge defaults for OMNeT++ integration.
+# Can be overridden through environment variables.
+resdb_root = os.environ.get(
+    'RESDB_ROOT',
+    '/home/yash/DistributedSystemsforAVs/incubator-resilientdb',
+)
+resdb_bazel_bin = os.environ.get(
+    'RESDB_BAZEL_BIN',
+    os.path.join(resdb_root, 'bazel-bin'),
+)
+resdb_bridge_dir = os.environ.get(
+    'RESDB_BRIDGE_DIR',
+    os.path.join(resdb_bazel_bin, 'integration', 'omnet'),
+)
+resdb_bridge_include_dir = os.environ.get(
+    'RESDB_BRIDGE_INCLUDE_DIR',
+    os.path.join(resdb_root, 'integration', 'omnet'),
+)
+resdb_bridge_lib = os.environ.get('RESDB_BRIDGE_LIB', 'resdb_omnet_bridge')
+
+makemake_flags.extend([
+    '-I' + resdb_root,
+    '-I' + resdb_bazel_bin,
+    '-I' + resdb_bridge_include_dir,
+    '-L' + resdb_bridge_dir,
+    '-l' + resdb_bridge_lib,
+])
+
 
 
 run_libs = [os.path.join('src', 'veins')]

@@ -1,4 +1,3 @@
-
 #
 # Copyright (C) 2013-2019 Christoph Sommer <sommer@ccs-labs.org>
 #

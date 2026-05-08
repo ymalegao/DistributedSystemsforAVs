@@ -55,11 +55,16 @@ void TraCIScenarioManagerLaunchd::initialize(int stage)
         return;
     }
     launchConfig = par("launchConfig").xmlValue();
+    if (!launchConfig) {
+        throw cRuntimeError("Parameter launchConfig resolved to null XML");
+    }
     seed = par("seed");
     cXMLElementList basedir_nodes = launchConfig->getElementsByTagName("basedir");
     if (basedir_nodes.size() == 0) {
         // default basedir is where current network file was loaded from
+        std::cout << "No basedir found, using default basedir" << endl;
         std::string basedir = cSimulation::getActiveSimulation()->getEnvir()->getConfig()->getConfigEntry("network").getBaseDirectory();
+        std::cout << "Default basedir: " << basedir.c_str() << endl;
         cXMLElement* basedir_node = new cXMLElement("basedir", __FILE__, launchConfig);
         basedir_node->setAttribute("path", basedir.c_str());
         launchConfig->appendChild(basedir_node);
@@ -69,7 +74,7 @@ void TraCIScenarioManagerLaunchd::initialize(int stage)
         if (seed == -1) {
             // default seed is current repetition
             const char* seed_s = cSimulation::getActiveSimulation()->getEnvir()->getConfigEx()->getVariable(CFGVAR_RUNNUMBER);
-            seed = atoi(seed_s);
+            seed = seed_s ? atoi(seed_s) : 0;
         }
         std::stringstream ss;
         ss << seed;
@@ -123,6 +128,6 @@ void TraCIScenarioManagerLaunchd::init_traci()
     if (result != RTYPE_OK) {
         EV << "Warning: Received non-OK response from TraCI server to command " << CMD_FILE_SEND << ":" << description.c_str() << std::endl;
     }
-
+ 
     TraCIScenarioManager::init_traci();
 }

@@ -9,7 +9,7 @@
 #include "veins/modules/application/ieee80211p/DemoBaseApplLayer.h"
 #include "veins/modules/bftsmart/bftsmart_demo_intersection_IntersectionServer.h"
 #include "veins/modules/bftsmart/BFTMessage_m.h"
-#include "veins/modules/bftsmart/crypto/CryptoAuth.h"
+#include "veins/modules/application/resDB/crypto/CryptoAuth.h"
 #include <jni.h>
 #include "veins/modules/bftsmart/V2VJNIUtils.h"
 #include <map>
