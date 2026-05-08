@@ -285,100 +285,126 @@ class V2VViewChangeManager {
 
 ---
 
-### 🔲 Step 5 — Smart Contract & Application Logic
+### ✅ Step 5 — Smart Contract & Application Logic (DONE)
 
 **Goal:** Full PBFT consensus produces deterministic `OrderDecision`. Vehicles cross in decided order. Metrics match existing `analyze_log.py` format.
 
-**Java equivalents being replaced:**
-- `IntersectionServer.sendConsensusRequest()` (leader builds PROPOSE_ALL)
-- `OrderRequestVerifier` (8 pre-vote checks)
-- `OrderScheduler.buildProposal()` (deterministic schedule)
-- `appExecuteBatch()` → `notifyOrderDecided()` callback
+**Java equivalents replaced:**
+- `IntersectionServer.sendConsensusRequest()` → `proposeAll()` + `ResdbOmnetTriggerConsensus()`
+- `OrderRequestVerifier` (8 checks) → `SetPreVerifyFunc` lambda (count + duplicate ID checks; full 8-check port is debt)
+- `OrderScheduler.buildProposal()` → `IntersectionExecutor::ExecuteData()` sort
+- `appExecuteBatch()` → `notifyOrderDecided()` → `onOrderDecided` C callback → `processOrders()`
 
-#### 5a. Wire Format (use existing `intersection.proto`)
+---
 
-Leader-side trigger (replaces `PROPOSE_ALL:<id>:<states>:<certs>` string format):
-```proto
-message ProposeAllPayload {
-  uint32                    epoch       = 1;
-  repeated ArrivalCertificate certs     = 2;
-  int32                     leader_id   = 3;
-  uint64                    propose_sim_time_us = 4;
-}
-```
-Serialize to bytes → pass as ResDB `Transaction` content.
+#### Wire Format Decision — No Protobuf on Veins Side
 
-#### 5b. Pre-vote Verifier (`V2VPBFTReplica`)
+**The Nix GCC toolchain used by OMNeT++ on WSL2 cannot safely add `/usr/include` to the include path** (the GCC's `<cstdio>` uses `#include_next <stdio.h>` and pulls in Ubuntu's stdio.h, which breaks `L_tmpnam`). Neither `-I` nor `-idirafter` was safe.
 
-Override `ProcessPrePrepare()` in a ResDB PBFT subclass. The 8 checks from Java `OrderRequestVerifier`:
-1. Per-car cert signatures valid (f+1 echoes for SIGNED, 0 for QUIET)
-2. No phantom vehicle IDs (check against locally known replica set)
-3. No duplicate vehicle IDs across batches
-4. Collision-safe batch composition (no overlapping time slots)
-5. Lane-order preservation (physical ordering consistent with cert timestamps)
-6. QUIET vehicles must appear as singletons
-7. Cert-omission guard — compare leader's cert set against local `collectedCerts` (direct C++ map access — replaces `nativeGetCertSnapshot` JNI)
-8. Deterministic recomputation — follower independently runs `OrderScheduler::BuildProposal()` and checks it matches leader's submitted schedule
+**Solution:** The C bridge API uses a simple packed-struct wire format defined in `resdb_omnet_bridge.h` (no external library required on the Veins side). The ResDB bridge side uses these same structs internally.
 
-If any check fails: return error code → ResDB triggers view change.
-
-#### 5c. Deterministic Scheduler (`IntersectionTxnProcessor`)
-
-```cpp
-class IntersectionTxnProcessor : public resdb::TransactionProcessor {
-    std::string ProcessTxn(const resdb::Transaction& txn) override;
-    // Returns serialized OrderDecision proto
-private:
-    OrderScheduler scheduler_;  // port of Java OrderScheduler
-    LaneMatrix     lane_matrix_; // replicated state across replicas
-};
-```
-
-`OrderScheduler::BuildProposal(certs, batch)` mirrors Java exactly:
-- Sort by arrival timestamp (from cert epoch)
-- Assign crossing slots with `safetyGap` spacing
-- Mark QUIET vehicles as "waiting next round"
-
-#### 5d. `notifyOrderDecided` callback
-
-New bridge function:
 ```c
-typedef void (*ResdbOrderDecidedFn)(void* ctx,
-                                    const uint8_t* decision_bytes, uint32_t len);
+// resdb_omnet_bridge.h — shared wire format
+#pragma pack(push, 1)
+typedef struct ResdbVehicleEntry {
+    int32_t  replica_id;     // 4 bytes
+    uint64_t sim_time_us;    // 8 bytes — simTime() at stop-zone entry
+    uint8_t  is_ambulance;   // 1 byte
+} ResdbVehicleEntry;          // 13 bytes total
+
+typedef struct ResdbProposeHdr {
+    uint32_t epoch;
+    int32_t  leader_id;
+    uint64_t propose_sim_time_us;
+    uint32_t n_vehicles;
+} ResdbProposeHdr;             // 20 bytes
+// followed by n_vehicles × ResdbVehicleEntry
+
+typedef struct ResdbOrderHdr {
+    uint32_t epoch;
+    uint32_t n_vehicles;
+} ResdbOrderHdr;               // 8 bytes
+// followed by n_vehicles × int32_t crossing_order
+#pragma pack(pop)
+```
+
+`intersection.proto` is kept for documentation only. `intersection.pb.h/.pb.cc` are **not** in the Veins build tree.
+
+---
+
+#### 5a. New BFT Message Type
+
+- **Type 8** (existing): ResDB PBFT consensus bytes — signed, delivered via `ResdbOmnetDeliverPacket`
+- **Type 9** (new): `kResdbStateAnnounceMsgType` — broadcasts a raw `ResdbVehicleEntry` (13 bytes, no crypto needed)
+
+#### 5b. Pre-vote Verifier
+
+`SetPreVerifyFunc` lambda wired into `OmnetConsensusManagerPBFT` at server creation. Current checks:
+1. Payload parses as `ResdbProposeHdr` with correct size
+2. `n_vehicles == expected_replicas` (from ResDB config)
+3. No duplicate `replica_id` values
+
+**Debt:** Checks 4–8 from Java `OrderRequestVerifier` (lane order, QUIET singletons, cert-omission guard, deterministic recomputation) are not yet ported.
+
+#### 5c. `IntersectionExecutor` (replaces `KVExecutor`)
+
+Lives in `resdb_omnet_bridge.cc`. Subclasses `resdb::TransactionManager`, overrides `ExecuteData`:
+1. Parse `ResdbProposeHdr` + `ResdbVehicleEntry[]` from committed bytes
+2. Sort: ambulances first, then `sim_time_us` ascending
+3. Emit `ResdbOrderHdr` + `int32_t[]` crossing order
+4. Call registered `ResdbOrderDecidedFn` callback
+
+#### 5d. New Bridge API (Step 5)
+
+```c
+int ResdbOmnetTriggerConsensus(void* handle, const uint8_t* payload, uint32_t len);
 int ResdbOmnetSetOrderCallback(void* handle, ResdbOrderDecidedFn cb, void* ctx);
+int ResdbOmnetGetPrimary(void* handle);   // returns 0-based primary replica ID
+int ResdbOmnetRemoveReplica(void* handle, int replica_id);  // stub, Step 5f debt
 ```
 
-In `ResDBIntersectionApp`:
-```cpp
-static void onOrderDecided(void* ctx, const uint8_t* data, uint32_t len) {
-    auto* app = static_cast<ResDBIntersectionApp*>(ctx);
-    OrderDecision dec;
-    dec.ParseFromArray(data, len);
-    // Resume crossing vehicles via TraCI in decided order
-    for (int i = 0; i < dec.crossing_order_size(); ++i) {
-        int rid = dec.crossing_order(i);
-        if (rid == app->replicaId_) {
-            app->traciVehicle->setSpeed(CRUISE_SPEED_MPS);
-        }
-    }
-}
+`TriggerConsensus` wraps the payload in `Request{TYPE_CLIENT_REQUEST}` → `ResDBMessage` → `InjectInboundPacket`. Only the primary should call it.
+
+#### 5e. Veins-side flow
+
+1. **Stage 1 init**: schedule `state_announce_msg_` every `stateAnnounceIntervalSec` (default 0.1 s)
+2. **`broadcastStateAnnounce()`**: packs own `ResdbVehicleEntry` (13 bytes) → BFTMessage type 9 → `sendDown`; also stores own entry in `collected_states_`
+3. **`onWSM` type 9**: unpacks `ResdbVehicleEntry` → stores in `collected_states_`
+4. **`handlePositionUpdate`**: when `dist < stopDistance * (totalVehicles / 2.0)` and `!enteredStopZone`: calls `stopVehicle()`, records `stop_time_`; primary arms `propose_timeout_msg_` or calls `proposeAll()` immediately if all N states already collected
+5. **`proposeAll()`**: packs `ResdbProposeHdr` + entries → `ResdbOmnetTriggerConsensus`
+6. **`onOrderDecided` (C callback, ResDB worker thread)**: enqueues bytes into `pending_orders_` (mutex-protected)
+7. **`processOrders()` (sim thread, polled by `transport_poll_msg_`)**: unpacks `ResdbOrderHdr` + `int32_t[]` → finds own position → calls `resumeVehicle(position)`
+8. **`resumeVehicle(position)`**: `setSpeedMode(31)` + `setSpeed(cruiseSpeedMps)`; stagger = `position × safetyGapS`
+
+#### 5e. Metrics emitted
+
+```
+[METRICS r] Arrival_Time: <simtime>
+[METRICS r] Stop_Time: <simtime>
+[METRICS r] Cert_Collection_Start: <simtime>
+[METRICS r] ProposeAll_Submit_Time: <simtime>
+[METRICS r] Order_Decided_Time: <simtime>
+[METRICS r] Resume_Time: <simtime>
 ```
 
-#### 5e. Metrics (match existing `analyze_log.py` format)
+#### 5f. Epoch reset (`ResdbOmnetRemoveReplica`)
 
-Emit the same `[METRICS <rid>]` log lines as `V2VProxyModule` so both configs can be analyzed with the existing Python script:
-```
-[METRICS 0] Stop_Time: <simtime>
-[METRICS 0] Resume_Time: <simtime>
-[METRICS 0] Departure_Time: <simtime>
-[METRICS 0] Cert_Collection_Start: <simtime>
-[METRICS 0] ProposeAll_Submit_Time: <simtime>
-[METRICS 0] Order_Decided_Time: <simtime>
-```
+Currently a no-op stub. Full implementation (reset per-sender sequence state, re-arm view-change manager) is deferred.
 
-#### 5f. Epoch reset / reconfiguration (replacing `ReliableV2VMessaging.globalResetV2V`)
+---
 
-When a vehicle departs, call `ResdbOmnetRemoveReplica(handle, replica_id)` — removes the replica from the active set, resets per-sender sequence state in `VeinsResDbChannel`, re-arms `V2VViewChangeManager`.
+#### New NED params added to `ResDBIntersectionApp.ned`
+
+| Param | Default | Notes |
+|-------|---------|-------|
+| `intersectionX/Y` | 300m | Matches `FourVehiclesBFTOverV2V` |
+| `stopDistance` | 5m | Stop zone = `stopDistance × (totalVehicles/2)` |
+| `totalVehicles` | 4 | N replicas in this batch |
+| `certCollectionTimeoutSec` | 2s | Fallback propose timer |
+| `stateAnnounceIntervalSec` | 0.1s | Type-9 broadcast cadence |
+| `cruiseSpeedMps` | 14.0 | Speed after consensus |
+| `safetyGapS` | 1.5 | Seconds between consecutive crossings |
+| `isAmbulance` | false | Emergency priority |
 
 ---
 
@@ -386,12 +412,14 @@ When a vehicle departs, call `ResdbOmnetRemoveReplica(handle, replica_id)` — r
 
 | Issue | Severity | Notes |
 |-------|----------|-------|
-| `ResdbOmnetSetTransport` callbacks not yet used by real ResDB PBFT | Resolved | PBFT now uses an OMNeT communicator (no TCP) via the callback table. |
+| `ResdbOmnetSetTransport` callbacks not yet used by real ResDB PBFT | Resolved | PBFT uses `OmnetReplicaCommunicator` (no TCP) via the callback table. |
 | `ServiceNetwork::Run()` blocks the calling thread | Resolved | Bridge runs it in a background thread (`ResdbOmnetRunServer`). |
-| `ProcessPrePrepare` override: exact method signature in ResDB PBFT | Must verify in Step 5 | Check `platform/consensus/ordering/pbft/commitment/` for the right hook point |
-| `intersection.proto` not yet compiled (no `protoc` step in build) | Needed for Step 5 | Add `cc_proto_library` to Bazel BUILD or use `protoc` in makefrag |
-| `smokeTestBroadcast` fires on all 4 replicas independently | Minor | Produces 4 probe lines per run; disable with `smokeTestBroadcast = false` in production |
-| Ensure zero TCP usage | Step 3 watch | Listener is suppressed (socketless `ServiceNetwork`) and PBFT outbound is callback-based; verify no other paths open sockets. |
+| Pre-vote verifier only checks count + duplicate IDs | Debt | Full 8-check Java `OrderRequestVerifier` port not yet done. |
+| `ResdbOmnetRemoveReplica` is a no-op stub | Debt | Epoch reset / per-sender sequence state needs Step-5f implementation. |
+| Cert collection uses direct `VehicleState` (no echo/f+1) | Debt | Full `ArrivalCertificate` echo mechanism not yet ported; currently collects states directly. |
+| `smokeTestBroadcast` disabled in production config | Resolved | `smokeTestBroadcast = false` in `BFTOverV2VWithResilientDB`. |
+| Protobuf cannot be used in Veins build on Nix+WSL2 | Resolved | Nix GCC `#include_next <stdio.h>` conflicts with `/usr/include`. Switched to packed C structs. `intersection.pb.h/.pb.cc` removed from Veins tree. |
+| Ensure zero TCP usage | Resolved | Listener suppressed (socketless `ServiceNetwork`); PBFT outbound is callback-based. |
 
 ---
 
@@ -418,11 +446,36 @@ Runtime note: `fourway/omnetpp.ini` now sets `*.node[*].appl.useRadioTransport =
 
 ## Next Session Entry Point
 
-**Resume at Step 3.** First task before writing any code:
+**All 5 steps are complete.** The simulation should run end-to-end with ResDB PBFT consensus.
 
+**First run checklist:**
 ```bash
-# Find replica send path to replace with OMNeT++ callbacks:
-rg -n \"ReplicaCommunicator|NetChannel\\(|SendRawMessageData\\(\" /home/yash/DistributedSystemsforAVs/incubator-resilientdb/platform/networkstrate
+# 1. Build bridge
+cd /home/yash/DistributedSystemsforAVs/incubator-resilientdb
+bazel --output_user_root=/tmp/bazel build //integration/omnet:resdb_omnet_bridge
+
+# 2. Build Veins
+cd /home/yash/DistributedSystemsforAVs/veins-veins-5.3.1
+make -j$(nproc)
+
+# 3. Run
+cd /home/yash/DistributedSystemsforAVs/fourway
+runomnetnogui -c BFTOverV2VWithResilientDB
 ```
 
-Key question to resolve next: **How to route PBFT outbound packets through `ResdbOmnetTransportCallbacks` (no TCP)?**
+**What to look for in stdout:**
+- `[METRICS r] Stop_Time:` — all 4 vehicles enter stop zone
+- `[ResDB r0] TriggerConsensus rc=0` — primary (r0) submits consensus
+- `[METRICS r] Order_Decided_Time:` — PBFT committed on all replicas
+- `[METRICS r] Resume_Time:` — vehicles cross in decided order
+
+**Next debugging priorities (if consensus doesn't fire):**
+1. Check ResDB logs in `fourway/resdb_crypto/logs/` for PBFT activity (`server process: N`)
+2. Verify type-9 state announces are reaching the primary (`collected_states_` size == 4 before propose)
+3. If `TriggerConsensus` fires but `Order_Decided_Time` never appears: PBFT messages are being dropped — check type-8 radio delivery in `onWSM`
+
+**Remaining debt (post-Step-5):**
+- Full 8-check pre-vote verifier (5b)
+- `ResdbOmnetRemoveReplica` implementation (5f)
+- Full arrival cert echo mechanism (f+1 signatures)
+- Multi-batch / multi-epoch support (currently epoch is always 0)

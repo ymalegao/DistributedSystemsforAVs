@@ -25,7 +25,7 @@ class VEINS_API V2VProxyModule : public DemoBaseApplLayer {
 public:
     V2VProxyModule();
     ~V2VProxyModule() override;
-    static const int BATCH_SIZE = 8;
+    static const int BATCH_SIZE = 16;
 
     simtime_t consensusStartTime;
     simtime_t orderConsensusStartTime;
