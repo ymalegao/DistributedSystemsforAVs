@@ -328,7 +328,7 @@ int ViewChangeManager::ProcessNewView(std::unique_ptr<Context> context,
   uint64_t max_seq = seq_set.empty() ? max_s : *(--seq_set.end());
 
   SetCurrentViewAndNewPrimary(new_view_message.view_number());
-  message_manager_->SetNextSeq(max_seq + 1);
+  message_manager_->SetNextCommitSeq(max_seq + 1);
   LOG(ERROR) << "SetNexSeq: " << max_seq + 1;
 
   // All is fine.
