@@ -97,14 +97,15 @@ int Commitment::ProcessNewRequest(std::unique_ptr<Context> context,
     return -3;
   }
 
-  // check signatures
-  bool valid = verifier_->VerifyMessage(user_request->data(),
-                                        user_request->data_signature());
-  if (!valid) {
-    LOG(ERROR) << "request is not valid:"
-               << user_request->data_signature().DebugString();
-    LOG(ERROR) << " msg:" << user_request->data().size();
-    return -2;
+  if (verifier_) {
+    bool valid = verifier_->VerifyMessage(user_request->data(),
+                                          user_request->data_signature());
+    if (!valid) {
+      LOG(ERROR) << "request is not valid:"
+                 << user_request->data_signature().DebugString();
+      LOG(ERROR) << " msg:" << user_request->data().size();
+      return -2;
+    }
   }
 
   if (pre_verify_func_ && !pre_verify_func_(*user_request)) {
@@ -143,6 +144,9 @@ int Commitment::ProcessNewRequest(std::unique_ptr<Context> context,
   user_request->set_sender_id(config_.GetSelfInfo().id());
   user_request->set_primary_id(config_.GetSelfInfo().id());
 
+  std::cout << "[PBFT-NEW-REQ] primary=" << config_.GetSelfInfo().id()
+            << " broadcasting PRE_PREPARE seq=" << *seq
+            << " view=" << user_request->current_view() << "\n";
   replica_communicator_->BroadCast(*user_request);
 
   return 0;
@@ -152,9 +156,15 @@ int Commitment::ProcessNewRequest(std::unique_ptr<Context> context,
 // TODO check whether the sender is the primary.
 int Commitment::ProcessProposeMsg(std::unique_ptr<Context> context,
                                   std::unique_ptr<Request> request) {
+  std::cout << "[PBFT-PROPOSE] self=" << config_.GetSelfInfo().id()
+            << " seq=" << request->seq()
+            << " sender=" << request->sender_id()
+            << " sig_empty=" << context->signature.signature().empty()
+            << " is_faulty=" << global_stats_->IsFaulty() << "\n";
   if (global_stats_->IsFaulty() || context == nullptr ||
       context->signature.signature().empty()) {
     LOG(ERROR) << "user request doesn't contain signature, reject";
+    std::cout << "[PBFT-PROPOSE] REJECT: sig/faulty check failed\n";
     return -2;
   }
   if (request->is_recovery()) {
@@ -199,6 +209,8 @@ int Commitment::ProcessProposeMsg(std::unique_ptr<Context> context,
   if (request->sender_id() != message_manager_->GetCurrentPrimary()) {
     LOG(ERROR) << "the request is not from primary. sender:"
                << request->sender_id() << " seq:" << request->seq();
+    std::cout << "[PBFT-PROPOSE] REJECT: sender=" << request->sender_id()
+              << " != primary=" << message_manager_->GetCurrentPrimary() << "\n";
     return -2;
   }
 
@@ -213,14 +225,15 @@ int Commitment::ProcessProposeMsg(std::unique_ptr<Context> context,
     batch_request.clear_createtime();
     std::string data;
     batch_request.SerializeToString(&data);
-    // check signatures
-    bool valid =
-        verifier_->VerifyMessage(request->data(), request->data_signature());
-    if (!valid) {
-      LOG(ERROR) << "request is not valid:"
-                 << request->data_signature().DebugString();
-      LOG(ERROR) << " msg:" << request->data().size();
-      return -2;
+    if (verifier_) {
+      bool valid =
+          verifier_->VerifyMessage(request->data(), request->data_signature());
+      if (!valid) {
+        LOG(ERROR) << "request is not valid:"
+                   << request->data_signature().DebugString();
+        LOG(ERROR) << " msg:" << request->data().size();
+        return -2;
+      }
     }
     if (duplicate_manager_->CheckAndAddProposed(request->hash())) {
       LOG(INFO) << "The request is already proposed, reject";
@@ -239,7 +252,9 @@ int Commitment::ProcessProposeMsg(std::unique_ptr<Context> context,
   // message.
   CollectorResultCode ret =
       message_manager_->AddConsensusMsg(context->signature, std::move(request));
+  std::cout << "[PBFT-PROPOSE] AddConsensusMsg ret=" << static_cast<int>(ret) << "\n";
   if (ret == CollectorResultCode::STATE_CHANGED) {
+    std::cout << "[PBFT-PROPOSE] STATE_CHANGED → broadcasting PREPARE\n";
     replica_communicator_->BroadCast(*prepare_request);
   }
   return ret == CollectorResultCode::INVALID ? -2 : 0;
@@ -248,6 +263,8 @@ int Commitment::ProcessProposeMsg(std::unique_ptr<Context> context,
 // If receive 2f+1 prepare message, broadcast a commit message.
 int Commitment::ProcessPrepareMsg(std::unique_ptr<Context> context,
                                   std::unique_ptr<Request> request) {
+  std::cout << "[PBFT-PREPARE] self=" << config_.GetSelfInfo().id()
+            << " seq=" << request->seq() << " sender=" << request->sender_id() << "\n";
   if (context == nullptr || context->signature.signature().empty()) {
     LOG(ERROR) << "user request doesn't contain signature, reject";
     return -2;
@@ -297,6 +314,8 @@ int Commitment::ProcessPrepareMsg(std::unique_ptr<Context> context,
 // If receive 2f+1 commit message, commit the request.
 int Commitment::ProcessCommitMsg(std::unique_ptr<Context> context,
                                  std::unique_ptr<Request> request) {
+  std::cout << "[PBFT-COMMIT] self=" << config_.GetSelfInfo().id()
+            << " seq=" << request->seq() << " sender=" << request->sender_id() << "\n";
   if (context == nullptr || context->signature.signature().empty()) {
     LOG(ERROR) << "user request doesn't contain signature, reject"
                << " context:" << (context == nullptr);

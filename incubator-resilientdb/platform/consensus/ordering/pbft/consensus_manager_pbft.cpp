@@ -189,12 +189,23 @@ int ConsensusManagerPBFT::ConsensusCommit(std::unique_ptr<Context> context,
   int ret = InternalConsensusCommit(std::move(context), std::move(request));
   if (config_.GetConfigData().enable_viewchange()) {
     if (ret == -4) {
+      // New primary elected: drain request_pending_ first (TYPE_NEW_TXNS and
+      // PRE_PREPARE queued during VC), then request_complained_.
+      // Without this, proposeAll()'s TYPE_NEW_TXNS would sit in request_pending_
+      // forever because no further message triggers the else-branch drain.
+      while (true) {
+        auto new_request = PopPendingRequest();
+        if (!new_request.ok()) {
+          break;
+        }
+        InternalConsensusCommit(std::move((*new_request).first),
+                                std::move((*new_request).second));
+      }
       while (true) {
         auto new_request = PopComplainedRequest();
         if (!new_request.ok()) {
           break;
         }
-        // LOG(ERROR) << "[POP COMPLAINED REQUEST]";
         InternalConsensusCommit(std::move((*new_request).first),
                                 std::move((*new_request).second));
       }
@@ -210,6 +221,12 @@ int ConsensusManagerPBFT::InternalConsensusCommit(
              << " seq:" << request->seq()
              << " primary:" << system_info_->GetPrimaryId()
              << " is convery:" << request->is_recovery();
+  std::cout << "[PBFT-DISPATCH] self=" << config_.GetSelfInfo().id()
+            << " type=" << request->type()
+            << " sender=" << request->sender_id()
+            << " seq=" << request->seq()
+            << " view=" << request->current_view()
+            << " primary=" << system_info_->GetPrimaryId() << "\n";
 
   switch (request->type()) {
     case Request::TYPE_CLIENT_REQUEST:

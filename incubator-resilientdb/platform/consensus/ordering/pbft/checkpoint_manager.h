@@ -55,6 +55,7 @@ class CheckPointManager : public CheckPoint {
   StableCheckPoint GetStableCheckpointWithVotes();
   bool IsValidCheckpointProof(const StableCheckPoint& stable_ckpt);
 
+  void SetReplicaCommunicator(ReplicaCommunicator* comm) { replica_communicator_ = comm; }
   void SetTimeoutHandler(std::function<void(int)> timeout_handler);
   virtual void UpdateStableCheckPointCallback(
       int64_t current_stable_checkpoint) {}

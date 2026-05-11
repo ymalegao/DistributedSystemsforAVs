@@ -14,6 +14,10 @@ void* ResdbOmnetCreateKvServer(char* config_file, char* private_key_file,
 int   ResdbOmnetRunServer(void* server_handle);
 int   ResdbOmnetStopServer(void* server_handle);
 void  ResdbOmnetDestroyServer(void* server_handle);
+/* Stops the process-wide Stats monitor thread (glog "monitor" spam). Safe to
+ * call multiple times (e.g. from each replica's finish()). Call after
+ * ResdbOmnetStopServer when tearing down so opp_run can exit cleanly. */
+void  ResdbOmnetStopGlobalStats(void);
 
 /* ── Step 2: abstract transport interface ──────────────────────────────────── */
 
@@ -71,21 +75,29 @@ int ResdbOmnetUpdateSimTimeUs(void* server_handle, int64_t now_us);
 
 /* ── Step 5: wire format (shared between Veins and ResDB bridge) ───────────── */
 
-/* One vehicle's arrival state.  13 bytes, no padding.
- * Appears in both the ProposeAll payload and the OrderDecision reply. */
+/* One vehicle's arrival state.  17 bytes, no padding.
+ * Appears in the ProposeAll payload (Veins → ResDB bridge).
+ * lane:     0=N, 1=S, 2=E, 3=W
+ * direction: 0=Straight, 1=Left, 2=Right
+ * position_in_lane: 1=front, 2=second, …
+ * cyber_status: 0=QUIET (no f+1 echoes), 1=SIGNED */
 #pragma pack(push, 1)
 typedef struct ResdbVehicleEntry {
-    int32_t  replica_id;     /* 4 bytes */
-    uint64_t sim_time_us;    /* 8 bytes — simTime() at stop-zone entry */
-    uint8_t  is_ambulance;   /* 1 byte  — non-zero means emergency priority */
-} ResdbVehicleEntry;         /* 13 bytes total */
+    int32_t  replica_id;        /* 4 bytes */
+    uint64_t sim_time_us;       /* 8 bytes — simTime() at stop-zone entry; UINT64_MAX = QUIET */
+    uint8_t  is_ambulance;      /* 1 byte  — non-zero means emergency priority */
+    uint8_t  lane;              /* 1 byte  — 0=N,1=S,2=E,3=W */
+    uint8_t  direction;         /* 1 byte  — 0=Straight,1=Left,2=Right */
+    uint8_t  position_in_lane;  /* 1 byte  — 1=front,2=second,… */
+    uint8_t  cyber_status;      /* 1 byte  — 0=QUIET,1=SIGNED */
+} ResdbVehicleEntry;            /* 17 bytes total */
 
 /* Header of the payload passed to ResdbOmnetTriggerConsensus:
  *   [0..3]   uint32_t epoch
  *   [4..7]   int32_t  leader_id
  *   [8..15]  uint64_t propose_sim_time_us
  *   [16..19] uint32_t n_vehicles
- *   [20..]   n_vehicles × ResdbVehicleEntry
+ *   [20..]   n_vehicles × ResdbVehicleEntry (17 bytes each)
  */
 typedef struct ResdbProposeHdr {
     uint32_t epoch;
@@ -94,15 +106,26 @@ typedef struct ResdbProposeHdr {
     uint32_t n_vehicles;
 } ResdbProposeHdr;            /* 20 bytes */
 
+/* Per-vehicle batch assignment in the OrderDecision reply.
+ *   replica_id  — which vehicle
+ *   batch_index — 0-based; vehicles with same index cross simultaneously
+ */
+typedef struct ResdbVehicleDecision {
+    int32_t  replica_id;
+    uint32_t batch_index;
+} ResdbVehicleDecision;       /* 8 bytes */
+
 /* Header of the bytes delivered via ResdbOrderDecidedFn:
- *   [0..3]  uint32_t epoch
- *   [4..7]  uint32_t n_vehicles
- *   [8..]   n_vehicles × int32_t  (crossing order, first = crosses first)
+ *   [0..3]   uint32_t epoch
+ *   [4..7]   uint32_t n_vehicles
+ *   [8..11]  uint32_t n_batches
+ *   [12..]   n_vehicles × ResdbVehicleDecision (8 bytes each)
  */
 typedef struct ResdbOrderHdr {
     uint32_t epoch;
     uint32_t n_vehicles;
-} ResdbOrderHdr;              /* 8 bytes */
+    uint32_t n_batches;
+} ResdbOrderHdr;              /* 12 bytes */
 #pragma pack(pop)
 
 /* ── Step 5: smart contract & application logic ────────────────────────────── */
@@ -133,6 +156,28 @@ int ResdbOmnetGetPrimary(void* server_handle);
 /* Remove a departed replica from the active set (epoch reset).
  * Returns 0 on success, -1 if handle is null. */
 int ResdbOmnetRemoveReplica(void* server_handle, int replica_id);
+
+/* ── Step 4 (M4): view-change support ─────────────────────────────────────── */
+
+/* Configure the PBFT complaint-timer duration (microseconds of sim-time).
+ * Must be called after ResdbOmnetCreateKvServer and before RunServer.
+ * Default is 3,000,000 µs (3 s). Returns 0 on success, -1 on bad args. */
+int ResdbOmnetSetVcTimeoutUs(void* server_handle, int64_t timeout_us);
+
+/* Force a view-change from the OMNeT++ simulation thread.
+ * Injects a minimal-deadline complaint into the ViewChangeManager's monitoring
+ * queue so the next sim-time tick fires VC immediately.
+ * Call when a follower's application-level timer expires and the primary has
+ * been silent.  Safe to call multiple times (idempotent per view).
+ * Returns 0 on success, -1 if handle/consensus is null. */
+int ResdbOmnetForceViewChange(void* server_handle);
+
+/* Make this node's PBFT communicator drop all outbound messages (PRE_PREPARE,
+ * PREPARE, COMMIT, VIEW_CHANGE, NEW_VIEW).  Used by BYZANTINE_SILENT_PRIMARY
+ * so that followers' complaint timers actually fire and ResDB's built-in
+ * view-change runs.  Call after ResdbOmnetRunServer.
+ * Returns 0 on success, -1 if handle/consensus is null. */
+int ResdbOmnetSetPbftSilent(void* server_handle, int silent);
 
 #ifdef __cplusplus
 }  // extern "C"

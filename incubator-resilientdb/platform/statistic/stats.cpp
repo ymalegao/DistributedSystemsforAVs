@@ -397,6 +397,10 @@ void Stats::MonitorGlobal() {
 
   while (!stop_) {
     sleep(monitor_sleep_time_);
+    // If Stop() ran during sleep, skip stats gather + LOG — avoids a stray line.
+    if (stop_) {
+      break;
+    }
     time += monitor_sleep_time_;
     seq_fail = seq_fail_;
     socket_recv = socket_recv_;

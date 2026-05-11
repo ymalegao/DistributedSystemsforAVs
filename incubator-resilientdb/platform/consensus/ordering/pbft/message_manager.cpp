@@ -122,6 +122,10 @@ bool MessageManager::IsValidMsg(const Request& request) {
   if (static_cast<uint64_t>(request.current_view()) != GetCurrentView()) {
     LOG(ERROR) << "message view :[" << request.current_view()
                << "] is older than the cur view :[" << GetCurrentView() << "]";
+    std::cout << "[PBFT-VALIDMSG] REJECT view=" << request.current_view()
+              << " curView=" << GetCurrentView()
+              << " type=" << request.type()
+              << " seq=" << request.seq() << "\n";
     return false;
   }
 
@@ -177,6 +181,8 @@ CollectorResultCode MessageManager::AddConsensusMsg(
     const SignatureInfo& signature, std::unique_ptr<Request> request) {
   if (request == nullptr || !IsValidMsg(*request)) {
     LOG(ERROR) << " msg not invalid";
+    std::cout << "[PBFT-ADDMSG] INVALID seq=" << (request ? request->seq() : 0)
+              << " type=" << (request ? request->type() : -1) << "\n";
     return CollectorResultCode::INVALID;
   }
 

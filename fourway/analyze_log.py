@@ -154,6 +154,8 @@ RE_PHASE_SUMMARY = re.compile(
 )
 RE_CONSENSUS_HEADER = re.compile(r'CONSENSUS METRICS \(Replica (\d+)\) epoch=(\d+)')
 RE_CERT_DUR = re.compile(r'\[METRICS (\d+)\] Cert_Collection_Duration: ([\d.]+)s')
+# ResDB batch assignment (from IntersectionExecutor batch packer)
+RE_BATCH_ASSIGN = re.compile(r'\[METRICS (\d+)\] Batch_Assignment: batch=(\d+)')
 
 # Pre-computed summary metrics (written by --save-to or the C++ side)
 RE_RUN_METRIC       = re.compile(r'\[RUN-METRICS\] ([\w_]+):\s*([-\d.]+)')
@@ -184,6 +186,7 @@ epoch_total_dur_by_car = defaultdict(dict)  # epoch -> {carId: duration}
 epoch_failures      = defaultdict(int)      # epoch -> count
 ambulance_ids       = set()
 car_metrics         = defaultdict(dict)     # carId -> {metric_name: value}
+replica_batch_index = {}                    # replica_id (int) -> batch_index (int)
 
 # Byzantine injection tracking
 byzantine_by_epoch   = defaultdict(int)    # epoch -> count of [BYZANTINE INJECTION] events
@@ -393,6 +396,13 @@ with open(LOG_FILE, "r", errors="replace") as f:
             car_id = f"veh{rep}"
             car_metrics[car_id]["cert_collection_s"] = val
             round_metrics[ep].setdefault("Cert_Collection_Duration", val)
+            continue
+
+        m = RE_BATCH_ASSIGN.search(line)
+        if m:
+            rep, batch = int(m.group(1)), int(m.group(2))
+            replica_batch_index[rep] = batch
+            car_metrics[f"veh{rep}"]["batch_index"] = batch
             continue
 
         # [RUN-METRICS] summary lines (read back from saved log files)
@@ -676,6 +686,18 @@ def write_metrics_json(path):
             if normal_waits and ambulance_waits else None,
         "ambulance_priority_ratio": (statistics.mean(ambulance_waits) / statistics.mean(normal_waits))
             if normal_waits and ambulance_waits and statistics.mean(normal_waits) != 0 else None,
+        # Batch throughput: vehicles / (last depart - first stop) when batch data available.
+        "batch_throughput_veh_per_s": (
+            (lambda stops, departs: CARS / (max(departs) - min(stops))
+             if (stops := [m["stop_time"] for m in car_metrics.values() if m.get("stop_time") is not None])
+                and (departs := [m["depart_time"] for m in car_metrics.values() if m.get("depart_time") is not None])
+                and max(departs) > min(stops) else None)()
+        ),
+        "batch_index_distribution": (
+            {str(bi): sum(1 for v in replica_batch_index.values() if v == bi)
+             for bi in sorted(set(replica_batch_index.values()))}
+            if replica_batch_index else None
+        ),
         "propose_all_consensus_latency_sim_s": _stat([
             round_metrics[ep]["ProposeAll_Consensus_Sim"]
             for ep in range(N_EPOCHS)

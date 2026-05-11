@@ -56,6 +56,8 @@ class ResponseManager {
   int ProcessResponseMsg(std::unique_ptr<Context> context,
                          std::unique_ptr<Request> request);
 
+  void SetReplicaCommunicator(ReplicaCommunicator* comm) { replica_communicator_ = comm; }
+
  private:
   // Add response messages which will be sent back to the caller
   // if there are f+1 same messages.

@@ -108,6 +108,17 @@ class ViewChangeManager {
   void CheckComplaintTimeout();
   void SetDuplicateManager(DuplicateManager* manager);
   void SetCurrentViewAndNewPrimary(uint64_t view_number);
+  void SetReplicaCommunicator(ReplicaCommunicator* comm) { replica_communicator_ = comm; }
+  void SetTimeoutLength(uint64_t us) { timeout_length_ = us; }
+
+  // Directly initiate a view-change from outside the complaint chain.
+  // Safe to call from any thread; idempotent (ChangeStatue guards re-entry).
+  void TriggerViewChangeNow() {
+    MayStart();
+    if (ChangeStatue(ViewChangeStatus::READY_VIEW_CHANGE)) {
+      SendViewChangeMsg();
+    }
+  }
 
  private:
   void SendViewChangeMsg();

@@ -48,6 +48,7 @@ class Commitment {
 
   void SetPreVerifyFunc(std::function<bool(const Request& request)> func);
   void SetNeedCommitQC(bool need_qc);
+  void SetReplicaCommunicator(ReplicaCommunicator* comm) { replica_communicator_ = comm; }
 
   std::queue<std::pair<std::unique_ptr<Context>, std::unique_ptr<Request>>>
       request_complained_;

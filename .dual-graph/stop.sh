@@ -46,13 +46,13 @@ if input_tokens > 0 or cache_create > 0 or cache_read > 0 or output_tokens > 0:
         "cache_read_input_tokens": cache_read,
         "model": model or "claude-sonnet-4-6",
         "description": "auto",
-        "project": "/home/yash/DistributedSystemsforAVs",
+        "project": "/Users/yashmalegaonkar/Documents/v2v",
     }))
 PYEOF
 )
   if [[ -n "$USAGE" ]]; then
     # POST to MCP graph server (always running, reliable)
-    MCP_PORT=$(cat "/home/yash/DistributedSystemsforAVs/.dual-graph/run/claude/mcp_port" 2>/dev/null || echo "8080")
+    MCP_PORT=$(cat "/Users/yashmalegaonkar/Documents/v2v/.dual-graph/mcp_port" 2>/dev/null || echo "8080")
     curl -sf -X POST "http://127.0.0.1:$MCP_PORT/log"       -H "Content-Type: application/json"       -d "$USAGE"       >/dev/null 2>&1 || true
     # Also POST to token-counter-mcp dashboard if available
     PORT_FILE="$HOME/.claude/token-counter/dashboard-port.txt"

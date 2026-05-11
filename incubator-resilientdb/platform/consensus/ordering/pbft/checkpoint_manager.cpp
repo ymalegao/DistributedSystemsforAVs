@@ -39,6 +39,7 @@ CheckPointManager::CheckPointManager(const ResDBConfig& config,
       highest_prepared_seq_(0),
       sys_info_(sys_info) {
   current_stable_seq_ = 0;
+  unstable_check_ckpt_ = 0;
   if (config_.GetConfigData().enable_viewchange()) {
     config_.EnableCheckPoint(true);
   }
