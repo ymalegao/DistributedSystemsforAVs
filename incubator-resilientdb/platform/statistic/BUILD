@@ -18,6 +18,7 @@
 
 package(default_visibility = [
     "//chain/storage:__subpackages__",
+    "//integration/omnet:__pkg__",
     "//platform:__subpackages__",
     "//service:__subpackages__",
 ])
