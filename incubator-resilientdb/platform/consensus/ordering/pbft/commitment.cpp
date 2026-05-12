@@ -49,10 +49,13 @@ Commitment::Commitment(const ResDBConfig& config,
 }
 
 Commitment::~Commitment() {
+  std::cerr << "[CMT-STOP] stop_=true\n" << std::flush;
   stop_ = true;
   if (executed_thread_.joinable()) {
+    std::cerr << "[CMT-STOP] joining executed_thread_\n" << std::flush;
     executed_thread_.join();
   }
+  std::cerr << "[CMT-STOP] DONE\n" << std::flush;
 }
 
 void Commitment::SetPreVerifyFunc(

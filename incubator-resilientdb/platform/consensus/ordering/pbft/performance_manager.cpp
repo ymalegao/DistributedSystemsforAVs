@@ -80,15 +80,21 @@ PerformanceManager::PerformanceManager(
 }
 
 PerformanceManager::~PerformanceManager() {
+  std::cerr << "[PM-STOP] stop_=true\n" << std::flush;
   stop_ = true;
+  // MonitoringClientTimeOut blocks in sem_wait(); post once to unblock it so
+  // the while(!stop_) condition is re-evaluated and the thread can exit.
+  sem_post(&request_sent_signal_);
   for (int i = 0; i < 16; ++i) {
     if (user_req_thread_[i].joinable()) {
       user_req_thread_[i].join();
     }
   }
   if (checking_timeout_thread_.joinable()) {
+    std::cerr << "[PM-STOP] joining checking_timeout_thread_\n" << std::flush;
     checking_timeout_thread_.join();
   }
+  std::cerr << "[PM-STOP] DONE\n" << std::flush;
 }
 
 // use system info

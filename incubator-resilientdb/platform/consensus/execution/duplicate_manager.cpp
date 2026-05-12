@@ -19,6 +19,7 @@
 
 #include "platform/consensus/execution/duplicate_manager.h"
 
+#include <chrono>
 #include <glog/logging.h>
 
 #include "common/utils/utils.h"
@@ -34,10 +35,13 @@ DuplicateManager::DuplicateManager(const ResDBConfig& config)
 }
 
 DuplicateManager::~DuplicateManager() {
+  std::cerr << "[DM-STOP] stop_=true\n" << std::flush;
   stop_ = true;
+  cv_.notify_one();  // wake UpdateRecentHash from its interruptible sleep
   if (update_thread_.joinable()) {
     update_thread_.join();
   }
+  std::cerr << "[DM-STOP] DONE\n" << std::flush;
 }
 
 bool DuplicateManager::IsStop() { return stop_; }
@@ -106,8 +110,18 @@ void DuplicateManager::UpdateRecentHash() {
   uint64_t time = GetCurrentTime();
   while (!IsStop()) {
     time = time + frequency_useconds_;
-    auto sleep_time = time - GetCurrentTime();
-    usleep(sleep_time);
+    uint64_t now = GetCurrentTime();
+    // Guard against underflow: if sim-time advanced past the deadline (e.g.
+    // set to UINT64_MAX during shutdown), skip the sleep entirely.
+    if (now < time) {
+      uint64_t sleep_us = time - now;
+      // Cap at frequency so the thread wakes promptly and re-checks IsStop().
+      if (sleep_us > frequency_useconds_) sleep_us = frequency_useconds_;
+      std::unique_lock<std::mutex> lk(cv_mutex_);
+      cv_.wait_for(lk, std::chrono::microseconds(sleep_us),
+                   [this] { return stop_; });
+    }
+    if (IsStop()) break;
     while (true) {
       std::lock_guard<std::mutex> lk(prop_mutex_);
       if (!proposed_hash_time_queue_.empty()) {

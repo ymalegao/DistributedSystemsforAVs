@@ -16,6 +16,8 @@
 #include "veins/modules/application/resDB/crypto/CryptoAuth.h"
 #include "integration/omnet/resdb_omnet_bridge.h"
 
+class ChannelMetrics;
+
 namespace veins {
 
 class BFTMessage;
@@ -190,6 +192,8 @@ private:
                                          double claimedPosition, double tolerance);
     int    extractReplicaId(const std::string& carId) const;
 
+    
+
     // ── State ─────────────────────────────────────────────────────────────────
     void*  resdb_server_handle_ = nullptr;
     std::unique_ptr<IV2VTransport> transport_;
@@ -206,6 +210,7 @@ private:
     cMessage* resume_msg_              = nullptr;
     int       pending_resume_position_ = 0;
     cMessage* vc_trigger_msg_          = nullptr;  // follower VC trigger after primary silence
+    cMessage* channel_metrics_timer_   = nullptr;  // 100 ms CSV flush (channel + SINR)
 
     // Batch-aware clearance gating (mirrors V2VOrderProtocol.cc executeBatch logic).
     // my_batch_index_:        which batch this vehicle belongs to (0-based).
@@ -233,6 +238,8 @@ private:
     uint32_t sequenceNumber_    = 0;
     bool     useRadioTransport_ = false;
     bool moduleIsAmbulance = false;
+    bool ambulanceColorSet = false;
+
 
     
 
@@ -256,6 +263,7 @@ private:
     std::map<std::string, std::vector<ArrivalEcho>> my_received_echoes_;
     std::set<std::string>                           physically_observed_cars_;
     std::set<std::string>                           arrival_announcements_received_;
+    std::set<std::string>                           echoed_cars_;  // cars we actually sent an echo to (not FALSE_LANE)
     bool cert_collection_started_ = false;
     bool deferred_propose_after_cert_timeout_ = false;
 
@@ -311,6 +319,9 @@ private:
     double consensus_timeout_sec_ = 30.0;
     std::string intended_direction_ = "S";
     std::string intended_lane_      = "";   // explicit N/S/E/W override; empty = auto-detect from TraCI
+
+    // Per-vehicle channel utilization + SINR CSV (optional; see NED enableChannelMetricsCsv)
+    ChannelMetrics* channel_metrics_ = nullptr;
 };
 
 } // namespace veins

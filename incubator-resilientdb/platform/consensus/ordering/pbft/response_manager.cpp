@@ -75,13 +75,19 @@ ResponseManager::ResponseManager(const ResDBConfig& config,
 }
 
 ResponseManager::~ResponseManager() {
+  std::cerr << "[RM-STOP] stop_=true\n" << std::flush;
   stop_ = true;
+  // MonitoringClientTimeOut blocks in sem_wait(); post once to unblock it so
+  // the while(!stop_) condition is re-evaluated and the thread can exit.
+  sem_post(&request_sent_signal_);
   if (user_req_thread_.joinable()) {
     user_req_thread_.join();
   }
   if (checking_timeout_thread_.joinable()) {
+    std::cerr << "[RM-STOP] joining checking_timeout_thread_\n" << std::flush;
     checking_timeout_thread_.join();
   }
+  std::cerr << "[RM-STOP] DONE\n" << std::flush;
 }
 
 // use system info

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Multi-scale BFT/V2V experiment driver.
+Multi-scale ResDB/V2V experiment driver.
 
-Applies scaling (hosts.config, system.config, BATCH_SIZE in C++/Java), builds once per N,
-runs bftsmart/run-omnet-simulation.sh for each scenario × repetition, then analyze_log.py.
+Regenerates ResDB keys once per N value, then runs
+fourway/run-resdb-simulation.sh for each scenario × repetition, then analyze_log.py.
+No build step — compile veins separately before running.
 
 Layout: benchmarks/Priority<N>cars/<scenario_subdir>/run_<rep>/
 
@@ -25,7 +26,7 @@ import sys
 from pathlib import Path
 from typing import List, Sequence, Tuple
 
-# --- Fixed in-repo (not CLI): reproducible draws for bash $RANDOM in run-omnet-simulation.sh ---
+# --- Fixed in-repo (not CLI): reproducible draws for bash $RANDOM in run-resdb-simulation.sh ---
 MASTER_SEED = 0xC0FFEE42
 
 REPO_ROOT = Path(__file__).resolve().parent
@@ -44,13 +45,11 @@ def _resolve_omnet_setenv() -> Path:
 
 OMNET_SETENV = _resolve_omnet_setenv()
 VEINS_DIR = REPO_ROOT / "veins-veins-5.3.1"
-BFT_LIBRARY = REPO_ROOT / "bftsmart" / "library"
 FOURWAY_DIR = REPO_ROOT / "fourway"
-CONFIG_DIR = FOURWAY_DIR / "config"
-RUN_SCRIPT = REPO_ROOT / "bftsmart" / "run-omnet-simulation.sh"
-V2V_PROXY_H = VEINS_DIR / "src/veins/modules/bftsmart/V2VProxyModule.h"
-SERVER_RUNNER_JAVA = BFT_LIBRARY / "src/main/java/bftsmart/demo/intersection/ServerRunner.java"
-LOG_FILE = Path("/tmp/bft-all-replicas.log")
+CONFIG_DIR = FOURWAY_DIR / "resdb_crypto"
+RUN_SCRIPT = REPO_ROOT / "fourway" / "run-resdb-simulation.sh"
+V2V_PROXY_H = VEINS_DIR / "src/veins/modules/application/resDB/ResDBV2VProxyModule.h"
+LOG_FILE = Path("/tmp/resdb-simulation.log")
 
 HOST_LINE = re.compile(r"^(\s*#?\s*)(\d+)(\s+127\.0\.0\.1\s+\d+\s+\d+)\s*$")
 
@@ -85,14 +84,13 @@ SCENARIO_BY_CODE = {
 DEFAULT_N_VALUES = (4, 8, 12, 16)
 REPETITIONS = 5
 
-# Scenario order (same as project brief)
 SCENARIO_ORDER: Tuple[str, ...] = (
-    "ByzLeader_Ambulance",
-    "ByzFollower_Ambulance",
-    "Honest_Ambulance",
     "No_Ambulance_Honest",
-    "ByzLeader_NoAmbulance",
     "ByzFollower_NoAmbulance",
+    "ByzLeader_NoAmbulance",
+    "Honest_Ambulance",
+    "ByzFollower_Ambulance",
+    "ByzLeader_Ambulance",
 )
 
 
@@ -107,9 +105,8 @@ def omnet_config_basename(n: int) -> str:
     return names[n]
 
 
-def omnet_config_name(n: int, ambulance: bool) -> str:
-    base = omnet_config_basename(n)
-    return f"{base}VehiclesAmbulanceBFT" if ambulance else f"{base}VehiclesBFTOverV2V"
+def omnet_config_name(n: int) -> str:
+    return f"{omnet_config_basename(n)}VehiclesResDB"
 
 
 def run_seed(master: int, n: int, scenario_name: str, rep: int) -> int:
@@ -119,78 +116,88 @@ def run_seed(master: int, n: int, scenario_name: str, rep: int) -> int:
     return (h + n * 10007 + rep * 100003) & 0x7FFFFFFF
 
 
-def patch_hosts_config(path: Path, n: int) -> None:
-    lines = path.read_text().splitlines()
-    out: List[str] = []
-    for line in lines:
-        m = HOST_LINE.match(line.strip())
-        if not m:
-            out.append(line)
-            continue
-        rid = int(m.group(2))
-        rest = m.group(3)
-        if rid < n:
-            out.append(f"{rid}{rest}")
-        else:
-            out.append(f"#{rid}{rest}")
-    path.write_text("\n".join(out) + "\n")
+# def patch_hosts_config(path: Path, n: int) -> None:
+#     lines = path.read_text().splitlines()
+#     out: List[str] = []
+#     for line in lines:
+#         m = HOST_LINE.match(line.strip())
+#         if not m:
+#             out.append(line)
+#             continue
+#         rid = int(m.group(2))
+#         rest = m.group(3)
+#         if rid < n:
+#             out.append(f"{rid}{rest}")
+#         else:
+#             out.append(f"#{rid}{rest}")
+#     path.write_text("\n".join(out) + "\n")
 
 
-def patch_system_config(path: Path, n: int, *, clear_malicious: bool = True) -> None:
-    text = path.read_text()
-    f_val = bft_f(n)
-    text = re.sub(r"^system\.servers\.num\s*=.*$", f"system.servers.num = {n}", text, flags=re.M)
-    text = re.sub(r"^system\.servers\.f\s*=.*$", f"system.servers.f = {f_val}", text, flags=re.M)
-    view = ",".join(str(i) for i in range(n))
-    text = re.sub(r"^system\.initial\.view\s*=.*$", f"system.initial.view = {view}", text, flags=re.M)
-    if clear_malicious:
-        text = re.sub(
-            r"^system\.byzantine\.maliciousReplicaIds\s*=.*$",
-            "system.byzantine.maliciousReplicaIds = ",
-            text,
-            flags=re.M,
-        )
-    path.write_text(text)
+# def patch_system_config(path: Path, n: int, *, clear_malicious: bool = True) -> None:
+#     text = path.read_text()
+#     f_val = bft_f(n)
+#     text = re.sub(r"^system\.servers\.num\s*=.*$", f"system.servers.num = {n}", text, flags=re.M)
+#     text = re.sub(r"^system\.servers\.f\s*=.*$", f"system.servers.f = {f_val}", text, flags=re.M)
+#     view = ",".join(str(i) for i in range(n))
+#     text = re.sub(r"^system\.initial\.view\s*=.*$", f"system.initial.view = {view}", text, flags=re.M)
+#     if clear_malicious:
+#         text = re.sub(
+#             r"^system\.byzantine\.maliciousReplicaIds\s*=.*$",
+#             "system.byzantine.maliciousReplicaIds = ",
+#             text,
+#             flags=re.M,
+#         )
+#     path.write_text(text)
 
 
-def patch_batch_sizes(n: int) -> None:
-    h = V2V_PROXY_H.read_text()
-    h, c = re.subn(
-        r"static const int BATCH_SIZE = \d+;",
-        f"static const int BATCH_SIZE = {n};",
-        h,
-        count=1,
-    )
-    if c != 1:
-        raise RuntimeError(f"Could not patch BATCH_SIZE in {V2V_PROXY_H}")
-    V2V_PROXY_H.write_text(h)
+# def patch_batch_sizes(n: int) -> None:
+#     h = V2V_PROXY_H.read_text()
+#     h, c = re.subn(
+#         r"static const int BATCH_SIZE = \d+;",
+#         f"static const int BATCH_SIZE = {n};",
+#         h,
+#         count=1,
+#     )
+#     if c != 1:
+#         raise RuntimeError(f"Could not patch BATCH_SIZE in {V2V_PROXY_H}")
+#     V2V_PROXY_H.write_text(h)
 
-    j = SERVER_RUNNER_JAVA.read_text()
-    j, c2 = re.subn(
-        r"private static final int BATCH_SIZE = \d+;",
-        f"private static final int BATCH_SIZE = {n};",
-        j,
-        count=1,
-    )
-    if c2 != 1:
-        raise RuntimeError(f"Could not patch BATCH_SIZE in {SERVER_RUNNER_JAVA}")
-    SERVER_RUNNER_JAVA.write_text(j)
+#     j = SERVER_RUNNER_JAVA.read_text()
+#     j, c2 = re.subn(
+#         r"private static final int BATCH_SIZE = \d+;",
+#         f"private static final int BATCH_SIZE = {n};",
+#         j,
+#         count=1,
+#     )
+#     if c2 != 1:
+#         raise RuntimeError(f"Could not patch BATCH_SIZE in {SERVER_RUNNER_JAVA}")
+#     SERVER_RUNNER_JAVA.write_text(j)
 
 
-def clear_honest_artifacts() -> None:
-    """Before honest scenarios: drop stale random ini and Java malicious replica list."""
+def clear_stale_random_ini() -> None:
+    """Remove random_scenario.ini before honest/no-ambulance scenarios so the previous run's overrides don't bleed in."""
     rnd = FOURWAY_DIR / "random_scenario.ini"
     if rnd.is_file():
         rnd.unlink()
-    path = CONFIG_DIR / "system.config"
-    text = path.read_text()
-    text = re.sub(
-        r"^system\.byzantine\.maliciousReplicaIds\s*=.*$",
-        "system.byzantine.maliciousReplicaIds = ",
-        text,
-        flags=re.M,
-    )
-    path.write_text(text)
+
+
+def reset_resdb_keys(n: int) -> None:
+    """
+    Delete the cert and key files that gen_resdb_keys.sh will regenerate for N replicas,
+    so a fresh keyset is produced on the next run_key_generation() call.
+    Leaves all other files (scripts, server.config, admin keys) untouched.
+    """
+    for i in range(1, n + 1):
+        for suffix in (".cert",):
+            f = CONFIG_DIR / f"cert_{i}{suffix}"
+            if f.is_file():
+                f.unlink()
+        for suffix in (".key.pri", ".key.pub"):
+            f = CONFIG_DIR / f"node{i}{suffix}"
+            if f.is_file():
+                f.unlink()
+
+
 
 
 def _skip_omnet_source() -> bool:
@@ -229,20 +236,27 @@ def run_in_bash_with_omnet(command: str, *, dry_run: bool) -> None:
     subprocess.run(["bash", "-lc", inner], cwd=REPO_ROOT, check=True)
 
 
-def build_veins_and_bft(*, dry_run: bool) -> None:
-    run_in_bash_with_omnet(f"cd {shlex.quote(str(VEINS_DIR))} && make", dry_run=dry_run)
-    run_in_bash_with_omnet(f"cd {shlex.quote(str(BFT_LIBRARY))} && ./gradlew installDist", dry_run=dry_run)
+
+def run_key_generation(*, dry_run: bool, scale: int) -> None:
+    if not dry_run:
+        reset_resdb_keys(scale)
+    else:
+        print(f"[dry-run] would reset_resdb_keys({scale}) (delete cert_1..cert_{scale}, node1..node{scale} key files)")
+    run_in_bash_with_omnet(f"cd {shlex.quote(str(CONFIG_DIR))} && ./gen_resdb_keys.sh {scale}", dry_run=dry_run)
+# def build_veins_and_bft(*, dry_run: bool) -> None:
+#     run_in_bash_with_omnet(f"cd {shlex.quote(str(VEINS_DIR))} && make", dry_run=dry_run)
+#     run_in_bash_with_omnet(f"cd {shlex.quote(str(BFT_LIBRARY))} && ./gradlew installDist", dry_run=dry_run)
 
 
-def apply_scale(n: int) -> None:
-    patch_hosts_config(CONFIG_DIR / "hosts.config", n)
-    patch_system_config(CONFIG_DIR / "system.config", n, clear_malicious=True)
-    patch_batch_sizes(n)
+# def apply_scale(n: int) -> None:
+#     patch_hosts_config(CONFIG_DIR / "hosts.config", n)
+#     patch_system_config(CONFIG_DIR / "system.config", n, clear_malicious=True)
+#     patch_batch_sizes(n)
 
 
 def randomize_args_for_scenario(n: int, scenario_name: str) -> List[str]:
     """
-    Returns the extra flags for run-omnet-simulation.sh.
+    Returns the extra flags for run-resdb-simulation.sh.
 
     No_Ambulance_Honest skips --randomize entirely so the script does NOT regenerate
     random_scenario.ini (which would otherwise force *.node[*].appl.ambulanceReplicaId
@@ -250,15 +264,15 @@ def randomize_args_for_scenario(n: int, scenario_name: str) -> List[str]:
     """
     f = bft_f(n)
     if scenario_name == "ByzLeader_Ambulance":
-        return ["--randomize", str(n), str(f - 1), "--byzleader", "0", "--sync-java"]
+        return ["--randomize", str(n), str(f - 1), "--byzleader", "0"]
     if scenario_name == "ByzFollower_Ambulance":
-        return ["--randomize", str(n), str(f), "--sync-java"]
+        return ["--randomize", str(n), str(f)]
     if scenario_name == "ByzFollower_NoAmbulance":
-        return ["--randomize", str(n), str(f), "--sync-java", "--no-ambulance"]
+        return ["--randomize", str(n), str(f), "--no-ambulance"]
     if scenario_name == "ByzLeader_NoAmbulance":
-        return ["--randomize", str(n), str(f - 1), "--byzleader", "0", "--sync-java", "--no-ambulance"]
+        return ["--randomize", str(n), str(f - 1), "--byzleader", "0", "--no-ambulance"]
     if scenario_name == "Honest_Ambulance":
-        return ["--randomize", str(n), "0", "--sync-java"]
+        return ["--randomize", str(n), "0"]
     if scenario_name == "No_Ambulance_Honest":
         return []
     raise ValueError(scenario_name)
@@ -272,8 +286,7 @@ def run_one_simulation(
     dry_run: bool,
     randomize_leader: bool = False,
 ) -> None:
-    ambulance = scenario_name not in ("No_Ambulance_Honest", "ByzLeader_NoAmbulance", "ByzFollower_NoAmbulance")
-    cfg = omnet_config_name(n, ambulance=ambulance)
+    cfg = omnet_config_name(n)
     extra = randomize_args_for_scenario(n, scenario_name)
     seed = run_seed(MASTER_SEED, n, scenario_name, rep)
 
@@ -286,7 +299,7 @@ def run_one_simulation(
         print(f"  Leader: replica {leader_id} (random)")
 
     argv = [str(RUN_SCRIPT), str(FOURWAY_DIR), *leader_args, *extra, "-u", "Cmdenv", "-c", cfg]
-    # Seed bash $RANDOM for generate_random_scenario in run-omnet-simulation.sh.
+    # Seed bash $RANDOM for generate_random_scenario in run-resdb-simulation.sh.
     # Harmless when --randomize is omitted (No_Ambulance_Honest).
     inner = f"export RANDOM={seed} && " + " ".join(shlex.quote(a) for a in argv)
     if dry_run:
@@ -326,7 +339,7 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         type=int,
         metavar="N",
         default=list(DEFAULT_N_VALUES),
-        help="Replica counts to run (e.g. 4 8 12 16). Rebuild runs once when N changes.",
+        help="Replica counts to run (e.g. 4 8 12 16). Key generation runs once when N changes.",
     )
     p.add_argument(
         "--reps",
@@ -343,7 +356,7 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help="Restrict to one or more scenario codes (matches analyze_log.py): "
              "1=No_Ambulance_Honest, 2=Honest_Ambulance, 3=ByzFollower_Ambulance, "
              "4=ByzLeader_Ambulance, 5=ByzLeader_NoAmbulance, 6=ByzFollower_NoAmbulance. "
-             "Default: baseline four scenarios in order 4,3,2,1.",
+             "Default: all six scenarios in order 1,6,5,2,3,4.",
     )
     p.add_argument(
         "--start-rep",
@@ -356,7 +369,7 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     p.add_argument(
         "--randomize-leader",
         action="store_true",
-        help="Pick a random initial BFT leader (replica ID) per run instead of always using replica 0.",
+        help="Pick a random initial consensus leader (replica ID) per run instead of always using replica 0.",
     )
     p.add_argument(
         "--dry-run",
@@ -393,19 +406,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     for n in n_values:
         print(f"\n========== Scale N={n} ==========")
         if not args.dry_run:
-            apply_scale(n)
+            run_key_generation(dry_run=args.dry_run, scale=n)
         else:
-            print(f"[dry-run] would apply_scale({n})")
+            print(f"[dry-run] would run_key_generation({n})")
 
-        print(f"========== Build (N={n}) ==========")
-        build_veins_and_bft(dry_run=args.dry_run)
+        print(f"========== Skipping Build (N={n}) ==========")
+        # build_veins_and_bft(dry_run=args.dry_run)
 
         for scenario_name in scenarios:
-            if scenario_name in ("Honest_Ambulance", "No_Ambulance_Honest", "ByzLeader_NoAmbulance"):
+            if scenario_name in ("Honest_Ambulance", "No_Ambulance_Honest"):
                 if not args.dry_run:
-                    clear_honest_artifacts()
+                    clear_stale_random_ini()
                 else:
-                    print(f"[dry-run] would clear_honest_artifacts() before {scenario_name}")
+                    print(f"[dry-run] would clear_stale_random_ini() before {scenario_name}")
 
             for i, rep in enumerate(rep_indices, start=1):
                 print(f"\n--- {scenario_name} rep {i}/{args.reps} (run_{rep}) ---")

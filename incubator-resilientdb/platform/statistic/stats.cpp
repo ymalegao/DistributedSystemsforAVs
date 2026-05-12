@@ -84,10 +84,14 @@ Stats::Stats(int sleep_time) {
   transaction_summary_.txn_number = 0;
 }
 
-void Stats::Stop() { stop_ = true; }
+void Stats::Stop() {
+  stop_ = true;
+  cv_.notify_all();
+}
 
 Stats::~Stats() {
   stop_ = true;
+  cv_.notify_all();
   if (global_thread_.joinable()) {
     global_thread_.join();
   }
@@ -396,8 +400,11 @@ void Stats::MonitorGlobal() {
   uint64_t time = 0;
 
   while (!stop_) {
-    sleep(monitor_sleep_time_);
-    // If Stop() ran during sleep, skip stats gather + LOG — avoids a stray line.
+    {
+      std::unique_lock<std::mutex> lk(mutex_);
+      cv_.wait_for(lk, std::chrono::seconds(monitor_sleep_time_),
+                   [this] { return stop_.load(); });
+    }
     if (stop_) {
       break;
     }

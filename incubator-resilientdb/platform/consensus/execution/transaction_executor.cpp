@@ -96,23 +96,29 @@ void TransactionExecutor::FinishExecute(int64_t seq) {
 }
 
 void TransactionExecutor::Stop() {
+  std::cerr << "[TE-STOP] stop_=true\n" << std::flush;
   stop_ = true;
   if (ordering_thread_.joinable()) {
+    std::cerr << "[TE-STOP] joining ordering_thread_\n" << std::flush;
     ordering_thread_.join();
   }
-  for (auto& th : execute_thread_) {
-    if (th.joinable()) {
-      th.join();
+  for (size_t i = 0; i < execute_thread_.size(); ++i) {
+    if (execute_thread_[i].joinable()) {
+      std::cerr << "[TE-STOP] joining execute_thread_[" << i << "]\n" << std::flush;
+      execute_thread_[i].join();
     }
   }
-  for (auto& th : prepare_thread_) {
-    if (th.joinable()) {
-      th.join();
+  for (size_t i = 0; i < prepare_thread_.size(); ++i) {
+    if (prepare_thread_[i].joinable()) {
+      std::cerr << "[TE-STOP] joining prepare_thread_[" << i << "]\n" << std::flush;
+      prepare_thread_[i].join();
     }
   }
   if (execute_OOO_thread_.joinable()) {
+    std::cerr << "[TE-STOP] joining execute_OOO_thread_\n" << std::flush;
     execute_OOO_thread_.join();
   }
+  std::cerr << "[TE-STOP] DONE\n" << std::flush;
 }
 
 Storage* TransactionExecutor::GetStorage() {
@@ -164,6 +170,11 @@ void TransactionExecutor::AddNewData(std::unique_ptr<Request> message) {
 
 std::unique_ptr<Request> TransactionExecutor::GetNextData() {
   if (candidates_.empty() || candidates_.begin()->first != next_execute_seq_) {
+    if (!candidates_.empty()) {
+      std::cout << "[ORDERMSG-GAPWAIT] next_execute_seq=" << next_execute_seq_
+                << " earliest_candidate=" << candidates_.begin()->first
+                << " (waiting for missing seq to arrive)\n";
+    }
     return nullptr;
   }
   auto res = std::move(candidates_.begin()->second);
@@ -183,6 +194,9 @@ void TransactionExecutor::OrderMessage() {
       if (next_execute_seq_ > seq) {
         LOG(INFO) << "request seq:" << seq << " has been executed"
                   << " next seq:" << next_execute_seq_;
+        std::cout << "[ORDERMSG-SKIP] seq=" << seq
+                  << " next_execute_seq=" << next_execute_seq_
+                  << " (dropped — SetNextCommitSeq moved past this seq)\n";
         continue;
       }
 

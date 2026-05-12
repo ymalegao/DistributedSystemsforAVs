@@ -1,5 +1,9 @@
 #include "veins/modules/application/resDB/ResDBIntersectionApp.h"
+#include "veins/modules/application/resDB/sinr/ChannelMetrics.h"
 #include "veins/modules/bftsmart/BFTMessage_m.h"
+#include "veins/modules/mac/ieee80211p/Mac1609_4.h"
+#include "veins/base/phyLayer/PhyToMacControlInfo.h"
+#include "veins/modules/phy/DeciderResult80211.h"
 
 #include <algorithm>
 #include <cctype>
@@ -9,9 +13,9 @@
 #include <iostream>
 #include <limits>
 #include <sstream>
+#include <stdexcept>
 
 #include "veins/modules/application/resDB/ResdbV2VWire.h"
-#include "veins/modules/bftsmart/BFTMessage_m.h"
 
 using namespace veins;
 
@@ -94,6 +98,18 @@ ResDBIntersectionApp::~ResDBIntersectionApp()
     if (resume_msg_)              { cancelAndDelete(resume_msg_);              resume_msg_              = nullptr; }
     if (clearance_poll_msg_)      { cancelAndDelete(clearance_poll_msg_);      clearance_poll_msg_      = nullptr; }
     if (broadcastArrivalAnnouncement_timer_) { cancelAndDelete(broadcastArrivalAnnouncement_timer_); broadcastArrivalAnnouncement_timer_ = nullptr; }
+    if (channel_metrics_timer_) {
+        cancelAndDelete(channel_metrics_timer_);
+        channel_metrics_timer_ = nullptr;
+    }
+    if (channel_metrics_) {
+        cModule* nic = getParentModule() ? getParentModule()->getSubmodule("nic") : nullptr;
+        cModule* mac = nic ? nic->getSubmodule("mac1609_4") : nullptr;
+        if (mac && mac->isSubscribed(Mac1609_4::sigChannelBusy, channel_metrics_))
+            mac->unsubscribe(Mac1609_4::sigChannelBusy, channel_metrics_);
+        delete channel_metrics_;
+        channel_metrics_ = nullptr;
+    }
     if (resdb_server_handle_) {
         ResdbOmnetDestroyServer(resdb_server_handle_);
         resdb_server_handle_ = nullptr;
@@ -111,7 +127,40 @@ void ResDBIntersectionApp::initialize(int stage)
     DemoBaseApplLayer::initialize(stage);
 
     if (stage == 0) {
-        replicaId_                = par("replicaId").intValue();
+        stop_distance_         = par("stopDistance").doubleValue();
+        //stop distance formula = stop distance * (total vehicles / 2)
+        total_vehicles_        = par("totalVehicles").intValue();
+        stop_distance_ = stop_distance_ * (total_vehicles_ / 2);
+
+        replicaId_ = par("replicaId").intValue();
+        const int ned_replica_id = replicaId_;
+        // Match V2VProxyModule: replica id must follow the SUMO vehicle this host
+        // controls (mobility externalId), not OMNeT node index. Otherwise TraCI
+        // uses veh<NED> while the module actually drives veh<externalId> — wrong
+        // lane/position in proposals and crashes despite a correct OrderDecision.
+        if (mobility) {
+            try {
+                const std::string sumoId = mobility->getExternalId();
+                if (sumoId.size() > 3 && sumoId.compare(0, 3, "veh") == 0) {
+                    const int from_sumo = std::stoi(sumoId.substr(3));
+                    if (from_sumo >= 0 && from_sumo < total_vehicles_) {
+                        if (from_sumo != ned_replica_id) {
+                            std::cout << "[IDENTITY BINDING] NED replicaId=" << ned_replica_id
+                                      << " overridden by SUMO externalId=" << sumoId
+                                      << " -> replicaId_=" << from_sumo << "\n";
+                        }
+                        replicaId_ = from_sumo;
+                    }
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "[IDENTITY BINDING] keep NED replicaId=" << replicaId_
+                          << " (SUMO bind failed: " << e.what() << ")\n";
+            } catch (...) {
+                std::cerr << "[IDENTITY BINDING] keep NED replicaId=" << replicaId_
+                          << " (SUMO bind failed)\n";
+            }
+        }
+
         useRadioTransport_        = par("useRadioTransport").boolValue();
         transport_poll_interval_  = par("transportPollInterval").doubleValue();
         enable_sim_time_provider_ = par("enableSimTimeProvider").boolValue();
@@ -122,11 +171,6 @@ void ResDBIntersectionApp::initialize(int stage)
         enable_cert_retries_    = par("enableArrivalCertRetries").boolValue();
         cert_retry_interval_    = par("arrivalCertRetryIntervalSec").doubleValue();
         cert_retry_max_         = par("arrivalCertRetryMax").intValue();
-
-        stop_distance_         = par("stopDistance").doubleValue();
-        //stop distance formula = stop distance * (total vehicles / 2)
-        total_vehicles_        = par("totalVehicles").intValue();
-        stop_distance_ = stop_distance_ * (total_vehicles_ / 2);
 
         cruise_speed_mps_      = par("cruiseSpeedMps").doubleValue();
         is_ambulance_          = par("isAmbulance").boolValue();
@@ -141,6 +185,17 @@ void ResDBIntersectionApp::initialize(int stage)
         is_byzantine_        = par("isByzantine").boolValue();
         byzantine_type_      = static_cast<ByzantineType>(par("byzantineType").intValue());
         pbft_vc_timeout_sec_ = par("pbftVcTimeoutSec").doubleValue();
+        const int ambulance_replica_id = par("ambulanceReplicaId").intValue();
+        if (ambulance_replica_id >= 0) {
+            is_ambulance_ = (replicaId_ == ambulance_replica_id);
+
+            std::cout << "[AMBULANCE BINDING] r" << replicaId_
+                      << " ambulanceReplicaId=" << ambulance_replica_id
+                      << " -> isAmbulance=" << (is_ambulance_ ? 1 : 0) << "\n";
+        }
+
+        moduleIsAmbulance = is_ambulance_;
+
 
         std::string crypto_dir = par("resdbCryptoDir").stdstringValue();
         config_file_      = par("resdbConfigFile").stdstringValue();
@@ -223,6 +278,27 @@ void ResDBIntersectionApp::initialize(int stage)
 
         broadcastArrivalAnnouncement_timer_ = new cMessage("resdbBroadcastArrivalAnnouncement");
         scheduleAt(simTime() + broadcast_arrival_announcement_interval_, broadcastArrivalAnnouncement_timer_);
+
+        if (par("enableChannelMetricsCsv").boolValue() && replicaId_ < total_vehicles_) {
+            std::string dir = par("channelMetricsCsvDir").stdstringValue();
+            if (dir.empty())
+                dir = log_dir_;
+            if (!dir.empty() && dir.back() != '/')
+                dir += '/';
+            if (dir.empty())
+                dir = "./";
+            std::string csvPath  = dir + "channel_V" + std::to_string(replicaId_) + ".csv";
+            std::string sinrPath = dir + "sinr_V" + std::to_string(replicaId_) + ".csv";
+            channel_metrics_ = new ChannelMetrics(replicaId_, csvPath, sinrPath);
+            cModule* nic = getParentModule()->getSubmodule("nic");
+            cModule* mac = nic ? nic->getSubmodule("mac1609_4") : nullptr;
+            if (mac)
+                mac->subscribe(Mac1609_4::sigChannelBusy, channel_metrics_);
+            else
+                std::cerr << "[ChannelMetrics] r" << replicaId_ << " no nic/mac1609_4 — utilization stays 0\n";
+            channel_metrics_timer_ = new cMessage("channelMetricsTick");
+            scheduleAt(simTime() + 0.1, channel_metrics_timer_);
+        }
     }
 }
 
@@ -230,6 +306,13 @@ void ResDBIntersectionApp::initialize(int stage)
 
 void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
 {
+    if (msg == channel_metrics_timer_) {
+        if (channel_metrics_)
+            channel_metrics_->tick(simTime());
+        scheduleAt(simTime() + 0.1, channel_metrics_timer_);
+        return;
+    }
+
     if (msg == smoke_test_msg_) {
         smoke_test_msg_ = nullptr;
         const uint8_t probe[] = {'R','E','S','D','B','T','S','T'};
@@ -455,6 +538,14 @@ void ResDBIntersectionApp::handlePositionUpdate(cObject* obj)
 {
     DemoBaseApplLayer::handlePositionUpdate(obj);
 
+    if (moduleIsAmbulance && !ambulanceColorSet && mobility && mobility->getVehicleCommandInterface()) {
+        std::cout << "[AMBULANCE COLOR] r" << replicaId_ << " setting color to red\n";
+        mobility->getVehicleCommandInterface()->setColor(TraCIColor(255, 0, 0, 255));
+        ambulanceColorSet = true;
+    }
+
+    discoverLane();
+
     // Gap 9: detect departure and lock out cert protocol for this vehicle.
     if (current_phase_ == ConsensusPhase::EXECUTING && order_applied_) {
         std::string myCarId = "veh" + std::to_string(replicaId_);
@@ -464,7 +555,22 @@ void ResDBIntersectionApp::handlePositionUpdate(cObject* obj)
             std::cout << "[DEPARTED] Replica " << replicaId_ << " cleared intersection t=" << simTime() << "\n";
             std::cout << "[METRICS " << replicaId_ << "] Total Latency (cleared-stop): "
             << (cleared_time_ - stop_time_) << std::endl;
-
+            {
+                double wait_sec = (stop_time_ >= SIMTIME_ZERO) ? (cleared_time_ - stop_time_).dbl() : -1.0;
+                double stop_dbl = (stop_time_ >= SIMTIME_ZERO) ? stop_time_.dbl() : -1.0;
+                const char* role = is_ambulance_ ? "ambulance" : "normal";
+                std::cout << "[CAR-METRICS] veh" << replicaId_
+                          << " role=" << role
+                          << " epoch=" << current_epoch_
+                          << " stop_time=" << stop_dbl
+                          << " depart_time=" << cleared_time_.dbl()
+                          << " wait_stop_to_departure_sec=" << wait_sec << "\n";
+                if (is_ambulance_) {
+                    std::cout << "[AMBULANCE_METRICS] veh" << replicaId_
+                              << " sim_wait_stop_to_departure_sec=" << wait_sec
+                              << " epoch=" << current_epoch_ << "\n";
+                }
+            }
         }
     }
 
@@ -480,8 +586,7 @@ void ResDBIntersectionApp::handlePositionUpdate(cObject* obj)
         std::cout << "[METRICS " << replicaId_ << "] Stop_Time: " << stop_time_ << "\n";
 
         stopVehicle();
-        discoverLane();
-
+        
         // Safety fallback timers.
         stop_sign_timeout_msg_ = new cMessage("resdbStopSignTimeout");
         scheduleAt(simTime() + stop_sign_timeout_sec_, stop_sign_timeout_msg_);
@@ -524,20 +629,49 @@ void ResDBIntersectionApp::handlePositionUpdate(cObject* obj)
 
 void ResDBIntersectionApp::finish()
 {
-    // Stop global monitor as soon as the first replica enters finish(), before
-    // long ResdbOmnetStopServer joins (and before stats.cpp sleep can emit again).
+    // OMNeT++ freezes sim-time at endSimulation(), so any ResDB thread sleeping
+    // in SleepUntilUs() would wait forever.  Advance sim-time to INT64_MAX first
+    // so all SleepUntilUs waiters unblock before we call Stop()/join().
+    std::cerr << "[FINISH-PROBE] r" << replicaId_
+    << " handle=" << resdb_server_handle_ << std::endl;
+
+    if (resdb_server_handle_) {
+        ResdbOmnetUpdateSimTimeUs(resdb_server_handle_,
+                                  std::numeric_limits<int64_t>::max());
+    }
+    std::cerr << "[FINISH-PROBE] r" << replicaId_ << " after UpdateSimTime" << std::endl;
+    // Stop global monitor (stats thread); cv fix in stats.cpp ensures it wakes
+    // immediately rather than sleeping for monitor_sleep_time_ wall-clock seconds.
     ResdbOmnetStopGlobalStats();
+    std::cerr << "[FINISH-PROBE] r" << replicaId_ << " after StopGlobalStats" << std::endl;
 
     if (vc_trigger_msg_) {
         cancelEvent(vc_trigger_msg_);
         delete vc_trigger_msg_; vc_trigger_msg_ = nullptr;
     }
     if (resdb_server_handle_) {
+        std::cerr << "[FINISH-PROBE] r" << replicaId_ << " calling StopServer" << std::endl;
         ResdbOmnetStopServer(resdb_server_handle_);
+        std::cerr << "[FINISH-PROBE] r" << replicaId_ << " after StopServer" << std::endl;
         ResdbOmnetDestroyServer(resdb_server_handle_);
         resdb_server_handle_ = nullptr;
     }
+    if (channel_metrics_timer_) {
+        cancelAndDelete(channel_metrics_timer_);
+        channel_metrics_timer_ = nullptr;
+    }
+    if (channel_metrics_) {
+        cModule* nic = getParentModule() ? getParentModule()->getSubmodule("nic") : nullptr;
+        cModule* mac = nic ? nic->getSubmodule("mac1609_4") : nullptr;
+        if (mac && mac->isSubscribed(Mac1609_4::sigChannelBusy, channel_metrics_))
+            mac->unsubscribe(Mac1609_4::sigChannelBusy, channel_metrics_);
+        delete channel_metrics_;
+        channel_metrics_ = nullptr;
+    }
+
+    std::cerr << "[FINISH-PROBE] r" << replicaId_ << " calling DemoBaseApplLayer::finish" << std::endl;
     DemoBaseApplLayer::finish();
+    std::cerr << "[FINISH-PROBE] r" << replicaId_ << " DONE" << std::endl;
 }
 
 // ── registerTransport ─────────────────────────────────────────────────────────
@@ -672,6 +806,13 @@ void ResDBIntersectionApp::sendBFTMessage(int toReplicaId,
 
 void ResDBIntersectionApp::onWSM(BaseFrame1609_4* wsm)
 {
+    if (channel_metrics_) {
+        if (auto* ci = dynamic_cast<PhyToMacControlInfo*>(wsm->getControlInfo())) {
+            if (auto* res = dynamic_cast<DeciderResult80211*>(ci->getDeciderResult()))
+                channel_metrics_->addSinrSample(res->getSnr());
+        }
+    }
+
     auto* bft = dynamic_cast<BFTMessage*>(wsm);
     if (!bft) return;
     if (bft->getFromReplicaId() == replicaId_) return;   // no self-delivery
@@ -953,12 +1094,21 @@ void ResDBIntersectionApp::broadcastArrivalAnnouncement()
         std::cout << "[BYZANTINE] r" << replicaId_ << " FALSE_LANE: laneId=BYZANTINE_FAKE_LANE\n";
     }
 
-    {
-        int rank = 1;
-        auto it = std::find(lane_queue_.begin(), lane_queue_.end(), myCarId);
-        if (it != lane_queue_.end()) rank = (int)(it - lane_queue_.begin()) + 1;
-        ann.positionInLane = rank;
+    // {
+    //     // Use TraCI lane position: higher lanePos = closer to intersection.
+    //     // Invert so positionInLane 1 = front (closest), larger = further back.
+    //     double lp = 0.0;
+    //     try { lp = traci->vehicle(myCarId).getLanePosition(); } catch (...) {}
+    //     int inv = 255 - std::min(static_cast<int>(lp), 254);
+    //     ann.positionInLane = std::max(1, inv);
+    // }
+    int rank = 1;
+    auto it = std::find(lane_queue_.begin(), lane_queue_.end(), myCarId);
+    if (it != lane_queue_.end()) {
+        rank = std::distance(lane_queue_.begin(), it) + 1;
     }
+    ann.positionInLane = rank;
+    std::cout << "[ANN-BROADCAST] Replica " << replicaId_ << " positionInLane: " << rank << "\n";
 
     ann.direction          = strToDir(intended_direction_);
     ann.isAmbulance        = is_ambulance_;
@@ -1021,8 +1171,15 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg)
     ArrivalAnnouncement ann = deserializeArrivalAnnouncement(msg);
     if (ann.carId.empty()) return;
 
-    // Dedup.
-    if (local_vehicle_states_.count(ann.carId)) return;
+    // Dedup: only re-echo if we VERIFIED and echoed this car before (not FALSE_LANE).
+    // echoed_cars_ is populated only after verifyCarPosition passes, so FALSE_LANE
+    // cars stored in local_vehicle_states_ are never re-echoed here.
+    if (local_vehicle_states_.count(ann.carId)) {
+        if (echoed_cars_.count(ann.carId)
+                && !cert_broadcast_ && !propose_submitted_ && !order_applied_)
+            sendArrivalEcho(ann);
+        return;
+    }
 
     // Verify lane via TraCI.
     VerificationResult result = verifyCarPosition(ann.carId, ann.laneId, ann.positionInLane, 1e9);
@@ -1058,6 +1215,7 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg)
     local_vehicle_states_[ann.carId] = vs;
     arrival_announcements_received_.insert(ann.carId);
     physically_observed_cars_.insert(ann.carId);
+    echoed_cars_.insert(ann.carId);  // record that we actually echoed this car
 
     sendArrivalEcho(ann);
 
@@ -1446,22 +1604,43 @@ void ResDBIntersectionApp::proposeAll()
         }
         if (e.sim_time_us == 0)
             e.sim_time_us = (uint64_t)simTime().inUnit(SIMTIME_US);
+        std::cout << "[PROPOSE-PACK] r" << replicaId_
+                  << " entry rid=" << e.replica_id
+                  << " lane=" << (int)e.lane
+                  << " pos=" << (int)e.position_in_lane
+                  << " ambu=" << (int)e.is_ambulance
+                  << " cert.isAmbu=" << (kv.second.isAmbulance ? 1 : 0) << "\n";
         entries.push_back(e);
         present_ids.insert(e.replica_id);
     }
     // Add synthetic QUIET entries for any missing replica IDs.
+    // Lane and position_in_lane are physically observable (sensors catch a lie)
+    // so we use the primary's observed announcement state directly.
+    // direction is intentional cyber-state and requires f+1 cert signatures —
+    // it stays 0 (unknown) for QUIET entries.
     for (int rid = 0; rid < total_vehicles_; ++rid) {
         if (!present_ids.count(rid)) {
             ResdbVehicleEntry quiet{};
-            quiet.replica_id      = rid;
-            quiet.sim_time_us     = UINT64_MAX;  // QUIET sentinel
-            quiet.is_ambulance    = 0;
-            quiet.lane            = 0;
-            quiet.direction       = 0;
-            quiet.position_in_lane = 0;
-            quiet.cyber_status    = 0;  // QUIET — no f+1 echoes by timeout
+            quiet.replica_id   = rid;
+            quiet.sim_time_us  = UINT64_MAX;  // QUIET sentinel
+            quiet.is_ambulance = 0;
+            quiet.direction    = 0;  // cert-only — unknown without f+1 echoes
+            quiet.cyber_status = 0;  // QUIET — no f+1 echoes by timeout
+            std::string quietCarId = "veh" + std::to_string(rid);
+            if (local_vehicle_states_.count(quietCarId)) {
+                const VehicleState& vs = local_vehicle_states_.at(quietCarId);
+                quiet.lane             = laneCode(vs.lane);
+                quiet.position_in_lane = static_cast<uint8_t>(
+                    std::min(vs.positionInLane, 255));
+            } else {
+                quiet.lane             = 0;
+                quiet.position_in_lane = 0;
+            }
             entries.push_back(quiet);
-            std::cout << "[ResDB r" << replicaId_ << "] proposeAll: QUIET entry for replica " << rid << "\n";
+            std::cout << "[ResDB r" << replicaId_
+                      << "] proposeAll: QUIET entry for replica " << rid
+                      << " lane=" << (int)quiet.lane
+                      << " pos=" << (int)quiet.position_in_lane << "\n";
         }
     }
 
@@ -1543,11 +1722,15 @@ void ResDBIntersectionApp::processOrders()
         std::cout << "[METRICS " << replicaId_ << "] Order_Decided_Time: " << simTime()
                   << " n_batches=" << ohdr.n_batches << "\n";
         if (propose_time_ >= SIMTIME_ZERO) {
+            double bft_sim  = (simTime() - propose_time_).dbl();
+            double stop_dec = (stop_time_ >= SIMTIME_ZERO) ? (simTime() - stop_time_).dbl() : -1.0;
             std::cout << "[VC-TRACE] r" << replicaId_
-                      << " propose_to_order_sec=" << (simTime() - propose_time_).dbl()
-                      << " stop_to_order_sec="
-                      << ((stop_time_ >= SIMTIME_ZERO) ? (simTime() - stop_time_).dbl() : -1.0)
-                      << "\n";
+                      << " propose_to_order_sec=" << bft_sim
+                      << " stop_to_order_sec=" << stop_dec << "\n";
+            std::cout << "[PHASE_SUMMARY " << replicaId_ << "] epoch=" << current_epoch_
+                      << " PROPOSE_ALL_BFT(sim)=" << std::to_string(bft_sim) << "s"
+                      << " stop_to_decision(sim)="
+                      << (stop_dec >= 0.0 ? std::to_string(stop_dec) + "s" : "N/A") << "\n";
         }
 
         // Cancel safety timers now that consensus delivered.
@@ -1572,6 +1755,8 @@ void ResDBIntersectionApp::processOrders()
         if (my_batch < 0) continue;
 
         order_applied_ = true;
+        if (stop_time_ < SIMTIME_ZERO)
+            stop_time_ = simTime();  // car was en-route when order arrived; use order time as fallback
         stopCertBroadcastRetries();
         current_phase_ = ConsensusPhase::EXECUTING;
         my_batch_index_ = my_batch;
@@ -1616,12 +1801,8 @@ void ResDBIntersectionApp::resumeVehicle(int position_in_order)
     if (!vc) return;
     std::cout << "[V2VResDB r" << replicaId_ << "] resumeVehicle position=" << position_in_order
               << " speed=" << cruise_speed_mps_ << " t=" << simTime() << "\n";
-    // vc->setSpeedMode(31);
-    mobility->getVehicleCommandInterface()->setSpeedMode(0);
-    mobility->getVehicleCommandInterface()->setSpeed(30);  // Release control to SUMO
- 
-    
-    // vc->setSpeed(cruise_speed_mps_);
+    vc->setSpeedMode(0);        // re-enable SUMO safety checks (mirrors stopVehicle)
+    vc->setSpeed(cruise_speed_mps_);
 }
 
 // ── verifyCarPosition (port of V2VArrivalProtocol::verifyCarPosition) ─────────

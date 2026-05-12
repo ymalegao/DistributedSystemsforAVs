@@ -95,13 +95,17 @@ ViewChangeManager::ViewChangeManager(const ResDBConfig& config,
 }
 
 ViewChangeManager::~ViewChangeManager() {
+  std::cerr << "[VC-STOP] stop_=true\n" << std::flush;
+  stop_ = true;
+  // MonitoringCheckpointState uses sem_timedwait (100ms); it will wake and
+  // see stop_=true within one timeout interval — no manual sem_post needed.
+  std::cerr << "[VC-STOP] calling checkpoint_manager_->Stop()\n" << std::flush;
   checkpoint_manager_->Stop();
-  if (server_checking_timeout_thread_.joinable()) {
-    server_checking_timeout_thread_.join();
-  }
+  std::cerr << "[VC-STOP] joining checkpoint_state_thread_\n" << std::flush;
   if (checkpoint_state_thread_.joinable()) {
     checkpoint_state_thread_.join();
   }
+  std::cerr << "[VC-STOP] DONE\n" << std::flush;
 }
 
 void ViewChangeManager::MayStart() {
@@ -577,7 +581,18 @@ void ViewChangeManager::MonitoringViewChangeTimeOut() {
 void ViewChangeManager::MonitoringCheckpointState() {
   uint64_t last_seq_value = 0;
   while (!stop_) {
-    sem_wait(checkpoint_manager_->CommitableSeqSignal());
+    // Use a timed wait so the thread wakes periodically to re-check stop_.
+    // sem_wait() blocks indefinitely; if stop_ is set while we're inside
+    // sem_wait() and no further posts arrive, join() in the destructor hangs.
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_nsec += 100000000LL;  // 100 ms
+    if (ts.tv_nsec >= 1000000000LL) {
+      ts.tv_sec += 1;
+      ts.tv_nsec -= 1000000000LL;
+    }
+    int ret = sem_timedwait(checkpoint_manager_->CommitableSeqSignal(), &ts);
+    if (ret != 0) continue;  // timeout or EINTR — just re-check stop_
     auto value = checkpoint_manager_->GetCommittableSeq();
     if (last_seq_value != value) {
       last_seq_value = value;

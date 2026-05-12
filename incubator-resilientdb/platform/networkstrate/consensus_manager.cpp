@@ -49,8 +49,11 @@ ConsensusManager::ConsensusManager(const ResDBConfig& config)
 }
 
 ConsensusManager::~ConsensusManager() {
+  std::cerr << "[CM-STOP] bc_client reset\n" << std::flush;
   bc_client_.reset();
+  std::cerr << "[CM-STOP] Stop()\n" << std::flush;
   Stop();
+  std::cerr << "[CM-STOP] DONE\n" << std::flush;
 }
 
 void ConsensusManager::UpdateBroadCastClient() {

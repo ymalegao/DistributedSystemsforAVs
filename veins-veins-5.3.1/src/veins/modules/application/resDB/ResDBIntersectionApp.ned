@@ -21,6 +21,11 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         string resdbLogDir         = default("");
         string resdbCryptoDir      = default("");
 
+        // ── Optional per-vehicle channel utilization + SINR CSV (100 ms windows) ─
+        // Writes channel_V<replicaId>.csv and sinr_V<replicaId>.csv (see sinr/ChannelMetrics).
+        bool   enableChannelMetricsCsv = default(false);
+        string channelMetricsCsvDir     = default("");  // empty → resdbLogDir, or "." if both empty
+
         // ── Step-2 transport smoke test ───────────────────────────────────────
         bool smokeTestBroadcast = default(false);
 
@@ -69,8 +74,9 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         double cruiseSpeedMps      = default(14.0);   // m/s handed to TraCI on resume
         double safetyGapS          = default(1.5);    // legacy fixed-stagger fallback (unused once TraCI clearance gating is on)
         double clearancePollPeriodSec @unit(s) = default(0.1s); // poll interval while waiting for predecessor to clear
-        double clearanceTimeoutSec    @unit(s) = default(8s);   // hard fallback if predecessor never clears
+        double clearanceTimeoutSec    @unit(s) = default(40s);   // hard fallback if predecessor never clears
         bool   isAmbulance         = default(false);  // ambulance gets top priority in schedule
+        int    ambulanceReplicaId  = default(-1);     // if >=0, marks veh<id> as ambulance after SUMO identity binding
         bool   isByzantine         = default(false);  // enables Byzantine fault injection
         int    byzantineType       = default(0);      // 0=honest 1=false_lane 2=invalid_sig 3=equivocator 4=silent_primary 5=bad_proposal
 

@@ -68,9 +68,11 @@ MessageManager::MessageManager(
 }
 
 MessageManager::~MessageManager() {
+  std::cerr << "[MM-STOP] calling executor Stop()\n" << std::flush;
   if (transaction_executor_) {
     transaction_executor_->Stop();
   }
+  std::cerr << "[MM-STOP] DONE\n" << std::flush;
 }
 
 std::unique_ptr<BatchUserResponse> MessageManager::GetResponseMsg() {
@@ -131,6 +133,10 @@ bool MessageManager::IsValidMsg(const Request& request) {
 
   if (static_cast<uint64_t>(request.seq()) <
       transaction_executor_->GetMaxPendingExecutedSeq()) {
+    std::cout << "[VALIDMSG-REJECT-SEQ] seq=" << request.seq()
+              << " type=" << request.type()
+              << " maxPendingExec=" << transaction_executor_->GetMaxPendingExecutedSeq()
+              << " (seq too old)\n";
     return false;
   }
 
@@ -192,6 +198,7 @@ CollectorResultCode MessageManager::AddConsensusMsg(
   int proxy_id = request->proxy_id();
   if (checkpoint_manager_->IsCommitted(seq)) {
     LOG(ERROR) << " seq:" << seq << " type:" << type << " has been committed";
+    std::cout << "[ADDMSG-ALREADY-COMMITTED] seq=" << seq << " type=" << type << "\n";
     return CollectorResultCode::STATE_CHANGED;
   }
 
@@ -236,10 +243,15 @@ Storage* MessageManager::GetStorage() {
 
 void MessageManager::SetNextCommitSeq(int seq) {
   LOG(ERROR) << " set next commit seq:" << seq;
+  std::cout << "[SET-NEXT-COMMIT-SEQ] seq=" << seq
+            << " old_next_seq=" << next_seq_
+            << " old_pending_exec=" << transaction_executor_->GetMaxPendingExecutedSeq() + 1
+            << "\n";
   SetNextSeq(seq);
   SetHighestPreparedSeq(seq);
   collector_pool_->Reset(seq);
   checkpoint_manager_->SetLastCommit(seq - 1);
+  std::cout << "[SET-NEXT-COMMIT-SEQ-DONE] seq=" << seq << "\n";
   return transaction_executor_->SetPendingExecutedSeq(seq);
 }
 

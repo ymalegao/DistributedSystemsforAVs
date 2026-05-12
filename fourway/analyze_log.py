@@ -150,7 +150,7 @@ RE_BYZANTINE_INJECTION = re.compile(
     r'\[BYZANTINE INJECTION\] Replica (\d+) CID=(\d+) intentionally broadcasting corrupted consensus hash')
 
 RE_PHASE_SUMMARY = re.compile(
-    r'\[PHASE_SUMMARY (\d+)\] .*PROPOSE_ALL_BFT\(sim\)=(?:([\d.]+)s|N/A) .*stop_to_decision\(sim\)=(?:([\d.]+)s|N/A)'
+    r'\[PHASE_SUMMARY (\d+)\](?:\s+epoch=(\d+))? .*PROPOSE_ALL_BFT\(sim\)=(?:([\d.]+)s|N/A) .*stop_to_decision\(sim\)=(?:([\d.]+)s|N/A)'
 )
 RE_CONSENSUS_HEADER = re.compile(r'CONSENSUS METRICS \(Replica (\d+)\) epoch=(\d+)')
 RE_CERT_DUR = re.compile(r'\[METRICS (\d+)\] Cert_Collection_Duration: ([\d.]+)s')
@@ -377,14 +377,18 @@ with open(LOG_FILE, "r", errors="replace") as f:
         m = RE_PHASE_SUMMARY.search(line)
         if m:
             rep = int(m.group(1))
-            ep = replica_epoch.get(rep, current_gossip_epoch)
+            if m.group(2) is not None:
+                ep = int(m.group(2))
+                replica_epoch[rep] = ep
+            else:
+                ep = replica_epoch.get(rep, current_gossip_epoch)
             car_id = f"veh{rep}"
-            if m.group(2):
-                val = float(m.group(2))
-                propose_all_sim_raw[ep].append(val)
-                car_metrics[car_id]["propose_all_consensus_sim_s"] = val
             if m.group(3):
                 val = float(m.group(3))
+                propose_all_sim_raw[ep].append(val)
+                car_metrics[car_id]["propose_all_consensus_sim_s"] = val
+            if m.group(4):
+                val = float(m.group(4))
                 stop_to_decision_sim_raw[ep].append(val)
                 car_metrics[car_id]["stop_to_decision_sim_s"] = val
             continue
@@ -688,7 +692,7 @@ def write_metrics_json(path):
             if normal_waits and ambulance_waits and statistics.mean(normal_waits) != 0 else None,
         # Batch throughput: vehicles / (last depart - first stop) when batch data available.
         "batch_throughput_veh_per_s": (
-            (lambda stops, departs: CARS / (max(departs) - min(stops))
+            (lambda: CARS / (max(departs) - min(stops))
              if (stops := [m["stop_time"] for m in car_metrics.values() if m.get("stop_time") is not None])
                 and (departs := [m["depart_time"] for m in car_metrics.values() if m.get("depart_time") is not None])
                 and max(departs) > min(stops) else None)()

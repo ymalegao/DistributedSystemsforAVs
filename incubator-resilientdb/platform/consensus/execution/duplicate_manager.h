@@ -24,6 +24,7 @@
 
 #include <map>
 #include <memory>
+#include <condition_variable>
 #include <mutex>
 #include <queue>
 #include <set>
@@ -61,6 +62,8 @@ class DuplicateManager {
   std::thread update_thread_;
   std::mutex prop_mutex_;
   std::mutex exec_mutex_;
+  std::mutex cv_mutex_;
+  std::condition_variable cv_;
   uint64_t frequency_useconds_ = 5000000;  // 5s
   uint64_t window_useconds_ = 20000000;    // 20s
   bool stop_ = false;

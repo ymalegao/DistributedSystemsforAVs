@@ -56,16 +56,27 @@ CheckPointManager::CheckPointManager(const ResDBConfig& config,
 CheckPointManager::~CheckPointManager() { Stop(); }
 
 void CheckPointManager::Stop() {
+  std::cerr << "[CKPT-STOP] Stop() called stop_=true\n" << std::flush;
   stop_ = true;
+  // Wake checkpoint_thread_ which may be blocked in Wait() on cv_.
+  // Without this notify, join() hangs indefinitely when no new data arrives.
+  {
+    std::lock_guard<std::mutex> lk(cv_mutex_);
+    cv_.notify_all();
+  }
+  std::cerr << "[CKPT-STOP] joining checkpoint_thread_\n" << std::flush;
   if (checkpoint_thread_.joinable()) {
     checkpoint_thread_.join();
   }
+  std::cerr << "[CKPT-STOP] joining stable_checkpoint_thread_\n" << std::flush;
   if (stable_checkpoint_thread_.joinable()) {
     stable_checkpoint_thread_.join();
   }
+  std::cerr << "[CKPT-STOP] joining status_thread_\n" << std::flush;
   if (status_thread_.joinable()) {
     status_thread_.join();
   }
+  std::cerr << "[CKPT-STOP] DONE\n" << std::flush;
 }
 
 void CheckPointManager::SetResetExecute(

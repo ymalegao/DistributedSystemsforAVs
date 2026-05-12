@@ -301,6 +301,13 @@ void ResDBIntersectionApp::discoverLane() {
     for (const auto& [pos, id] : inLane) {
         lane_queue_.push_back(id);
     }
+    std::cout << "[V2VProxy " << replicaId_ << "] Lane queue: ";
+    std::cout << "My position: " << mypos << "\n";
+    for (const auto& id : lane_queue_) {
+        std::cout << id << " ";
+    }
+
+    std::cout << "\n";
     lane_discovered_ = true;
     std::cout << "[V2VProxy " << replicaId_ << "] Lane discovered: " << my_lane_id_ << "\n";
     std::cout << "[V2VProxy " << replicaId_ << "] Car ahead: " << car_ahead_ << "\n";

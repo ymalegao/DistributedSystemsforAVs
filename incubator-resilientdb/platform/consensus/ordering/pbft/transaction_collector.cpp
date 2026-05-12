@@ -92,6 +92,9 @@ int TransactionCollector::AddRequest(
   if (seq_ != static_cast<uint64_t>(request->seq())) {
     LOG(ERROR) << "data invalid, seq not the same:" << seq
                << " collect seq:" << seq_;
+    std::cout << "[COLLECTOR-SEQ-MISMATCH] req_seq=" << seq
+              << " collector_seq=" << seq_
+              << " type=" << type << " (collector was Reset to wrong seq)\n";
     return -2;
   }
 
@@ -206,6 +209,8 @@ int TransactionCollector::Commit() {
   auto main_request = atomic_mian_request_.Reference();
   if (main_request == nullptr) {
     LOG(ERROR) << "no main:" << seq_;
+    std::cout << "[COLLECTOR-COMMIT-NOMAIN] seq=" << seq_
+              << " (PRE_PREPARE was never stored — likely Reset race)\n";
     return -2;
   }
 

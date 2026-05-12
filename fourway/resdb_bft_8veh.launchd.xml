@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<launch>
+    <copy file="bft_intersection.net.xml" />
+    <copy file="bft_8veh.rou.xml" />
+    <copy file="bft_8veh.sumo.cfg" type="config" />
+</launch>

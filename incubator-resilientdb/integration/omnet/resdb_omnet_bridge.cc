@@ -75,15 +75,15 @@ static int CompareLaneQueueOrder(const ResdbVehicleEntry& a,
   return 0;
 }
 
-// OrderScheduler.java::allSameLaneFrontPlaced
-// Synthetic QUIET rows (Veins) may use default lane/position; they must not act
-// as physical same-lane predecessors (Java view has no such placeholders).
+// OrderScheduler.java::allSameLaneFrontPlaced — exact port, no QUIET skip.
+// QUIET vehicles are still physically present in the lane; any same-lane
+// vehicle behind them (including an ambulance) must wait until the QUIET car
+// has been assigned its singleton batch and can clear the intersection first.
 static bool AllSameLaneFrontPlaced(
     const ResdbVehicleEntry& candidate,
     const std::vector<ResdbVehicleEntry>& view,
     const std::unordered_set<int32_t>& placed) {
   for (const auto& v : view) {
-    if (IsQuietEntry(v)) continue;
     if (v.lane != candidate.lane) continue;
     if (CompareLaneQueueOrder(v, candidate) < 0 &&
         placed.find(v.replica_id) == placed.end())
@@ -139,6 +139,20 @@ class IntersectionExecutor : public resdb::TransactionManager {
       p += sizeof(ResdbVehicleEntry);
     }
 
+    // Diagnostic: dump every entry so we can verify is_ambulance / position_in_lane.
+    static const char* kLaneName[] = {"N","S","E","W"};
+    static const char* kDirName[]  = {"Str","L","R"};
+    std::cout << "[EXECUTOR] entries epoch=" << hdr.epoch << " n=" << hdr.n_vehicles << ":";
+    for (const auto& e : entries) {
+      std::cout << " r" << e.replica_id
+                << "(lane=" << (e.lane < 4 ? kLaneName[e.lane] : "?")
+                << " pos=" << (int)e.position_in_lane
+                << " dir=" << (e.direction < 3 ? kDirName[e.direction] : "?")
+                << " ambu=" << (int)e.is_ambulance
+                << " cyber=" << (int)e.cyber_status << ")";
+    }
+    std::cout << "\n";
+
     // ── OrderScheduler.java::buildProposal (C++ port) ─────────────────────────
 
     // Log helper: first ambulance lane (same convention as before).
@@ -186,15 +200,20 @@ class IntersectionExecutor : public resdb::TransactionManager {
       if (priority_ids.find(e.replica_id) == priority_ids.end())
         remaining_entries.push_back(e);
     }
-    // Java: waitRegistry desc, then positionInLane, then vehicle id. No wait on
-    // wire — use sim_time_us asc, then position_in_lane, then replica_id.
+    // Java OrderScheduler: waitRegistry desc, then positionInLane, then vehicle id.
+    // waitRegistry is not on the wire — do NOT use sim_time_us as primary key:
+    // stop-zone entry order can put a follower before their same-lane leader in
+    // the work queue, so the greedy head picks the follower first and assigns an
+    // earlier batch (rear crosses before front → collision).
+    // Physical queue order must dominate: position_in_lane (1=front), then replica_id,
+    // then sim_time_us only as a final tiebreaker.
     std::sort(remaining_entries.begin(), remaining_entries.end(),
               [](const ResdbVehicleEntry& a, const ResdbVehicleEntry& b) {
-                if (a.sim_time_us != b.sim_time_us)
-                  return a.sim_time_us < b.sim_time_us;
                 if (a.position_in_lane != b.position_in_lane)
                   return a.position_in_lane < b.position_in_lane;
-                return a.replica_id < b.replica_id;
+                if (a.replica_id != b.replica_id)
+                  return a.replica_id < b.replica_id;
+                return a.sim_time_us < b.sim_time_us;
               });
     for (const auto& e : remaining_entries) work_queue.push_back(e);
 
@@ -285,7 +304,23 @@ class IntersectionExecutor : public resdb::TransactionManager {
       }
     }
 
-    return std::make_unique<std::string>(result);
+    std::unique_ptr<std::string> result_ptr = std::make_unique<std::string>(result);
+    {
+      const uint8_t* dbg = reinterpret_cast<const uint8_t*>(result_ptr->data());
+      ResdbOrderHdr dbg_hdr;
+      std::memcpy(&dbg_hdr, dbg, sizeof(dbg_hdr));
+      std::cout << "[EXECUTOR] OrderDecision: epoch=" << dbg_hdr.epoch
+                << " n_vehicles=" << dbg_hdr.n_vehicles
+                << " n_batches=" << dbg_hdr.n_batches << " decisions=[";
+      dbg += sizeof(dbg_hdr);
+      for (uint32_t i = 0; i < dbg_hdr.n_vehicles; ++i) {
+        ResdbVehicleDecision vd;
+        std::memcpy(&vd, dbg + i * sizeof(vd), sizeof(vd));
+        std::cout << " veh=" << vd.replica_id << " batch=" << vd.batch_index;
+      }
+      std::cout << " ]\n";
+    }
+    return result_ptr;
   }
 
  private:
@@ -532,7 +567,10 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
       *config, std::move(executor_owned), /*transport=*/nullptr);
   auto* service_ptr = service.get();
 
-  // Basic pre-verify: correct vehicle count, no duplicate IDs.
+  // Basic pre-verify: proposal matches cluster shape from server.config (keygen).
+  // This integration assumes one vehicle slot per ResDB replica (N cars = N replicas =
+  // N entries in server.config). SUMO / *.manager.intersectionBatchSize are kept in
+  // sync with that N in the scenario; the bridge does not infer N from traffic.
   const int expected = static_cast<int>(config->GetReplicaInfos().size());
   service_ptr->SetPreVerifyFunc([expected](const resdb::Request& req) -> bool {
     if (req.type() != resdb::Request::TYPE_PRE_PREPARE) return true;
@@ -591,7 +629,7 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
                  << " n_vehicles=" << hdr.n_vehicles;
       return false;
     }
-    // Check 4: all replica IDs in valid range [0, expected).
+    // Check 4: all vehicle-slot / replica indices in valid range [0, expected).
     for (int32_t id : ids) {
       if (id < 0 || id >= static_cast<int32_t>(expected)) {
         LOG(ERROR) << "[OMNET-PREVERIFY] reject: replica_id out of range"
@@ -627,7 +665,7 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
         ep += sizeof(e);
       }
     }
-    // Check 7: leader_id is a valid replica.
+    // Check 7: leader_id is a valid replica index.
     if (hdr.leader_id < 0 || hdr.leader_id >= static_cast<int32_t>(expected)) {
       LOG(ERROR) << "[OMNET-PREVERIFY] reject: leader_id out of range"
                  << " leader_id=" << hdr.leader_id << " expected=" << expected;
@@ -669,15 +707,19 @@ extern "C" int ResdbOmnetRunServer(void* server_handle) {
 extern "C" int ResdbOmnetStopServer(void* server_handle) {
   if (!server_handle) return -1;
   auto* h = static_cast<ResdbOmnetServerHandle*>(server_handle);
+  std::cerr << "[STOP-SERVER] UpdateNowUs(MAX)\n" << std::flush;
   // OMNeT++ stops calling ResdbOmnetUpdateSimTimeUs during finish(), but ResDB
   // worker threads may still be inside LockFreeQueue::Pop()'s
   // SimTimeProvider::SleepUntilUs() loops. Wake them by advancing sim time to
   // end-of-teardown (still sim time, not wall clock).
   resdb::SimTimeProvider::UpdateNowUs(std::numeric_limits<uint64_t>::max());
+  std::cerr << "[STOP-SERVER] calling server->Stop()\n" << std::flush;
   if (h->server) h->server->Stop();
+  std::cerr << "[STOP-SERVER] joining server_thread\n" << std::flush;
   if (h->server_thread_started && h->server_thread.joinable())
     h->server_thread.join();
   h->server_thread_started = false;
+  std::cerr << "[STOP-SERVER] done\n" << std::flush;
   return 0;
 }
 
