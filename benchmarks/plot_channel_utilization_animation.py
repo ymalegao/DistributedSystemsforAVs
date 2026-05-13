@@ -22,8 +22,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import csv
-import glob
 import os
 import sys
 
@@ -31,125 +29,16 @@ import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 
-TIME_GRID_STEP = 0.1
+from benchmark_metrics_io import (
+    TIME_GRID_STEP,
+    discover_scenarios,
+    infer_n_rows_channel,
+    load_channel_scenario_averaged_padded,
+)
+
 CMAP = "YlOrRd"
 HOLD_FRAMES = 8
 FPS = 4
-
-
-def load_utilization_run(run_dir: str) -> dict[int, list[tuple[float, float]]]:
-    data: dict[int, list[tuple[float, float]]] = {}
-    pattern = os.path.join(run_dir, "channel_V*.csv")
-    for path in sorted(glob.glob(pattern)):
-        try:
-            with open(path, newline="", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                if not reader.fieldnames or "time_s" not in reader.fieldnames:
-                    print(f"WARNING: skip {path} (missing time_s header)")
-                    continue
-                util_key = (
-                    "channel_utilization"
-                    if "channel_utilization" in reader.fieldnames
-                    else None
-                )
-                if util_key is None:
-                    print(f"WARNING: skip {path} (missing channel_utilization header)")
-                    continue
-                rows = [
-                    (float(r["time_s"]), float(r[util_key]))
-                    for r in reader
-                    if r.get("time_s") not in (None, "") and r.get(util_key) not in (None, "")
-                ]
-            if rows:
-                base = os.path.basename(path)
-                vid = int(base.replace("channel_V", "").replace(".csv", ""))
-                data[vid] = rows
-        except Exception as e:
-            print(f"WARNING: could not read {path}: {e}")
-    return data
-
-
-def run_directories_for_scenario(scenario_dir: str) -> list[str]:
-    runs = sorted(glob.glob(os.path.join(scenario_dir, "run_*")))
-    runs = [d for d in runs if os.path.isdir(d) and glob.glob(os.path.join(d, "channel_V*.csv"))]
-    if runs:
-        return runs
-    if glob.glob(os.path.join(scenario_dir, "channel_V*.csv")):
-        return [scenario_dir]
-    return []
-
-
-def max_vehicle_id(utilization_data: dict[int, list[tuple[float, float]]]) -> int:
-    return max(utilization_data.keys()) if utilization_data else -1
-
-
-def build_padded_matrix(
-    utilization_data: dict[int, list[tuple[float, float]]],
-    time_grid: list[float],
-    n_rows: int,
-) -> np.ndarray:
-    t_index = {round(t, 3): i for i, t in enumerate(time_grid)}
-    matrix = np.full((n_rows, len(time_grid)), np.nan)
-    for vid, rows in utilization_data.items():
-        if vid < 0 or vid >= n_rows:
-            continue
-        for t, u in rows:
-            t_key = round(t, 3)
-            if t_key in t_index:
-                matrix[vid, t_index[t_key]] = u
-    return matrix
-
-
-def load_scenario_averaged(
-    scenario_dir: str,
-    time_grid_ref: list[float] | None,
-    n_rows: int,
-) -> tuple[list[float], np.ndarray] | None:
-    run_dirs = run_directories_for_scenario(scenario_dir)
-    if not run_dirs:
-        return None
-
-    all_times: set[float] = set()
-    all_data: list[dict[int, list[tuple[float, float]]]] = []
-    for run_dir in run_dirs:
-        data = load_utilization_run(run_dir)
-        if data:
-            all_data.append(data)
-            for rows in data.values():
-                for t, _ in rows:
-                    all_times.add(round(t, 3))
-
-    if not all_data:
-        return None
-
-    time_grid = sorted(all_times) if time_grid_ref is None else list(time_grid_ref)
-    matrices = [build_padded_matrix(d, time_grid, n_rows) for d in all_data]
-    stacked = np.stack(matrices, axis=0)
-    return time_grid, np.nanmean(stacked, axis=0)
-
-
-def discover_scenarios(benchmark_root: str) -> list[str]:
-    names = []
-    for name in sorted(os.listdir(benchmark_root)):
-        if name.startswith("."):
-            continue
-        path = os.path.join(benchmark_root, name)
-        if not os.path.isdir(path):
-            continue
-        if run_directories_for_scenario(path):
-            names.append(name)
-    return names
-
-
-def infer_n_rows(benchmark_root: str, scenario_names: list[str], cap: int) -> int:
-    m = -1
-    for s in scenario_names:
-        for run_dir in run_directories_for_scenario(os.path.join(benchmark_root, s)):
-            data = load_utilization_run(run_dir)
-            m = max(m, max_vehicle_id(data))
-    if m < 0:
-        return 1
-    return min(cap, m + 1)
 
 
 def generate_gif(
@@ -164,7 +53,7 @@ def generate_gif(
 
     for name in scenario_names:
         scenario_dir = os.path.join(benchmark_root, name)
-        result = load_scenario_averaged(scenario_dir, None, n_rows)
+        result = load_channel_scenario_averaged_padded(scenario_dir, None, n_rows)
         if result is None:
             print(f"  [{name}] No channel_V*.csv under {scenario_dir} — skipping.")
             continue
@@ -183,7 +72,7 @@ def generate_gif(
     scenarios: dict[str, np.ndarray] = {}
     for name in raw:
         scenario_dir = os.path.join(benchmark_root, name)
-        result = load_scenario_averaged(scenario_dir, list(time_grid), n_rows)
+        result = load_channel_scenario_averaged_padded(scenario_dir, list(time_grid), n_rows)
         if result:
             scenarios[name] = result[1]
 
@@ -283,7 +172,7 @@ def main() -> int:
         print(f"ERROR: not a directory: {benchmark_root}", file=sys.stderr)
         return 1
 
-    discovered = discover_scenarios(benchmark_root)
+    discovered = discover_scenarios(benchmark_root, "channel_V*.csv")
     if args.scenarios.strip():
         wanted = {x.strip() for x in args.scenarios.split(",") if x.strip()}
         scenario_names = [n for n in sorted(wanted) if n in discovered]
@@ -301,16 +190,18 @@ def main() -> int:
         )
         print(f"No scenarios with channel_V*.csv under: {benchmark_root}")
         if all_subdirs:
-            print(f"Found {len(all_subdirs)} subfolder(s) (add channel_V*.csv under each run_*): "
-                  + ", ".join(all_subdirs[:20])
-                  + (" …" if len(all_subdirs) > 20 else ""))
+            print(
+                f"Found {len(all_subdirs)} subfolder(s) (add channel_V*.csv under each run_*): "
+                + ", ".join(all_subdirs[:20])
+                + (" …" if len(all_subdirs) > 20 else "")
+            )
         return 1
 
     cap = 64
     if args.max_vehicles and args.max_vehicles > 0:
         n_rows = args.max_vehicles
     else:
-        n_rows = infer_n_rows(benchmark_root, scenario_names, cap)
+        n_rows = infer_n_rows_channel(benchmark_root, scenario_names, cap)
         n_rows = max(n_rows, 1)
 
     out_path = args.output.strip()
