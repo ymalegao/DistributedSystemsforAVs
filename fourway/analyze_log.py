@@ -3,7 +3,10 @@
 BFT-SMaRt V2V Intersection Log Analyzer.
 
 Tracks the single-round PROPOSE_ALL protocol and per-car lifecycle metrics, including:
-  - PROPOSE_ALL consensus latency (Java BFT layer)
+  - PROPOSE_ALL consensus latency (sim time): ResDB clusters Order_Decided into waves; per wave
+      leader→commit = median(commit) − max(submit before first commit in wave);
+      first_submit→commit = median(commit) − min(same submits) (incl. failed primary / VC).
+      BFT-SMaRt fallback (PHASE_SUMMARY only): both metrics default to the same mean.
   - wait time at the intersection (stop -> leave)
   - arrival -> resume and arrival -> leave timing
   - throughput using the user-defined formula
@@ -139,6 +142,12 @@ RE_MESSAGES_RECEIVED = re.compile(r'\[METRICS (\d+)\] Messages_Received: (\d+)')
 RE_ARRIVAL_TIME      = re.compile(r'\[METRICS (\d+)\] Arrival_Time: ([\d.]+)')
 RE_STOP_TIME         = re.compile(r'\[METRICS (\d+)\] Stop_Time: ([\d.]+)')
 RE_RESUME_TIME       = re.compile(r'\[METRICS (\d+)\] Resume_Time: ([\d.]+)')
+# ResDB: chronological (rep, sim_time_s) for cluster-based commit waves (see
+# compute_resdb_submit_to_commit_by_wave).
+RE_RESDB_PROPOSE_SUBMIT = re.compile(
+    r'\[METRICS (\d+)\] ProposeAll_Submit_Time:\s*(\S+)')
+RE_RESDB_ORDER_DECIDED = re.compile(
+    r'\[METRICS (\d+)\] Order_Decided_Time:\s*(\S+)')
 RE_STOPSIGN_TIMEOUT  = re.compile(r'\[METRICS (\d+)\] StopSign_Timeout: 1')
 RE_AMBULANCE_SCHED   = re.compile(r'\[AMBULANCE_SCHED\] (veh\d+) batch=')
 RE_CAR_METRICS       = re.compile(
@@ -202,6 +211,9 @@ replica_stopsign_timeout = set()  # replica IDs that hit StopSign_Timeout (used 
 run_metrics           = {}                 # key -> float  (from [RUN-METRICS] lines)
 propose_all_sim_raw   = defaultdict(list)  # epoch -> [seconds, ...]
 stop_to_decision_sim_raw = defaultdict(list) # epoch -> [seconds, ...]
+# ResDB: (replica_id, sim_time_s) in log order — used to derive commit waves.
+resdb_propose_submit_events = []
+resdb_order_decided_events = []
 
 def percentile(values, q):
     if not values:
@@ -234,6 +246,76 @@ def fmt_stat(values):
         f"max={max(values):.4f}s "
         f"n={len(values)}"
     )
+
+
+def compute_resdb_submit_to_commit_by_wave(
+    submit_events,
+    order_events,
+    cluster_gap_s=2.0,
+    max_epochs=16,
+):
+    """
+    ResDB / single-log: cluster Order_Decided sim times into commit waves (replicas see
+    the same decision within cluster_gap_s). For each wave:
+      t_commit = median(Order_Decided times in the wave)
+      t_last_submit = max(ProposeAll_Submit_Time) in the submit window (winning proposal)
+      t_first_submit = min(ProposeAll_Submit_Time) in the submit window (earliest attempt)
+    Then:
+      leader_submit_to_commit_s = t_commit - t_last_submit  (winning leader's PBFT slice)
+      first_submit_to_commit_s   = t_commit - t_first_submit (includes failed primary + VC)
+    Submit window: prev_wave_max_order < submit_time <= min(Order_Decided in cluster).
+    Epoch index = min(wave_index, max_epochs - 1) when folding long runs.
+    Returns a list of dicts (one per wave).
+    """
+    if not order_events:
+        return []
+
+    order_times = sorted(T for _, T in order_events)
+    prev = order_times[0]
+    clusters = [[prev]]
+    for t in order_times[1:]:
+        if t - prev > cluster_gap_s:
+            clusters.append([t])
+        else:
+            clusters[-1].append(t)
+        prev = t
+
+    out = []
+    prev_commit_hi = -1.0
+    for wi, cl in enumerate(clusters):
+        t_commit = statistics.median(cl)
+        t_lo = min(cl)
+        # Submits strictly before the first replica's Order_Decided in this wave.
+        submits_in_window = [
+            (r, t)
+            for (r, t) in submit_events
+            if prev_commit_hi < t < t_lo
+        ]
+        if not submits_in_window:
+            submits_in_window = [
+                (r, t)
+                for (r, t) in submit_events
+                if prev_commit_hi < t <= t_lo + 1e-6
+            ]
+        if not submits_in_window:
+            prev_commit_hi = max(cl)
+            continue
+        ts = [t for _, t in submits_in_window]
+        t_first = min(ts)
+        t_last = max(ts)
+        winning_rep = max(r for r, t in submits_in_window if t == t_last)
+        ep = min(wi, max(0, max_epochs - 1))
+        out.append({
+            "epoch": ep,
+            "wave_index": wi,
+            "t_commit": t_commit,
+            "leader_submit_to_commit_s": t_commit - t_last,
+            "first_submit_to_commit_s": t_commit - t_first,
+            "winning_rep": winning_rep,
+        })
+        prev_commit_hi = max(cl)
+    return out
+
 
 # ── Parse ────────────────────────────────────────────────────────────────────
 print(f"Parsing {LOG_FILE} ...")
@@ -322,6 +404,24 @@ with open(LOG_FILE, "r", errors="replace") as f:
         m = RE_RESUME_TIME.search(line)
         if m:
             replica_resume_time[int(m.group(1))] = float(m.group(2))
+            continue
+
+        m = RE_RESDB_PROPOSE_SUBMIT.search(line)
+        if m:
+            rep = int(m.group(1))
+            try:
+                resdb_propose_submit_events.append((rep, float(m.group(2))))
+            except ValueError:
+                pass
+            continue
+
+        m = RE_RESDB_ORDER_DECIDED.search(line)
+        if m:
+            rep = int(m.group(1))
+            try:
+                resdb_order_decided_events.append((rep, float(m.group(2))))
+            except ValueError:
+                pass
             continue
 
         m = RE_STOPSIGN_TIMEOUT.search(line)
@@ -445,9 +545,38 @@ def normalize_java_epoch(raw_epoch):
         return raw_epoch
     return raw_epoch
 
+# ResDB: commit waves from Order_Decided, then:
+#   ProposeAll_Consensus_Sim = median(commit wave) - max(submit in window)  (winning leader→commit)
+#   ProposeAll_FirstSubmit_To_OrderCommit_Sim = median(commit) - min(submit) (failed primary + VC + …)
+_resdb_waves = compute_resdb_submit_to_commit_by_wave(
+    resdb_propose_submit_events,
+    resdb_order_decided_events,
+    cluster_gap_s=2.0,
+    max_epochs=N_EPOCHS,
+)
+_epochs_resdb_submit_order = set()
+for row in _resdb_waves:
+    ep = row["epoch"]
+    round_metrics[ep]["ProposeAll_Consensus_Sim"] = row["leader_submit_to_commit_s"]
+    round_metrics[ep]["ProposeAll_FirstSubmit_To_OrderCommit_Sim"] = row[
+        "first_submit_to_commit_s"
+    ]
+    _epochs_resdb_submit_order.add(ep)
+    car_metrics[f"veh{row['winning_rep']}"]["propose_all_consensus_sim_s"] = row[
+        "leader_submit_to_commit_s"
+    ]
+    car_metrics[f"veh{row['winning_rep']}"]["propose_all_first_submit_to_commit_sim_s"] = row[
+        "first_submit_to_commit_s"
+    ]
+
 for ep, samples in propose_all_sim_raw.items():
+    if ep in _epochs_resdb_submit_order:
+        continue
     if samples:
-        round_metrics[ep]["ProposeAll_Consensus_Sim"] = statistics.mean(samples)
+        mean_bft = statistics.mean(samples)
+        round_metrics[ep]["ProposeAll_Consensus_Sim"] = mean_bft
+        # No ResDB submit/order lines: PHASE_SUMMARY is one leader path — first submit == last.
+        round_metrics[ep]["ProposeAll_FirstSubmit_To_OrderCommit_Sim"] = mean_bft
 
 for ep, samples in stop_to_decision_sim_raw.items():
     if samples:
@@ -616,10 +745,12 @@ def write_metrics_json(path):
         msgs_sent = epoch_messages_sent.get(ep, [])
         msgs_recv = epoch_messages_recv.get(ep, [])
         propose_all_sim = rm.get("ProposeAll_Consensus_Sim")
+        first_submit_commit = rm.get("ProposeAll_FirstSubmit_To_OrderCommit_Sim")
         epochs_out.append({
             "epoch": ep,
             "n_replicas": n,
             "propose_all_consensus_latency_sim_s": propose_all_sim,
+            "propose_all_first_submit_to_commit_sim_s": first_submit_commit,
             "stop_to_decision_sim_s": rm.get("Stop_To_Decision_Sim"),
             "throughput_s_per_veh": tp,
             "throughput_veh_per_s": (1.0 / tp) if tp not in (None, 0) else None,
@@ -656,6 +787,9 @@ def write_metrics_json(path):
             # Fallback: True if this vehicle hit a StopSign_Timeout
             "used_fallback": m.get("used_fallback", False),
             "propose_all_consensus_sim_s": m.get("propose_all_consensus_sim_s"),
+            "propose_all_first_submit_to_commit_sim_s": m.get(
+                "propose_all_first_submit_to_commit_sim_s"
+            ),
             "stop_to_decision_sim_s": m.get("stop_to_decision_sim_s"),
             # Phase breakdown: stop → PROPOSE_ALL submit → ORDER decision → resume
             "cert_wait_s": m.get("cert_wait_s"),
@@ -706,6 +840,11 @@ def write_metrics_json(path):
             round_metrics[ep]["ProposeAll_Consensus_Sim"]
             for ep in range(N_EPOCHS)
             if round_metrics.get(ep, {}).get("ProposeAll_Consensus_Sim", 0) > 0
+        ]),
+        "propose_all_first_submit_to_commit_latency_sim_s": _stat([
+            round_metrics[ep]["ProposeAll_FirstSubmit_To_OrderCommit_Sim"]
+            for ep in range(N_EPOCHS)
+            if round_metrics.get(ep, {}).get("ProposeAll_FirstSubmit_To_OrderCommit_Sim", 0) > 0
         ]),
         "stop_to_decision_sim_s": _stat([
             round_metrics[ep]["Stop_To_Decision_Sim"]
@@ -836,9 +975,12 @@ for epoch in range(N_EPOCHS):
     n  = EPOCH_N[epoch]
     rm = round_metrics.get(epoch, {})
     propose_all_sim = rm.get("ProposeAll_Consensus_Sim")
+    first_submit_commit = rm.get("ProposeAll_FirstSubmit_To_OrderCommit_Sim")
     print(f"\n{BOLD}── Epoch {epoch}  (n={n} replicas) ──{RESET}")
     if propose_all_sim is not None and propose_all_sim > 0:
-        print(f"  PROPOSE_ALL latency:     {CYN}{propose_all_sim:.4f}s{RESET}  (sim-time)")
+        print(f"  PROPOSE_ALL latency:     {CYN}{propose_all_sim:.4f}s{RESET}  (sim-time, leader submit→commit)")
+        if first_submit_commit is not None and first_submit_commit > 0:
+            print(f"  First submit→commit:    {YEL}{first_submit_commit:.4f}s{RESET}  (incl. failed primary / VC)")
     else:
         print(f"  PROPOSE_ALL latency:     {RED}N/A — epoch did not complete{RESET}")
 

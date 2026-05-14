@@ -7,6 +7,8 @@ fourway/run-resdb-simulation.sh for each scenario × repetition, then analyze_lo
 No build step — compile veins separately before running.
 
 Layout: benchmarks/Priority<N>cars/<scenario_subdir>/run_<rep>/
+Channel metrics (channel_V*.csv, sinr_V*.csv) are written into that same run_<rep>
+directory via run-resdb-simulation.sh --channel-metrics-dir (see fourway/run-resdb-simulation.sh).
 
 Environment: use a shell where OMNeT++ is on PATH, or let this script source
 $OMNETPP_ROOT/setenv (override with OMNETPP_SETENV). We do not call opp_env shell
@@ -107,6 +109,12 @@ def omnet_config_basename(n: int) -> str:
 
 def omnet_config_name(n: int) -> str:
     return f"{omnet_config_basename(n)}VehiclesResDB"
+
+
+def benchmark_run_dir(n: int, scenario_name: str, rep: int) -> Path:
+    """Per-run output directory (JSON/logs from analyze_log; channel CSVs from the sim)."""
+    sub = SCENARIO_SUBDIR[scenario_name]
+    return REPO_ROOT / "benchmarks" / f"Priority{n}cars" / sub / f"run_{rep}"
 
 
 def run_seed(master: int, n: int, scenario_name: str, rep: int) -> int:
@@ -289,6 +297,8 @@ def run_one_simulation(
     cfg = omnet_config_name(n)
     extra = randomize_args_for_scenario(n, scenario_name)
     seed = run_seed(MASTER_SEED, n, scenario_name, rep)
+    run_dir = benchmark_run_dir(n, scenario_name, rep)
+    metrics_dir = str(run_dir.resolve())
 
     leader_args: List[str] = []
     if randomize_leader:
@@ -298,7 +308,21 @@ def run_one_simulation(
         leader_args = ["--leader", str(leader_id)]
         print(f"  Leader: replica {leader_id} (random)")
 
-    argv = [str(RUN_SCRIPT), str(FOURWAY_DIR), *leader_args, *extra, "-u", "Cmdenv", "-c", cfg]
+    if not dry_run:
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+    argv = [
+        str(RUN_SCRIPT),
+        str(FOURWAY_DIR),
+        "--channel-metrics-dir",
+        metrics_dir,
+        *leader_args,
+        *extra,
+        "-u",
+        "Cmdenv",
+        "-c",
+        cfg,
+    ]
     # Seed bash $RANDOM for generate_random_scenario in run-resdb-simulation.sh.
     # Harmless when --randomize is omitted (No_Ambulance_Honest).
     inner = f"export RANDOM={seed} && " + " ".join(shlex.quote(a) for a in argv)
@@ -308,8 +332,7 @@ def run_one_simulation(
 
 
 def run_analyze(n: int, scenario_name: str, rep: int, *, dry_run: bool) -> None:
-    sub = SCENARIO_SUBDIR[scenario_name]
-    save_to = REPO_ROOT / "benchmarks" / f"Priority{n}cars" / sub / f"run_{rep}"
+    save_to = benchmark_run_dir(n, scenario_name, rep)
     save_to.mkdir(parents=True, exist_ok=True)
     analyze = REPO_ROOT / "fourway" / "analyze_log.py"
     scen = ANALYZE_SCENARIO[scenario_name]

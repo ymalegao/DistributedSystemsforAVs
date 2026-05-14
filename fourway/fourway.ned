@@ -3,6 +3,7 @@ import org.car2x.veins.base.connectionManager.ConnectionManager;
 import org.car2x.veins.base.modules.BaseWorldUtility;
 import org.car2x.veins.modules.mobility.traci.TraCIScenarioManagerLaunchd;
 import org.car2x.veins.modules.obstacle.ObstacleControl;
+import org.car2x.veins.modules.obstacle.VehicleObstacleControl;
 import org.car2x.veins.nodes.Car; // Veins 5.3 uses 'Car' not 'TraCINode'
 import org.car2x.veins.nodes.RSU;
 import org.car2x.veins.nodes.TrafficLight;  // Add this import
@@ -39,6 +40,11 @@ network fourWay
 
         obstacles: ObstacleControl {
             @display("p=100,150");
+        }
+
+        // Required name for PhyLayer80211p / VehicleObstacleShadowing (see VehicleObstacleControlAccess)
+        vehicleObstacles: VehicleObstacleControl {
+            @display("p=100,175");
         }
 
         node[numNodes]: Car;
