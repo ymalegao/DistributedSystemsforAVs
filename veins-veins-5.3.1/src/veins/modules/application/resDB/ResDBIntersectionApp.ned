@@ -55,6 +55,8 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
 
         // ── Step-5 cert collection / proposal ────────────────────────────────
         bool debugCertProtocol = default(false); // verbose ARRIVAL_ECHO / ARRIVAL_CERT tracing
+        // Trace ResDB order callback → processOrders (enqueue/dequeue, skips, tail drops).
+        bool debugOrderDelivery = default(true);
         bool enableArrivalCertRetries = default(true);
         double arrivalCertRetryIntervalSec @unit(s) = default(0.1s);
         int arrivalCertRetryMax = default(30); // extra ARRIVAL_CERT sends after first; 0 = unlimited until stop
@@ -71,14 +73,19 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         double consensusTimeoutSec @unit(s) = default(30s);
 
         // ── Step-5 TraCI / crossing ───────────────────────────────────────────
-        double cruiseSpeedMps      = default(14.0);   // m/s handed to TraCI on resume
+        double cruiseSpeedMps      = default(13.89);   // m/s handed to TraCI on resume
         double safetyGapS          = default(1.5);    // legacy fixed-stagger fallback (unused once TraCI clearance gating is on)
         double clearancePollPeriodSec @unit(s) = default(0.1s); // poll interval while waiting for predecessor to clear
-        double clearanceTimeoutSec    @unit(s) = default(40s);   // hard fallback if predecessor never clears
+        double clearanceTimeoutSec    @unit(s) = default(120s);   // hard fallback if predecessor never clears
         bool   isAmbulance         = default(false);  // ambulance gets top priority in schedule
         int    ambulanceReplicaId  = default(-1);     // if >=0, marks veh<id> as ambulance after SUMO identity binding
         bool   isByzantine         = default(false);  // enables Byzantine fault injection
         int    byzantineType       = default(0);      // 0=honest 1=false_lane 2=invalid_sig 3=equivocator 4=silent_primary 5=bad_proposal
+
+        // ── Post-consensus order gossip (Type 9) ──────────────────────────────
+        bool   enableDecisionGossip                        = default(true);
+        double decisionGossipInitialIntervalSec @unit(s)  = default(0.5s);
+        int    decisionGossipMaxRetries                    = default(5);
 
         // ── Milestone 4: view-change (VC) support ─────────────────────────────
         // PBFT complaint-timer duration in sim-seconds.  After certCollectionTimeoutSec

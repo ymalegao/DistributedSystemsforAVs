@@ -364,6 +364,19 @@ def _overall_stat_mean(overall: dict, key: str) -> float | None:
     return None
 
 
+def _format_bft_latency_ms(y_ms: float) -> str:
+    """Compact label for BFT latency points (ms, sim time)."""
+    if y_ms >= 10_000:
+        return f"{y_ms / 1000:.1f}s"
+    if y_ms >= 1000:
+        return f"{y_ms / 1000:.2f}s"
+    if y_ms >= 100:
+        return f"{y_ms:.0f}"
+    if y_ms >= 10:
+        return f"{y_ms:.1f}"
+    return f"{y_ms:.2f}"
+
+
 def _files_by_vc_includes_path_marker(
     files_by_vc: dict[int, list[str]], marker: str
 ) -> bool:
@@ -1134,6 +1147,7 @@ def plot_bars(
     x_cl = np.array(GRID_VEHICLE_COUNTS, dtype=float)
     has_cl = False
     positive_y_vals_cl: list[float] = []
+    cl_plotted: list[tuple[int, str, list[float]]] = []  # series idx, label, y (ms)
     for i, sk in enumerate(series_keys):
         y_vals_cl: list[float] = []
         cl_mk = consensus_line_metric_by_label.get(sk, "consensus_latency_sim_s")
@@ -1146,6 +1160,7 @@ def plot_bars(
                 positive_y_vals_cl.append(y_ms)
         if all(v != v for v in y_vals_cl):  # all NaN
             continue
+        leg = short_cdf_legend_label(sk)
         ax_cl.plot(
             x_cl,
             y_vals_cl,
@@ -1154,8 +1169,9 @@ def plot_bars(
             linewidth=2,
             marker="o",
             markersize=6,
-            label=short_cdf_legend_label(sk),
+            label=leg,
         )
+        cl_plotted.append((i, leg, y_vals_cl))
         has_cl = True
     if has_cl:
         ax_cl.set_xlabel("Number of vehicles", fontsize=10, fontweight="bold")
@@ -1178,6 +1194,29 @@ def plot_bars(
                 ax_cl.set_ylim(bottom=0)
         else:
             ax_cl.set_ylim(bottom=0)
+        n_cl_series = len(cl_plotted)
+        print("BFT latency (ms, sim time):")
+        for i, leg, y_vals_cl in cl_plotted:
+            color = DEFAULT_COLORS[i % len(DEFAULT_COLORS)]
+            parts: list[str] = []
+            for n, yv in zip(GRID_VEHICLE_COUNTS, y_vals_cl):
+                if yv == yv and yv > 0:
+                    parts.append(f"n={n}: {_format_bft_latency_ms(yv)}")
+                    x_off = (i - (n_cl_series - 1) / 2.0) * 12.0
+                    y_off = 8.0 + (i % 2) * 5.0
+                    ax_cl.annotate(
+                        _format_bft_latency_ms(yv),
+                        (float(n), yv),
+                        textcoords="offset points",
+                        xytext=(x_off, y_off),
+                        ha="center",
+                        va="bottom",
+                        fontsize=6,
+                        color=color,
+                        clip_on=False,
+                    )
+            if parts:
+                print(f"  {leg}: {', '.join(parts)}")
         ax_cl.legend(fontsize=8, loc="best")
         fig_cl.tight_layout()
     else:
