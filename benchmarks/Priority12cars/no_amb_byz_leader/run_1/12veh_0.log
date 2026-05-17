@@ -1,21 +1,21 @@
-[ROUND-METRICS] Epoch 0 Avg_StopSign_Failures: 2.000 (count)
+[ROUND-METRICS] Epoch 0 Avg_StopSign_Failures: 0.000 (count)
 [ROUND-METRICS] Epoch 1 Avg_StopSign_Failures: 0.000 (count)
 [ROUND-METRICS] Epoch 2 Avg_StopSign_Failures: 0.000 (count)
-[RUN-METRICS] Throughput_User_Definition: 4.549383 seconds_per_vehicle
-[RUN-METRICS] Throughput_Vehicles_Per_Second: 0.219810 vehicles_per_second
-[RUN-METRICS] Wait_Intersection_All_Mean: 40.944444 seconds
-[RUN-METRICS] Wait_Intersection_All_P95: 61.300000 seconds
-[RUN-METRICS] Wait_Intersection_Normal_Mean: 40.944444 seconds
-[RUN-METRICS] Stop_To_Resume_Mean: 36.636400 seconds
-[RUN-METRICS] Resume_To_Depart_Mean: 1.516000 seconds
-[RUN-METRICS] Jains_Fairness_All: 0.820270
-[RUN-METRICS] Jains_Fairness_Normal: 0.820270
+[RUN-METRICS] Throughput_User_Definition: 2.015972 seconds_per_vehicle
+[RUN-METRICS] Throughput_Vehicles_Per_Second: 0.496039 vehicles_per_second
+[RUN-METRICS] Wait_Intersection_All_Mean: 24.191667 seconds
+[RUN-METRICS] Wait_Intersection_All_P95: 27.210000 seconds
+[RUN-METRICS] Wait_Intersection_Normal_Mean: 24.191667 seconds
+[RUN-METRICS] Stop_To_Resume_Mean: 22.768583 seconds
+[RUN-METRICS] Resume_To_Depart_Mean: 1.423083 seconds
+[RUN-METRICS] Jains_Fairness_All: 0.989167
+[RUN-METRICS] Jains_Fairness_Normal: 0.989167
 [RUN-METRICS] Byzantine_Injections_Total: 0
 [RUN-METRICS] Byzantine_Injections_Epoch0: 0
 [RUN-METRICS] Byzantine_Injections_Epoch1: 0
 [RUN-METRICS] Byzantine_Injections_Epoch2: 0
-[RUN-METRICS] Fallback_Count: 2
-[RUN-METRICS] Fallback_Rate: 0.166667
-[ROUND-METRICS] Epoch 0 Throughput_User_Definition: 4.549383 seconds_per_vehicle
-[ROUND-METRICS] Epoch 0 Throughput_Vehicles_Per_Second: 0.219810 vehicles_per_second
-[ROUND-METRICS] Epoch 0 Wait_Normal_Mean: 40.944444 seconds
+[RUN-METRICS] Fallback_Count: 0
+[RUN-METRICS] Fallback_Rate: 0.000000
+[ROUND-METRICS] Epoch 0 Throughput_User_Definition: 2.015972 seconds_per_vehicle
+[ROUND-METRICS] Epoch 0 Throughput_Vehicles_Per_Second: 0.496039 vehicles_per_second
+[ROUND-METRICS] Epoch 0 Wait_Normal_Mean: 24.191667 seconds

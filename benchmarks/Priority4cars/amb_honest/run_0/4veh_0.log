@@ -5,8 +5,8 @@
 [RUN-METRICS] Wait_Intersection_All_P95: 3.400000 seconds
 [RUN-METRICS] Wait_Intersection_Normal_Mean: 2.933333 seconds
 [RUN-METRICS] Wait_Intersection_Ambulance_Mean: 2.000000 seconds
-[RUN-METRICS] Stop_To_Resume_Mean: 1.032500 seconds
-[RUN-METRICS] Resume_To_Depart_Mean: 1.667500 seconds
+[RUN-METRICS] Stop_To_Resume_Mean: 1.032750 seconds
+[RUN-METRICS] Resume_To_Depart_Mean: 1.667250 seconds
 [RUN-METRICS] Jains_Fairness_All: 0.937018
 [RUN-METRICS] Jains_Fairness_Normal: 0.951819
 [RUN-METRICS] Ambulance_Priority_Gain: 0.933333 seconds

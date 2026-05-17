@@ -1,0 +1,21 @@
+[ROUND-METRICS] Epoch 0 Avg_StopSign_Failures: 0.000 (count)
+[ROUND-METRICS] Epoch 1 Avg_StopSign_Failures: 0.000 (count)
+[ROUND-METRICS] Epoch 2 Avg_StopSign_Failures: 0.000 (count)
+[RUN-METRICS] Throughput_User_Definition: 1.977083 seconds_per_vehicle
+[RUN-METRICS] Throughput_Vehicles_Per_Second: 0.505796 vehicles_per_second
+[RUN-METRICS] Wait_Intersection_All_Mean: 23.725000 seconds
+[RUN-METRICS] Wait_Intersection_All_P95: 26.580000 seconds
+[RUN-METRICS] Wait_Intersection_Normal_Mean: 23.725000 seconds
+[RUN-METRICS] Stop_To_Resume_Mean: 22.308417 seconds
+[RUN-METRICS] Resume_To_Depart_Mean: 1.416583 seconds
+[RUN-METRICS] Jains_Fairness_All: 0.989215
+[RUN-METRICS] Jains_Fairness_Normal: 0.989215
+[RUN-METRICS] Byzantine_Injections_Total: 0
+[RUN-METRICS] Byzantine_Injections_Epoch0: 0
+[RUN-METRICS] Byzantine_Injections_Epoch1: 0
+[RUN-METRICS] Byzantine_Injections_Epoch2: 0
+[RUN-METRICS] Fallback_Count: 0
+[RUN-METRICS] Fallback_Rate: 0.000000
+[ROUND-METRICS] Epoch 0 Throughput_User_Definition: 1.977083 seconds_per_vehicle
+[ROUND-METRICS] Epoch 0 Throughput_Vehicles_Per_Second: 0.505796 vehicles_per_second
+[ROUND-METRICS] Epoch 0 Wait_Normal_Mean: 23.725000 seconds

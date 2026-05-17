@@ -14,6 +14,7 @@
 #include "veins/modules/application/ieee80211p/DemoBaseApplLayer.h"
 #include "veins/modules/application/resDB/IV2VTransport.h"
 #include "veins/modules/application/resDB/crypto/CryptoAuth.h"
+#include "veins/modules/application/resDB/ResDBDecisionGossip.h"
 #include "integration/omnet/resdb_omnet_bridge.h"
 
 class ChannelMetrics;
@@ -161,7 +162,8 @@ private:
     void sendBFTMessage(int toReplicaId, const std::vector<uint8_t>& payload, int msgType);
 
     // ── Arrival cert protocol (ported from V2VArrivalProtocol.cc) ────────────
-    void tryStartCertCollectionTimer();
+    // Arm (or re-arm) primary cert-collection deadline; only valid in stop zone (V2V parity).
+    void tryStartCertCollectionTimer(bool rearm = false);
     void broadcastArrivalAnnouncement();
     void handleArrivalAnnouncement(BFTMessage* msg);
     void sendArrivalEcho(const ArrivalAnnouncement& ann);
@@ -170,6 +172,13 @@ private:
     void scheduleNextCertRetry();
     void stopCertBroadcastRetries();
     void handleArrivalCert(BFTMessage* msg);
+
+    // ── Post-consensus order gossip (Type 9) ──────────────────────────────────
+    void triggerGossip(uint32_t epoch, const std::vector<uint8_t>& order_bytes);
+    void scheduleNextGossip();
+    void stopGossip();
+    void handleDecisionGossip(BFTMessage* bft);
+    bool applyGossipOrder(const std::vector<uint8_t>& order_bytes, uint32_t epoch);
     bool validateArrivalCert(const ArrivalCert& cert);
 
     std::vector<uint8_t> serializeArrivalAnnouncement(const ArrivalAnnouncement& ann);
@@ -274,6 +283,21 @@ private:
     int    cert_retry_count_         = 0;
     bool cert_broadcast_          = false;
 
+    // ── Post-consensus order gossip (Type 9) ──────────────────────────────────
+    static constexpr int kDecisionGossipType = 9;
+
+    resdb_gossip::GossipAccumulator gossip_acc_;
+    cMessage*            gossip_timer_              = nullptr;
+    int                  gossip_retry_count_        = 0;
+    uint32_t             gossip_epoch_              = 0;
+    std::vector<uint8_t> gossip_order_bytes_;
+    uint32_t             last_committed_epoch_      = 0;
+    bool                 has_committed_order_       = false;
+    std::vector<uint8_t> committed_order_bytes_;
+    bool                 gossip_enabled_            = false;
+    double               gossip_initial_interval_   = 0.5;
+    int                  gossip_max_retries_        = 5;
+
     // ── TraCI lane state ──────────────────────────────────────────────────────
     bool        lane_discovered_ = false;
     bool        is_stopped_      = false;
@@ -296,6 +320,7 @@ private:
 
     // ── Control flow ──────────────────────────────────────────────────────────
     bool      debug_cert_protocol_ = false;
+    bool      debug_order_delivery_ = false;
 
     bool      entered_stop_zone_ = false;
     bool      propose_submitted_ = false;

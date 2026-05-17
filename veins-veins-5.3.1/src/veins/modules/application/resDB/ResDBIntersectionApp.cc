@@ -16,6 +16,7 @@
 #include <stdexcept>
 
 #include "veins/modules/application/resDB/ResdbV2VWire.h"
+#include "veins/modules/application/resDB/ResDBDecisionGossip.h"
 
 using namespace veins;
 
@@ -92,6 +93,7 @@ ResDBIntersectionApp::~ResDBIntersectionApp()
     if (time_tick_msg_)           { cancelAndDelete(time_tick_msg_);           time_tick_msg_           = nullptr; }
     if (propose_timeout_msg_)     { cancelAndDelete(propose_timeout_msg_);     propose_timeout_msg_     = nullptr; }
     if (cert_retry_timer_)        { cancelAndDelete(cert_retry_timer_);        cert_retry_timer_        = nullptr; }
+    if (gossip_timer_)            { cancelAndDelete(gossip_timer_);            gossip_timer_            = nullptr; }
     if (initial_announce_msg_)    { cancelAndDelete(initial_announce_msg_);    initial_announce_msg_    = nullptr; }
     if (stop_sign_timeout_msg_)   { cancelAndDelete(stop_sign_timeout_msg_);   stop_sign_timeout_msg_   = nullptr; }
     if (consensus_timeout_msg_)   { cancelAndDelete(consensus_timeout_msg_);   consensus_timeout_msg_   = nullptr; }
@@ -168,9 +170,14 @@ void ResDBIntersectionApp::initialize(int stage)
         broadcast_arrival_announcement_interval_ = par("broadcastArrivalAnnouncementIntervalSec").doubleValue();
         cert_collection_timeout_  = par("certCollectionTimeoutSec").doubleValue();
         debug_cert_protocol_    = par("debugCertProtocol").boolValue();
+        debug_order_delivery_ = par("debugOrderDelivery").boolValue();
         enable_cert_retries_    = par("enableArrivalCertRetries").boolValue();
         cert_retry_interval_    = par("arrivalCertRetryIntervalSec").doubleValue();
         cert_retry_max_         = par("arrivalCertRetryMax").intValue();
+
+        gossip_enabled_          = par("enableDecisionGossip").boolValue();
+        gossip_initial_interval_ = par("decisionGossipInitialIntervalSec").doubleValue();
+        gossip_max_retries_      = par("decisionGossipMaxRetries").intValue();
 
         cruise_speed_mps_      = par("cruiseSpeedMps").doubleValue();
         is_ambulance_          = par("isAmbulance").boolValue();
@@ -371,7 +378,9 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
     if (msg == broadcastArrivalAnnouncement_timer_) {
         // Periodic self-message: never delete after scheduleAt() — the same cMessage must stay owned
         // by the FES until cancelled (see transport_poll_msg_ / time_tick_msg_ above).
-        if (physically_observed_cars_.size() != total_vehicles_ && !order_applied_) {
+        // Keep re-announcing until cert is assembled: a car may have observed all peers yet still
+        // lack f+1 echoes, so witnesses need continued re-announces to trigger re-echoes.
+        if (!cert_broadcast_ && !order_applied_ && !propose_submitted_) {
             broadcastArrivalAnnouncement();
             scheduleAt(simTime() + broadcast_arrival_announcement_interval_, broadcastArrivalAnnouncement_timer_);
             std::cout << "[ANN-SEND] Replica " << replicaId_ << " rescheduled arrival-announcement timer\n";
@@ -402,7 +411,21 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
         return;
     }
 
-   
+    if (msg == gossip_timer_) {
+        if (gossip_order_bytes_.empty()) return;
+        auto inner  = resdb_gossip::serialize(gossip_epoch_, gossip_order_bytes_);
+        auto signed_payload = resdbwire::packSignedPacket(
+            ec_private_key_, ec_pub_key_, inner.data(), (uint32_t)inner.size());
+        if (!signed_payload.empty()) {
+            sendBFTMessage(-1, signed_payload, kDecisionGossipType);
+            std::cout << "[GOSSIP-SEND] r" << replicaId_ << " epoch=" << gossip_epoch_
+                      << " retry=" << gossip_retry_count_ << " t=" << simTime() << "\n";
+        }
+        gossip_retry_count_++;
+        scheduleNextGossip();
+        return;
+    }
+
     if (msg == propose_timeout_msg_) {
         propose_timeout_msg_ = nullptr;
         if (!propose_submitted_) {
@@ -439,9 +462,12 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
     if (msg == vc_trigger_msg_) {
         vc_trigger_msg_ = nullptr;
         if (!order_applied_) {
+            int primary = ResdbOmnetGetPrimary(resdb_server_handle_);
             std::cout << "[VC-TRIGGER] r" << replicaId_
                       << " forcing view change at " << simTime()
-                      << " phase=" << phaseToStr(current_phase_);
+                      << " phase=" << phaseToStr(current_phase_)
+                      << " pbft_primary=" << primary
+                      << " propose_submitted=" << propose_submitted_;
             if (stop_time_ >= SIMTIME_ZERO)
                 std::cout << " stop_to_vc_sec=" << (simTime() - stop_time_).dbl();
             std::cout << "\n";
@@ -449,12 +475,26 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
             // SendViewChangeMsg() directly.  All downstream VC timers (TYPE_VIEWCHANGE,
             // TYPE_NEWVIEW) use SleepForUs driven by SimTimeProvider → sim-time.
             ResdbOmnetForceViewChange(resdb_server_handle_);
+            std::cout << "[APP-VC] r" << replicaId_
+                      << " ResdbOmnetForceViewChange returned t=" << simTime() << "\n";
         }
         delete msg; return;
     }
 
     if (msg == stop_sign_timeout_msg_) {
         stop_sign_timeout_msg_ = nullptr;
+        // Apply any consensus orders already queued before declaring timeout.
+        // Otherwise FES ordering can deliver this self-message before the next
+        // transport poll: processOrders() would see order_applied_=1 and drop
+        // the tail of pending_orders_ without ever logging Batch_Assignment.
+        std::cout << "[TIMEOUT-PRE] r" << replicaId_
+                  << " stop_sign flush processOrders order_applied=" << order_applied_
+                  << " phase=" << phaseToStr(current_phase_) << " t=" << simTime()
+                  << "\n";
+        processOrders();
+        std::cout << "[TIMEOUT-POST] r" << replicaId_
+                  << " stop_sign after processOrders order_applied=" << order_applied_
+                  << " t=" << simTime() << "\n";
         if (!order_applied_) {
             std::cout << "[METRICS " << replicaId_ << "] StopSign_Timeout: 1\n";
             std::cout << "[VC-TIMEOUT] r" << replicaId_
@@ -475,6 +515,14 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
 
     if (msg == consensus_timeout_msg_) {
         consensus_timeout_msg_ = nullptr;
+        std::cout << "[TIMEOUT-PRE] r" << replicaId_
+                  << " consensus flush processOrders order_applied=" << order_applied_
+                  << " phase=" << phaseToStr(current_phase_) << " t=" << simTime()
+                  << "\n";
+        processOrders();
+        std::cout << "[TIMEOUT-POST] r" << replicaId_
+                  << " consensus after processOrders order_applied=" << order_applied_
+                  << " t=" << simTime() << "\n";
         if (!order_applied_) {
             std::cout << "[METRICS " << replicaId_ << "] Consensus_Timeout: 1\n";
             std::cout << "[VC-TIMEOUT] r" << replicaId_
@@ -599,17 +647,16 @@ void ResDBIntersectionApp::handlePositionUpdate(cObject* obj)
 
         int primary = ResdbOmnetGetPrimary(resdb_server_handle_);
         if (replicaId_ == primary && !propose_submitted_) {
-            if (deferred_propose_after_cert_timeout_) {
+            if ((int)collected_certs_.size() >= total_vehicles_) {
+                proposeAll();
+            } else if (deferred_propose_after_cert_timeout_) {
                 deferred_propose_after_cert_timeout_ = false;
                 std::cout << "[ResDB r" << replicaId_
-                          << "] stop zone: deferred cert-timeout — proposing with available certs\n";
-                proposeAll();
-            } else if ((int)collected_certs_.size() >= total_vehicles_) {
-                proposeAll();
-            } else if (!propose_timeout_msg_ || !propose_timeout_msg_->isScheduled()) {
-                if (!propose_timeout_msg_)
-                    propose_timeout_msg_ = new cMessage("resdbProposeTimeout");
-                scheduleAt(simTime() + cert_collection_timeout_, propose_timeout_msg_);
+                          << "] stop zone: deferred cert-timeout — re-arming collection (timeout="
+                          << cert_collection_timeout_ << "s)\n";
+                tryStartCertCollectionTimer(true);
+            } else {
+                tryStartCertCollectionTimer(false);
             }
         } else if (replicaId_ != primary && !vc_trigger_msg_ && !order_applied_) {
             // Follower stop zone entry: arm VC trigger in case primary is silent.
@@ -698,10 +745,17 @@ void ResDBIntersectionApp::enqueueOutbound(int toReplicaId,
                                             const uint8_t* data, uint32_t len)
 {
     if (!data || len == 0) return;
-    PendingOutboundPacket pkt;
-    pkt.toReplicaId = toReplicaId;
-    pkt.resdbBytes.assign(data, data + len);
+    std::vector<uint8_t> bytes(data, data + len);
     std::lock_guard<std::mutex> lk(outbound_mutex_);
+    // Dedup: the bridge's per-recipient SendMessage calls broadcast() N-1 times
+    // with identical bytes.  Keep only the first; subsequent are dropped here so
+    // one PHY transmission covers all receivers.
+    for (const auto& pkt : outbound_queue_) {
+        if (pkt.resdbBytes == bytes) return;
+    }
+    PendingOutboundPacket pkt;
+    pkt.toReplicaId = toReplicaId;  // -1 from broadcast path, specific from send_to path
+    pkt.resdbBytes  = std::move(bytes);
     outbound_queue_.push_back(std::move(pkt));
 }
 
@@ -780,7 +834,8 @@ void ResDBIntersectionApp::sendBFTMessage(int toReplicaId,
         delaySec = replicaId_ * par("viewAgreementSlotSec").doubleValue()
             + uniform(par("viewJitterMin").doubleValue(), par("viewJitterMax").doubleValue());
     } else if (msgType == kArrivalCertType) {
-        delaySec = uniform(par("viewJitterMin").doubleValue(), par("viewJitterMax").doubleValue());
+        delaySec = replicaId_ * par("arrivalSlotSec").doubleValue() + uniform(par("viewJitterMin").doubleValue(), par("viewJitterMax").doubleValue());
+        // delaySec = uniform(par("viewJitterMin").doubleValue(), par("viewJitterMax").doubleValue());
     } else if (msgType == kArrivalAnnounceType) {
         delaySec = replicaId_ * par("arrivalSlotSec").doubleValue()
             + uniform(par("broadcastJitterMin").doubleValue(), par("broadcastJitterMax").doubleValue());
@@ -833,6 +888,12 @@ void ResDBIntersectionApp::onWSM(BaseFrame1609_4* wsm)
 
     if (msgType == kArrivalCertType) {
         handleArrivalCert(bft);
+        return;
+    }
+
+    // ── Type 9: Post-consensus order gossip ───────────────────────────────────
+    if (msgType == kDecisionGossipType) {
+        handleDecisionGossip(bft);
         return;
     }
 
@@ -1036,23 +1097,27 @@ ResDBIntersectionApp::deserializeArrivalCert(BFTMessage* msg)
     return cert;
 }
 
-// ── tryStartCertCollectionTimer (align with V2V: deadline from first leader observation) ──
+// ── tryStartCertCollectionTimer (V2V parity: deadline starts at primary stop-zone entry) ──
 
-void ResDBIntersectionApp::tryStartCertCollectionTimer()
+void ResDBIntersectionApp::tryStartCertCollectionTimer(bool rearm)
 {
     if (!resdb_server_handle_ || propose_submitted_) return;
     if (replicaId_ != ResdbOmnetGetPrimary(resdb_server_handle_)) return;
     if ((int)collected_certs_.size() >= total_vehicles_) return;
-    if (cert_collection_started_) return;
-    if (propose_timeout_msg_ && propose_timeout_msg_->isScheduled()) return;
+    if (!entered_stop_zone_) return;
+    if (!rearm && cert_collection_started_) return;
+    if (propose_timeout_msg_ && propose_timeout_msg_->isScheduled()) {
+        if (!rearm) return;
+        cancelEvent(propose_timeout_msg_);
+    }
 
     if (!propose_timeout_msg_)
         propose_timeout_msg_ = new cMessage("resdbProposeTimeout");
     scheduleAt(simTime() + cert_collection_timeout_, propose_timeout_msg_);
     cert_collection_started_ = true;
     std::cout << "[ResDB r" << replicaId_
-              << "] Leader: cert-collection deadline armed at first observation (timeout="
-              << cert_collection_timeout_ << "s)\n";
+              << "] Leader: cert-collection deadline at stop line (timeout="
+              << cert_collection_timeout_ << "s rearm=" << (rearm ? 1 : 0) << ")\n";
 }
 
 // ── broadcastArrivalAnnouncement (port of V2VArrivalProtocol::broadcastArrivalAnnouncement) ──
@@ -1158,8 +1223,6 @@ void ResDBIntersectionApp::broadcastArrivalAnnouncement()
         std::cout << "[ANN-BROADCAST] Replica " << replicaId_ << " broadcast ARRIVAL_ANNOUNCE at t="
                   << simTime() << " lane=" << ann.lane << "\n";
     }
-
-    tryStartCertCollectionTimer();
 }
 
 // ── handleArrivalAnnouncement ─────────────────────────────────────────────────
@@ -1175,8 +1238,13 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg)
     // echoed_cars_ is populated only after verifyCarPosition passes, so FALSE_LANE
     // cars stored in local_vehicle_states_ are never re-echoed here.
     if (local_vehicle_states_.count(ann.carId)) {
+        // Re-echo if we verified this car before but haven't received its cert yet.
+        // Use !collected_certs_.count(ann.carId), NOT !cert_broadcast_: the latter
+        // is this replica's own flag and would incorrectly suppress re-echoes after
+        // this replica assembles its own cert.
         if (echoed_cars_.count(ann.carId)
-                && !cert_broadcast_ && !propose_submitted_ && !order_applied_)
+                && !collected_certs_.count(ann.carId)
+                && !propose_submitted_ && !order_applied_)
             sendArrivalEcho(ann);
         return;
     }
@@ -1200,7 +1268,6 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg)
         physically_observed_cars_.insert(ann.carId);
         std::cout << "[ANN-RECV] Replica " << replicaId_ << " FALSE_LANE from "
                   << ann.carId << " — no echo\n";
-        tryStartCertCollectionTimer();
         return;
     }
 
@@ -1223,18 +1290,12 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg)
               << ann.carId << " (" << physically_observed_cars_.size()
               << "/" << total_vehicles_ << " observed)\n";
 
-    //cancel broadcastArrivalAnnouncement timer once we have observed all vehicles at the intersection
     if (physically_observed_cars_.size() == total_vehicles_) {
-        std::cout << "[ANN-RECV] Replica " << replicaId_ << " all vehicles observed at intersection, cancelling broadcastArrivalAnnouncement timer\n";
-
-        if (broadcastArrivalAnnouncement_timer_) { cancelAndDelete(broadcastArrivalAnnouncement_timer_); broadcastArrivalAnnouncement_timer_ = nullptr; }
-
-         
         current_phase_ = ConsensusPhase::COLLECTING_CERTS;
-
+        // Do NOT cancel the re-announce timer here: this car may still need witnesses to re-echo it.
+        // The timer handler stops once cert_broadcast_ is true.
+        std::cout << "[ANN-RECV] Replica " << replicaId_ << " all vehicles observed, phase=COLLECTING_CERTS\n";
     }
-
-    tryStartCertCollectionTimer();
 }
 
 // ── sendArrivalEcho ───────────────────────────────────────────────────────────
@@ -1277,11 +1338,11 @@ void ResDBIntersectionApp::sendArrivalEcho(const ArrivalAnnouncement& ann)
     }
 
     int targetId = extractReplicaId(ann.carId);
-    sendBFTMessage(targetId, serializeArrivalEcho(echo), kArrivalEchoType);
+    sendBFTMessage(-1, serializeArrivalEcho(echo), kArrivalEchoType);
     std::cout << "[ECHO-SEND] Replica " << replicaId_ << " → " << ann.carId
               << " ARRIVAL_ECHO sigLen=" << (int)echo.signatureLen << "\n";
     if (debug_cert_protocol_) {
-        std::cout << "[CERT-DEBUG] sendArrivalEcho r" << replicaId_ << " targetReplicaId=" << targetId
+        std::cout << "[CERT-DEBUG] sendArrivalEcho r" << replicaId_ << " targetReplicaId=-1"
                   << " signPayload=\"" << toSign << "\"\n";
     }
 }
@@ -1691,8 +1752,16 @@ void ResDBIntersectionApp::proposeAll()
     auto* app = static_cast<ResDBIntersectionApp*>(ctx);
     if (!bytes || len == 0) return;
     std::vector<uint8_t> copy(bytes, bytes + len);
-    std::lock_guard<std::mutex> lk(app->orders_mutex_);
-    app->pending_orders_.push_back(std::move(copy));
+    size_t pending_after = 0;
+    {
+        std::lock_guard<std::mutex> lk(app->orders_mutex_);
+        app->pending_orders_.push_back(std::move(copy));
+        pending_after = app->pending_orders_.size();
+    }
+    std::cout << "[ORDER-ENQ] r" << app->replicaId_ << " len=" << len
+              << " pending_after=" << pending_after
+              << " order_applied=" << app->order_applied_
+              << " phase=" << phaseToStr(static_cast<int>(app->current_phase_)) << std::endl;
 }
 
 // ── processOrders (simulation thread, called from transport poll) ─────────────
@@ -1706,21 +1775,50 @@ void ResDBIntersectionApp::processOrders()
         local.swap(pending_orders_);
     }
 
+    if (debug_order_delivery_) {
+        std::cout << "[ORDER-DEQ] r" << replicaId_ << " n=" << local.size()
+                  << " order_applied=" << order_applied_
+                  << " phase=" << phaseToStr(current_phase_) << "\n";
+    }
+
+    size_t ord_idx = 0;
     for (const auto& dec : local) {
-        if (order_applied_) break;
-        if (dec.size() < sizeof(ResdbOrderHdr)) continue;
+        ++ord_idx;
+        if (order_applied_) {
+            if (debug_order_delivery_) {
+                std::cout << "[ORDER-TAIL-DROP] r" << replicaId_
+                          << " skipping_remaining=" << (local.size() - ord_idx + 1)
+                          << " (order_applied already)\n";
+            }
+            break;
+        }
+        if (dec.size() < sizeof(ResdbOrderHdr)) {
+            if (debug_order_delivery_) {
+                std::cout << "[ORDER-SKIP] r" << replicaId_
+                          << " reason=short_hdr len=" << dec.size() << "\n";
+            }
+            continue;
+        }
 
         ResdbOrderHdr ohdr;
         std::memcpy(&ohdr, dec.data(), sizeof(ohdr));
         // New format: n_vehicles × ResdbVehicleDecision (8 bytes each).
         if (dec.size() < sizeof(ResdbOrderHdr) +
-                         ohdr.n_vehicles * sizeof(ResdbVehicleDecision)) continue;
+                         ohdr.n_vehicles * sizeof(ResdbVehicleDecision)) {
+            if (debug_order_delivery_) {
+                std::cout << "[ORDER-SKIP] r" << replicaId_ << " reason=short_body len="
+                          << dec.size() << " n_vehicles=" << ohdr.n_vehicles << "\n";
+            }
+            continue;
+        }
 
         const ResdbVehicleDecision* decisions = reinterpret_cast<const ResdbVehicleDecision*>(
             dec.data() + sizeof(ResdbOrderHdr));
 
         std::cout << "[METRICS " << replicaId_ << "] Order_Decided_Time: " << simTime()
                   << " n_batches=" << ohdr.n_batches << "\n";
+        
+        has_committed_order_ = true;
         if (propose_time_ >= SIMTIME_ZERO) {
             double bft_sim  = (simTime() - propose_time_).dbl();
             double stop_dec = (stop_time_ >= SIMTIME_ZERO) ? (simTime() - stop_time_).dbl() : -1.0;
@@ -1752,12 +1850,32 @@ void ResDBIntersectionApp::processOrders()
         for (uint32_t i = 0; i < ohdr.n_vehicles; ++i)
             if (decisions[i].replica_id == replicaId_)
                 { my_batch = (int)decisions[i].batch_index; break; }
-        if (my_batch < 0) continue;
+        if (my_batch < 0) {
+            std::cout << "[ORDER-WARN] r" << replicaId_
+                      << " committed order has no slot for this replica_id (n_vehicles="
+                      << ohdr.n_vehicles << ")\n";
+            if (debug_order_delivery_) {
+                std::cout << "[ORDER-WARN] r" << replicaId_ << " decision_ids:";
+                for (uint32_t i = 0; i < ohdr.n_vehicles; ++i)
+                    std::cout << " " << decisions[i].replica_id;
+                std::cout << "\n";
+            }
+            continue;
+        }
 
         order_applied_ = true;
         if (stop_time_ < SIMTIME_ZERO)
             stop_time_ = simTime();  // car was en-route when order arrived; use order time as fallback
         stopCertBroadcastRetries();
+
+        // Trigger post-consensus gossip so stragglers can catch up.
+        if (gossip_enabled_) {
+            last_committed_epoch_ = ohdr.epoch;
+            has_committed_order_  = true;
+            committed_order_bytes_ = dec;
+            if (gossip_order_bytes_.empty())
+                triggerGossip(ohdr.epoch, dec);
+        }
         current_phase_ = ConsensusPhase::EXECUTING;
         my_batch_index_ = my_batch;
 
@@ -1802,6 +1920,7 @@ void ResDBIntersectionApp::resumeVehicle(int position_in_order)
     std::cout << "[V2VResDB r" << replicaId_ << "] resumeVehicle position=" << position_in_order
               << " speed=" << cruise_speed_mps_ << " t=" << simTime() << "\n";
     vc->setSpeedMode(0);        // re-enable SUMO safety checks (mirrors stopVehicle)
+
     vc->setSpeed(cruise_speed_mps_);
 }
 
@@ -1835,4 +1954,123 @@ ResDBIntersectionApp::verifyCarPosition(const std::string& carId,
 int ResDBIntersectionApp::extractReplicaId(const std::string& carId) const
 {
     try { return std::stoi(carId.substr(3)); } catch (...) { return -1; }
+}
+
+// ── Post-consensus order gossip (Type 9) ──────────────────────────────────────
+
+void ResDBIntersectionApp::triggerGossip(uint32_t epoch,
+                                          const std::vector<uint8_t>& order_bytes)
+{
+    if (order_bytes.empty()) return;
+    if (gossip_timer_ && gossip_timer_->isScheduled())
+        cancelEvent(gossip_timer_);
+
+    gossip_epoch_       = epoch;
+    gossip_order_bytes_ = order_bytes;
+    gossip_retry_count_ = 0;
+
+    // Broadcast first frame immediately (sign with own EC key).
+    auto inner = resdb_gossip::serialize(epoch, order_bytes);
+    auto signed_payload = resdbwire::packSignedPacket(
+        ec_private_key_, ec_pub_key_, inner.data(), (uint32_t)inner.size());
+    if (!signed_payload.empty()) {
+        sendBFTMessage(-1, signed_payload, kDecisionGossipType);
+        std::cout << "[GOSSIP-SEND] r" << replicaId_ << " epoch=" << epoch
+                  << " retry=0 t=" << simTime() << "\n";
+    }
+    gossip_retry_count_++;
+    scheduleNextGossip();
+}
+
+void ResDBIntersectionApp::scheduleNextGossip()
+{
+    if (!gossip_enabled_ || gossip_order_bytes_.empty()) return;
+    if (gossip_max_retries_ > 0 && gossip_retry_count_ >= gossip_max_retries_) {
+        stopGossip();
+        return;
+    }
+    double interval = gossip_initial_interval_ * (1 << gossip_retry_count_);
+    if (!gossip_timer_) gossip_timer_ = new cMessage("decisionGossip");
+    scheduleAt(simTime() + interval, gossip_timer_);
+}
+
+void ResDBIntersectionApp::stopGossip()
+{
+    if (gossip_timer_) {
+        if (gossip_timer_->isScheduled()) cancelEvent(gossip_timer_);
+        delete gossip_timer_;
+        gossip_timer_ = nullptr;
+    }
+    gossip_order_bytes_.clear();
+}
+
+void ResDBIntersectionApp::handleDecisionGossip(BFTMessage* bft)
+{
+    int plen = bft->getPayloadArraySize();
+    if (plen <= 0) return;
+    std::vector<uint8_t> buf((size_t)plen);
+    for (int i = 0; i < plen; ++i) buf[i] = bft->getPayload(i);
+
+    // Verify the sender's EC signature (same path as TYPE8).
+    resdbwire::SignedPacketView view;
+    if (!resdbwire::unpackSignedPacket(buf.data(), (uint32_t)buf.size(), &view)) return;
+    if (view.resdbLen == 0) return;
+    if (!CryptoAuth::instance().verifyBytes(view.pubKey, view.resdbBytes, view.resdbLen,
+                                            view.sig, view.sigLen)) {
+        std::cout << "[GOSSIP-RECV] r" << replicaId_ << " dropped forged gossip from "
+                  << bft->getFromReplicaId() << "\n";
+        return;
+    }
+
+    uint32_t epoch;
+    std::vector<uint8_t> order_bytes;
+    if (!resdb_gossip::parse(view.resdbBytes, view.resdbLen, epoch, order_bytes)) return;
+
+    if (order_applied_) {
+        if (gossip_enabled_ && has_committed_order_ && epoch == last_committed_epoch_
+                && order_bytes == committed_order_bytes_
+                && gossip_order_bytes_.empty()) {
+            std::cout << "[GOSSIP-RELAY] r" << replicaId_ << " from=" << bft->getFromReplicaId()
+                      << " epoch=" << epoch << " t=" << simTime() << "\n";
+            triggerGossip(epoch, committed_order_bytes_);
+        } else {
+            std::cout << "[TYPE9-RECV] r" << replicaId_ << " from=" << bft->getFromReplicaId()
+                      << " order_applied=true, skipping\n";
+        }
+        return;
+    }
+
+    // Epoch guard: drop stale gossip from a previous round.
+    if (has_committed_order_ && epoch <= last_committed_epoch_) return;
+
+    int f         = (total_vehicles_ - 1) / 3;
+    int threshold = f + 1;
+    bool reached  = gossip_acc_.add(bft->getFromReplicaId(), epoch, order_bytes, threshold);
+
+    std::cout << "[GOSSIP-RECV] r" << replicaId_ << " from=" << bft->getFromReplicaId()
+              << " epoch=" << epoch
+              << " count=" << gossip_acc_.count(epoch, order_bytes)
+              << "/" << threshold << " t=" << simTime() << "\n";
+
+    if (reached) applyGossipOrder(order_bytes, epoch);
+}
+
+bool ResDBIntersectionApp::applyGossipOrder(const std::vector<uint8_t>& order_bytes,
+                                             uint32_t epoch)
+{
+    if (order_applied_) return false;
+    std::cout << "[GOSSIP-APPLY] r" << replicaId_
+              << " epoch=" << epoch << " t=" << simTime() << "\n";
+    // Push into the same queue onOrderDecided uses.  The 1 ms transport-poll
+    // timer will call processOrders() and apply it on the next tick.
+    {
+        std::lock_guard<std::mutex> lk(orders_mutex_);
+        pending_orders_.push_back(order_bytes);
+    }
+    last_committed_epoch_ = epoch;
+    has_committed_order_ = true;
+    committed_order_bytes_ = order_bytes;
+    stopGossip();
+    gossip_acc_.reset();
+    return true;
 }

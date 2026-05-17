@@ -6,7 +6,7 @@ SINR plots for benchmark layouts (partner plot_sinr style).
 
 CSV columns expected: time_s, sinr_db_mean (and optionally sinr_db_min) — ChannelMetrics output.
 
-Default outputs under --root:
+Default outputs under benchmarks/:
   sinr_heatmap.png
   sinr_timeseries.png
   sinr_animation.gif
@@ -14,6 +14,7 @@ Default outputs under --root:
 Usage:
   python3 benchmarks/plot_sinr.py
   python3 benchmarks/plot_sinr.py --root benchmarks/Priority16cars --no-animation
+  python3 benchmarks/plot_sinr.py --roots benchmarks/Priority4cars,benchmarks/Priority8cars
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ import argparse
 import math
 import os
 import sys
+import warnings
 
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
@@ -38,6 +40,27 @@ from benchmark_metrics_io import (
 CMAP = "plasma"
 HOLD_FRAMES = 8
 FPS = 4
+DEFAULT_PRIORITY_ROOTS = ("Priority4cars", "Priority8cars", "Priority12cars", "Priority16cars")
+
+
+def _load_sinr_scenario_averaged_union_vids(
+    scenario_dir: str,
+    time_grid_ref: list[float] | None,
+) -> tuple[list[float], list[int], np.ndarray] | None:
+    # Some run/time bins are empty after unioning time grids across repeated runs.
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="Mean of empty slice", category=RuntimeWarning)
+        return load_sinr_scenario_averaged_union_vids(scenario_dir, time_grid_ref)
+
+
+def _load_sinr_scenario_averaged_padded(
+    scenario_dir: str,
+    time_grid_ref: list[float] | None,
+    n_rows: int,
+) -> tuple[list[float], np.ndarray] | None:
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="Mean of empty slice", category=RuntimeWarning)
+        return load_sinr_scenario_averaged_padded(scenario_dir, time_grid_ref, n_rows)
 
 
 def _subplot_grid(n: int) -> tuple[int, int]:
@@ -57,7 +80,7 @@ def plot_heatmap(
     vmin, vmax = float("inf"), float("-inf")
     for name in scenario_names:
         scenario_dir = os.path.join(benchmark_root, name)
-        got = load_sinr_scenario_averaged_union_vids(scenario_dir, None)
+        got = _load_sinr_scenario_averaged_union_vids(scenario_dir, None)
         if got is None:
             continue
         tg, vids, mat = got
@@ -121,7 +144,7 @@ def plot_timeseries(benchmark_root: str, scenario_names: list[str], out_path: st
     series: list[tuple[str, np.ndarray, np.ndarray]] = []
     for name in scenario_names:
         scenario_dir = os.path.join(benchmark_root, name)
-        got = load_sinr_scenario_averaged_union_vids(scenario_dir, None)
+        got = _load_sinr_scenario_averaged_union_vids(scenario_dir, None)
         if got is None:
             continue
         tg, _vids, mat = got
@@ -168,7 +191,7 @@ def generate_animation_gif(
 
     for name in scenario_names:
         scenario_dir = os.path.join(benchmark_root, name)
-        result = load_sinr_scenario_averaged_padded(scenario_dir, None, n_rows)
+        result = _load_sinr_scenario_averaged_padded(scenario_dir, None, n_rows)
         if result is None:
             print(f"  [{name}] No sinr_V*.csv — skipping.")
             continue
@@ -187,7 +210,7 @@ def generate_animation_gif(
     scenarios: dict[str, np.ndarray] = {}
     for name in raw:
         scenario_dir = os.path.join(benchmark_root, name)
-        r2 = load_sinr_scenario_averaged_padded(scenario_dir, list(time_grid), n_rows)
+        r2 = _load_sinr_scenario_averaged_padded(scenario_dir, list(time_grid), n_rows)
         if r2:
             scenarios[name] = r2[1]
 
@@ -242,12 +265,285 @@ def generate_animation_gif(
     return True
 
 
+def plot_collective_heatmap(
+    benchmark_roots: list[str],
+    scenario_names: list[str],
+    out_path: str,
+) -> bool:
+    cache: dict[tuple[str, str], tuple[np.ndarray, list[int], np.ndarray]] = {}
+    vmin, vmax = float("inf"), float("-inf")
+    for root in benchmark_roots:
+        for name in scenario_names:
+            got = _load_sinr_scenario_averaged_union_vids(os.path.join(root, name), None)
+            if got is None:
+                continue
+            tg, vids, mat = got
+            cache[(root, name)] = (np.array(tg), vids, mat)
+            valid = mat[~np.isnan(mat)]
+            if valid.size:
+                vmin = min(vmin, float(valid.min()))
+                vmax = max(vmax, float(valid.max()))
+
+    if not cache or math.isinf(vmin):
+        print("No sinr_V*.csv data — skipping collective heatmap.")
+        return False
+
+    available_scenarios = [
+        s for s in scenario_names if any((root, s) in cache for root in benchmark_roots)
+    ]
+    nrows = len(available_scenarios)
+    ncols = len(benchmark_roots)
+    fig, axes = plt.subplots(
+        nrows,
+        ncols,
+        figsize=(3.2 * ncols, 2.6 * nrows),
+        squeeze=False,
+    )
+    fig.patch.set_facecolor("#1a1a2e")
+    fig.suptitle(
+        "Per-vehicle SINR (dB) by fleet size and scenario\n(run-averaged; common colour scale)",
+        fontsize=12,
+        color="white",
+        fontweight="bold",
+    )
+
+    im_ref = None
+    for r, scenario in enumerate(available_scenarios):
+        for c, root in enumerate(benchmark_roots):
+            ax = axes[r][c]
+            ax.set_facecolor("#1a1a2e")
+            got = cache.get((root, scenario))
+            if got is None:
+                ax.set_visible(False)
+                continue
+            tg, vids, mat = got
+            im = ax.pcolormesh(
+                np.append(tg, tg[-1] + TIME_GRID_STEP),
+                np.arange(len(vids) + 1),
+                mat,
+                cmap=CMAP,
+                vmin=vmin,
+                vmax=vmax,
+                shading="flat",
+            )
+            im_ref = im
+            if r == 0:
+                ax.set_title(
+                    os.path.basename(os.path.normpath(root)),
+                    fontsize=9,
+                    color="white",
+                    fontweight="bold",
+                )
+            ax.set_yticks(np.arange(len(vids)) + 0.5)
+            if c == 0:
+                ax.set_ylabel(f"{scenario.replace('_', ' ')}\nVehicle", fontsize=8, color="white")
+                ax.set_yticklabels([f"V{v}" for v in vids], fontsize=5, color="white")
+            else:
+                ax.set_yticklabels([])
+            ax.set_xlabel("Time (s)", fontsize=7, color="white")
+            ax.tick_params(colors="white", labelsize=6)
+            for sp in ax.spines.values():
+                sp.set_edgecolor("#444")
+
+    if im_ref is not None:
+        fig.subplots_adjust(right=0.90)
+        cb_ax = fig.add_axes([0.92, 0.12, 0.015, 0.76])
+        cb = fig.colorbar(im_ref, cax=cb_ax)
+        cb.set_label("SINR (dB)", fontsize=10, color="white")
+        cb.ax.yaxis.set_tick_params(color="white")
+        plt.setp(cb.ax.yaxis.get_ticklabels(), color="white")
+
+    fig.savefig(out_path, dpi=120, bbox_inches="tight", facecolor=fig.get_facecolor())
+    plt.close(fig)
+    print(f"  Saved: {out_path}")
+    return True
+
+
+def plot_collective_timeseries(
+    benchmark_roots: list[str],
+    scenario_names: list[str],
+    out_path: str,
+) -> bool:
+    nrows, ncols = _subplot_grid(len(benchmark_roots))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(6.2 * ncols, 3.6 * nrows), squeeze=False)
+    fig.patch.set_facecolor("#1a1a2e")
+    fig.suptitle("Fleet-mean SINR (dB) by fleet size", fontsize=12, color="white", fontweight="bold")
+    any_series = False
+    cmap = plt.cm.tab10(np.linspace(0, 1, min(10, max(1, len(scenario_names)))))
+    for idx, root in enumerate(benchmark_roots):
+        r, c = divmod(idx, ncols)
+        ax = axes[r][c]
+        ax.set_facecolor("#1a1a2e")
+        for i, name in enumerate(scenario_names):
+            got = _load_sinr_scenario_averaged_union_vids(os.path.join(root, name), None)
+            if got is None:
+                continue
+            tg, _vids, mat = got
+            mean_v = np.nanmean(mat, axis=0)
+            if np.all(np.isnan(mean_v)):
+                continue
+            any_series = True
+            ax.plot(tg, mean_v, color=cmap[i % len(cmap)], linewidth=1.2, label=name, alpha=0.88)
+        ax.set_title(os.path.basename(os.path.normpath(root)), fontsize=10, color="white", fontweight="bold")
+        ax.set_xlabel("Simulation time (s)", fontsize=8, color="white")
+        ax.set_ylabel("Mean SINR (dB)", fontsize=8, color="white")
+        ax.tick_params(colors="white", labelsize=8)
+        ax.grid(True, alpha=0.25, color="white")
+        ax.legend(loc="upper right", fontsize=7, ncol=2, facecolor="#1a1a2e", labelcolor="white")
+        for sp in ax.spines.values():
+            sp.set_edgecolor("#444")
+
+    for idx in range(len(benchmark_roots), nrows * ncols):
+        r, c = divmod(idx, ncols)
+        axes[r][c].set_visible(False)
+
+    if not any_series:
+        plt.close(fig)
+        print("No SINR data — skipping collective timeseries.")
+        return False
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120, bbox_inches="tight", facecolor=fig.get_facecolor())
+    plt.close(fig)
+    print(f"  Saved: {out_path}")
+    return True
+
+
+def generate_collective_animation_gif(
+    benchmark_roots: list[str],
+    scenario_names: list[str],
+    out_path: str,
+    n_rows_by_root: dict[str, int],
+) -> bool:
+    raw: dict[tuple[str, str], tuple[list[float], np.ndarray]] = {}
+    all_times: set[float] = set()
+    all_vals: list[np.ndarray] = []
+    for root in benchmark_roots:
+        for name in scenario_names:
+            scenario_dir = os.path.join(root, name)
+            if not os.path.isdir(scenario_dir):
+                continue
+            result = _load_sinr_scenario_averaged_padded(scenario_dir, None, n_rows_by_root[root])
+            if result is None:
+                continue
+            tg, mat = result
+            raw[(root, name)] = (tg, mat)
+            for t in tg:
+                all_times.add(round(t, 3))
+            valid = mat[~np.isnan(mat)]
+            if valid.size:
+                all_vals.append(valid)
+
+    if not raw:
+        return False
+
+    time_grid = np.array(sorted(all_times))
+    scenarios: dict[tuple[str, str], np.ndarray] = {}
+    for root, name in raw:
+        result = _load_sinr_scenario_averaged_padded(
+            os.path.join(root, name),
+            list(time_grid),
+            n_rows_by_root[root],
+        )
+        if result:
+            scenarios[(root, name)] = result[1]
+
+    if all_vals:
+        combined = np.concatenate(all_vals)
+        shared_vmin = float(np.nanpercentile(combined, 2))
+        shared_vmax = float(np.nanpercentile(combined, 98))
+    else:
+        shared_vmin, shared_vmax = -10.0, 30.0
+    print(f"  SINR animation colour scale: vmin={shared_vmin:.1f} dB  vmax={shared_vmax:.1f} dB")
+
+    available_scenarios = [
+        name for name in scenario_names if any((root, name) in scenarios for root in benchmark_roots)
+    ]
+    frames: list[str] = []
+    for name in available_scenarios:
+        frames.extend([name] * HOLD_FRAMES)
+    if not frames:
+        return False
+
+    time_edges = np.append(time_grid, time_grid[-1] + TIME_GRID_STEP)
+    n_subplot_rows, n_subplot_cols = min(2, len(benchmark_roots)), int(math.ceil(len(benchmark_roots) / 2))
+    fig, axes = plt.subplots(
+        n_subplot_rows,
+        n_subplot_cols,
+        figsize=(7.0 * n_subplot_cols, 4.2 * n_subplot_rows),
+        squeeze=False,
+    )
+    fig.patch.set_facecolor("#1a1a2e")
+    meshes: dict[str, object] = {}
+    titles: dict[str, object] = {}
+    for idx, root in enumerate(benchmark_roots):
+        r, c = divmod(idx, n_subplot_cols)
+        ax = axes[r][c]
+        ax.set_facecolor("#1a1a2e")
+        n_rows = n_rows_by_root[root]
+        mesh = ax.pcolormesh(
+            time_edges,
+            np.arange(n_rows + 1),
+            np.full((n_rows, len(time_grid)), np.nan),
+            cmap=CMAP,
+            vmin=shared_vmin,
+            vmax=shared_vmax,
+            shading="flat",
+        )
+        meshes[root] = mesh
+        titles[root] = ax.set_title(
+            os.path.basename(os.path.normpath(root)),
+            fontsize=12,
+            fontweight="bold",
+            color="white",
+        )
+        ax.set_xlabel("Simulation time (s)", fontsize=10, color="white")
+        ax.set_ylabel("Vehicle ID", fontsize=10, color="white")
+        ax.set_yticks(np.arange(n_rows) + 0.5)
+        ax.set_yticklabels([f"V{v}" for v in range(n_rows)], fontsize=6, color="white")
+        ax.tick_params(colors="white")
+        for sp in ax.spines.values():
+            sp.set_edgecolor("white")
+
+    for idx in range(len(benchmark_roots), n_subplot_rows * n_subplot_cols):
+        r, c = divmod(idx, n_subplot_cols)
+        axes[r][c].set_visible(False)
+
+    cbar = fig.colorbar(next(iter(meshes.values())), ax=axes.ravel().tolist(), pad=0.02)
+    cbar.set_label("SINR (dB)", fontsize=11, color="white")
+    cbar.ax.yaxis.set_tick_params(color="white")
+    plt.setp(cbar.ax.yaxis.get_ticklabels(), color="white")
+    suptitle = fig.suptitle("", fontsize=14, color="white", fontweight="bold")
+
+    def update(frame_idx: int):
+        scenario = frames[frame_idx]
+        artists: list[object] = [suptitle]
+        for root in benchmark_roots:
+            mat = scenarios.get((root, scenario))
+            if mat is None:
+                mat = np.full((n_rows_by_root[root], len(time_grid)), np.nan)
+            meshes[root].set_array(mat.ravel())
+            artists.extend([meshes[root], titles[root]])
+        suptitle.set_text(f"SINR (dB) — {scenario.replace('_', ' ')}")
+        return artists
+
+    anim = animation.FuncAnimation(fig, update, frames=len(frames), interval=1000 // FPS, blit=False)
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    anim.save(out_path, writer=animation.PillowWriter(fps=FPS))
+    plt.close(fig)
+    print(f"  Saved: {out_path}")
+    return True
+
+
 def main() -> int:
     here = os.path.dirname(os.path.abspath(__file__))
-    default_root = os.path.join(here, "Priority4cars")
 
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--root", default=default_root, help="Benchmark folder")
+    ap.add_argument("--root", default="", help="Single benchmark folder (legacy mode)")
+    ap.add_argument(
+        "--roots",
+        default="",
+        help="Comma-separated benchmark roots (default: Priority4/8/12/16 next to this script)",
+    )
     ap.add_argument(
         "--output-dir",
         default="",
@@ -258,15 +554,37 @@ def main() -> int:
     ap.add_argument("--max-vehicles", type=int, default=0, help="Pad heatmap rows 0..N-1 (default: infer)")
     args = ap.parse_args()
 
-    benchmark_root = os.path.abspath(args.root)
-    if not os.path.isdir(benchmark_root):
-        print(f"ERROR: not a directory: {benchmark_root}", file=sys.stderr)
+    if args.roots.strip():
+        benchmark_roots = [
+            os.path.abspath(p.strip()) for p in args.roots.split(",") if p.strip()
+        ]
+    elif args.root.strip():
+        benchmark_roots = [os.path.abspath(args.root.strip())]
+    else:
+        benchmark_roots = [
+            os.path.join(here, name)
+            for name in DEFAULT_PRIORITY_ROOTS
+            if os.path.isdir(os.path.join(here, name))
+        ]
+
+    missing_roots = [root for root in benchmark_roots if not os.path.isdir(root)]
+    if missing_roots:
+        for root in missing_roots:
+            print(f"ERROR: not a directory: {root}", file=sys.stderr)
+        return 1
+    if not benchmark_roots:
+        print("ERROR: no benchmark roots found.", file=sys.stderr)
         return 1
 
-    out_dir = os.path.abspath(args.output_dir) if args.output_dir.strip() else benchmark_root
+    out_dir = os.path.abspath(args.output_dir) if args.output_dir.strip() else (
+        benchmark_roots[0] if args.root.strip() and not args.roots.strip() else here
+    )
     os.makedirs(out_dir, exist_ok=True)
 
-    discovered = discover_scenarios(benchmark_root, "sinr_V*.csv")
+    discovered_by_root = {
+        root: discover_scenarios(root, "sinr_V*.csv") for root in benchmark_roots
+    }
+    discovered = sorted({name for names in discovered_by_root.values() for name in names})
     if args.scenarios.strip():
         wanted = {x.strip() for x in args.scenarios.split(",") if x.strip()}
         scenario_names = [n for n in sorted(wanted) if n in discovered]
@@ -274,31 +592,65 @@ def main() -> int:
         scenario_names = discovered
 
     if not scenario_names:
-        print(f"No scenarios with sinr_V*.csv under {benchmark_root}")
+        print("No scenarios with sinr_V*.csv under requested benchmark roots")
         return 1
 
-    h_ok = plot_heatmap(
-        benchmark_root,
-        scenario_names,
-        os.path.join(out_dir, "sinr_heatmap.png"),
-    )
-    t_ok = plot_timeseries(
-        benchmark_root,
-        scenario_names,
-        os.path.join(out_dir, "sinr_timeseries.png"),
-    )
+    single_root_legacy = len(benchmark_roots) == 1 and args.root.strip() and not args.roots.strip()
+    if single_root_legacy:
+        benchmark_root = benchmark_roots[0]
+        h_ok = plot_heatmap(
+            benchmark_root,
+            scenario_names,
+            os.path.join(out_dir, "sinr_heatmap.png"),
+        )
+        t_ok = plot_timeseries(
+            benchmark_root,
+            scenario_names,
+            os.path.join(out_dir, "sinr_timeseries.png"),
+        )
+    else:
+        h_ok = plot_collective_heatmap(
+            benchmark_roots,
+            scenario_names,
+            os.path.join(out_dir, "sinr_heatmap.png"),
+        )
+        t_ok = plot_collective_timeseries(
+            benchmark_roots,
+            scenario_names,
+            os.path.join(out_dir, "sinr_timeseries.png"),
+        )
 
     anim_ok = False
     if not args.no_animation:
         cap = 64
-        n_rows = args.max_vehicles if args.max_vehicles > 0 else infer_n_rows_sinr(benchmark_root, scenario_names, cap)
-        n_rows = max(n_rows, 1)
-        anim_ok = generate_animation_gif(
-            benchmark_root,
-            scenario_names,
-            os.path.join(out_dir, "sinr_animation.gif"),
-            n_rows,
-        )
+        if single_root_legacy:
+            benchmark_root = benchmark_roots[0]
+            n_rows = (
+                args.max_vehicles
+                if args.max_vehicles > 0
+                else infer_n_rows_sinr(benchmark_root, scenario_names, cap)
+            )
+            n_rows = max(n_rows, 1)
+            anim_ok = generate_animation_gif(
+                benchmark_root,
+                scenario_names,
+                os.path.join(out_dir, "sinr_animation.gif"),
+                n_rows,
+            )
+        else:
+            n_rows_by_root: dict[str, int] = {}
+            for root in benchmark_roots:
+                if args.max_vehicles > 0:
+                    n_rows_by_root[root] = args.max_vehicles
+                else:
+                    root_scenarios = [s for s in scenario_names if s in discovered_by_root[root]]
+                    n_rows_by_root[root] = max(infer_n_rows_sinr(root, root_scenarios, cap), 1)
+            anim_ok = generate_collective_animation_gif(
+                benchmark_roots,
+                scenario_names,
+                os.path.join(out_dir, "sinr_animation.gif"),
+                n_rows_by_root,
+            )
         if not anim_ok:
             print("No data for SINR animation.")
 

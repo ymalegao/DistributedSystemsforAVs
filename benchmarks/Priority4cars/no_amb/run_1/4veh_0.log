@@ -4,8 +4,8 @@
 [RUN-METRICS] Wait_Intersection_All_Mean: 2.700000 seconds
 [RUN-METRICS] Wait_Intersection_All_P95: 3.400000 seconds
 [RUN-METRICS] Wait_Intersection_Normal_Mean: 2.700000 seconds
-[RUN-METRICS] Stop_To_Resume_Mean: 1.089750 seconds
-[RUN-METRICS] Resume_To_Depart_Mean: 1.610250 seconds
+[RUN-METRICS] Stop_To_Resume_Mean: 1.024250 seconds
+[RUN-METRICS] Resume_To_Depart_Mean: 1.675750 seconds
 [RUN-METRICS] Jains_Fairness_All: 0.937018
 [RUN-METRICS] Jains_Fairness_Normal: 0.937018
 [RUN-METRICS] Byzantine_Injections_Total: 0

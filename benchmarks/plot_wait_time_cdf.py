@@ -347,6 +347,35 @@ def ecdf_binned_smooth(
 # --- Bar chart: extract per-run scalars from metrics JSON ---------------------
 
 
+def _overall_stat_mean(overall: dict, key: str) -> float | None:
+    """Mean from analyze_log ``_stat()`` dict, or scalar float, or None."""
+    raw = overall.get(key)
+    if isinstance(raw, dict):
+        v = raw.get("mean")
+        try:
+            return float(v) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+    if raw is not None:
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _files_by_vc_includes_path_marker(
+    files_by_vc: dict[int, list[str]], marker: str
+) -> bool:
+    """True if any glob string contains ``marker`` (e.g. ``amb_byz_leader``)."""
+    m = marker.strip("/")
+    for globs in files_by_vc.values():
+        for pat in globs or []:
+            if m in str(pat).replace("\\", "/"):
+                return True
+    return False
+
+
 def extract_run_metrics(path: Path) -> dict[str, float | None]:
     """Map partner-style names to values from one analyze_log metrics JSON."""
     with open(path, encoding="utf-8") as f:
@@ -381,21 +410,13 @@ def extract_run_metrics(path: Path) -> dict[str, float | None]:
         except (TypeError, ValueError):
             return None
 
-    # propose_all_consensus_latency_sim_s is a _stat() dict; extract mean.
-    # Use _sim_s not the wall-clock _s field — sim time is comparable to RAFT's simTime().
-    sim_lat_raw = o.get("propose_all_consensus_latency_sim_s")
-    consensus_latency_sim_s: float | None = None
-    if isinstance(sim_lat_raw, dict):
-        v = sim_lat_raw.get("mean")
-        try:
-            consensus_latency_sim_s = float(v) if v is not None else None
-        except (TypeError, ValueError):
-            pass
-    elif sim_lat_raw is not None:
-        try:
-            consensus_latency_sim_s = float(sim_lat_raw)
-        except (TypeError, ValueError):
-            pass
+    # propose_all_consensus_latency_sim_s: per-round mean (sim time).
+    # propose_all_first_submit_to_commit_latency_sim_s: first submit→order commit
+    # (analyze_log: ProposeAll_FirstSubmit_To_OrderCommit_Sim), incl. failed primary / VC.
+    consensus_latency_sim_s = _overall_stat_mean(o, "propose_all_consensus_latency_sim_s")
+    first_submit_to_commit_latency_sim_s = _overall_stat_mean(
+        o, "propose_all_first_submit_to_commit_latency_sim_s"
+    )
 
     return {
         "throughput": fget("throughput_veh_per_s"),
@@ -404,6 +425,7 @@ def extract_run_metrics(path: Path) -> dict[str, float | None]:
         "messages_received": float(recv),
         "estimated_loss_rate": fget("estimated_loss_rate"),
         "consensus_latency_sim_s": consensus_latency_sim_s,
+        "first_submit_to_commit_latency_sim_s": first_submit_to_commit_latency_sim_s,
     }
 
 
@@ -881,6 +903,7 @@ def plot_bars(
         "messages_received",
         "estimated_loss_rate",
         "consensus_latency_sim_s",
+        "first_submit_to_commit_latency_sim_s",
     ]
     data: dict[str, dict[int, dict[str, dict[str, float]]]] = {}
 
@@ -905,6 +928,16 @@ def plot_bars(
         return
 
     series_keys = [lab for lab, _ in bar_series if lab in data]
+    # Byzantine-ambulance-leader runs: per-round consensus latency is misleadingly low
+    # after view-change; plot first submit→order commit (matches analyze_log emphasis).
+    consensus_line_metric_by_label: dict[str, str] = {}
+    for lab, fvc in bar_series:
+        if lab not in data:
+            continue
+        if _files_by_vc_includes_path_marker(fvc, "amb_byz_leader"):
+            consensus_line_metric_by_label[lab] = "first_submit_to_commit_latency_sim_s"
+        else:
+            consensus_line_metric_by_label[lab] = "consensus_latency_sim_s"
     title_suffix = f"\n{title_note}" if title_note else ""
 
     def grid_axes():
@@ -1085,25 +1118,32 @@ def plot_bars(
         print(f"Wrote {mp}")
         plt.close(fig_m)
 
-    # --- Consensus latency (sim time): x = vehicle count, line = scenario ---
-    # Uses propose_all_consensus_latency_sim_s (OMNeT++ simTime(), comparable to RAFT).
-    # The wall-clock variant (propose_all_consensus_latency_s) is intentionally NOT plotted
-    # here because it measures Java CPU speed, not V2V protocol latency.
+    # --- BFT latency (sim time): x = vehicle count, line = scenario ---
+    # Default: overall.propose_all_consensus_latency_sim_s (per-round mean).
+    # Ambulance + Byzantine leader (paths under amb_byz_leader/): overall
+    # .propose_all_first_submit_to_commit_latency_sim_s (ProposeAll_FirstSubmit_To_OrderCommit_Sim).
+    # Wall-clock *_s fields are not plotted (Java CPU, not sim protocol time).
     fig_cl, ax_cl = plt.subplots(figsize=(8.5, 5.5))
     fig_cl.suptitle(
         f"{BFT_BAR_SUPTITLE}{title_suffix}\n"
-        "BFT consensus latency by fleet size (overall.propose_all_consensus_latency_sim_s, sim time)",
+        "BFT latency by fleet size (sim time): propose_all_consensus_latency_sim_s; "
+        "amb_byz_leader → propose_all_first_submit_to_commit_latency_sim_s",
         fontsize=11,
         fontweight="bold",
     )
     x_cl = np.array(GRID_VEHICLE_COUNTS, dtype=float)
     has_cl = False
+    positive_y_vals_cl: list[float] = []
     for i, sk in enumerate(series_keys):
         y_vals_cl: list[float] = []
+        cl_mk = consensus_line_metric_by_label.get(sk, "consensus_latency_sim_s")
         for n in GRID_VEHICLE_COUNTS:
-            cell = data.get(sk, {}).get(n, {}).get("consensus_latency_sim_s", {})
+            cell = data.get(sk, {}).get(n, {}).get(cl_mk, {})
             m = float(cell.get("mean", 0) or 0) if isinstance(cell, dict) else 0.0
-            y_vals_cl.append(m * 1000.0 if m > 0 else float("nan"))  # convert to ms
+            y_ms = m * 1000.0 if m > 0 else float("nan")  # convert to ms
+            y_vals_cl.append(y_ms)
+            if y_ms == y_ms and y_ms > 0:
+                positive_y_vals_cl.append(y_ms)
         if all(v != v for v in y_vals_cl):  # all NaN
             continue
         ax_cl.plot(
@@ -1119,11 +1159,25 @@ def plot_bars(
         has_cl = True
     if has_cl:
         ax_cl.set_xlabel("Number of vehicles", fontsize=10, fontweight="bold")
-        ax_cl.set_ylabel("Consensus latency (ms, sim time)", fontsize=10, fontweight="bold")
+        ax_cl.set_ylabel("BFT latency (ms, sim time)", fontsize=10, fontweight="bold")
         ax_cl.set_xticks(GRID_VEHICLE_COUNTS)
         ax_cl.set_xticklabels([f"{n} veh" for n in GRID_VEHICLE_COUNTS], fontsize=9)
-        ax_cl.grid(True, alpha=0.3)
-        ax_cl.set_ylim(bottom=0)
+        ax_cl.grid(True, alpha=0.3, which="both")
+        if positive_y_vals_cl:
+            min_y_cl = min(positive_y_vals_cl)
+            max_y_cl = max(positive_y_vals_cl)
+            if max_y_cl / min_y_cl >= 50:
+                ax_cl.set_yscale("log")
+                ax_cl.set_ylabel(
+                    "BFT latency (ms, sim time, log scale)",
+                    fontsize=10,
+                    fontweight="bold",
+                )
+                ax_cl.set_ylim(bottom=max(min_y_cl / 1.5, 1.0), top=max_y_cl * 1.25)
+            else:
+                ax_cl.set_ylim(bottom=0)
+        else:
+            ax_cl.set_ylim(bottom=0)
         ax_cl.legend(fontsize=8, loc="best")
         fig_cl.tight_layout()
     else:

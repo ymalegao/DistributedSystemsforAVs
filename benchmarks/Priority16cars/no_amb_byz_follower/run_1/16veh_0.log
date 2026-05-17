@@ -2,15 +2,15 @@
 [ROUND-METRICS] Epoch 1 Avg_StopSign_Failures: 0.000 (count)
 [ROUND-METRICS] Epoch 2 Avg_StopSign_Failures: 0.000 (count)
 [ROUND-METRICS] Epoch 3 Avg_StopSign_Failures: 0.000 (count)
-[RUN-METRICS] Throughput_User_Definition: 1.155859 seconds_per_vehicle
-[RUN-METRICS] Throughput_Vehicles_Per_Second: 0.865157 vehicles_per_second
-[RUN-METRICS] Wait_Intersection_All_Mean: 18.493750 seconds
-[RUN-METRICS] Wait_Intersection_All_P95: 22.425000 seconds
-[RUN-METRICS] Wait_Intersection_Normal_Mean: 18.493750 seconds
-[RUN-METRICS] Stop_To_Resume_Mean: 17.074938 seconds
-[RUN-METRICS] Resume_To_Depart_Mean: 1.418812 seconds
-[RUN-METRICS] Jains_Fairness_All: 0.978635
-[RUN-METRICS] Jains_Fairness_Normal: 0.978635
+[RUN-METRICS] Throughput_User_Definition: 0.763996 seconds_per_vehicle
+[RUN-METRICS] Throughput_Vehicles_Per_Second: 1.308907 vehicles_per_second
+[RUN-METRICS] Wait_Intersection_All_Mean: 12.223937 seconds
+[RUN-METRICS] Wait_Intersection_All_P95: 17.400000 seconds
+[RUN-METRICS] Wait_Intersection_Normal_Mean: 12.223937 seconds
+[RUN-METRICS] Stop_To_Resume_Mean: 10.814687 seconds
+[RUN-METRICS] Resume_To_Depart_Mean: 1.409250 seconds
+[RUN-METRICS] Jains_Fairness_All: 0.924519
+[RUN-METRICS] Jains_Fairness_Normal: 0.924519
 [RUN-METRICS] Byzantine_Injections_Total: 0
 [RUN-METRICS] Byzantine_Injections_Epoch0: 0
 [RUN-METRICS] Byzantine_Injections_Epoch1: 0
@@ -18,6 +18,6 @@
 [RUN-METRICS] Byzantine_Injections_Epoch3: 0
 [RUN-METRICS] Fallback_Count: 0
 [RUN-METRICS] Fallback_Rate: 0.000000
-[ROUND-METRICS] Epoch 0 Throughput_User_Definition: 1.155859 seconds_per_vehicle
-[ROUND-METRICS] Epoch 0 Throughput_Vehicles_Per_Second: 0.865157 vehicles_per_second
-[ROUND-METRICS] Epoch 0 Wait_Normal_Mean: 18.493750 seconds
+[ROUND-METRICS] Epoch 0 Throughput_User_Definition: 0.763996 seconds_per_vehicle
+[ROUND-METRICS] Epoch 0 Throughput_Vehicles_Per_Second: 1.308907 vehicles_per_second
+[ROUND-METRICS] Epoch 0 Wait_Normal_Mean: 12.223937 seconds
