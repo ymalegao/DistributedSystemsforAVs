@@ -21,6 +21,7 @@ import math
 import os
 import sys
 import warnings
+import re
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -30,10 +31,29 @@ from benchmark_metrics_io import (
     discover_scenarios,
     load_channel_scenario_averaged_union_vids,
 )
+from partner_metrics_io import load_partner_channel_union_vids
 
 UTILIZATION_CONGESTION_THRESHOLD = 0.30
 CMAP = "YlOrRd"
 DEFAULT_PRIORITY_ROOTS = ("Priority4cars", "Priority8cars", "Priority12cars", "Priority16cars")
+PARTNER_SCENARIO = "partner_allVehicles"
+
+
+def _infer_vehicle_count_from_root(root: str) -> int | None:
+    base = os.path.basename(os.path.normpath(root))
+    m = re.search(r"(\d+)", base)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return None
+
+
+def _scenario_label(name: str) -> str:
+    if name == PARTNER_SCENARIO:
+        return "RAFT allVehicles (partner)"
+    return name.replace("_", " ")
 
 
 def _load_channel_scenario_averaged_union_vids(
@@ -58,16 +78,27 @@ def plot_heatmap_grid(
     benchmark_root: str,
     scenario_names: list[str],
     out_path: str,
+    include_partner: bool,
 ) -> bool:
     cache: dict[str, tuple[np.ndarray, list[int], np.ndarray]] = {}
     vmax = 0.0
+    vc = _infer_vehicle_count_from_root(benchmark_root) if include_partner else None
     for name in scenario_names:
-        scenario_dir = os.path.join(benchmark_root, name)
-        got = _load_channel_scenario_averaged_union_vids(scenario_dir, None)
-        if got is None:
-            continue
-        tg, vids, mat = got
-        cache[name] = (np.array(tg), vids, mat)
+        if name == PARTNER_SCENARIO:
+            if vc is None:
+                continue
+            got_p = load_partner_channel_union_vids(vc)
+            if got_p is None:
+                continue
+            tg, vids, mat = got_p
+            cache[name] = (np.array(tg), vids, mat)
+        else:
+            scenario_dir = os.path.join(benchmark_root, name)
+            got = _load_channel_scenario_averaged_union_vids(scenario_dir, None)
+            if got is None:
+                continue
+            tg, vids, mat = got
+            cache[name] = (np.array(tg), vids, mat)
         if mat.size:
             v = float(np.nanmax(mat))
             if v > vmax:
@@ -100,7 +131,7 @@ def plot_heatmap_grid(
         ax.set_yticks(np.arange(len(vids)) + 0.5)
         ax.set_yticklabels([f"V{v}" for v in vids], fontsize=6)
         mean_u = float(np.nanmean(mat))
-        ax.set_title(name.replace("_", " "), fontsize=9, fontweight="bold")
+        ax.set_title(_scenario_label(name), fontsize=9, fontweight="bold")
         ax.text(
             0.99,
             0.97,
@@ -136,14 +167,24 @@ def plot_timeseries(
     benchmark_root: str,
     scenario_names: list[str],
     out_path: str,
+    include_partner: bool,
 ) -> bool:
     series: list[tuple[str, np.ndarray, np.ndarray]] = []
+    vc = _infer_vehicle_count_from_root(benchmark_root) if include_partner else None
     for name in scenario_names:
-        scenario_dir = os.path.join(benchmark_root, name)
-        got = _load_channel_scenario_averaged_union_vids(scenario_dir, None)
-        if got is None:
-            continue
-        tg, _vids, mat = got
+        if name == PARTNER_SCENARIO:
+            if vc is None:
+                continue
+            got_p = load_partner_channel_union_vids(vc)
+            if got_p is None:
+                continue
+            tg, _vids, mat = got_p
+        else:
+            scenario_dir = os.path.join(benchmark_root, name)
+            got = _load_channel_scenario_averaged_union_vids(scenario_dir, None)
+            if got is None:
+                continue
+            tg, _vids, mat = got
         mean_v = np.nanmean(mat, axis=0)
         if np.all(np.isnan(mean_v)):
             continue
@@ -157,8 +198,19 @@ def plot_timeseries(
     cmap = plt.cm.tab10(np.linspace(0, 1, min(10, max(1, len(series)))))
     ymax = UTILIZATION_CONGESTION_THRESHOLD * 1.5
     for i, (name, tg, y) in enumerate(series):
-        color = cmap[i % len(cmap)]
-        ax.plot(tg, y, color=color, linewidth=1.4, label=name, alpha=0.9)
+        if name == PARTNER_SCENARIO:
+            ax.plot(
+                tg,
+                y,
+                color="black",
+                linestyle="--",
+                linewidth=1.8,
+                label=_scenario_label(name),
+                alpha=0.9,
+            )
+        else:
+            color = cmap[i % len(cmap)]
+            ax.plot(tg, y, color=color, linewidth=1.4, label=_scenario_label(name), alpha=0.9)
         peak = float(np.nanmax(y))
         if peak > ymax:
             ymax = peak * 1.1
@@ -193,15 +245,27 @@ def plot_collective_heatmap_grid(
     benchmark_roots: list[str],
     scenario_names: list[str],
     out_path: str,
+    include_partner: bool,
 ) -> bool:
     cache: dict[tuple[str, str], tuple[np.ndarray, list[int], np.ndarray]] = {}
     vmax = 0.0
     for root in benchmark_roots:
         for name in scenario_names:
-            got = _load_channel_scenario_averaged_union_vids(os.path.join(root, name), None)
-            if got is None:
-                continue
-            tg, vids, mat = got
+            if name == PARTNER_SCENARIO:
+                if not include_partner:
+                    continue
+                vc = _infer_vehicle_count_from_root(root)
+                if vc is None:
+                    continue
+                got_p = load_partner_channel_union_vids(vc)
+                if got_p is None:
+                    continue
+                tg, vids, mat = got_p
+            else:
+                got = _load_channel_scenario_averaged_union_vids(os.path.join(root, name), None)
+                if got is None:
+                    continue
+                tg, vids, mat = got
             cache[(root, name)] = (np.array(tg), vids, mat)
             if mat.size:
                 v = float(np.nanmax(mat))
@@ -253,7 +317,7 @@ def plot_collective_heatmap_grid(
             if r == 0:
                 ax.set_title(os.path.basename(os.path.normpath(root)), fontsize=9, fontweight="bold")
             if c == 0:
-                ax.set_ylabel(f"{scenario.replace('_', ' ')}\nVehicle", fontsize=8)
+                ax.set_ylabel(f"{_scenario_label(scenario)}\nVehicle", fontsize=8)
             ax.set_xlabel("Time (s)", fontsize=7)
             ax.set_yticks(np.arange(len(vids)) + 0.5)
             if c == 0:
@@ -289,6 +353,7 @@ def plot_collective_timeseries(
     benchmark_roots: list[str],
     scenario_names: list[str],
     out_path: str,
+    include_partner: bool,
 ) -> bool:
     nrows, ncols = _subplot_grid(len(benchmark_roots))
     fig, axes = plt.subplots(nrows, ncols, figsize=(6.2 * ncols, 3.6 * nrows), squeeze=False)
@@ -304,15 +369,28 @@ def plot_collective_timeseries(
         ax = axes[r][c]
         ymax = UTILIZATION_CONGESTION_THRESHOLD * 1.5
         for i, name in enumerate(scenario_names):
-            got = _load_channel_scenario_averaged_union_vids(os.path.join(root, name), None)
-            if got is None:
-                continue
-            tg, _vids, mat = got
+            if name == PARTNER_SCENARIO:
+                if not include_partner:
+                    continue
+                vc = _infer_vehicle_count_from_root(root)
+                if vc is None:
+                    continue
+                got_p = load_partner_channel_union_vids(vc)
+                if got_p is None:
+                    continue
+                tg, _vids, mat = got_p
+                style = dict(color="black", linestyle="--", linewidth=1.6, alpha=0.9)
+            else:
+                got = _load_channel_scenario_averaged_union_vids(os.path.join(root, name), None)
+                if got is None:
+                    continue
+                tg, _vids, mat = got
+                style = dict(color=cmap[i % len(cmap)], linewidth=1.2, alpha=0.9)
             mean_v = np.nanmean(mat, axis=0)
             if np.all(np.isnan(mean_v)):
                 continue
             any_series = True
-            ax.plot(tg, mean_v, color=cmap[i % len(cmap)], linewidth=1.2, label=name, alpha=0.9)
+            ax.plot(tg, mean_v, label=_scenario_label(name), **style)
             peak = float(np.nanmax(mean_v))
             if peak > ymax:
                 ymax = peak * 1.1
@@ -361,6 +439,11 @@ def main() -> int:
         help="Where to write PNGs (default: same as --root)",
     )
     ap.add_argument("--scenarios", default="", help="Comma-separated scenario names (default: all with CSVs)")
+    ap.add_argument(
+        "--partner-data",
+        action="store_true",
+        help="Overlay RAFT partner data (allVehicles) from /home/yash/partnersv2v/res.",
+    )
     args = ap.parse_args()
 
     if args.roots.strip():
@@ -399,6 +482,8 @@ def main() -> int:
         scenario_names = [n for n in sorted(wanted) if n in discovered]
     else:
         scenario_names = discovered
+    if args.partner_data and PARTNER_SCENARIO not in scenario_names:
+        scenario_names = list(scenario_names) + [PARTNER_SCENARIO]
 
     if not scenario_names:
         print("No scenarios with channel_V*.csv under requested benchmark roots")
@@ -410,22 +495,26 @@ def main() -> int:
             benchmark_root,
             scenario_names,
             os.path.join(out_dir, "channel_utilization_heatmap.png"),
+            include_partner=args.partner_data,
         )
         t_ok = plot_timeseries(
             benchmark_root,
             scenario_names,
             os.path.join(out_dir, "channel_utilization_timeseries.png"),
+            include_partner=args.partner_data,
         )
     else:
         h_ok = plot_collective_heatmap_grid(
             benchmark_roots,
             scenario_names,
             os.path.join(out_dir, "channel_utilization_heatmap.png"),
+            include_partner=args.partner_data,
         )
         t_ok = plot_collective_timeseries(
             benchmark_roots,
             scenario_names,
             os.path.join(out_dir, "channel_utilization_timeseries.png"),
+            include_partner=args.partner_data,
         )
     return 0 if (h_ok or t_ok) else 1
 

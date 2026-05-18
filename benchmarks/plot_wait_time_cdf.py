@@ -148,6 +148,11 @@ AMB_BAR_COLOR = "#e74c3c"
 NORM_BAR_COLOR = "#95a5a6"
 NO_PRIO_BAR_COLOR = "#7f8c8d"
 
+# Partner overlay (RAFT allVehicles scenario only)
+from partner_metrics_io import partner_run_metrics, partner_wait_time_samples_s
+
+PARTNER_LABEL = "RAFT allVehicles (partner)"
+
 
 def _resolve_paths(patterns: list[str], base_dir: Path) -> list[Path]:
     out: list[Path] = []
@@ -178,31 +183,62 @@ def load_wait_samples(
 ) -> list[float]:
     with open(json_path, encoding="utf-8") as f:
         data = json.load(f)
-    cars = data.get("per_car")
-    if not isinstance(cars, list):
+    # New format: list[per-vehicle dict] (partner-like).
+    # Legacy format: {"per_car": [...], "overall": {...}}
+    cars: list[dict] = []
+    if isinstance(data, list):
+        cars = [v for v in data if isinstance(v, dict)]
+    elif isinstance(data, dict):
+        raw = data.get("per_car")
+        if isinstance(raw, list):
+            cars = [v for v in raw if isinstance(v, dict)]
+    if not cars:
         return []
 
     waits: list[float] = []
     for v in cars:
-        if not isinstance(v, dict):
+        if exclude_fallback:
+            used_fb = v.get("used_fallback")
+            if used_fb is None and isinstance(v.get("bft_stats"), dict):
+                used_fb = v["bft_stats"].get("used_fallback")
+            if used_fb is None:
+                used_fb = (v.get("coordination_method") == "fallback")
+            if used_fb is True:
+                continue
+        # Role / priority filtering.
+        is_prio = bool(v.get("is_priority_vehicle", False))
+        role = v.get("role")
+        if isinstance(role, str):
+            role_s = role
+        else:
+            role_s = "ambulance" if is_prio else "normal"
+        if role_filter == "normal" and role_s != "normal":
             continue
-        if exclude_fallback and v.get("used_fallback") is True:
-            continue
-        role = v.get("role", "normal")
-        if role_filter == "normal" and role != "normal":
-            continue
-        if role_filter == "ambulance" and role != "ambulance":
+        if role_filter == "ambulance" and role_s != "ambulance":
             continue
 
-        wt = v.get("wait_intersection_s")
-        if wt is None:
-            continue
-        try:
-            x = float(wt)
-        except (TypeError, ValueError):
-            continue
-        if x > 0:
-            waits.append(x)
+        wt_s: float | None = None
+        if "wait_intersection_s" in v:
+            try:
+                wt_s = float(v.get("wait_intersection_s"))
+            except (TypeError, ValueError):
+                wt_s = None
+        if wt_s is None and isinstance(v.get("durations_ms"), dict):
+            try:
+                ms = float(v["durations_ms"].get("total_wait_time"))
+                wt_s = ms / 1000.0
+            except (TypeError, ValueError):
+                wt_s = None
+        if wt_s is None and isinstance(v.get("timestamps_ms"), dict):
+            try:
+                stopped = float(v["timestamps_ms"].get("stopped", 0) or 0)
+                passed = float(v["timestamps_ms"].get("passed", 0) or 0)
+                if passed > 0 and stopped > 0 and passed >= stopped:
+                    wt_s = (passed - stopped) / 1000.0
+            except (TypeError, ValueError):
+                wt_s = None
+        if wt_s is not None and wt_s > 0:
+            waits.append(float(wt_s))
     return waits
 
 
@@ -259,28 +295,56 @@ def pooled_waits_by_role(
     for path in _resolve_paths(patterns, base_dir):
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-        cars = data.get("per_car")
-        if not isinstance(cars, list):
+        cars: list[dict] = []
+        if isinstance(data, list):
+            cars = [v for v in data if isinstance(v, dict)]
+        elif isinstance(data, dict):
+            raw = data.get("per_car")
+            if isinstance(raw, list):
+                cars = [v for v in raw if isinstance(v, dict)]
+        if not cars:
             continue
         for c in cars:
             if not isinstance(c, dict):
                 continue
-            if exclude_fallback and c.get("used_fallback") is True:
+            if exclude_fallback:
+                used_fb = c.get("used_fallback")
+                if used_fb is None and isinstance(c.get("bft_stats"), dict):
+                    used_fb = c["bft_stats"].get("used_fallback")
+                if used_fb is None:
+                    used_fb = (c.get("coordination_method") == "fallback")
+                if used_fb is True:
+                    continue
+            # load_wait_samples already role-filters; split here using is_priority_vehicle/role.
+            role = c.get("role")
+            if not isinstance(role, str):
+                role = "ambulance" if bool(c.get("is_priority_vehicle", False)) else "normal"
+            # Find this vehicle's wait time to assign to a bucket.
+            wt_s = None
+            if "wait_intersection_s" in c:
+                try:
+                    wt_s = float(c.get("wait_intersection_s"))
+                except (TypeError, ValueError):
+                    wt_s = None
+            if wt_s is None and isinstance(c.get("durations_ms"), dict):
+                try:
+                    wt_s = float(c["durations_ms"].get("total_wait_time")) / 1000.0
+                except (TypeError, ValueError):
+                    wt_s = None
+            if wt_s is None and isinstance(c.get("timestamps_ms"), dict):
+                try:
+                    stopped = float(c["timestamps_ms"].get("stopped", 0) or 0)
+                    passed = float(c["timestamps_ms"].get("passed", 0) or 0)
+                    if passed > 0 and stopped > 0 and passed >= stopped:
+                        wt_s = (passed - stopped) / 1000.0
+                except (TypeError, ValueError):
+                    wt_s = None
+            if wt_s is None or wt_s <= 0:
                 continue
-            wt = c.get("wait_intersection_s")
-            if wt is None:
-                continue
-            try:
-                w = float(wt)
-            except (TypeError, ValueError):
-                continue
-            if w <= 0:
-                continue
-            role = c.get("role", "normal")
             if role == "ambulance":
-                amb.append(w)
+                amb.append(float(wt_s))
             elif role == "normal":
-                norm.append(w)
+                norm.append(float(wt_s))
     return amb, norm
 
 
@@ -393,6 +457,84 @@ def extract_run_metrics(path: Path) -> dict[str, float | None]:
     """Map partner-style names to values from one analyze_log metrics JSON."""
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
+    # New format: list[per-vehicle dict] (partner-like, produced by our updated logger).
+    if isinstance(data, list):
+        per_car = [v for v in data if isinstance(v, dict)]
+        num_veh = len(per_car)
+
+        def used_fallback(v: dict) -> bool:
+            fb = v.get("used_fallback")
+            if fb is None and isinstance(v.get("bft_stats"), dict):
+                fb = v["bft_stats"].get("used_fallback")
+            if fb is None:
+                fb = (v.get("coordination_method") == "fallback")
+            return fb is True
+
+        non_fb = [v for v in per_car if not used_fallback(v)]
+        fallback_rate = (
+            (sum(1 for v in per_car if used_fallback(v)) / num_veh) if num_veh else 0.0
+        )
+
+        # Throughput: same definition as partner (vehicles / average wait seconds).
+        waits_s: list[float] = []
+        for v in non_fb:
+            if isinstance(v.get("durations_ms"), dict) and v["durations_ms"].get("total_wait_time") is not None:
+                try:
+                    waits_s.append(float(v["durations_ms"]["total_wait_time"]) / 1000.0)
+                    continue
+                except (TypeError, ValueError):
+                    pass
+            ts = v.get("timestamps_ms") if isinstance(v.get("timestamps_ms"), dict) else {}
+            try:
+                stopped = float(ts.get("stopped", 0) or 0)
+                passed = float(ts.get("passed", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if passed > 0 and stopped > 0 and passed >= stopped:
+                waits_s.append((passed - stopped) / 1000.0)
+        throughput = 0.0
+        if waits_s:
+            avg_wait = float(np.mean(np.array([w for w in waits_s if w > 0], dtype=float)))
+            if avg_wait > 0:
+                throughput = float(len(non_fb)) / avg_wait
+
+        sent = 0.0
+        recv = 0.0
+        for v in per_car:
+            msgs = v.get("messages") if isinstance(v.get("messages"), dict) else {}
+            try:
+                sent += float(msgs.get("sent", 0) or 0)
+            except (TypeError, ValueError):
+                pass
+            try:
+                recv += float(msgs.get("received", 0) or 0)
+            except (TypeError, ValueError):
+                pass
+
+        # "Consensus latency" proxy: mean decision latency (ms) across non-fallback vehicles.
+        decision_lat_s: list[float] = []
+        for v in non_fb:
+            durs = v.get("durations_ms") if isinstance(v.get("durations_ms"), dict) else {}
+            try:
+                ms = float(durs.get("decision_latency_ms", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if ms > 0:
+                decision_lat_s.append(ms / 1000.0)
+
+        consensus_latency_sim_s = float(np.mean(np.array(decision_lat_s, dtype=float))) if decision_lat_s else None
+
+        return {
+            "throughput": float(throughput),
+            "fallback_rate": float(fallback_rate),
+            "messages_sent": float(sent),
+            "messages_received": float(recv),
+            "estimated_loss_rate": None,
+            "consensus_latency_sim_s": consensus_latency_sim_s,
+            "first_submit_to_commit_latency_sim_s": None,
+        }
+
+    # Legacy format: {"overall": {...}, "per_car": [...]}
     o = data.get("overall") or {}
     per_car = data.get("per_car") if isinstance(data.get("per_car"), list) else []
 
@@ -599,6 +741,11 @@ def parse_args() -> argparse.Namespace:
         default=2,
         help="Moving-average radius on binned CDF for --cdf-smooth (default: 2)",
     )
+    p.add_argument(
+        "--partner-data",
+        action="store_true",
+        help="Overlay RAFT partner data (allVehicles) from /home/yash/partnersv2v/res.",
+    )
     p.add_argument("--no-show", action="store_true", help="Do not plt.show()")
     return p.parse_args()
 
@@ -737,6 +884,7 @@ def plot_cdf_grid(
     cdf_smooth: bool,
     cdf_smooth_bins: int,
     cdf_smooth_blur: int,
+    include_partner: bool,
 ) -> None:
     """
     One figure, 2×2 subplots: each panel is fleet size n ∈ {4,8,12,16}.
@@ -799,6 +947,24 @@ def plot_cdf_grid(
                         )
                         any_star_global = True
             curves_in_panel += 1
+
+        if include_partner:
+            waits_p = partner_wait_time_samples_s(
+                n, include_fallback=(not exclude_fallback)
+            )
+            if waits_p:
+                xs_p, ys_p = _cdf_xy_from_waits(
+                    waits_p, cdf_smooth, cdf_smooth_bins, cdf_smooth_blur
+                )
+                ax.plot(
+                    xs_p,
+                    ys_p,
+                    color="black",
+                    linestyle="--",
+                    linewidth=2.2,
+                    label=f"{PARTNER_LABEL} (n={len(waits_p)})",
+                )
+                curves_in_panel += 1
 
         ax.set_title(f"n = {n} vehicles", fontsize=11, fontweight="bold")
         ax.set_xlabel("Total wait time (s)", fontsize=10)
@@ -900,6 +1066,7 @@ def plot_bars(
     output_dir: Path,
     prefix: str,
     title_note: str,
+    include_partner: bool,
 ) -> None:
     """2×2 subplots per figure: each panel is one fleet size n; x = scenario."""
     assert plt is not None
@@ -986,6 +1153,26 @@ def plot_bars(
             label=short_cdf_legend_label(sk),
         )
         has_any = True
+
+    if include_partner:
+        y_p: list[float] = []
+        for n in GRID_VEHICLE_COUNTS:
+            runs = partner_run_metrics(n)
+            vals = [rm.get("throughput_veh_per_s", 0.0) for rm in runs]
+            vals_f = [float(v) for v in vals if v is not None and float(v) > 0]
+            y_p.append(float(np.mean(np.array(vals_f, dtype=float))) if vals_f else np.nan)
+        if not all(np.isnan(v) for v in y_p):
+            ax.plot(
+                x,
+                y_p,
+                color="black",
+                linestyle="--",
+                linewidth=2.4,
+                marker="s",
+                markersize=6,
+                label=PARTNER_LABEL,
+            )
+            has_any = True
 
     if has_any:
         ax.set_xlabel("Number of vehicles", fontsize=10, fontweight="bold")
@@ -1537,6 +1724,7 @@ def main() -> int:
                 args.cdf_smooth,
                 args.cdf_smooth_bins,
                 args.cdf_smooth_blur,
+                args.partner_data,
             )
 
     # --- Bars ---
@@ -1548,6 +1736,7 @@ def main() -> int:
             out_dir_bars,
             args.bar_prefix,
             bar_title_note or "",
+            args.partner_data,
         )
 
     # --- Ambulance vs normal mean wait ---

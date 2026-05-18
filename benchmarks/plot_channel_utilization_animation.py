@@ -27,6 +27,7 @@ import math
 import os
 import sys
 import warnings
+import re
 
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
@@ -38,11 +39,24 @@ from benchmark_metrics_io import (
     infer_n_rows_channel,
     load_channel_scenario_averaged_padded,
 )
+from partner_metrics_io import load_partner_channel_padded
 
 CMAP = "YlOrRd"
 HOLD_FRAMES = 8
 FPS = 4
 DEFAULT_PRIORITY_ROOTS = ("Priority4cars", "Priority8cars", "Priority12cars", "Priority16cars")
+PARTNER_SCENARIO = "partner_allVehicles"
+
+
+def _infer_vehicle_count_from_root(root: str) -> int | None:
+    base = os.path.basename(os.path.normpath(root))
+    m = re.search(r"(\d+)", base)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return None
 
 
 def _load_channel_scenario_averaged_padded(
@@ -65,12 +79,21 @@ def generate_gif(
 ) -> bool:
     raw: dict[str, tuple[list[float], np.ndarray]] = {}
     all_times: set[float] = set()
+    vc = _infer_vehicle_count_from_root(benchmark_root)
 
     for name in scenario_names:
-        scenario_dir = os.path.join(benchmark_root, name)
-        result = _load_channel_scenario_averaged_padded(scenario_dir, None, n_rows)
+        if name == PARTNER_SCENARIO:
+            if vc is None:
+                continue
+            result = load_partner_channel_padded(vc, None, n_rows)
+        else:
+            scenario_dir = os.path.join(benchmark_root, name)
+            result = _load_channel_scenario_averaged_padded(scenario_dir, None, n_rows)
         if result is None:
-            print(f"  [{name}] No channel_V*.csv under {scenario_dir} — skipping.")
+            if name == PARTNER_SCENARIO:
+                print(f"  [{name}] No partner channel_V*.csv for {vc}veh — skipping.")
+            else:
+                print(f"  [{name}] No channel_V*.csv under {scenario_dir} — skipping.")
             continue
         tg, mat = result
         raw[name] = (tg, mat)
@@ -86,8 +109,13 @@ def generate_gif(
 
     scenarios: dict[str, np.ndarray] = {}
     for name in raw:
-        scenario_dir = os.path.join(benchmark_root, name)
-        result = _load_channel_scenario_averaged_padded(scenario_dir, list(time_grid), n_rows)
+        if name == PARTNER_SCENARIO:
+            if vc is None:
+                continue
+            result = load_partner_channel_padded(vc, list(time_grid), n_rows)
+        else:
+            scenario_dir = os.path.join(benchmark_root, name)
+            result = _load_channel_scenario_averaged_padded(scenario_dir, list(time_grid), n_rows)
         if result:
             scenarios[name] = result[1]
 
@@ -136,7 +164,8 @@ def generate_gif(
     def update(frame_idx: int):
         scenario, matrix = frames[frame_idx]
         mesh.set_array(matrix.ravel())
-        title.set_text(f"{title_prefix} — {bench_label} — {scenario}")
+        label = "RAFT allVehicles (partner)" if scenario == PARTNER_SCENARIO else scenario
+        title.set_text(f"{title_prefix} — {bench_label} — {label}")
         return mesh, title
 
     anim = animation.FuncAnimation(
@@ -167,14 +196,20 @@ def generate_collective_gif(
 
     for root in benchmark_roots:
         for name in scenario_names:
-            scenario_dir = os.path.join(root, name)
-            if not os.path.isdir(scenario_dir):
-                continue
-            result = _load_channel_scenario_averaged_padded(
-                scenario_dir,
-                None,
-                n_rows_by_root[root],
-            )
+            if name == PARTNER_SCENARIO:
+                vc = _infer_vehicle_count_from_root(root)
+                if vc is None:
+                    continue
+                result = load_partner_channel_padded(vc, None, n_rows_by_root[root])
+            else:
+                scenario_dir = os.path.join(root, name)
+                if not os.path.isdir(scenario_dir):
+                    continue
+                result = _load_channel_scenario_averaged_padded(
+                    scenario_dir,
+                    None,
+                    n_rows_by_root[root],
+                )
             if result is None:
                 continue
             tg, mat = result
@@ -195,12 +230,18 @@ def generate_collective_gif(
     scenarios: dict[tuple[str, str], np.ndarray] = {}
     global_vmax = 0.05
     for root, name in raw:
-        scenario_dir = os.path.join(root, name)
-        result = _load_channel_scenario_averaged_padded(
-            scenario_dir,
-            list(time_grid),
-            n_rows_by_root[root],
-        )
+        if name == PARTNER_SCENARIO:
+            vc = _infer_vehicle_count_from_root(root)
+            if vc is None:
+                continue
+            result = load_partner_channel_padded(vc, list(time_grid), n_rows_by_root[root])
+        else:
+            scenario_dir = os.path.join(root, name)
+            result = _load_channel_scenario_averaged_padded(
+                scenario_dir,
+                list(time_grid),
+                n_rows_by_root[root],
+            )
         if not result:
             continue
         mat = result[1]
@@ -283,7 +324,8 @@ def generate_collective_gif(
             mesh.set_array(mat.ravel())
             titles[root].set_text(os.path.basename(os.path.normpath(root)))
             artists.extend([mesh, titles[root]])
-        suptitle.set_text(f"{title_prefix} — {scenario.replace('_', ' ')}")
+        label = "RAFT allVehicles (partner)" if scenario == PARTNER_SCENARIO else scenario.replace("_", " ")
+        suptitle.set_text(f"{title_prefix} — {label}")
         return artists
 
     anim = animation.FuncAnimation(
@@ -335,6 +377,11 @@ def main() -> int:
         default="Channel utilization (mean over runs)",
         help="Short title prefix for each frame",
     )
+    ap.add_argument(
+        "--partner-data",
+        action="store_true",
+        help="Include RAFT partner data (allVehicles) from /home/yash/partnersv2v/res as an extra frame.",
+    )
     args = ap.parse_args()
 
     if args.roots.strip():
@@ -371,6 +418,8 @@ def main() -> int:
             print(f"WARNING: no data for scenarios: {sorted(missing)}")
     else:
         scenario_names = discovered
+    if args.partner_data and PARTNER_SCENARIO not in scenario_names:
+        scenario_names = list(scenario_names) + [PARTNER_SCENARIO]
 
     if not scenario_names:
         print("No scenarios with channel_V*.csv under requested benchmark roots:")

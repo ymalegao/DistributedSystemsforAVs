@@ -24,6 +24,7 @@ import math
 import os
 import sys
 import warnings
+import re
 
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
@@ -36,11 +37,30 @@ from benchmark_metrics_io import (
     load_sinr_scenario_averaged_padded,
     load_sinr_scenario_averaged_union_vids,
 )
+from partner_metrics_io import load_partner_sinr_padded, load_partner_sinr_union_vids
 
 CMAP = "plasma"
 HOLD_FRAMES = 8
 FPS = 4
 DEFAULT_PRIORITY_ROOTS = ("Priority4cars", "Priority8cars", "Priority12cars", "Priority16cars")
+PARTNER_SCENARIO = "partner_allVehicles"
+
+
+def _infer_vehicle_count_from_root(root: str) -> int | None:
+    base = os.path.basename(os.path.normpath(root))
+    m = re.search(r"(\d+)", base)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return None
+
+
+def _scenario_label(name: str) -> str:
+    if name == PARTNER_SCENARIO:
+        return "RAFT allVehicles (partner)"
+    return name.replace("_", " ")
 
 
 def _load_sinr_scenario_averaged_union_vids(
@@ -75,15 +95,25 @@ def plot_heatmap(
     benchmark_root: str,
     scenario_names: list[str],
     out_path: str,
+    include_partner: bool,
 ) -> bool:
     cache: dict[str, tuple[np.ndarray, list[int], np.ndarray]] = {}
     vmin, vmax = float("inf"), float("-inf")
+    vc = _infer_vehicle_count_from_root(benchmark_root) if include_partner else None
     for name in scenario_names:
-        scenario_dir = os.path.join(benchmark_root, name)
-        got = _load_sinr_scenario_averaged_union_vids(scenario_dir, None)
-        if got is None:
-            continue
-        tg, vids, mat = got
+        if name == PARTNER_SCENARIO:
+            if vc is None:
+                continue
+            got_p = load_partner_sinr_union_vids(vc)
+            if got_p is None:
+                continue
+            tg, vids, mat = got_p
+        else:
+            scenario_dir = os.path.join(benchmark_root, name)
+            got = _load_sinr_scenario_averaged_union_vids(scenario_dir, None)
+            if got is None:
+                continue
+            tg, vids, mat = got
         cache[name] = (np.array(tg), vids, mat)
         valid = mat[~np.isnan(mat)]
         if valid.size:
@@ -114,7 +144,7 @@ def plot_heatmap(
         im_ref = im
         ax.set_yticks(np.arange(len(vids)) + 0.5)
         ax.set_yticklabels([f"V{v}" for v in vids], fontsize=6, color="white")
-        ax.set_title(name.replace("_", " "), fontsize=9, color="white", fontweight="bold")
+        ax.set_title(_scenario_label(name), fontsize=9, color="white", fontweight="bold")
         ax.tick_params(colors="white", labelsize=7)
         ax.set_xlabel("Time (s)", fontsize=8, color="white")
         if c == 0:
@@ -140,14 +170,28 @@ def plot_heatmap(
     return True
 
 
-def plot_timeseries(benchmark_root: str, scenario_names: list[str], out_path: str) -> bool:
+def plot_timeseries(
+    benchmark_root: str,
+    scenario_names: list[str],
+    out_path: str,
+    include_partner: bool,
+) -> bool:
     series: list[tuple[str, np.ndarray, np.ndarray]] = []
+    vc = _infer_vehicle_count_from_root(benchmark_root) if include_partner else None
     for name in scenario_names:
-        scenario_dir = os.path.join(benchmark_root, name)
-        got = _load_sinr_scenario_averaged_union_vids(scenario_dir, None)
-        if got is None:
-            continue
-        tg, _vids, mat = got
+        if name == PARTNER_SCENARIO:
+            if vc is None:
+                continue
+            got_p = load_partner_sinr_union_vids(vc)
+            if got_p is None:
+                continue
+            tg, _vids, mat = got_p
+        else:
+            scenario_dir = os.path.join(benchmark_root, name)
+            got = _load_sinr_scenario_averaged_union_vids(scenario_dir, None)
+            if got is None:
+                continue
+            tg, _vids, mat = got
         mean_v = np.nanmean(mat, axis=0)
         if np.all(np.isnan(mean_v)):
             continue
@@ -162,7 +206,25 @@ def plot_timeseries(benchmark_root: str, scenario_names: list[str], out_path: st
     ax.set_facecolor("#1a1a2e")
     cmap = plt.cm.tab10(np.linspace(0, 1, min(10, max(1, len(series)))))
     for i, (name, tg, y) in enumerate(series):
-        ax.plot(tg, y, color=cmap[i % len(cmap)], linewidth=1.4, label=name, alpha=0.88)
+        if name == PARTNER_SCENARIO:
+            ax.plot(
+                tg,
+                y,
+                color="white",
+                linestyle="--",
+                linewidth=1.8,
+                label=_scenario_label(name),
+                alpha=0.9,
+            )
+        else:
+            ax.plot(
+                tg,
+                y,
+                color=cmap[i % len(cmap)],
+                linewidth=1.4,
+                label=_scenario_label(name),
+                alpha=0.88,
+            )
     ax.tick_params(colors="white", labelsize=9)
     for sp in ax.spines.values():
         sp.set_edgecolor("#444")
@@ -188,12 +250,21 @@ def generate_animation_gif(
     raw: dict[str, tuple[list[float], np.ndarray]] = {}
     all_times: set[float] = set()
     all_vals: list[np.ndarray] = []
+    vc = _infer_vehicle_count_from_root(benchmark_root)
 
     for name in scenario_names:
-        scenario_dir = os.path.join(benchmark_root, name)
-        result = _load_sinr_scenario_averaged_padded(scenario_dir, None, n_rows)
+        if name == PARTNER_SCENARIO:
+            if vc is None:
+                continue
+            result = load_partner_sinr_padded(vc, None, n_rows)
+        else:
+            scenario_dir = os.path.join(benchmark_root, name)
+            result = _load_sinr_scenario_averaged_padded(scenario_dir, None, n_rows)
         if result is None:
-            print(f"  [{name}] No sinr_V*.csv — skipping.")
+            if name == PARTNER_SCENARIO:
+                print(f"  [{name}] No partner sinr_V*.csv for {vc}veh — skipping.")
+            else:
+                print(f"  [{name}] No sinr_V*.csv — skipping.")
             continue
         tg, mat = result
         raw[name] = (tg, mat)
@@ -209,8 +280,13 @@ def generate_animation_gif(
     time_grid = np.array(sorted(all_times))
     scenarios: dict[str, np.ndarray] = {}
     for name in raw:
-        scenario_dir = os.path.join(benchmark_root, name)
-        r2 = _load_sinr_scenario_averaged_padded(scenario_dir, list(time_grid), n_rows)
+        if name == PARTNER_SCENARIO:
+            if vc is None:
+                continue
+            r2 = load_partner_sinr_padded(vc, list(time_grid), n_rows)
+        else:
+            scenario_dir = os.path.join(benchmark_root, name)
+            r2 = _load_sinr_scenario_averaged_padded(scenario_dir, list(time_grid), n_rows)
         if r2:
             scenarios[name] = r2[1]
 
@@ -254,7 +330,8 @@ def generate_animation_gif(
     def update(frame_idx: int):
         scenario, matrix = frames[frame_idx]
         mesh.set_array(matrix.ravel())
-        title.set_text(f"SINR (dB) — {bench_label} — {scenario}")
+        label = _scenario_label(scenario)
+        title.set_text(f"SINR (dB) — {bench_label} — {label}")
         return mesh, title
 
     anim = animation.FuncAnimation(fig, update, frames=len(frames), interval=1000 // FPS, blit=False)
@@ -269,15 +346,27 @@ def plot_collective_heatmap(
     benchmark_roots: list[str],
     scenario_names: list[str],
     out_path: str,
+    include_partner: bool,
 ) -> bool:
     cache: dict[tuple[str, str], tuple[np.ndarray, list[int], np.ndarray]] = {}
     vmin, vmax = float("inf"), float("-inf")
     for root in benchmark_roots:
         for name in scenario_names:
-            got = _load_sinr_scenario_averaged_union_vids(os.path.join(root, name), None)
-            if got is None:
-                continue
-            tg, vids, mat = got
+            if name == PARTNER_SCENARIO:
+                if not include_partner:
+                    continue
+                vc = _infer_vehicle_count_from_root(root)
+                if vc is None:
+                    continue
+                got_p = load_partner_sinr_union_vids(vc)
+                if got_p is None:
+                    continue
+                tg, vids, mat = got_p
+            else:
+                got = _load_sinr_scenario_averaged_union_vids(os.path.join(root, name), None)
+                if got is None:
+                    continue
+                tg, vids, mat = got
             cache[(root, name)] = (np.array(tg), vids, mat)
             valid = mat[~np.isnan(mat)]
             if valid.size:
@@ -336,7 +425,7 @@ def plot_collective_heatmap(
                 )
             ax.set_yticks(np.arange(len(vids)) + 0.5)
             if c == 0:
-                ax.set_ylabel(f"{scenario.replace('_', ' ')}\nVehicle", fontsize=8, color="white")
+                ax.set_ylabel(f"{_scenario_label(scenario)}\nVehicle", fontsize=8, color="white")
                 ax.set_yticklabels([f"V{v}" for v in vids], fontsize=5, color="white")
             else:
                 ax.set_yticklabels([])
@@ -363,6 +452,7 @@ def plot_collective_timeseries(
     benchmark_roots: list[str],
     scenario_names: list[str],
     out_path: str,
+    include_partner: bool,
 ) -> bool:
     nrows, ncols = _subplot_grid(len(benchmark_roots))
     fig, axes = plt.subplots(nrows, ncols, figsize=(6.2 * ncols, 3.6 * nrows), squeeze=False)
@@ -375,15 +465,28 @@ def plot_collective_timeseries(
         ax = axes[r][c]
         ax.set_facecolor("#1a1a2e")
         for i, name in enumerate(scenario_names):
-            got = _load_sinr_scenario_averaged_union_vids(os.path.join(root, name), None)
-            if got is None:
-                continue
-            tg, _vids, mat = got
+            if name == PARTNER_SCENARIO:
+                if not include_partner:
+                    continue
+                vc = _infer_vehicle_count_from_root(root)
+                if vc is None:
+                    continue
+                got_p = load_partner_sinr_union_vids(vc)
+                if got_p is None:
+                    continue
+                tg, _vids, mat = got_p
+                style = dict(color="white", linestyle="--", linewidth=1.6, alpha=0.9)
+            else:
+                got = _load_sinr_scenario_averaged_union_vids(os.path.join(root, name), None)
+                if got is None:
+                    continue
+                tg, _vids, mat = got
+                style = dict(color=cmap[i % len(cmap)], linewidth=1.2, alpha=0.88)
             mean_v = np.nanmean(mat, axis=0)
             if np.all(np.isnan(mean_v)):
                 continue
             any_series = True
-            ax.plot(tg, mean_v, color=cmap[i % len(cmap)], linewidth=1.2, label=name, alpha=0.88)
+            ax.plot(tg, mean_v, label=_scenario_label(name), **style)
         ax.set_title(os.path.basename(os.path.normpath(root)), fontsize=10, color="white", fontweight="bold")
         ax.set_xlabel("Simulation time (s)", fontsize=8, color="white")
         ax.set_ylabel("Mean SINR (dB)", fontsize=8, color="white")
@@ -419,10 +522,16 @@ def generate_collective_animation_gif(
     all_vals: list[np.ndarray] = []
     for root in benchmark_roots:
         for name in scenario_names:
-            scenario_dir = os.path.join(root, name)
-            if not os.path.isdir(scenario_dir):
-                continue
-            result = _load_sinr_scenario_averaged_padded(scenario_dir, None, n_rows_by_root[root])
+            if name == PARTNER_SCENARIO:
+                vc = _infer_vehicle_count_from_root(root)
+                if vc is None:
+                    continue
+                result = load_partner_sinr_padded(vc, None, n_rows_by_root[root])
+            else:
+                scenario_dir = os.path.join(root, name)
+                if not os.path.isdir(scenario_dir):
+                    continue
+                result = _load_sinr_scenario_averaged_padded(scenario_dir, None, n_rows_by_root[root])
             if result is None:
                 continue
             tg, mat = result
@@ -439,11 +548,17 @@ def generate_collective_animation_gif(
     time_grid = np.array(sorted(all_times))
     scenarios: dict[tuple[str, str], np.ndarray] = {}
     for root, name in raw:
-        result = _load_sinr_scenario_averaged_padded(
-            os.path.join(root, name),
-            list(time_grid),
-            n_rows_by_root[root],
-        )
+        if name == PARTNER_SCENARIO:
+            vc = _infer_vehicle_count_from_root(root)
+            if vc is None:
+                continue
+            result = load_partner_sinr_padded(vc, list(time_grid), n_rows_by_root[root])
+        else:
+            result = _load_sinr_scenario_averaged_padded(
+                os.path.join(root, name),
+                list(time_grid),
+                n_rows_by_root[root],
+            )
         if result:
             scenarios[(root, name)] = result[1]
 
@@ -523,7 +638,7 @@ def generate_collective_animation_gif(
                 mat = np.full((n_rows_by_root[root], len(time_grid)), np.nan)
             meshes[root].set_array(mat.ravel())
             artists.extend([meshes[root], titles[root]])
-        suptitle.set_text(f"SINR (dB) — {scenario.replace('_', ' ')}")
+        suptitle.set_text(f"SINR (dB) — {_scenario_label(scenario)}")
         return artists
 
     anim = animation.FuncAnimation(fig, update, frames=len(frames), interval=1000 // FPS, blit=False)
@@ -550,6 +665,11 @@ def main() -> int:
         help="Output directory for PNG/GIF (default: same as --root)",
     )
     ap.add_argument("--scenarios", default="", help="Comma-separated scenario names")
+    ap.add_argument(
+        "--partner-data",
+        action="store_true",
+        help="Overlay RAFT partner data (allVehicles) from /home/yash/partnersv2v/res.",
+    )
     ap.add_argument("--no-animation", action="store_true", help="Skip GIF generation")
     ap.add_argument("--max-vehicles", type=int, default=0, help="Pad heatmap rows 0..N-1 (default: infer)")
     args = ap.parse_args()
@@ -590,6 +710,8 @@ def main() -> int:
         scenario_names = [n for n in sorted(wanted) if n in discovered]
     else:
         scenario_names = discovered
+    if args.partner_data and PARTNER_SCENARIO not in scenario_names:
+        scenario_names = list(scenario_names) + [PARTNER_SCENARIO]
 
     if not scenario_names:
         print("No scenarios with sinr_V*.csv under requested benchmark roots")
@@ -602,22 +724,26 @@ def main() -> int:
             benchmark_root,
             scenario_names,
             os.path.join(out_dir, "sinr_heatmap.png"),
+            include_partner=args.partner_data,
         )
         t_ok = plot_timeseries(
             benchmark_root,
             scenario_names,
             os.path.join(out_dir, "sinr_timeseries.png"),
+            include_partner=args.partner_data,
         )
     else:
         h_ok = plot_collective_heatmap(
             benchmark_roots,
             scenario_names,
             os.path.join(out_dir, "sinr_heatmap.png"),
+            include_partner=args.partner_data,
         )
         t_ok = plot_collective_timeseries(
             benchmark_roots,
             scenario_names,
             os.path.join(out_dir, "sinr_timeseries.png"),
+            include_partner=args.partner_data,
         )
 
     anim_ok = False
