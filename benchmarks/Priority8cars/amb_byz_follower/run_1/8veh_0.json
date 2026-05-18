@@ -1,343 +1,254 @@
-{
-  "overall": {
-    "cars": 8,
-    "epochs": 2,
-    "throughput_s_per_veh": 1.25228125,
-    "throughput_veh_per_s": 0.7985426596461458,
-    "throughput_formula": "n_cars / mean(depart_time - stop_time)  (s/veh stored as inverse)",
-    "wait_all_s": {
-      "mean": 10.01825,
-      "median": 11.2,
-      "p95": 12.36,
-      "min": 6.2,
-      "max": 12.5,
-      "n": 8
+[
+  {
+    "vehicle_id": 0,
+    "is_priority_vehicle": true,
+    "coordination_method": "pbft",
+    "transport": "wave",
+    "cluster_mode": "allVehicles",
+    "timestamps_ms": {
+      "stopped": 17900.0,
+      "passed": 27300.0
     },
-    "wait_normal_s": {
-      "mean": 10.563714285714285,
-      "median": 11.3,
-      "p95": 12.379999999999999,
-      "min": 6.3,
-      "max": 12.5,
-      "n": 7
+    "durations_ms": {
+      "leader_election_time_ms": 0.0,
+      "decision_latency_ms": 51.00000000000193,
+      "total_wait_time": 9400.000000000002
     },
-    "wait_ambulance_s": {
-      "mean": 6.2,
-      "median": 6.2,
-      "p95": 6.2,
-      "min": 6.2,
-      "max": 6.2,
-      "n": 1
+    "messages": {
+      "sent": 369,
+      "received": 733
     },
-    "jains_fairness_all": 0.9461611315167198,
-    "jains_fairness_normal": 0.9641723754144593,
-    "ambulance_priority_gain_s": 4.363714285714285,
-    "ambulance_priority_ratio": 0.5869147756470938,
-    "batch_throughput_veh_per_s": 0.4232804232804233,
-    "batch_index_distribution": {
-      "0": 2,
-      "1": 1,
-      "2": 2,
-      "3": 1,
-      "4": 1,
-      "5": 1
-    },
-    "propose_all_consensus_latency_sim_s": {
-      "mean": 0.05349999999999966,
-      "median": 0.05349999999999966,
-      "p95": 0.05349999999999966,
-      "min": 0.05349999999999966,
-      "max": 0.05349999999999966,
-      "n": 1
-    },
-    "propose_all_first_submit_to_commit_latency_sim_s": {
-      "mean": 0.05349999999999966,
-      "median": 0.05349999999999966,
-      "p95": 0.05349999999999966,
-      "min": 0.05349999999999966,
-      "max": 0.05349999999999966,
-      "n": 1
-    },
-    "stop_to_decision_sim_s": {
-      "mean": 8.054,
-      "median": 8.054,
-      "p95": 8.054,
-      "min": 8.054,
-      "max": 8.054,
-      "n": 1
-    },
-    "total_byzantine_injections": 0,
-    "byzantine_by_epoch": {},
-    "byzantine_by_replica": {},
-    "stop_to_resume_s": {
-      "mean": 8.596625,
-      "median": 9.853499999999999,
-      "p95": 11.01365,
-      "min": 4.552,
-      "max": 11.154,
-      "n": 8
-    },
-    "resume_to_depart_s": {
-      "mean": 1.4216250000000001,
-      "median": 1.3470000000000013,
-      "p95": 1.6473,
-      "min": 1.3459999999999965,
-      "max": 1.6479999999999997,
-      "n": 8
-    },
-    "delivery_ratio": null,
-    "estimated_loss_rate": null,
-    "fallback_rate": 0.0,
-    "fallback_count": 0
+    "bft_stats": {
+      "cert_collection_duration_ms": 8000.0,
+      "view_change_triggered": false,
+      "view_change_duration_ms": null,
+      "decision_via_gossip": false,
+      "used_fallback": false,
+      "byzantine_injections_replica": 0,
+      "byzantine_types": null,
+      "full_decision_latency_ms": 8051.000000000002,
+      "winning_propose_to_receive_ms": 51.00000000000193
+    }
   },
-  "per_epoch": [
-    {
-      "epoch": 0,
-      "n_replicas": 8,
-      "propose_all_consensus_latency_sim_s": 0.05349999999999966,
-      "propose_all_first_submit_to_commit_sim_s": 0.05349999999999966,
-      "stop_to_decision_sim_s": 8.054,
-      "throughput_s_per_veh": 1.25228125,
-      "throughput_veh_per_s": 0.7985426596461458,
-      "wait_normal_s": {
-        "mean": 10.563714285714285,
-        "median": 11.3,
-        "p95": 12.379999999999999,
-        "min": 6.3,
-        "max": 12.5,
-        "n": 7
-      },
-      "wait_ambulance_s": {
-        "mean": 6.2,
-        "median": 6.2,
-        "p95": 6.2,
-        "min": 6.2,
-        "max": 6.2,
-        "n": 1
-      },
-      "byzantine_injections": 0,
-      "consensus_success": true,
-      "avg_messages_sent_per_replica": null,
-      "avg_messages_recv_per_replica": null,
-      "stop_sign_failures": 0
+  {
+    "vehicle_id": 1,
+    "is_priority_vehicle": false,
+    "coordination_method": "pbft",
+    "transport": "wave",
+    "cluster_mode": "allVehicles",
+    "timestamps_ms": {
+      "stopped": 19300.0,
+      "passed": 27300.0
     },
-    {
-      "epoch": 1,
-      "n_replicas": 4,
-      "propose_all_consensus_latency_sim_s": null,
-      "propose_all_first_submit_to_commit_sim_s": null,
-      "stop_to_decision_sim_s": null,
-      "throughput_s_per_veh": null,
-      "throughput_veh_per_s": null,
-      "wait_normal_s": null,
-      "wait_ambulance_s": null,
-      "byzantine_injections": 0,
-      "consensus_success": false,
-      "avg_messages_sent_per_replica": null,
-      "avg_messages_recv_per_replica": null,
-      "stop_sign_failures": 0
+    "durations_ms": {
+      "leader_election_time_ms": 0.0,
+      "decision_latency_ms": 51.00000000000193,
+      "total_wait_time": 8000.0
+    },
+    "messages": {
+      "sent": 353,
+      "received": 679
+    },
+    "bft_stats": {
+      "cert_collection_duration_ms": 8000.0,
+      "view_change_triggered": false,
+      "view_change_duration_ms": null,
+      "decision_via_gossip": false,
+      "used_fallback": false,
+      "byzantine_injections_replica": 0,
+      "byzantine_types": null,
+      "full_decision_latency_ms": 8051.000000000002,
+      "winning_propose_to_receive_ms": 51.00000000000193
     }
-  ],
-  "per_car": [
-    {
-      "car_id": "veh0",
-      "role": "normal",
-      "epoch": 0,
-      "arrival_time_s": null,
-      "stop_time_s": 17.9,
-      "resume_time_s": 29.054,
-      "depart_time_s": 30.4,
-      "wait_intersection_s": 12.5,
-      "stop_to_resume_s": 11.154,
-      "resume_to_depart_s": 1.346,
-      "arrival_to_depart_s": null,
-      "messages_sent": null,
-      "messages_received": null,
-      "delivery_ratio": null,
-      "estimated_loss_rate": null,
-      "used_fallback": false,
-      "propose_all_consensus_sim_s": 0.05349999999999966,
-      "propose_all_first_submit_to_commit_sim_s": 0.05349999999999966,
-      "stop_to_decision_sim_s": 8.054,
-      "cert_wait_s": null,
-      "bft_wait_s": null,
-      "order_delivery_s": null,
-      "queue_wait_s": null
+  },
+  {
+    "vehicle_id": 2,
+    "is_priority_vehicle": false,
+    "coordination_method": "pbft",
+    "transport": "wave",
+    "cluster_mode": "allVehicles",
+    "timestamps_ms": {
+      "stopped": 16000.0,
+      "passed": 28700.0
     },
-    {
-      "car_id": "veh1",
-      "role": "normal",
-      "epoch": 0,
-      "arrival_time_s": null,
-      "stop_time_s": 19.3,
-      "resume_time_s": 29.054,
-      "depart_time_s": 30.4,
-      "wait_intersection_s": 11.1,
-      "stop_to_resume_s": 9.753999999999998,
-      "resume_to_depart_s": 1.346,
-      "arrival_to_depart_s": null,
-      "messages_sent": null,
-      "messages_received": null,
-      "delivery_ratio": null,
-      "estimated_loss_rate": null,
-      "used_fallback": false,
-      "propose_all_consensus_sim_s": null,
-      "propose_all_first_submit_to_commit_sim_s": null,
-      "stop_to_decision_sim_s": null,
-      "cert_wait_s": null,
-      "bft_wait_s": null,
-      "order_delivery_s": null,
-      "queue_wait_s": null
+    "durations_ms": {
+      "leader_election_time_ms": 0.0,
+      "decision_latency_ms": 50.00000000000071,
+      "total_wait_time": 12700.0
     },
-    {
-      "car_id": "veh2",
-      "role": "normal",
-      "epoch": 0,
-      "arrival_time_s": null,
-      "stop_time_s": 16.0,
-      "resume_time_s": 25.953,
-      "depart_time_s": 27.3,
-      "wait_intersection_s": 11.3,
-      "stop_to_resume_s": 9.953,
-      "resume_to_depart_s": 1.3470000000000013,
-      "arrival_to_depart_s": null,
-      "messages_sent": null,
-      "messages_received": null,
-      "delivery_ratio": null,
-      "estimated_loss_rate": null,
-      "used_fallback": false,
-      "propose_all_consensus_sim_s": null,
-      "propose_all_first_submit_to_commit_sim_s": null,
-      "stop_to_decision_sim_s": null,
-      "cert_wait_s": null,
-      "bft_wait_s": null,
-      "order_delivery_s": null,
-      "queue_wait_s": null
+    "messages": {
+      "sent": 403,
+      "received": 780
     },
-    {
-      "car_id": "veh3",
-      "role": "ambulance",
-      "epoch": 0,
-      "arrival_time_s": null,
-      "stop_time_s": 22.8,
-      "resume_time_s": 27.352,
-      "depart_time_s": 29.0,
-      "wait_intersection_s": 6.2,
-      "stop_to_resume_s": 4.552,
-      "resume_to_depart_s": 1.6479999999999997,
-      "arrival_to_depart_s": null,
-      "messages_sent": null,
-      "messages_received": null,
-      "delivery_ratio": null,
-      "estimated_loss_rate": null,
+    "bft_stats": {
+      "cert_collection_duration_ms": 8000.0,
+      "view_change_triggered": false,
+      "view_change_duration_ms": null,
+      "decision_via_gossip": false,
       "used_fallback": false,
-      "propose_all_consensus_sim_s": null,
-      "propose_all_first_submit_to_commit_sim_s": null,
-      "stop_to_decision_sim_s": null,
-      "cert_wait_s": null,
-      "bft_wait_s": null,
-      "order_delivery_s": null,
-      "queue_wait_s": null
-    },
-    {
-      "car_id": "veh4",
-      "role": "normal",
-      "epoch": 0,
-      "arrival_time_s": null,
-      "stop_time_s": 21.0,
-      "resume_time_s": 25.953,
-      "depart_time_s": 27.3,
-      "wait_intersection_s": 6.3,
-      "stop_to_resume_s": 4.952999999999999,
-      "resume_to_depart_s": 1.3470000000000013,
-      "arrival_to_depart_s": null,
-      "messages_sent": null,
-      "messages_received": null,
-      "delivery_ratio": null,
-      "estimated_loss_rate": null,
-      "used_fallback": false,
-      "propose_all_consensus_sim_s": null,
-      "propose_all_first_submit_to_commit_sim_s": null,
-      "stop_to_decision_sim_s": null,
-      "cert_wait_s": null,
-      "bft_wait_s": null,
-      "order_delivery_s": null,
-      "queue_wait_s": null
-    },
-    {
-      "car_id": "veh5",
-      "role": "normal",
-      "epoch": 0,
-      "arrival_time_s": null,
-      "stop_time_s": 20.4,
-      "resume_time_s": 30.454,
-      "depart_time_s": 32.1,
-      "wait_intersection_s": 11.7,
-      "stop_to_resume_s": 10.054000000000002,
-      "resume_to_depart_s": 1.6460000000000008,
-      "arrival_to_depart_s": null,
-      "messages_sent": null,
-      "messages_received": null,
-      "delivery_ratio": null,
-      "estimated_loss_rate": null,
-      "used_fallback": false,
-      "propose_all_consensus_sim_s": null,
-      "propose_all_first_submit_to_commit_sim_s": null,
-      "stop_to_decision_sim_s": null,
-      "cert_wait_s": null,
-      "bft_wait_s": null,
-      "order_delivery_s": null,
-      "queue_wait_s": null
-    },
-    {
-      "car_id": "veh6",
-      "role": "normal",
-      "epoch": 0,
-      "arrival_time_s": null,
-      "stop_time_s": 21.4,
-      "resume_time_s": 32.153,
-      "depart_time_s": 33.5,
-      "wait_intersection_s": 12.1,
-      "stop_to_resume_s": 10.753,
-      "resume_to_depart_s": 1.3470000000000013,
-      "arrival_to_depart_s": null,
-      "messages_sent": null,
-      "messages_received": null,
-      "delivery_ratio": null,
-      "estimated_loss_rate": null,
-      "used_fallback": false,
-      "propose_all_consensus_sim_s": null,
-      "propose_all_first_submit_to_commit_sim_s": null,
-      "stop_to_decision_sim_s": null,
-      "cert_wait_s": null,
-      "bft_wait_s": null,
-      "order_delivery_s": null,
-      "queue_wait_s": null
-    },
-    {
-      "car_id": "veh7",
-      "role": "normal",
-      "epoch": 0,
-      "arrival_time_s": null,
-      "stop_time_s": 25.954,
-      "resume_time_s": 33.554,
-      "depart_time_s": 34.9,
-      "wait_intersection_s": 8.946,
-      "stop_to_resume_s": 7.600000000000001,
-      "resume_to_depart_s": 1.3459999999999965,
-      "arrival_to_depart_s": null,
-      "messages_sent": null,
-      "messages_received": null,
-      "delivery_ratio": null,
-      "estimated_loss_rate": null,
-      "used_fallback": false,
-      "propose_all_consensus_sim_s": null,
-      "propose_all_first_submit_to_commit_sim_s": null,
-      "stop_to_decision_sim_s": null,
-      "cert_wait_s": null,
-      "bft_wait_s": null,
-      "order_delivery_s": null,
-      "queue_wait_s": null
+      "byzantine_injections_replica": 0,
+      "byzantine_types": null,
+      "full_decision_latency_ms": 8050.000000000001,
+      "winning_propose_to_receive_ms": 50.00000000000071
     }
-  ]
-}
+  },
+  {
+    "vehicle_id": 3,
+    "is_priority_vehicle": false,
+    "coordination_method": "pbft",
+    "transport": "wave",
+    "cluster_mode": "allVehicles",
+    "timestamps_ms": {
+      "stopped": 22800.0,
+      "passed": 31500.0
+    },
+    "durations_ms": {
+      "leader_election_time_ms": 0.0,
+      "decision_latency_ms": 50.00000000000071,
+      "total_wait_time": 8700.0
+    },
+    "messages": {
+      "sent": 347,
+      "received": 599
+    },
+    "bft_stats": {
+      "cert_collection_duration_ms": 8000.0,
+      "view_change_triggered": false,
+      "view_change_duration_ms": null,
+      "decision_via_gossip": false,
+      "used_fallback": false,
+      "byzantine_injections_replica": 0,
+      "byzantine_types": null,
+      "full_decision_latency_ms": 8050.000000000001,
+      "winning_propose_to_receive_ms": 50.00000000000071
+    }
+  },
+  {
+    "vehicle_id": 4,
+    "is_priority_vehicle": false,
+    "coordination_method": "pbft",
+    "transport": "wave",
+    "cluster_mode": "allVehicles",
+    "timestamps_ms": {
+      "stopped": 21000.0,
+      "passed": 30100.0
+    },
+    "durations_ms": {
+      "leader_election_time_ms": 0.0,
+      "decision_latency_ms": 50.00000000000071,
+      "total_wait_time": 9100.000000000002
+    },
+    "messages": {
+      "sent": 270,
+      "received": 425
+    },
+    "bft_stats": {
+      "cert_collection_duration_ms": 8000.0,
+      "view_change_triggered": false,
+      "view_change_duration_ms": null,
+      "decision_via_gossip": false,
+      "used_fallback": false,
+      "byzantine_injections_replica": 0,
+      "byzantine_types": [
+        "FALSE_LANE"
+      ],
+      "full_decision_latency_ms": 8050.000000000001,
+      "winning_propose_to_receive_ms": 50.00000000000071
+    }
+  },
+  {
+    "vehicle_id": 5,
+    "is_priority_vehicle": false,
+    "coordination_method": "pbft",
+    "transport": "wave",
+    "cluster_mode": "allVehicles",
+    "timestamps_ms": {
+      "stopped": 20400.0,
+      "passed": 32900.0
+    },
+    "durations_ms": {
+      "leader_election_time_ms": 0.0,
+      "decision_latency_ms": 49.00000000000304,
+      "total_wait_time": 12500.0
+    },
+    "messages": {
+      "sent": 347,
+      "received": 641
+    },
+    "bft_stats": {
+      "cert_collection_duration_ms": 8000.0,
+      "view_change_triggered": false,
+      "view_change_duration_ms": null,
+      "decision_via_gossip": false,
+      "used_fallback": false,
+      "byzantine_injections_replica": 0,
+      "byzantine_types": null,
+      "full_decision_latency_ms": 8049.000000000003,
+      "winning_propose_to_receive_ms": 49.00000000000304
+    }
+  },
+  {
+    "vehicle_id": 6,
+    "is_priority_vehicle": false,
+    "coordination_method": "pbft",
+    "transport": "wave",
+    "cluster_mode": "allVehicles",
+    "timestamps_ms": {
+      "stopped": 21400.0,
+      "passed": 32900.0
+    },
+    "durations_ms": {
+      "leader_election_time_ms": 0.0,
+      "decision_latency_ms": 50.00000000000071,
+      "total_wait_time": 11500.0
+    },
+    "messages": {
+      "sent": 326,
+      "received": 615
+    },
+    "bft_stats": {
+      "cert_collection_duration_ms": 8000.0,
+      "view_change_triggered": false,
+      "view_change_duration_ms": null,
+      "decision_via_gossip": false,
+      "used_fallback": false,
+      "byzantine_injections_replica": 0,
+      "byzantine_types": null,
+      "full_decision_latency_ms": 8050.000000000001,
+      "winning_propose_to_receive_ms": 50.00000000000071
+    }
+  },
+  {
+    "vehicle_id": 7,
+    "is_priority_vehicle": false,
+    "coordination_method": "pbft",
+    "transport": "wave",
+    "cluster_mode": "allVehicles",
+    "timestamps_ms": {
+      "stopped": 25949.0,
+      "passed": 34300.0
+    },
+    "durations_ms": {
+      "leader_election_time_ms": 0.0,
+      "decision_latency_ms": 49.00000000000304,
+      "total_wait_time": 8350.999999999996
+    },
+    "messages": {
+      "sent": 245,
+      "received": 325
+    },
+    "bft_stats": {
+      "cert_collection_duration_ms": 8000.0,
+      "view_change_triggered": false,
+      "view_change_duration_ms": null,
+      "decision_via_gossip": false,
+      "used_fallback": false,
+      "byzantine_injections_replica": 0,
+      "byzantine_types": [
+        "FALSE_LANE"
+      ],
+      "full_decision_latency_ms": 8049.000000000003,
+      "winning_propose_to_receive_ms": 49.00000000000304
+    }
+  }
+]

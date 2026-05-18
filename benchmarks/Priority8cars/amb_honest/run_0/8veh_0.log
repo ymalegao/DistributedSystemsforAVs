@@ -1,23 +1,27 @@
+[ROUND-METRICS] Epoch 0 Avg_Messages_Sent_PerReplica: 355.500 (count=8)
+[ROUND-METRICS] Epoch 0 Avg_Messages_Received_PerReplica: 519.875 (count=8)
 [ROUND-METRICS] Epoch 0 Avg_StopSign_Failures: 0.000 (count)
 [ROUND-METRICS] Epoch 1 Avg_StopSign_Failures: 0.000 (count)
-[RUN-METRICS] Throughput_User_Definition: 0.685438 seconds_per_vehicle
-[RUN-METRICS] Throughput_Vehicles_Per_Second: 1.458922 vehicles_per_second
-[RUN-METRICS] Wait_Intersection_All_Mean: 5.483500 seconds
-[RUN-METRICS] Wait_Intersection_All_P95: 8.807550 seconds
-[RUN-METRICS] Wait_Intersection_Normal_Mean: 5.721000 seconds
-[RUN-METRICS] Wait_Intersection_Ambulance_Mean: 3.821000 seconds
-[RUN-METRICS] Stop_To_Resume_Mean: 3.656500 seconds
-[RUN-METRICS] Resume_To_Depart_Mean: 1.827000 seconds
-[RUN-METRICS] Jains_Fairness_All: 0.855847
-[RUN-METRICS] Jains_Fairness_Normal: 0.859803
-[RUN-METRICS] Ambulance_Priority_Gain: 1.900000 seconds
-[RUN-METRICS] Ambulance_Priority_Ratio: 0.667890
+[RUN-METRICS] Throughput_User_Definition: 0.724969 seconds_per_vehicle
+[RUN-METRICS] Throughput_Vehicles_Per_Second: 1.379370 vehicles_per_second
+[RUN-METRICS] Wait_Intersection_All_Mean: 5.799750 seconds
+[RUN-METRICS] Wait_Intersection_All_P95: 9.279300 seconds
+[RUN-METRICS] Wait_Intersection_Normal_Mean: 5.993429 seconds
+[RUN-METRICS] Wait_Intersection_Ambulance_Mean: 4.444000 seconds
+[RUN-METRICS] Stop_To_Resume_Mean: 3.883500 seconds
+[RUN-METRICS] Resume_To_Depart_Mean: 1.916250 seconds
+[RUN-METRICS] Jains_Fairness_All: 0.846364
+[RUN-METRICS] Jains_Fairness_Normal: 0.843233
+[RUN-METRICS] Ambulance_Priority_Gain: 1.549429 seconds
+[RUN-METRICS] Ambulance_Priority_Ratio: 0.741479
 [RUN-METRICS] Byzantine_Injections_Total: 0
 [RUN-METRICS] Byzantine_Injections_Epoch0: 0
 [RUN-METRICS] Byzantine_Injections_Epoch1: 0
+[RUN-METRICS] Delivery_Ratio: 0.208104
+[RUN-METRICS] Estimated_Loss_Rate: 0.791896
 [RUN-METRICS] Fallback_Count: 0
 [RUN-METRICS] Fallback_Rate: 0.000000
-[ROUND-METRICS] Epoch 0 Throughput_User_Definition: 0.685438 seconds_per_vehicle
-[ROUND-METRICS] Epoch 0 Throughput_Vehicles_Per_Second: 1.458922 vehicles_per_second
-[ROUND-METRICS] Epoch 0 Wait_Normal_Mean: 5.721000 seconds
-[ROUND-METRICS] Epoch 0 Wait_Ambulance_Mean: 3.821000 seconds
+[ROUND-METRICS] Epoch 0 Throughput_User_Definition: 0.724969 seconds_per_vehicle
+[ROUND-METRICS] Epoch 0 Throughput_Vehicles_Per_Second: 1.379370 vehicles_per_second
+[ROUND-METRICS] Epoch 0 Wait_Normal_Mean: 5.993429 seconds
+[ROUND-METRICS] Epoch 0 Wait_Ambulance_Mean: 4.444000 seconds
