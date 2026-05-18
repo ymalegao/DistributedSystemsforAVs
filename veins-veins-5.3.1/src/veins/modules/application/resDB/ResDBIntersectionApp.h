@@ -293,7 +293,8 @@ private:
     // ── Post-consensus order gossip (Type 9) ──────────────────────────────────
     static constexpr int kDecisionGossipType = 9;
 
-    resdb_gossip::GossipAccumulator gossip_acc_;
+    resdb_gossip::GossipAccumulator  gossip_acc_;
+    resdb_gossip::CertRelayTracker   cert_relay_tracker_;
     cMessage*            gossip_timer_              = nullptr;
     int                  gossip_retry_count_        = 0;
     uint32_t             gossip_epoch_              = 0;

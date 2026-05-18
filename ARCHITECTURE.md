@@ -86,7 +86,7 @@ The ResDB library still runs internal worker threads, but all interaction with V
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.ned` | NED parameters for replica identity, ResDB paths, radio transport, jitter, cert timeout, gossip, view-change timeout, Byzantine injection, and TraCI behavior. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/IV2VTransport.h` | Minimal abstract transport interface. Provides C-compatible adapters for the bridge callback table. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResdbV2VWire.h` | Shared signed-envelope helper for type 8 and type 9 radio payloads. Layout is pubkey, signature length, DER ECDSA signature, then inner bytes. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBDecisionGossip.h/.cc` | Pure decision-gossip logic. Serializes `epoch || order_bytes`, parses gossip payloads, and counts matching votes by sender. |
+| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBDecisionGossip.h/.cc` | Pure relay-dedup logic for two independent mechanisms: (1) decision gossip — serializes `epoch \|\| order_bytes`, parses TYPE9 payloads, counts matching votes per sender via `GossipAccumulator`; (2) cert relay — `CertRelayTracker` deduplicates per-carId ARRIVAL_CERT re-floods so each node relays each validated cert exactly once. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBTraCI.cc` | TraCI helpers extracted from the legacy V2V module: distance-to-lane-end, lane queue discovery, vehicle stop/resume helpers, and clearance detection. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/crypto/CryptoAuth.h/.cc` | OpenSSL ECDSA P-256 helper. Generates per-vehicle EC keys, signs arbitrary byte buffers, verifies signatures, and contains CA certificate helpers. |
 | `incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h` | C ABI between Veins and ResDB. Defines lifecycle, transport callback registration, sim-time update, consensus trigger, order callback, primary lookup, view-change hooks, and shared packed structs. |
@@ -367,6 +367,21 @@ If enabled by `enableArrivalCertRetries`, a vehicle rebroadcasts its assembled c
 4. A type `8` PBFT frame from the current primary is observed.
 
 This improves visibility of type `5` certificates without adding TCP-like ACK machinery.
+
+### Epidemic cert relay
+
+Source-only cert retries can fail if a straggler misses every retry window from the original sender. To close this gap, each replica that receives and validates a cert for a given `carId` re-floods that cert **once**, giving epidemic propagation without source spam.
+
+Implementation:
+
+- `CertRelayTracker` in `ResDBDecisionGossip.h/.cc` tracks which `carId` values this node has already relayed. `tryRelay(carId)` returns `true` the first time and `false` on all subsequent calls.
+- `handleArrivalCert()` calls `cert_relay_tracker_.tryRelay(cert.carId)` after validation and state reconstruction. On first receipt, it calls `sendBFTMessage(-1, serializeArrivalCert(cert), kArrivalCertType)` and logs `[CERT-RELAY]`.
+- The relay fires immediately on the simulation thread — no additional timer. Natural topology-induced arrival stagger provides spread without synchronized floods.
+- `cert_relay_tracker_.reset()` is called in `applyGossipOrder()` alongside `gossip_acc_.reset()`.
+
+The acceptance rule differs from decision gossip. Decision gossip requires `f + 1` matching votes before acting. Cert relay fires as soon as `validateArrivalCert()` passes, because the cert already carries `f + 1` independent ECDSA echo signatures. Any node that validates it can safely relay it with no further quorum check.
+
+Source retries (`enableArrivalCertRetries`) are kept. Relay is additive: it covers the case where the original sender's retry window closes before a straggler node gets coverage.
 
 ### QUIET entries
 
@@ -974,3 +989,7 @@ When continuing work on this system, first identify which layer owns the behavio
 7. **Experiment knobs:** `ResDBIntersectionApp.ned` and `fourway/omnetpp.ini`.
 
 Before changing behavior, check whether the old Java docs describe an invariant that still matters. Then implement it in the current C++/ResDB ownership boundary rather than reintroducing Java/JNI assumptions.
+
+
+
+

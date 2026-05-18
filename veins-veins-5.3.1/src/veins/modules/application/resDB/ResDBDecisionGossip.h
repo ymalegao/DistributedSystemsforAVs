@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <map>
+#include <set>
+#include <string>
 #include <vector>
 
 // Post-consensus order gossip helpers (Type 9).
@@ -47,6 +49,23 @@ struct GossipAccumulator {
 private:
     // epoch → { sender_id → order_bytes }
     std::map<uint32_t, std::map<int, std::vector<uint8_t>>> entries_;
+};
+
+// --- Cert relay dedup --------------------------------------------------------
+
+// Tracks which ARRIVAL_CERT car IDs this node has already relayed.
+// Acceptance rule differs from GossipAccumulator: a cert is relayed as soon
+// as it passes validateArrivalCert (f+1 signatures), not after f+1 matching
+// senders.  Each carId is relayed at most once per epoch.
+struct CertRelayTracker {
+    // Returns true the first time carId is seen (caller should relay).
+    // Returns false on subsequent calls (caller should skip).
+    bool tryRelay(const std::string& carId);
+
+    void reset();
+
+private:
+    std::set<std::string> relayed_;
 };
 
 } // namespace resdb_gossip

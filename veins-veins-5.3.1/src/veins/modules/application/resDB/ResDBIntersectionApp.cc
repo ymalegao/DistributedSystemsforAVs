@@ -1515,6 +1515,15 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
         physically_observed_cars_.insert(cert.carId);
     }
 
+    // Epidemic relay: each node forwards each validated cert once.
+    // cert already carries f+1 signatures so recipients can verify without
+    // re-accumulating votes.  cert_relay_tracker_ deduplicates per carId.
+    if (cert_relay_tracker_.tryRelay(cert.carId)) {
+        sendBFTMessage(-1, serializeArrivalCert(cert), kArrivalCertType);
+        std::cout << "[CERT-RELAY] r" << replicaId_ << " relayed cert for "
+                  << cert.carId << " t=" << simTime() << "\n";
+    }
+
     // Primary: if in stop zone and all certs collected → propose.
     if (replicaId_ == ResdbOmnetGetPrimary(resdb_server_handle_)
             && entered_stop_zone_ && !propose_submitted_) {
@@ -2086,5 +2095,6 @@ bool ResDBIntersectionApp::applyGossipOrder(const std::vector<uint8_t>& order_by
     committed_order_bytes_ = order_bytes;
     stopGossip();
     gossip_acc_.reset();
+    cert_relay_tracker_.reset();
     return true;
 }

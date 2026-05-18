@@ -49,4 +49,16 @@ void GossipAccumulator::reset()
     entries_.clear();
 }
 
+// --- Cert relay dedup --------------------------------------------------------
+
+bool CertRelayTracker::tryRelay(const std::string& carId)
+{
+    return relayed_.insert(carId).second;  // true only on first insertion
+}
+
+void CertRelayTracker::reset()
+{
+    relayed_.clear();
+}
+
 } // namespace resdb_gossip

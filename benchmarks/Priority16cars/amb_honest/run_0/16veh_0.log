@@ -1,31 +1,31 @@
-[ROUND-METRICS] Epoch 0 Avg_Messages_Sent_PerReplica: 606.250 (count=16)
-[ROUND-METRICS] Epoch 0 Avg_Messages_Received_PerReplica: 2030.125 (count=16)
+[ROUND-METRICS] Epoch 0 Avg_Messages_Sent_PerReplica: 621.062 (count=16)
+[ROUND-METRICS] Epoch 0 Avg_Messages_Received_PerReplica: 2089.000 (count=16)
 [ROUND-METRICS] Epoch 0 Avg_StopSign_Failures: 0.000 (count)
 [ROUND-METRICS] Epoch 1 Avg_StopSign_Failures: 0.000 (count)
 [ROUND-METRICS] Epoch 2 Avg_StopSign_Failures: 0.000 (count)
 [ROUND-METRICS] Epoch 3 Avg_StopSign_Failures: 0.000 (count)
-[RUN-METRICS] Throughput_User_Definition: 0.582187 seconds_per_vehicle
-[RUN-METRICS] Throughput_Vehicles_Per_Second: 1.717660 vehicles_per_second
-[RUN-METRICS] Wait_Intersection_All_Mean: 9.315000 seconds
-[RUN-METRICS] Wait_Intersection_All_P95: 12.261000 seconds
-[RUN-METRICS] Wait_Intersection_Normal_Mean: 9.609333 seconds
-[RUN-METRICS] Wait_Intersection_Ambulance_Mean: 4.900000 seconds
-[RUN-METRICS] Stop_To_Resume_Mean: 7.866313 seconds
-[RUN-METRICS] Resume_To_Depart_Mean: 1.448687 seconds
-[RUN-METRICS] Jains_Fairness_All: 0.954436
-[RUN-METRICS] Jains_Fairness_Normal: 0.968205
-[RUN-METRICS] Ambulance_Priority_Gain: 4.709333 seconds
-[RUN-METRICS] Ambulance_Priority_Ratio: 0.509921
+[RUN-METRICS] Throughput_User_Definition: 0.570156 seconds_per_vehicle
+[RUN-METRICS] Throughput_Vehicles_Per_Second: 1.753905 vehicles_per_second
+[RUN-METRICS] Wait_Intersection_All_Mean: 9.122500 seconds
+[RUN-METRICS] Wait_Intersection_All_P95: 11.849750 seconds
+[RUN-METRICS] Wait_Intersection_Normal_Mean: 9.424000 seconds
+[RUN-METRICS] Wait_Intersection_Ambulance_Mean: 4.600000 seconds
+[RUN-METRICS] Stop_To_Resume_Mean: 7.621062 seconds
+[RUN-METRICS] Resume_To_Depart_Mean: 1.501437 seconds
+[RUN-METRICS] Jains_Fairness_All: 0.948905
+[RUN-METRICS] Jains_Fairness_Normal: 0.963908
+[RUN-METRICS] Ambulance_Priority_Gain: 4.824000 seconds
+[RUN-METRICS] Ambulance_Priority_Ratio: 0.488115
 [RUN-METRICS] Byzantine_Injections_Total: 0
 [RUN-METRICS] Byzantine_Injections_Epoch0: 0
 [RUN-METRICS] Byzantine_Injections_Epoch1: 0
 [RUN-METRICS] Byzantine_Injections_Epoch2: 0
 [RUN-METRICS] Byzantine_Injections_Epoch3: 0
-[RUN-METRICS] Delivery_Ratio: 0.222754
-[RUN-METRICS] Estimated_Loss_Rate: 0.777246
+[RUN-METRICS] Delivery_Ratio: 0.223680
+[RUN-METRICS] Estimated_Loss_Rate: 0.776320
 [RUN-METRICS] Fallback_Count: 0
 [RUN-METRICS] Fallback_Rate: 0.000000
-[ROUND-METRICS] Epoch 0 Throughput_User_Definition: 0.582187 seconds_per_vehicle
-[ROUND-METRICS] Epoch 0 Throughput_Vehicles_Per_Second: 1.717660 vehicles_per_second
-[ROUND-METRICS] Epoch 0 Wait_Normal_Mean: 9.609333 seconds
-[ROUND-METRICS] Epoch 0 Wait_Ambulance_Mean: 4.900000 seconds
+[ROUND-METRICS] Epoch 0 Throughput_User_Definition: 0.570156 seconds_per_vehicle
+[ROUND-METRICS] Epoch 0 Throughput_Vehicles_Per_Second: 1.753905 vehicles_per_second
+[ROUND-METRICS] Epoch 0 Wait_Normal_Mean: 9.424000 seconds
+[ROUND-METRICS] Epoch 0 Wait_Ambulance_Mean: 4.600000 seconds

@@ -7,21 +7,21 @@
     "cluster_mode": "allVehicles",
     "timestamps_ms": {
       "stopped": 20600.0,
-      "passed": 34500.0
+      "passed": 34400.0
     },
     "durations_ms": {
       "leader_election_time_ms": 0.0,
-      "decision_latency_ms": 11099.999999999998,
-      "total_wait_time": 13899.999999999998
+      "decision_latency_ms": 11047.999999999998,
+      "total_wait_time": 13799.999999999996
     },
     "messages": {
-      "sent": 219,
-      "received": 114
+      "sent": 223,
+      "received": 116
     },
     "bft_stats": {
       "cert_collection_duration_ms": null,
       "view_change_triggered": false,
-      "view_change_duration_ms": 58.9999999999975,
+      "view_change_duration_ms": 17.99999999999713,
       "decision_via_gossip": false,
       "used_fallback": false,
       "byzantine_injections_replica": 0,
@@ -29,7 +29,7 @@
         "BAD_PROPOSAL"
       ],
       "full_decision_latency_ms": null,
-      "winning_propose_to_receive_ms": 41.00000000000037
+      "winning_propose_to_receive_ms": 30.000000000001137
     }
   },
   {
@@ -40,27 +40,27 @@
     "cluster_mode": "allVehicles",
     "timestamps_ms": {
       "stopped": 20600.0,
-      "passed": 34500.0
+      "passed": 34400.0
     },
     "durations_ms": {
       "leader_election_time_ms": 0.0,
-      "decision_latency_ms": 11099.999999999998,
-      "total_wait_time": 13899.999999999998
+      "decision_latency_ms": 11049.0,
+      "total_wait_time": 13799.999999999996
     },
     "messages": {
-      "sent": 225,
-      "received": 132
+      "sent": 226,
+      "received": 133
     },
     "bft_stats": {
       "cert_collection_duration_ms": null,
       "view_change_triggered": true,
-      "view_change_duration_ms": 58.9999999999975,
+      "view_change_duration_ms": 17.99999999999713,
       "decision_via_gossip": false,
       "used_fallback": false,
       "byzantine_injections_replica": 0,
       "byzantine_types": null,
       "full_decision_latency_ms": null,
-      "winning_propose_to_receive_ms": 41.00000000000037
+      "winning_propose_to_receive_ms": 31.00000000000236
     }
   },
   {
@@ -71,27 +71,27 @@
     "cluster_mode": "allVehicles",
     "timestamps_ms": {
       "stopped": 20600.0,
-      "passed": 33100.0
+      "passed": 33000.0
     },
     "durations_ms": {
       "leader_election_time_ms": 0.0,
-      "decision_latency_ms": 11099.999999999998,
-      "total_wait_time": 12500.0
+      "decision_latency_ms": 11046.999999999996,
+      "total_wait_time": 12399.999999999998
     },
     "messages": {
-      "sent": 224,
-      "received": 133
+      "sent": 225,
+      "received": 139
     },
     "bft_stats": {
       "cert_collection_duration_ms": null,
       "view_change_triggered": true,
-      "view_change_duration_ms": 58.9999999999975,
+      "view_change_duration_ms": 17.99999999999713,
       "decision_via_gossip": false,
       "used_fallback": false,
       "byzantine_injections_replica": 0,
       "byzantine_types": null,
       "full_decision_latency_ms": null,
-      "winning_propose_to_receive_ms": 41.00000000000037
+      "winning_propose_to_receive_ms": 28.999999999999915
     }
   },
   {
@@ -102,27 +102,27 @@
     "cluster_mode": "allVehicles",
     "timestamps_ms": {
       "stopped": 20600.0,
-      "passed": 33100.0
+      "passed": 33000.0
     },
     "durations_ms": {
       "leader_election_time_ms": 0.0,
-      "decision_latency_ms": 11099.999999999998,
-      "total_wait_time": 12500.0
+      "decision_latency_ms": 11046.999999999996,
+      "total_wait_time": 12399.999999999998
     },
     "messages": {
-      "sent": 222,
-      "received": 116
+      "sent": 225,
+      "received": 110
     },
     "bft_stats": {
       "cert_collection_duration_ms": null,
       "view_change_triggered": true,
-      "view_change_duration_ms": 58.9999999999975,
+      "view_change_duration_ms": 17.99999999999713,
       "decision_via_gossip": false,
       "used_fallback": false,
       "byzantine_injections_replica": 0,
       "byzantine_types": null,
       "full_decision_latency_ms": null,
-      "winning_propose_to_receive_ms": 41.00000000000037
+      "winning_propose_to_receive_ms": 28.999999999999915
     }
   }
 ]
