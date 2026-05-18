@@ -337,6 +337,7 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
                 std::cout << "[VC-DEBUG] r" << replicaId_
                           << " primary changed: " << last_known_primary_
                           << " -> " << current_primary
+                          << " t=" << simTime()
                           << " phase=" << phaseToStr(current_phase_)
                           << " propose_submitted=" << propose_submitted_
                           << " order_applied=" << order_applied_ << "\n";
@@ -347,14 +348,14 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
                     propose_submitted_ = false;
                     std::cout << "[VC-DEBUG] r" << replicaId_
                               << " became primary, re-proposing in phase="
-                              << phaseToStr(current_phase_) << "\n";
+                              << phaseToStr(current_phase_) << " t=" << simTime() << "\n";
                     proposeAll();
                 } else if (current_primary == replicaId_) {
                     std::cout << "[VC-DEBUG] r" << replicaId_
                               << " became primary but skipped re-propose"
                               << " propose_submitted=" << propose_submitted_
                               << " order_applied=" << order_applied_
-                              << " phase=" << phaseToStr(current_phase_) << "\n";
+                              << " phase=" << phaseToStr(current_phase_) << " t=" << simTime() << "\n";
                 }
             }
         }
@@ -679,6 +680,9 @@ void ResDBIntersectionApp::finish()
     // OMNeT++ freezes sim-time at endSimulation(), so any ResDB thread sleeping
     // in SleepUntilUs() would wait forever.  Advance sim-time to INT64_MAX first
     // so all SleepUntilUs waiters unblock before we call Stop()/join().
+    std::cout << "[METRICS " << replicaId_ << "] Messages_Sent: " << sentMessages_ << "\n";
+    std::cout << "[METRICS " << replicaId_ << "] Messages_Received: " << receivedMessages_ << "\n";
+    
     std::cerr << "[FINISH-PROBE] r" << replicaId_
     << " handle=" << resdb_server_handle_ << std::endl;
 
@@ -777,6 +781,8 @@ void ResDBIntersectionApp::drainOutboundQueue()
             pkt.resdbBytes.data(), (uint32_t)pkt.resdbBytes.size());
         if (signed_payload.empty()) continue;
 
+        sentMessages_++;
+
         BFTMessage* bft = new BFTMessage();
         bft->setFromReplicaId(replicaId_);
         bft->setToReplicaId(pkt.toReplicaId);
@@ -815,6 +821,7 @@ void ResDBIntersectionApp::sendBFTMessage(int toReplicaId,
                                            int msgType)
 {
     if (payload.empty()) return;
+    sentMessages_++;
     BFTMessage* bft = new BFTMessage();
     bft->setFromReplicaId(replicaId_);
     bft->setToReplicaId(toReplicaId);
@@ -861,6 +868,7 @@ void ResDBIntersectionApp::sendBFTMessage(int toReplicaId,
 
 void ResDBIntersectionApp::onWSM(BaseFrame1609_4* wsm)
 {
+    receivedMessages_++;
     if (channel_metrics_) {
         if (auto* ci = dynamic_cast<PhyToMacControlInfo*>(wsm->getControlInfo())) {
             if (auto* res = dynamic_cast<DeciderResult80211*>(ci->getDeciderResult()))
@@ -1115,6 +1123,8 @@ void ResDBIntersectionApp::tryStartCertCollectionTimer(bool rearm)
         propose_timeout_msg_ = new cMessage("resdbProposeTimeout");
     scheduleAt(simTime() + cert_collection_timeout_, propose_timeout_msg_);
     cert_collection_started_ = true;
+    cert_collection_start_time_ = simTime();
+    std::cout << "[METRICS " << replicaId_ << "] Cert_Collection_Start: " << cert_collection_start_time_ << "\n";
     std::cout << "[ResDB r" << replicaId_
               << "] Leader: cert-collection deadline at stop line (timeout="
               << cert_collection_timeout_ << "s rearm=" << (rearm ? 1 : 0) << ")\n";
@@ -1588,6 +1598,10 @@ void ResDBIntersectionApp::proposeAll()
     propose_time_ = simTime();
     current_phase_ = ConsensusPhase::WAITING_FOR_CLEARANCE;
     std::cout << "[METRICS " << replicaId_ << "] ProposeAll_Submit_Time: " << propose_time_ << "\n";
+    if (cert_collection_start_time_ > SIMTIME_ZERO && propose_time_ >= cert_collection_start_time_) {
+        std::cout << "[METRICS " << replicaId_ << "] Cert_Collection_Duration: "
+                  << (propose_time_ - cert_collection_start_time_).dbl() << "s\n";
+    }
     std::cout << "[VC-TRACE] r" << replicaId_
               << " proposeAll context phase=" << phaseToStr(current_phase_)
               << " certs=" << collected_certs_.size() << "/" << total_vehicles_

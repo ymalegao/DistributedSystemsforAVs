@@ -52,6 +52,17 @@ _parser.add_argument("--cars", type=int, default=None,
 _parser.add_argument("--plots-dir", metavar="DIR",
                      help="Directory for generated plots/CSV. Defaults to the log file directory.")
 _parser.add_argument(
+    "--output-format",
+    choices=["partner", "legacy"],
+    default="partner",
+    help="JSON output schema. 'partner' matches partnersv2v raft_results.json-style per-vehicle array.",
+)
+_parser.add_argument(
+    "--coordination-method",
+    default="pbft",
+    help="Value for JSON field coordination_method in partner-format output (default: pbft).",
+)
+_parser.add_argument(
     "--no-scenario-subdir",
     action="store_true",
     help="Write metrics directly under --save-to (do not append no_amb/amb_honest/...). "
@@ -134,11 +145,9 @@ RE_ORDER_DECISION = re.compile(
 )
 RE_ORDER_COMMITTED = re.compile(r'\[ORDER\] Committed OrderBag epoch=(\d+) batches=\d+ decision=(.*)')
 RE_BATCH_ENTRY = re.compile(r'(veh\d+):BATCH:(\d+)')
-RE_RESUME = re.compile(r'\[RESUME\] Replica (\d+): JNI received GO signal')
-RE_RESUME_MSG = re.compile(r'\[HANDLE-SELF-MSG\] Replica (\d+): .*msgName=resumeVehicle')
 
-RE_MESSAGES_SENT     = re.compile(r'\[METRICS (\d+)\] Messages_Sent: (\d+)')
-RE_MESSAGES_RECEIVED = re.compile(r'\[METRICS (\d+)\] Messages_Received: (\d+)')
+RE_MESSAGES_SENT     = re.compile(r'\[METRICS (\d+)\]\s+(?:Messages_Sent|Sent Messages): (\d+)')
+RE_MESSAGES_RECEIVED = re.compile(r'\[METRICS (\d+)\]\s+(?:Messages_Received|Received Messages): (\d+)')
 RE_ARRIVAL_TIME      = re.compile(r'\[METRICS (\d+)\] Arrival_Time: ([\d.]+)')
 RE_STOP_TIME         = re.compile(r'\[METRICS (\d+)\] Stop_Time: ([\d.]+)')
 RE_RESUME_TIME       = re.compile(r'\[METRICS (\d+)\] Resume_Time: ([\d.]+)')
@@ -148,6 +157,13 @@ RE_RESDB_PROPOSE_SUBMIT = re.compile(
     r'\[METRICS (\d+)\] ProposeAll_Submit_Time:\s*(\S+)')
 RE_RESDB_ORDER_DECIDED = re.compile(
     r'\[METRICS (\d+)\] Order_Decided_Time:\s*(\S+)')
+RE_CERT_START = re.compile(r'\[METRICS (\d+)\] Cert_Collection_Start:\s*(\S+)')
+RE_VC_TRIGGER = re.compile(r'\[VC-TRIGGER\]\s+r(\d+)\s+forcing view change at\s+(\S+)')
+RE_PRIMARY_CHANGED = re.compile(
+    r'\[VC-DEBUG\]\s+r(\d+)\s+primary changed:\s+(\d+)\s+->\s+(\d+)\s+t=(\S+)'
+)
+RE_GOSSIP_APPLY = re.compile(r'\[GOSSIP-APPLY\]\s+r(\d+)\s+epoch=(\d+)\s+t=(\S+)')
+RE_BYZANTINE_CONFIG = re.compile(r'\[BYZANTINE\]\s+r(\d+)\s+([A-Z_]+)')
 RE_STOPSIGN_TIMEOUT  = re.compile(r'\[METRICS (\d+)\] StopSign_Timeout: 1')
 RE_AMBULANCE_SCHED   = re.compile(r'\[AMBULANCE_SCHED\] (veh\d+) batch=')
 RE_CAR_METRICS       = re.compile(
@@ -181,8 +197,6 @@ replica_epoch = {}                     # replica → last seen epoch
 
 # Instrument for Vehicle Lifecycle
 go_decision_epoch = {}  # carId -> epoch it was granted GO
-resume_signal_received = set() # set of replica IDs
-resume_msg_handled = set()     # set of replica IDs
 
 # New per-epoch data stores
 replica_arrival_time = {}                   # replica -> first arrival time in intersection zone
@@ -214,6 +228,16 @@ stop_to_decision_sim_raw = defaultdict(list) # epoch -> [seconds, ...]
 # ResDB: (replica_id, sim_time_s) in log order — used to derive commit waves.
 resdb_propose_submit_events = []
 resdb_order_decided_events = []
+replica_cert_collection_start = {}  # replica -> cert collection start time (sim s)
+cert_collection_start_by_epoch = {}  # epoch -> earliest cert collection start time (sim s)
+replica_vc_trigger_time = {}        # replica -> VC trigger time (sim s)
+replica_primary_change_times = defaultdict(list)  # replica -> [t_s, ...]
+replica_gossip_apply_time = {}      # replica -> t_s when gossip order applied
+replica_byzantine_types = defaultdict(set)  # replica -> {"SILENT_PRIMARY", ...}
+vc_trigger_times_by_epoch = defaultdict(list)      # epoch -> [t_s, ...]
+primary_change_times_by_epoch = defaultdict(list)  # epoch -> [t_s, ...]
+order_decided_times_by_epoch = defaultdict(list)   # epoch -> [t_s, ...]
+propose_submit_times_by_epoch = defaultdict(list)  # epoch -> [t_s, ...]
 
 def percentile(values, q):
     if not values:
@@ -362,16 +386,6 @@ with open(LOG_FILE, "r", errors="replace") as f:
             ambulance_ids.add(m.group(1))
             continue
 
-        m = RE_RESUME.search(line)
-        if m:
-            resume_signal_received.add(int(m.group(1)))
-            continue
-
-        m = RE_RESUME_MSG.search(line)
-        if m:
-            resume_msg_handled.add(int(m.group(1)))
-            continue
-
         m = RE_MESSAGES_SENT.search(line)
         if m:
             rep, val = int(m.group(1)), int(m.group(2))
@@ -410,7 +424,10 @@ with open(LOG_FILE, "r", errors="replace") as f:
         if m:
             rep = int(m.group(1))
             try:
-                resdb_propose_submit_events.append((rep, float(m.group(2))))
+                t_s = float(m.group(2))
+                resdb_propose_submit_events.append((rep, t_s))
+                ep = replica_epoch.get(rep, current_gossip_epoch)
+                propose_submit_times_by_epoch[ep].append(t_s)
             except ValueError:
                 pass
             continue
@@ -419,9 +436,64 @@ with open(LOG_FILE, "r", errors="replace") as f:
         if m:
             rep = int(m.group(1))
             try:
-                resdb_order_decided_events.append((rep, float(m.group(2))))
+                t_s = float(m.group(2))
+                resdb_order_decided_events.append((rep, t_s))
+                ep = replica_epoch.get(rep, current_gossip_epoch)
+                order_decided_times_by_epoch[ep].append(t_s)
             except ValueError:
                 pass
+            continue
+
+        m = RE_CERT_START.search(line)
+        if m:
+            rep = int(m.group(1))
+            try:
+                t_s = float(m.group(2))
+                replica_cert_collection_start[rep] = t_s
+                ep = replica_epoch.get(rep, current_gossip_epoch)
+                prev = cert_collection_start_by_epoch.get(ep)
+                cert_collection_start_by_epoch[ep] = t_s if prev is None else min(prev, t_s)
+            except ValueError:
+                pass
+            continue
+
+        m = RE_VC_TRIGGER.search(line)
+        if m:
+            rep = int(m.group(1))
+            try:
+                t_s = float(m.group(2))
+                replica_vc_trigger_time[rep] = t_s
+                ep = replica_epoch.get(rep, current_gossip_epoch)
+                vc_trigger_times_by_epoch[ep].append(t_s)
+            except ValueError:
+                pass
+            continue
+
+        m = RE_PRIMARY_CHANGED.search(line)
+        if m:
+            rep = int(m.group(1))
+            try:
+                t_s = float(m.group(4))
+                replica_primary_change_times[rep].append(t_s)
+                ep = replica_epoch.get(rep, current_gossip_epoch)
+                primary_change_times_by_epoch[ep].append(t_s)
+            except ValueError:
+                pass
+            continue
+
+        m = RE_GOSSIP_APPLY.search(line)
+        if m:
+            rep = int(m.group(1))
+            try:
+                replica_gossip_apply_time[rep] = float(m.group(3))
+            except ValueError:
+                pass
+            continue
+
+        m = RE_BYZANTINE_CONFIG.search(line)
+        if m:
+            rep = int(m.group(1))
+            replica_byzantine_types[rep].add(m.group(2))
             continue
 
         m = RE_STOPSIGN_TIMEOUT.search(line)
@@ -718,6 +790,81 @@ for ep in set(list(epoch_wait_normal.keys()) + list(epoch_wait_ambulance.keys())
 
 os.makedirs(PLOTS_DIR, exist_ok=True)
 
+def _ms_or_none(seconds):
+    return None if seconds is None else seconds * 1000.0
+
+def _first_event_time_by_replica(events):
+    """Return replica->first_time for [(rep, t_s), ...] in log order."""
+    out = {}
+    for rep, t_s in events:
+        if rep not in out:
+            out[rep] = t_s
+    return out
+
+def _all_event_times_by_replica(events):
+    """Return replica->sorted list of times for [(rep, t_s), ...]."""
+    out = defaultdict(list)
+    for rep, t_s in events:
+        out[rep].append(t_s)
+    for rep in out:
+        out[rep].sort()
+    return out
+
+def _view_change_duration_ms(replica_id: int):
+    """Per-replica VC duration: VC-TRIGGER time -> first subsequent primary-changed time."""
+    if replica_id not in replica_vc_trigger_time:
+        return None
+    t0 = replica_vc_trigger_time[replica_id]
+    for t1 in replica_primary_change_times.get(replica_id, []):
+        if t1 >= t0:
+            return (t1 - t0) * 1000.0
+    return None
+
+def _epoch_view_change_duration_ms(epoch: int):
+    """Global VC duration for the epoch: earliest VC-TRIGGER -> earliest primary-changed."""
+    if epoch not in vc_trigger_times_by_epoch or epoch not in primary_change_times_by_epoch:
+        return None
+    if not vc_trigger_times_by_epoch[epoch] or not primary_change_times_by_epoch[epoch]:
+        return None
+    t0 = min(vc_trigger_times_by_epoch[epoch])
+    t1 = min(primary_change_times_by_epoch[epoch])
+    return max(0.0, (t1 - t0) * 1000.0)
+
+def _epoch_commit_time(epoch: int):
+    """Approximate commit/decision baseline as earliest Order_Decided_Time in the epoch."""
+    ts = order_decided_times_by_epoch.get(epoch, [])
+    return min(ts) if ts else None
+
+def _epoch_first_propose_time(epoch: int):
+    ts = propose_submit_times_by_epoch.get(epoch, [])
+    return min(ts) if ts else None
+
+def _epoch_winning_propose_time(epoch: int):
+    """
+    ProposeAll_Submit_Time that most likely led to the committed order.
+
+    Heuristic: choose the latest propose time <= earliest Order_Decided_Time in the epoch.
+    This excludes an early/byzantine propose that never committed before a view change.
+    """
+    commit_t = _epoch_commit_time(epoch)
+    ts = propose_submit_times_by_epoch.get(epoch, [])
+    if not ts:
+        return None
+    if commit_t is None:
+        return max(ts)
+    eligible = [t for t in ts if t <= commit_t]
+    return max(eligible) if eligible else min(ts)
+
+def _epoch_cert_collection_duration_ms(epoch: int):
+    rm = round_metrics.get(epoch, {})
+    if "Cert_Collection_Duration" in rm and rm["Cert_Collection_Duration"] is not None:
+        return rm["Cert_Collection_Duration"] * 1000.0
+    t_start = cert_collection_start_by_epoch.get(epoch)
+    t_prop = _epoch_first_propose_time(epoch)
+    if t_start is not None and t_prop is not None and t_prop >= t_start:
+        return (t_prop - t_start) * 1000.0
+    return None
+
 def write_metrics_json(path):
     """Write all extracted metrics to a structured JSON file for downstream plotting."""
     import json
@@ -865,7 +1012,101 @@ def write_metrics_json(path):
         "fallback_count": _fallback_n,
     }
 
-    out = {"overall": overall, "per_epoch": epochs_out, "per_car": cars_out}
+    if _args.output_format == "legacy":
+        out = {"overall": overall, "per_epoch": epochs_out, "per_car": cars_out}
+    else:
+        propose_by_replica = _first_event_time_by_replica(resdb_propose_submit_events)
+        decided_by_replica = _first_event_time_by_replica(resdb_order_decided_events)
+        decided_all_by_replica = _all_event_times_by_replica(resdb_order_decided_events)
+
+        vehicles_out = []
+        for rep in range(CARS):
+            cid = f"veh{rep}"
+            m = car_metrics.get(cid, {})
+            ep = m.get("epoch")
+
+            stop_s = m.get("stop_time")
+            depart_s = m.get("depart_time")
+            stopped_ms = _ms_or_none(stop_s)
+            passed_ms = _ms_or_none(depart_s)
+
+            total_wait_ms = None
+            if stop_s is not None and depart_s is not None:
+                total_wait_ms = max(0.0, (depart_s - stop_s) * 1000.0)
+
+            # decision_latency_ms (plotting): "first ProposeAll_Submit_Time (incl. byzantine leader) -> this replica received decision".
+            decision_latency_ms = None
+            first_propose_t = _epoch_first_propose_time(ep) if isinstance(ep, int) else None
+            decide_recv_t = (decided_all_by_replica.get(rep) or [None])[0]
+            if first_propose_t is not None and decide_recv_t is not None and decide_recv_t >= first_propose_t:
+                decision_latency_ms = (decide_recv_t - first_propose_t) * 1000.0
+
+            # Full decision time (end-to-end): cert collection start -> this replica received decision.
+            full_decision_latency_ms = None
+            if isinstance(ep, int) and decide_recv_t is not None:
+                t_start = cert_collection_start_by_epoch.get(ep)
+                if t_start is None:
+                    t_start = replica_cert_collection_start.get(rep)
+                if t_start is not None and decide_recv_t >= t_start:
+                    full_decision_latency_ms = (decide_recv_t - t_start) * 1000.0
+
+            # Extra debugging metric: winning propose (post-view-change) -> decision receive.
+            winning_propose_latency_ms = None
+            if isinstance(ep, int) and decide_recv_t is not None:
+                t_win_prop = _epoch_winning_propose_time(ep)
+                if t_win_prop is not None and decide_recv_t >= t_win_prop:
+                    winning_propose_latency_ms = (decide_recv_t - t_win_prop) * 1000.0
+
+            # Treat decision as "via gossip" only if the first time this replica logged
+            # Order_Decided_Time is at/after its first GOSSIP-APPLY.
+            decision_via_gossip = False
+            if rep in replica_gossip_apply_time:
+                gossip_t = replica_gossip_apply_time[rep]
+                first_decided_t = (decided_all_by_replica.get(rep) or [None])[0]
+                if first_decided_t is None or first_decided_t >= gossip_t:
+                    decision_via_gossip = True
+
+            vehicles_out.append({
+                "vehicle_id": rep,
+                # Partner field name; we map our ambulance role to priority.
+                "is_priority_vehicle": (m.get("role") == "ambulance"),
+                "coordination_method": _args.coordination_method,
+                "transport": "wave",
+                "cluster_mode": "allVehicles",
+                "timestamps_ms": {
+                    "stopped": stopped_ms,
+                    "passed": passed_ms,
+                },
+                "durations_ms": {
+                    # No direct equivalent in PBFT; keep 0 and report VC in bft_stats.
+                    "leader_election_time_ms": 0.0,
+                    "decision_latency_ms": decision_latency_ms,
+                    "total_wait_time": total_wait_ms,
+                },
+                "messages": {
+                    "sent": m.get("messages_sent"),
+                    "received": m.get("messages_received"),
+                },
+                "bft_stats": {
+                    "cert_collection_duration_ms": (
+                        _epoch_cert_collection_duration_ms(ep) if isinstance(ep, int) else None
+                    ),
+                    "view_change_triggered": rep in replica_vc_trigger_time,
+                    # Global epoch-level VC duration (earliest trigger -> earliest primary installed).
+                    "view_change_duration_ms": _epoch_view_change_duration_ms(ep) if isinstance(ep, int) else None,
+                    "decision_via_gossip": decision_via_gossip,
+                    "used_fallback": bool(m.get("used_fallback", False)),
+                    "byzantine_injections_replica": byzantine_by_replica.get(rep, 0),
+                    "byzantine_types": (
+                        sorted(replica_byzantine_types.get(rep, set()))
+                        if replica_byzantine_types.get(rep) else None
+                    ),
+                    "full_decision_latency_ms": full_decision_latency_ms,
+                    "winning_propose_to_receive_ms": winning_propose_latency_ms,
+                },
+            })
+
+        out = vehicles_out
     with open(path, "w", encoding="utf-8") as f:
         json.dump(out, f, indent=2, default=str)
 
@@ -1167,42 +1408,27 @@ if byz_total_display > 0:
     else:
         print(f"  {RED}WARNING: some epochs did not complete — check above for details{RESET}")
 
-csv_path  = os.path.join(PLOTS_DIR, "car_metrics.csv")
-json_path = os.path.join(PLOTS_DIR, "metrics.json")
-write_car_metrics_csv(csv_path)
-write_metrics_json(json_path)
-print(f"  Saved per-car CSV:                {csv_path}")
-print(f"  Saved full metrics JSON:          {json_path}")
+if not SAVE_TO:
+    csv_path  = os.path.join(PLOTS_DIR, "car_metrics.csv")
+    json_path = os.path.join(PLOTS_DIR, "metrics.json")
+    write_car_metrics_csv(csv_path)
+    write_metrics_json(json_path)
+    print(f"  Saved per-car CSV:                {csv_path}")
+    print(f"  Saved full metrics JSON:          {json_path}")
 
-wait_plot_path = os.path.join(PLOTS_DIR, "waittime_ambulance_vs_normal.png")
-per_car_plot_path = os.path.join(PLOTS_DIR, "waittime_per_car.png")
-wait_plot_saved = save_waittime_plot(wait_plot_path)
-per_car_plot_saved = save_waittime_by_car_plot(per_car_plot_path)
-if wait_plot_saved:
-    print(f"  Saved wait-role plot:             {wait_plot_path}")
-elif plt is None:
-    print(f"  Saved wait-role plot:             matplotlib not available")
-else:
-    print(f"  Saved wait-role plot:             insufficient wait-time data")
-if per_car_plot_saved:
-    print(f"  Saved per-car wait plot:          {per_car_plot_path}")
-
-print(f"\n{'=' * 72}")
-print(f"{BOLD}Decision / Resume Coverage{RESET}")
-print(f"{'─' * 72}")
-print(f"  {'Car':>6}  {'Decision Epoch':>14}  {'JNI Resume':>12}  {'Main Thread Resume':>18}")
-all_cars = [f"veh{i}" for i in range(CARS)]
-for car in all_cars:
-    rep_id = int(car[3:])
-    epoch = go_decision_epoch.get(car, "NONE")
-    ep_str = f"{epoch}" if isinstance(epoch, int) else f"{RED}NONE{RESET}"
-    
-    jni_res = f"{GRN}YES{RESET}" if rep_id in resume_signal_received else f"{RED}NO{RESET}"
-    msg_han = f"{GRN}YES{RESET}" if rep_id in resume_msg_handled else f"{RED}NO{RESET}"
-    
-    print(f"  {car:>6}  {ep_str:>14}  {jni_res:>12}  {msg_han:>18}")
-
-print()
+if not SAVE_TO:
+    wait_plot_path = os.path.join(PLOTS_DIR, "waittime_ambulance_vs_normal.png")
+    per_car_plot_path = os.path.join(PLOTS_DIR, "waittime_per_car.png")
+    wait_plot_saved = save_waittime_plot(wait_plot_path)
+    per_car_plot_saved = save_waittime_by_car_plot(per_car_plot_path)
+    if wait_plot_saved:
+        print(f"  Saved wait-role plot:             {wait_plot_path}")
+    elif plt is None:
+        print(f"  Saved wait-role plot:             matplotlib not available")
+    else:
+        print(f"  Saved wait-role plot:             insufficient wait-time data")
+    if per_car_plot_saved:
+        print(f"  Saved per-car wait plot:          {per_car_plot_path}")
 
 # ── Save log to collection dir ────────────────────────────────────────────────
 if SAVE_TO:

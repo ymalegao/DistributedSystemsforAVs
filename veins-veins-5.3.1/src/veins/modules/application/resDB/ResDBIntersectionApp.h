@@ -41,6 +41,8 @@ protected:
     void onWSA(DemoServiceAdvertisment* wsa) override {}
 
 private:
+
+   
     // ── Phase state machine ───────────────────────────────────────────────────
     // Byzantine fault injection types
     enum ByzantineType {
@@ -129,6 +131,7 @@ private:
         void broadcast(const uint8_t*, uint32_t len) override {
             fprintf(stderr, "[ResDB-TRANSPORT r%d] broadcast  %u bytes\n", rid_, len);
         }
+       
     private:
         int rid_;
     };
@@ -249,6 +252,9 @@ private:
     bool moduleIsAmbulance = false;
     bool ambulanceColorSet = false;
 
+    unsigned int sentMessages_ = 0;
+    unsigned int receivedMessages_ = 0;
+
 
     
 
@@ -274,6 +280,7 @@ private:
     std::set<std::string>                           arrival_announcements_received_;
     std::set<std::string>                           echoed_cars_;  // cars we actually sent an echo to (not FALSE_LANE)
     bool cert_collection_started_ = false;
+    simtime_t cert_collection_start_time_ = SIMTIME_ZERO;
     bool deferred_propose_after_cert_timeout_ = false;
 
     bool   enable_cert_retries_      = true;
