@@ -35,7 +35,7 @@ from partner_metrics_io import load_partner_channel_union_vids
 
 UTILIZATION_CONGESTION_THRESHOLD = 0.30
 CMAP = "YlOrRd"
-DEFAULT_PRIORITY_ROOTS = ("Priority4cars", "Priority8cars", "Priority12cars", "Priority16cars")
+DEFAULT_PRIORITY_ROOTS = ("Priority4cars", "Priority8cars", "Priority16cars", "Priority20cars")
 PARTNER_SCENARIO = "partner_allVehicles"
 
 

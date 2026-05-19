@@ -1041,12 +1041,13 @@ def write_metrics_json(path):
             if first_propose_t is not None and decide_recv_t is not None and decide_recv_t >= first_propose_t:
                 decision_latency_ms = (decide_recv_t - first_propose_t) * 1000.0
 
-            # Full decision time (end-to-end): cert collection start -> this replica received decision.
+            # Full decision latency (end-to-end for protocol): first propose submit in the epoch
+            # (incl. a byzantine propose that later triggers view-change) -> this replica received decision.
+            #
+            # This matches the common "Replica decided - Byzproposed" interpretation.
             full_decision_latency_ms = None
             if isinstance(ep, int) and decide_recv_t is not None:
-                t_start = cert_collection_start_by_epoch.get(ep)
-                if t_start is None:
-                    t_start = replica_cert_collection_start.get(rep)
+                t_start = _epoch_first_propose_time(ep)
                 if t_start is not None and decide_recv_t >= t_start:
                     full_decision_latency_ms = (decide_recv_t - t_start) * 1000.0
 

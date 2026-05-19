@@ -253,10 +253,59 @@ def partner_wait_time_samples_s(
     return pooled
 
 
+def partner_priority_and_normal_wait_means_s(
+    vehicle_count: int,
+    mode: str = PARTNER_MODE,
+    include_fallback: bool = False,
+) -> tuple[float | None, float | None]:
+    """Return (priority_mean_s, normal_mean_s) for partner runs."""
+    prio: list[float] = []
+    norm: list[float] = []
+    for run in iter_partner_raft_runs(vehicle_count, mode):
+        for v in run:
+            if not include_fallback and v.get("coordination_method") == "fallback":
+                continue
+            durs = v.get("durations_ms") if isinstance(v.get("durations_ms"), dict) else {}
+            try:
+                ms = float(durs.get("total_wait_time", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if ms <= 0:
+                continue
+            if bool(v.get("is_priority_vehicle", False)):
+                prio.append(ms / 1000.0)
+            else:
+                norm.append(ms / 1000.0)
+    p_mean = float(np.mean(np.array(prio, dtype=float))) if prio else None
+    n_mean = float(np.mean(np.array(norm, dtype=float))) if norm else None
+    return p_mean, n_mean
+
+
+def partner_decision_latency_samples_s(
+    vehicle_count: int,
+    mode: str = PARTNER_MODE,
+    include_fallback: bool = False,
+) -> list[float]:
+    """Per-vehicle decision latency samples (seconds) across all runs."""
+    pooled: list[float] = []
+    for run in iter_partner_raft_runs(vehicle_count, mode):
+        for v in run:
+            if not include_fallback and v.get("coordination_method") == "fallback":
+                continue
+            durs = v.get("durations_ms") if isinstance(v.get("durations_ms"), dict) else {}
+            try:
+                ms = float(durs.get("decision_latency_ms", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if ms > 0:
+                pooled.append(ms / 1000.0)
+    return pooled
+
+
 def partner_run_metrics(vehicle_count: int, mode: str = PARTNER_MODE) -> list[dict[str, float]]:
     """
     Per-run metrics matching the subset we overlay:
-      throughput_veh_per_s, fallback_rate, messages_sent, messages_received
+      throughput_veh_per_s, fallback_rate, messages_sent, messages_received, decision_latency_s
     """
     out: list[dict[str, float]] = []
     for run in iter_partner_raft_runs(vehicle_count, mode):
@@ -299,12 +348,25 @@ def partner_run_metrics(vehicle_count: int, mode: str = PARTNER_MODE) -> list[di
             except (TypeError, ValueError):
                 pass
 
+        # Decision latency mirrors partner calculateMetrics(): mean over raft vehicles with >0.
+        dl_ms: list[float] = []
+        for v in raft_veh:
+            durs = v.get("durations_ms") if isinstance(v.get("durations_ms"), dict) else {}
+            try:
+                ms = float(durs.get("decision_latency_ms", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if ms > 0:
+                dl_ms.append(ms)
+        decision_latency_s = float(np.mean(np.array(dl_ms, dtype=float)) / 1000.0) if dl_ms else 0.0
+
         out.append(
             {
                 "throughput_veh_per_s": throughput,
                 "fallback_rate": float(fallback_rate),
                 "messages_sent": float(total_sent),
                 "messages_received": float(total_recv),
+                "decision_latency_s": decision_latency_s,
             }
         )
     return out

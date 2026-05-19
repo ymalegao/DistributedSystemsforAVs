@@ -42,7 +42,7 @@ from partner_metrics_io import load_partner_sinr_padded, load_partner_sinr_union
 CMAP = "plasma"
 HOLD_FRAMES = 8
 FPS = 4
-DEFAULT_PRIORITY_ROOTS = ("Priority4cars", "Priority8cars", "Priority12cars", "Priority16cars")
+DEFAULT_PRIORITY_ROOTS = ("Priority4cars", "Priority8cars", "Priority16cars", "Priority20cars")
 PARTNER_SCENARIO = "partner_allVehicles"
 
 

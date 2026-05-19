@@ -66,6 +66,9 @@ DEFAULT_BAR_SERIES: list[tuple[str, dict[int, list[str]]]] = [
                 "Priority16cars/no_amb/run_*/16veh_*.json",
                 "Priority16cars/Normal.json",
             ],
+            20: [
+                "Priority20cars/no_amb/run_*/20veh_*.json",
+            ],
         },
     ),
     (
@@ -82,6 +85,9 @@ DEFAULT_BAR_SERIES: list[tuple[str, dict[int, list[str]]]] = [
             ],
             16: [
                 "Priority16cars/amb_honest/run_*/16veh_*.json",
+            ],
+            20: [
+                "Priority20cars/amb_honest/run_*/20veh_*.json",
             ],
         },
     ),
@@ -100,6 +106,9 @@ DEFAULT_BAR_SERIES: list[tuple[str, dict[int, list[str]]]] = [
             16: [
                 "Priority16cars/amb_byz_follower/run_*/16veh_*.json",
             ],
+            20: [
+                "Priority20cars/amb_byz_follower/run_*/20veh_*.json",
+            ],
         },
     ),
     (
@@ -117,12 +126,16 @@ DEFAULT_BAR_SERIES: list[tuple[str, dict[int, list[str]]]] = [
             16: [
                 "Priority16cars/amb_byz_leader/run_*/16veh_*.json",
             ],
+            20: [
+                "Priority20cars/amb_byz_leader/run_*/20veh_*.json",
+            ],
         },
     ),
 ]
 
-# Fixed panel order for 2×2 grids: top row n=4, n=8; bottom row n=12, n=16
-GRID_VEHICLE_COUNTS = [4, 8, 12, 16]
+# Fixed panel order for 2×2 grids: top row n=4, n=8; bottom row n=16, n=20
+# (Partner does not include n=12; keep apples-to-apples by default.)
+GRID_VEHICLE_COUNTS = [4, 8, 16, 20]
 
 # Bar-chart / inference: all fleet sizes referenced above
 DEFAULT_VEHICLE_COUNTS = list(GRID_VEHICLE_COUNTS)
@@ -478,20 +491,21 @@ def extract_run_metrics(path: Path) -> dict[str, float | None]:
         # Throughput: same definition as partner (vehicles / average wait seconds).
         waits_s: list[float] = []
         for v in non_fb:
-            if isinstance(v.get("durations_ms"), dict) and v["durations_ms"].get("total_wait_time") is not None:
-                try:
-                    waits_s.append(float(v["durations_ms"]["total_wait_time"]) / 1000.0)
-                    continue
-                except (TypeError, ValueError):
-                    pass
             ts = v.get("timestamps_ms") if isinstance(v.get("timestamps_ms"), dict) else {}
             try:
                 stopped = float(ts.get("stopped", 0) or 0)
                 passed = float(ts.get("passed", 0) or 0)
             except (TypeError, ValueError):
-                continue
+                stopped, passed = 0.0, 0.0
             if passed > 0 and stopped > 0 and passed >= stopped:
                 waits_s.append((passed - stopped) / 1000.0)
+                continue
+            # Fallback if timestamps missing: durations_ms.total_wait_time
+            if isinstance(v.get("durations_ms"), dict) and v["durations_ms"].get("total_wait_time") is not None:
+                try:
+                    waits_s.append(float(v["durations_ms"]["total_wait_time"]) / 1000.0)
+                except (TypeError, ValueError):
+                    pass
         throughput = 0.0
         if waits_s:
             avg_wait = float(np.mean(np.array([w for w in waits_s if w > 0], dtype=float)))
@@ -524,6 +538,21 @@ def extract_run_metrics(path: Path) -> dict[str, float | None]:
 
         consensus_latency_sim_s = float(np.mean(np.array(decision_lat_s, dtype=float))) if decision_lat_s else None
 
+        # "First submit → commit" proxy for byzantine-leader/view-change cases:
+        # use bft_stats.full_decision_latency_ms when present.
+        full_decision_lat_s: list[float] = []
+        for v in non_fb:
+            bs = v.get("bft_stats") if isinstance(v.get("bft_stats"), dict) else {}
+            try:
+                ms = float(bs.get("full_decision_latency_ms", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if ms > 0:
+                full_decision_lat_s.append(ms / 1000.0)
+        first_submit_to_commit_latency_sim_s = (
+            float(np.mean(np.array(full_decision_lat_s, dtype=float))) if full_decision_lat_s else None
+        )
+
         return {
             "throughput": float(throughput),
             "fallback_rate": float(fallback_rate),
@@ -531,7 +560,7 @@ def extract_run_metrics(path: Path) -> dict[str, float | None]:
             "messages_received": float(recv),
             "estimated_loss_rate": None,
             "consensus_latency_sim_s": consensus_latency_sim_s,
-            "first_submit_to_commit_latency_sim_s": None,
+            "first_submit_to_commit_latency_sim_s": first_submit_to_commit_latency_sim_s,
         }
 
     # Legacy format: {"overall": {...}, "per_car": [...]}
@@ -1108,16 +1137,10 @@ def plot_bars(
         return
 
     series_keys = [lab for lab, _ in bar_series if lab in data]
-    # Byzantine-ambulance-leader runs: per-round consensus latency is misleadingly low
-    # after view-change; plot first submit→order commit (matches analyze_log emphasis).
-    consensus_line_metric_by_label: dict[str, str] = {}
-    for lab, fvc in bar_series:
-        if lab not in data:
-            continue
-        if _files_by_vc_includes_path_marker(fvc, "amb_byz_leader"):
-            consensus_line_metric_by_label[lab] = "first_submit_to_commit_latency_sim_s"
-        else:
-            consensus_line_metric_by_label[lab] = "consensus_latency_sim_s"
+    # Latency line plot: keep apples-to-apples with partner plot_comparison decisionLatency:
+    # use per-vehicle decision latency (seconds) aggregated per run.
+    # (We still compute first_submit_to_commit_latency_sim_s for diagnostics, but it is not used here.)
+    consensus_line_metric_by_label: dict[str, str] = {lab: "consensus_latency_sim_s" for lab, _ in bar_series if lab in data}
     title_suffix = f"\n{title_note}" if title_note else ""
 
     def grid_axes():
@@ -1142,9 +1165,11 @@ def plot_bars(
             y_vals.append(m if m > 0 else np.nan)
         if all(np.isnan(v) for v in y_vals):
             continue
+        y_arr = np.array(y_vals, dtype=float)
+        mask = ~np.isnan(y_arr)
         ax.plot(
-            x,
-            y_vals,
+            x[mask],
+            y_arr[mask],
             color=DEFAULT_COLORS[i % len(DEFAULT_COLORS)],
             linestyle=DEFAULT_LINESTYLES[i % len(DEFAULT_LINESTYLES)],
             linewidth=2,
@@ -1161,10 +1186,12 @@ def plot_bars(
             vals = [rm.get("throughput_veh_per_s", 0.0) for rm in runs]
             vals_f = [float(v) for v in vals if v is not None and float(v) > 0]
             y_p.append(float(np.mean(np.array(vals_f, dtype=float))) if vals_f else np.nan)
-        if not all(np.isnan(v) for v in y_p):
+        y_p_arr = np.array(y_p, dtype=float)
+        mask_p = ~np.isnan(y_p_arr)
+        if mask_p.any():
             ax.plot(
-                x,
-                y_p,
+                x[mask_p],
+                y_p_arr[mask_p],
                 color="black",
                 linestyle="--",
                 linewidth=2.4,
@@ -1326,8 +1353,7 @@ def plot_bars(
     fig_cl, ax_cl = plt.subplots(figsize=(8.5, 5.5))
     fig_cl.suptitle(
         f"{BFT_BAR_SUPTITLE}{title_suffix}\n"
-        "BFT latency by fleet size (sim time): propose_all_consensus_latency_sim_s; "
-        "amb_byz_leader → propose_all_first_submit_to_commit_latency_sim_s",
+        "Decision latency by fleet size (sim time): per-vehicle decision_latency_ms mean (run-averaged)",
         fontsize=11,
         fontweight="bold",
     )
@@ -1348,9 +1374,11 @@ def plot_bars(
         if all(v != v for v in y_vals_cl):  # all NaN
             continue
         leg = short_cdf_legend_label(sk)
+        y_arr = np.array(y_vals_cl, dtype=float)
+        mask = ~np.isnan(y_arr)
         ax_cl.plot(
-            x_cl,
-            y_vals_cl,
+            x_cl[mask],
+            y_arr[mask],
             color=DEFAULT_COLORS[i % len(DEFAULT_COLORS)],
             linestyle=DEFAULT_LINESTYLES[i % len(DEFAULT_LINESTYLES)],
             linewidth=2,
@@ -1358,11 +1386,36 @@ def plot_bars(
             markersize=6,
             label=leg,
         )
-        cl_plotted.append((i, leg, y_vals_cl))
+        cl_plotted.append((i, leg, list(y_arr)))
         has_cl = True
+
+    if include_partner:
+        y_partner: list[float] = []
+        for n in GRID_VEHICLE_COUNTS:
+            runs = partner_run_metrics(n)
+            vals = [rm.get("decision_latency_s", 0.0) for rm in runs]
+            vals_f = [float(v) for v in vals if v is not None and float(v) > 0]
+            y_partner.append(float(np.mean(np.array(vals_f, dtype=float))) * 1000.0 if vals_f else float("nan"))
+        y_partner_arr = np.array(y_partner, dtype=float)
+        mask_p = ~np.isnan(y_partner_arr)
+        if mask_p.any():
+            ax_cl.plot(
+                x_cl[mask_p],
+                y_partner_arr[mask_p],
+                color="black",
+                linestyle="--",
+                linewidth=2.4,
+                marker="s",
+                markersize=6,
+                label=PARTNER_LABEL,
+            )
+            for yv in y_partner_arr:
+                if yv == yv and yv > 0:
+                    positive_y_vals_cl.append(yv)
+            has_cl = True
     if has_cl:
         ax_cl.set_xlabel("Number of vehicles", fontsize=10, fontweight="bold")
-        ax_cl.set_ylabel("BFT latency (ms, sim time)", fontsize=10, fontweight="bold")
+        ax_cl.set_ylabel("Decision latency (ms, sim time)", fontsize=10, fontweight="bold")
         ax_cl.set_xticks(GRID_VEHICLE_COUNTS)
         ax_cl.set_xticklabels([f"{n} veh" for n in GRID_VEHICLE_COUNTS], fontsize=9)
         ax_cl.grid(True, alpha=0.3, which="both")
@@ -1372,7 +1425,7 @@ def plot_bars(
             if max_y_cl / min_y_cl >= 50:
                 ax_cl.set_yscale("log")
                 ax_cl.set_ylabel(
-                    "BFT latency (ms, sim time, log scale)",
+                    "Decision latency (ms, sim time, log scale)",
                     fontsize=10,
                     fontweight="bold",
                 )
@@ -1382,7 +1435,7 @@ def plot_bars(
         else:
             ax_cl.set_ylim(bottom=0)
         n_cl_series = len(cl_plotted)
-        print("BFT latency (ms, sim time):")
+        print("Decision latency (ms, sim time):")
         for i, leg, y_vals_cl in cl_plotted:
             color = DEFAULT_COLORS[i % len(DEFAULT_COLORS)]
             parts: list[str] = []
@@ -1420,32 +1473,24 @@ def plot_bars(
 
 def plot_ambulance_vs_normal_wait(
     base_dir: Path,
-    bar_series: list[tuple[str, dict[int, list[str]]]],
-    vehicle_counts: list[int],
     output_dir: Path,
     prefix: str,
     title_note: str,
     exclude_fallback: bool,
+    include_partner: bool,
 ) -> None:
     """
-    Mean wait (wait_intersection_s) for ambulance vs normal vehicles, per scenario.
-    Also includes a no-priority baseline (all vehicles from "No ambulance" runs).
-    2×2 subplots: one panel per n ∈ {4,8,12,16}.
+    Apples-to-apples priority benefit summary (partner plotPriority-style, simplified):
+    For each n ∈ {4,8,12,16}:
+      - BFT priority vehicle mean wait (amb_honest)
+      - BFT normal vehicles mean wait (amb_honest)
+      - BFT no-priority mean wait (no_amb; all vehicles)
+      - (optional) RAFT priority vehicle mean wait (allVehicles)
+      - (optional) RAFT no-priority mean wait (allVehicles_nopriority; all vehicles)
     """
     assert plt is not None
 
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    if not any(d.get(vc) for vc in GRID_VEHICLE_COUNTS for _, d in bar_series):
-        print(
-            "Ambulance vs normal: no paths for grid fleet sizes; skipping.",
-            file=sys.stderr,
-        )
-        return
-
-    n_scen = len(bar_series)
-    if n_scen == 0:
-        return
 
     title_suffix = f"\n{title_note}" if title_note else ""
     fig, axes = plt.subplots(2, 2, figsize=(12, 9), sharey=True)
@@ -1453,122 +1498,63 @@ def plot_ambulance_vs_normal_wait(
 
     for ax_idx, vc in enumerate(GRID_VEHICLE_COUNTS):
         ax = axes_flat[ax_idx]
-        x = np.arange(n_scen, dtype=float)
-        width = 0.24
-        amb_vals: list[float | None] = []
-        norm_vals: list[float | None] = []
-        no_prio_vals: list[float | None] = []
-        labels_short: list[str] = []
-        # Matching no-priority baseline per scenario.
-        # - honest ambulance / no-ambulance itself -> no_amb
-        # - ambulance+byz followers -> no_amb_byz_follower
-        # - ambulance+byz leader -> no_amb_byz_leader
-        baseline_patterns_by_vc = {
-            4: {
-                "no_amb": ["Priority4cars/no_amb/run_*/4veh_*.json"],
-                "no_amb_byz_follower": ["Priority4cars/no_amb_byz_follower/run_*/4veh_*.json"],
-                "no_amb_byz_leader": ["Priority4cars/no_amb_byz_leader/run_*/4veh_*.json"],
-            },
-            8: {
-                "no_amb": ["Priority8cars/no_amb/run_*/8veh_*.json"],
-                "no_amb_byz_follower": ["Priority8cars/no_amb_byz_follower/run_*/8veh_*.json"],
-                "no_amb_byz_leader": ["Priority8cars/no_amb_byz_leader/run_*/8veh_*.json"],
-            },
-            12: {
-                "no_amb": ["Priority12cars/no_amb/run_*/12veh_*.json"],
-                "no_amb_byz_follower": ["Priority12cars/no_amb_byz_follower/run_*/12veh_*.json"],
-                "no_amb_byz_leader": ["Priority12cars/no_amb_byz_leader/run_*/12veh_*.json"],
-            },
-            16: {
-                "no_amb": ["Priority16cars/no_amb/run_*/16veh_*.json"],
-                "no_amb_byz_follower": ["Priority16cars/no_amb_byz_follower/run_*/16veh_*.json"],
-                "no_amb_byz_leader": ["Priority16cars/no_amb_byz_leader/run_*/16veh_*.json"],
-            },
-        }
+        # BFT data (our repo): honest ambulance vs no-ambulance baseline.
+        amb_patterns = [f"Priority{vc}cars/amb_honest/run_*/{vc}veh_*.json"]
+        no_prio_patterns = [f"Priority{vc}cars/no_amb/run_*/{vc}veh_*.json"]
 
-        for lab, files_by_vc in bar_series:
-            labels_short.append(lab)
-            paths = files_by_vc.get(vc) or []
-            lab_lower = lab.lower()
-            baseline_key = "no_amb"
-            if "byzantine followers" in lab_lower:
-                baseline_key = "no_amb_byz_follower"
-            elif "byzantine leader" in lab_lower:
-                baseline_key = "no_amb_byz_leader"
-            baseline_patterns = baseline_patterns_by_vc.get(vc, {}).get(baseline_key, [])
-            baseline_waits = scenario_waits(
-                baseline_patterns, base_dir, "all", exclude_fallback
-            ) if baseline_patterns else []
-            no_prio_baseline = mean_or_none(baseline_waits)
-            if not paths:
-                amb_vals.append(None)
-                norm_vals.append(None)
-                no_prio_vals.append(no_prio_baseline)
+        bft_prio, bft_norm = pooled_waits_by_role(amb_patterns, base_dir, exclude_fallback)
+        bft_no_prio_all = scenario_waits(no_prio_patterns, base_dir, "all", exclude_fallback)
+
+        bft_prio_mean = mean_or_none(bft_prio)
+        bft_norm_mean = mean_or_none(bft_norm)
+        bft_no_prio_mean = mean_or_none(bft_no_prio_all)
+
+        labels = ["BFT priority", "BFT normal", "BFT no priority"]
+        values: list[float | None] = [bft_prio_mean, bft_norm_mean, bft_no_prio_mean]
+        colors = [AMB_BAR_COLOR, NORM_BAR_COLOR, NO_PRIO_BAR_COLOR]
+        hatches = ["", "", "//"]
+
+        if include_partner:
+            from partner_metrics_io import partner_priority_and_normal_wait_means_s, partner_wait_time_samples_s
+
+            raft_prio_mean, _raft_norm_mean = partner_priority_and_normal_wait_means_s(vc, mode="allVehicles")
+            raft_no_prio_all = partner_wait_time_samples_s(vc, mode="allVehicles_nopriority")
+            raft_no_prio_mean = mean_or_none(raft_no_prio_all) if raft_no_prio_all else None
+
+            labels.extend(["RAFT priority", "RAFT no priority"])
+            values.extend([raft_prio_mean, raft_no_prio_mean])
+            colors.extend(["black", "black"])
+            hatches.extend(["", "//"])
+
+        x = np.arange(len(labels), dtype=float)
+        ymax = max([float(v) for v in values if v is not None] + [0.0])
+        for i, (lab, val, col, hat) in enumerate(zip(labels, values, colors, hatches)):
+            if val is None:
                 continue
-            am, nm = pooled_waits_by_role(paths, base_dir, exclude_fallback)
-            amb_vals.append(mean_or_none(am))
-            norm_vals.append(mean_or_none(nm))
-            no_prio_vals.append(no_prio_baseline)
-
-        ymax = 0.0
-        for ma, mn, npb in zip(amb_vals, norm_vals, no_prio_vals):
-            for v in (ma, mn, npb):
-                if v is not None:
-                    ymax = max(ymax, float(v))
-
-        for i in range(n_scen):
-            ma, mn, npb = amb_vals[i], norm_vals[i], no_prio_vals[i]
-            if ma is not None:
-                ax.bar(
-                    x[i] - width,
-                    ma,
-                    width,
-                    color=AMB_BAR_COLOR,
-                    alpha=0.9,
-                    edgecolor="black",
-                    linewidth=0.7,
-                    label="_nolegend_",
-                )
-            if mn is not None:
-                ax.bar(
-                    x[i],
-                    mn,
-                    width,
-                    color=NORM_BAR_COLOR,
-                    alpha=0.9,
-                    edgecolor="black",
-                    linewidth=0.7,
-                    label="_nolegend_",
-                )
-            if npb is not None:
-                ax.bar(
-                    x[i] + width,
-                    npb,
-                    width,
-                    color=NO_PRIO_BAR_COLOR,
-                    alpha=0.9,
-                    edgecolor="black",
-                    linewidth=0.7,
-                    hatch="//",
-                )
-
-            for xv, val in ((x[i] - width, ma), (x[i], mn), (x[i] + width, npb)):
-                if val is None or val <= 0:
-                    continue
-                ax.text(
-                    xv,
-                    float(val) + 0.05,
-                    f"{float(val):.1f}s",
-                    ha="center",
-                    va="bottom",
-                    fontsize=8,
-                    fontweight="bold",
-                )
+            ax.bar(
+                x[i],
+                float(val),
+                0.72,
+                color=col,
+                alpha=0.9,
+                edgecolor="black",
+                linewidth=0.7,
+                hatch=hat,
+            )
+            ax.text(
+                x[i],
+                float(val) + 0.05,
+                f"{float(val):.1f}s",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                fontweight="bold",
+            )
 
         ax.set_xticks(x)
-        ax.set_xticklabels(labels_short, rotation=18, ha="right", fontsize=8)
+        ax.set_xticklabels(labels, rotation=16, ha="right", fontsize=8)
         ax.set_title(f"n = {vc} vehicles", fontsize=11, fontweight="bold")
-        ax.set_xlim(-0.6, n_scen - 0.4)
+        ax.set_xlim(-0.6, len(labels) - 0.4)
         top = ymax * 1.22 + 0.35 if ymax > 0 else 1.0
         ax.set_ylim(0, top)
         ax.grid(True, alpha=0.3, axis="y")
@@ -1576,29 +1562,11 @@ def plot_ambulance_vs_normal_wait(
             ax.set_ylabel("Mean wait time (s)", fontsize=10, fontweight="bold")
 
     fig.suptitle(
-        f"Wait time at intersection: ambulance vs normal vehicles{title_suffix}\n"
-        "Mean of wait_intersection_s (stop → depart); includes no-priority baseline from no-ambulance runs",
+        f"Priority benefit: wait time at intersection{title_suffix}\n"
+        "Stop → depart (mean wait per vehicle); BFT uses amb_honest vs no_amb; RAFT uses allVehicles vs allVehicles_nopriority",
         fontsize=12,
         fontweight="bold",
     )
-    if Patch is not None:
-        legend_elements = [
-            Patch(facecolor=AMB_BAR_COLOR, edgecolor="black", label="Priority vehicle (priority run)"),
-            Patch(facecolor=NORM_BAR_COLOR, edgecolor="black", label="Normal vehicles (priority run)"),
-            Patch(
-                facecolor=NO_PRIO_BAR_COLOR,
-                edgecolor="black",
-                hatch="//",
-                label="All vehicles (no-priority baseline)",
-            ),
-        ]
-        fig.legend(
-            handles=legend_elements,
-            bbox_to_anchor=(0.5, 0.01),
-            loc="lower center",
-            ncol=3,
-            fontsize=9,
-        )
     fig.tight_layout()
     out = output_dir / f"{prefix}ambulance_vs_normal_wait.png"
     fig.savefig(out, dpi=150, bbox_inches="tight")
@@ -1654,7 +1622,15 @@ def main() -> int:
 
     out_cdf = args.output
     if out_cdf is None:
-        out_cdf = base_dir / "Priority16cars" / "cdf_wait_time.png"
+        # Prefer writing under the largest available benchmark root so the default output
+        # lives next to the newest data (e.g. Priority20cars when present).
+        for n in (20, 16, 12, 8, 4):
+            cand = base_dir / f"Priority{n}cars"
+            if cand.is_dir():
+                out_cdf = cand / "cdf_wait_time.png"
+                break
+        else:
+            out_cdf = base_dir / "cdf_wait_time.png"
     out_cdf = out_cdf.resolve()
 
     out_dir_bars = args.output_dir
@@ -1743,12 +1719,11 @@ def main() -> int:
     if "amb" in plot_modes:
         plot_ambulance_vs_normal_wait(
             base_dir,
-            bar_series_cfg,
-            vehicle_counts_cfg,
             out_dir_bars,
             args.bar_prefix,
             bar_title_note or "",
             exclude_fallback,
+            args.partner_data,
         )
 
     return 0
