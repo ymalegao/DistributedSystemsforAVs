@@ -7,29 +7,29 @@
     "cluster_mode": "allVehicles",
     "timestamps_ms": {
       "stopped": 20600.0,
-      "passed": 33100.0
+      "passed": 33000.0
     },
     "durations_ms": {
       "leader_election_time_ms": 0.0,
-      "decision_latency_ms": 11128.0,
-      "total_wait_time": 12500.0
+      "decision_latency_ms": 11049.0,
+      "total_wait_time": 12399.999999999998
     },
     "messages": {
       "sent": 223,
-      "received": 117
+      "received": 115
     },
     "bft_stats": {
       "cert_collection_duration_ms": null,
       "view_change_triggered": false,
-      "view_change_duration_ms": 99.99999999999787,
+      "view_change_duration_ms": 16.99999999999946,
       "decision_via_gossip": false,
       "used_fallback": false,
       "byzantine_injections_replica": 0,
       "byzantine_types": [
         "BAD_PROPOSAL"
       ],
-      "full_decision_latency_ms": null,
-      "winning_propose_to_receive_ms": 28.000000000002245
+      "full_decision_latency_ms": 11049.0,
+      "winning_propose_to_receive_ms": 32.00000000000003
     }
   },
   {
@@ -40,27 +40,27 @@
     "cluster_mode": "allVehicles",
     "timestamps_ms": {
       "stopped": 20600.0,
-      "passed": 33100.0
+      "passed": 33000.0
     },
     "durations_ms": {
       "leader_election_time_ms": 0.0,
-      "decision_latency_ms": 11125.999999999998,
-      "total_wait_time": 12500.0
+      "decision_latency_ms": 11047.999999999998,
+      "total_wait_time": 12399.999999999998
     },
     "messages": {
-      "sent": 227,
+      "sent": 226,
       "received": 133
     },
     "bft_stats": {
       "cert_collection_duration_ms": null,
       "view_change_triggered": true,
-      "view_change_duration_ms": 99.99999999999787,
+      "view_change_duration_ms": 16.99999999999946,
       "decision_via_gossip": false,
       "used_fallback": false,
       "byzantine_injections_replica": 0,
       "byzantine_types": null,
-      "full_decision_latency_ms": null,
-      "winning_propose_to_receive_ms": 25.9999999999998
+      "full_decision_latency_ms": 11047.999999999998,
+      "winning_propose_to_receive_ms": 30.999999999998806
     }
   },
   {
@@ -71,27 +71,27 @@
     "cluster_mode": "allVehicles",
     "timestamps_ms": {
       "stopped": 20600.0,
-      "passed": 34500.0
+      "passed": 34400.0
     },
     "durations_ms": {
       "leader_election_time_ms": 0.0,
-      "decision_latency_ms": 11128.0,
-      "total_wait_time": 13899.999999999998
+      "decision_latency_ms": 11046.0,
+      "total_wait_time": 13799.999999999996
     },
     "messages": {
       "sent": 225,
-      "received": 141
+      "received": 140
     },
     "bft_stats": {
       "cert_collection_duration_ms": null,
       "view_change_triggered": true,
-      "view_change_duration_ms": 99.99999999999787,
+      "view_change_duration_ms": 16.99999999999946,
       "decision_via_gossip": false,
       "used_fallback": false,
       "byzantine_injections_replica": 0,
       "byzantine_types": null,
-      "full_decision_latency_ms": null,
-      "winning_propose_to_receive_ms": 28.000000000002245
+      "full_decision_latency_ms": 11046.0,
+      "winning_propose_to_receive_ms": 28.999999999999915
     }
   },
   {
@@ -102,26 +102,26 @@
     "cluster_mode": "allVehicles",
     "timestamps_ms": {
       "stopped": 20600.0,
-      "passed": 34500.0
+      "passed": 34400.0
     },
     "durations_ms": {
       "leader_election_time_ms": 0.0,
-      "decision_latency_ms": 11125.999999999998,
-      "total_wait_time": 13899.999999999998
+      "decision_latency_ms": 11043.0,
+      "total_wait_time": 13799.999999999996
     },
     "messages": {
       "sent": 225,
-      "received": 112
+      "received": 109
     },
     "bft_stats": {
       "cert_collection_duration_ms": null,
       "view_change_triggered": true,
-      "view_change_duration_ms": 99.99999999999787,
+      "view_change_duration_ms": 16.99999999999946,
       "decision_via_gossip": false,
       "used_fallback": false,
       "byzantine_injections_replica": 0,
       "byzantine_types": null,
-      "full_decision_latency_ms": null,
+      "full_decision_latency_ms": 11043.0,
       "winning_propose_to_receive_ms": 25.9999999999998
     }
   }

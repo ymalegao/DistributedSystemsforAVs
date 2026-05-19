@@ -7,12 +7,12 @@
     "cluster_mode": "allVehicles",
     "timestamps_ms": {
       "stopped": 20600.0,
-      "passed": 22700.0
+      "passed": 22600.0
     },
     "durations_ms": {
       "leader_election_time_ms": 0.0,
-      "decision_latency_ms": 199.9999999999993,
-      "total_wait_time": 2099.9999999999977
+      "decision_latency_ms": 41.99999999999804,
+      "total_wait_time": 2000.0
     },
     "messages": {
       "sent": 221,
@@ -26,8 +26,8 @@
       "used_fallback": false,
       "byzantine_injections_replica": 0,
       "byzantine_types": null,
-      "full_decision_latency_ms": null,
-      "winning_propose_to_receive_ms": 199.9999999999993
+      "full_decision_latency_ms": 41.99999999999804,
+      "winning_propose_to_receive_ms": 41.99999999999804
     }
   },
   {
@@ -38,12 +38,12 @@
     "cluster_mode": "allVehicles",
     "timestamps_ms": {
       "stopped": 20600.0,
-      "passed": 22700.0
+      "passed": 22600.0
     },
     "durations_ms": {
       "leader_election_time_ms": 0.0,
-      "decision_latency_ms": 199.9999999999993,
-      "total_wait_time": 2099.9999999999977
+      "decision_latency_ms": 40.99999999999682,
+      "total_wait_time": 2000.0
     },
     "messages": {
       "sent": 222,
@@ -57,8 +57,8 @@
       "used_fallback": false,
       "byzantine_injections_replica": 0,
       "byzantine_types": null,
-      "full_decision_latency_ms": null,
-      "winning_propose_to_receive_ms": 199.9999999999993
+      "full_decision_latency_ms": 40.99999999999682,
+      "winning_propose_to_receive_ms": 40.99999999999682
     }
   },
   {
@@ -69,16 +69,16 @@
     "cluster_mode": "allVehicles",
     "timestamps_ms": {
       "stopped": 20600.0,
-      "passed": 24100.0
+      "passed": 24000.0
     },
     "durations_ms": {
       "leader_election_time_ms": 0.0,
-      "decision_latency_ms": 199.9999999999993,
-      "total_wait_time": 3500.0
+      "decision_latency_ms": null,
+      "total_wait_time": 3399.9999999999986
     },
     "messages": {
       "sent": 223,
-      "received": 130
+      "received": 132
     },
     "bft_stats": {
       "cert_collection_duration_ms": null,
@@ -89,7 +89,7 @@
       "byzantine_injections_replica": 0,
       "byzantine_types": null,
       "full_decision_latency_ms": null,
-      "winning_propose_to_receive_ms": 199.9999999999993
+      "winning_propose_to_receive_ms": null
     }
   },
   {
@@ -100,12 +100,12 @@
     "cluster_mode": "allVehicles",
     "timestamps_ms": {
       "stopped": 20600.0,
-      "passed": 24100.0
+      "passed": 24000.0
     },
     "durations_ms": {
       "leader_election_time_ms": 0.0,
-      "decision_latency_ms": 199.9999999999993,
-      "total_wait_time": 3500.0
+      "decision_latency_ms": 39.99999999999915,
+      "total_wait_time": 3399.9999999999986
     },
     "messages": {
       "sent": 223,
@@ -119,8 +119,8 @@
       "used_fallback": false,
       "byzantine_injections_replica": 0,
       "byzantine_types": null,
-      "full_decision_latency_ms": null,
-      "winning_propose_to_receive_ms": 199.9999999999993
+      "full_decision_latency_ms": 39.99999999999915,
+      "winning_propose_to_receive_ms": 39.99999999999915
     }
   }
 ]

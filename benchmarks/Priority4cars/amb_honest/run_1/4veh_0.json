@@ -11,7 +11,7 @@
     },
     "durations_ms": {
       "leader_election_time_ms": 0.0,
-      "decision_latency_ms": 77.9999999999994,
+      "decision_latency_ms": 123.99999999999878,
       "total_wait_time": 3399.9999999999986
     },
     "messages": {
@@ -26,8 +26,8 @@
       "used_fallback": false,
       "byzantine_injections_replica": 0,
       "byzantine_types": null,
-      "full_decision_latency_ms": null,
-      "winning_propose_to_receive_ms": 77.9999999999994
+      "full_decision_latency_ms": 123.99999999999878,
+      "winning_propose_to_receive_ms": 123.99999999999878
     }
   },
   {
@@ -42,7 +42,7 @@
     },
     "durations_ms": {
       "leader_election_time_ms": 0.0,
-      "decision_latency_ms": 77.9999999999994,
+      "decision_latency_ms": 122.99999999999756,
       "total_wait_time": 3399.9999999999986
     },
     "messages": {
@@ -57,8 +57,8 @@
       "used_fallback": false,
       "byzantine_injections_replica": 0,
       "byzantine_types": null,
-      "full_decision_latency_ms": null,
-      "winning_propose_to_receive_ms": 77.9999999999994
+      "full_decision_latency_ms": 122.99999999999756,
+      "winning_propose_to_receive_ms": 122.99999999999756
     }
   },
   {
@@ -73,7 +73,7 @@
     },
     "durations_ms": {
       "leader_election_time_ms": 0.0,
-      "decision_latency_ms": 76.99999999999818,
+      "decision_latency_ms": 122.99999999999756,
       "total_wait_time": 2000.0
     },
     "messages": {
@@ -88,8 +88,8 @@
       "used_fallback": false,
       "byzantine_injections_replica": 0,
       "byzantine_types": null,
-      "full_decision_latency_ms": null,
-      "winning_propose_to_receive_ms": 76.99999999999818
+      "full_decision_latency_ms": 122.99999999999756,
+      "winning_propose_to_receive_ms": 122.99999999999756
     }
   },
   {
@@ -104,7 +104,7 @@
     },
     "durations_ms": {
       "leader_election_time_ms": 0.0,
-      "decision_latency_ms": 76.99999999999818,
+      "decision_latency_ms": 121.99999999999989,
       "total_wait_time": 2000.0
     },
     "messages": {
@@ -119,8 +119,8 @@
       "used_fallback": false,
       "byzantine_injections_replica": 0,
       "byzantine_types": null,
-      "full_decision_latency_ms": null,
-      "winning_propose_to_receive_ms": 76.99999999999818
+      "full_decision_latency_ms": 121.99999999999989,
+      "winning_propose_to_receive_ms": 121.99999999999989
     }
   }
 ]
