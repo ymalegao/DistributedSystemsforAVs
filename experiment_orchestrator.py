@@ -83,7 +83,7 @@ SCENARIO_BY_CODE = {
     6: "ByzFollower_NoAmbulance",
 }
 
-DEFAULT_N_VALUES = (4, 8, 12, 16)
+DEFAULT_N_VALUES = (4, 8, 12, 16, 20)
 REPETITIONS = 5
 
 SCENARIO_ORDER: Tuple[str, ...] = (
@@ -101,7 +101,7 @@ def bft_f(n: int) -> int:
 
 
 def omnet_config_basename(n: int) -> str:
-    names = {4: "Four", 8: "Eight", 12: "Twelve", 16: "Sixteen"}
+    names = {4: "Four", 8: "Eight", 12: "Twelve", 16: "Sixteen", 20: "Twenty"}
     if n not in names:
         raise ValueError(f"Unsupported N={n}; expected one of {tuple(names)}")
     return names[n]
