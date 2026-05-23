@@ -32,3 +32,4 @@ incubator-resilientdb/third_party/zlib.BUILD
 veins-veins-5.3.1/configure
 veins-veins-5.3.1/configure.user
 veins-veins-5.3.1/src/makefrag
+.dual-graph-context/

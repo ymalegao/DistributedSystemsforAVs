@@ -1,19 +1,137 @@
 \documentclass[fleqn,10pt]{olplainarticle}
 % Use option lineno for line numbers 
 
+% \usepackage{algorithm}
+% \usepackage{algorithmic}
+% \usepackage[ruled,vlined]{algorithm2e}
+% \usepackage{amsmath} % Required for math symbols like \emptyset and \cup
+
+
+\usepackage{tikz}
+\usepackage{hyperref}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning}
 \usepackage{algorithm}
-\usepackage{algorithmic}
+\usepackage{algpseudocode}
+\usepackage{float}
+
+% Reduce spacing between algorithms
+\setlength{\textfloatsep}{5pt}
+\setlength{\intextsep}{5pt}
+
+\tikzset{
+  startstop/.style = {rectangle, rounded corners, minimum width=3cm, minimum height=1cm,
+                      text centered, draw=black, fill=red!30},
+  process/.style   = {rectangle, minimum width=3cm, minimum height=1cm,
+                      text centered, draw=black, fill=blue!20},
+  decision/.style  = {diamond, minimum width=3cm, minimum height=1cm,
+                      text centered, draw=black, fill=green!20},
+  arrow/.style     = {thick, ->, >=Stealth}
+}
+
 \begin{document}
+
+
+
+\section{Literature Review}
+\subsection{Relevant Work}
+\subsubsection{Lee's direct RAFT work}
+   We started with using Lee's distributed consensus algorithm which primarily uses RAFT ( a slight modified version ) for operating CAV's (Connected Autonomous Vehicles) \cite{lee2025distributed}
+   Few key points listed about the paper :
+   \begin{itemize}
+       \item There is no need for View Synchronous Communication here. The paper explicitly mentioned that it is relying on external sensors for the job here : \textit{"The proposed system utilizes the vehicles’ vision systems to detect the presence of simultaneously entering vehicles and determines an appropriate consensus method based on the number of vehicles involved"}
+       \item There are 2 important things to this algorithm \textbf{Candidate Voting Process} and \textbf{Leader Election Voting Process}
+       \item \textbf{Candidate Voting Process : } Unlike standard RAFT protocol where all starts as Followers, here they start as Candidate. This is referred to as this initial state as Init-Candidate. Each vehicle sends a vote
+        request to all other vehicles except itself in an attempt to be-
+        come the Leader. At the same time, each vehicle responds to
+        incoming vote requests from others. Only the request received
+        first can be acknowledged. Each vehicle is allowed to vote
+        only once. If a vehicle receives an ”acknowledged” response,
+        it compares the direction of the sender, the acknowledging
+        vehicle, with its own to assess the possibility of the sender
+        vehicle being on the collision path. The vehicle adds the
+        sender’s address to its no-collision-list if it is not on the
+        collision path and updates its election-time to the time the
+        acknowledgment was received
+       \item \textbf{Leader Election Voting Process : } If an Init-Candidate
+collects votes exceeding the quorum, it proceeds to initiate
+a Leader Election by sending a Leader Election Request
+message to all other vehicles. At this point, the Candidate
+is referred to as a F in-Candidate. Upon receiving this
+Leader Election Request, each recipient vehicle compares its
+own vote count with that of the F in-Candidate (the sender
+of the request). If the F in-Candidate has more votes, the
+recipient sends an ”acknowledged” response; otherwise, it
+replies with ”ignored.” If both vote counts are equal, the
+recipient compares election-time and acknowledges the vehicle
+that reached quorum earlier. \textbf{Here only leader goes.}
+        \item Results compare CAV ratio (Number of autonomous cars / number of human cars in ratio) against consensus timeout, throughput etc. One notable if we have all Autonomous vehicles at intersection, throughput for full quorum is at 3 veh/sec while if we only wait for majority quorum it is at 8 veh/sec. I beleive here they are calculating the decision time and not actual passing time. They are also playing around the fallback time (the vision process taking over time). The graph shows a tradeoff between latency and reliability: increasing the timeout threshold reduces consensus failures but increases decision latency, especially as the number of participating vehicles grows.
+        \item Overall this paper is good, but not sure what they are trying to achieve diferently with their modified RAFT approach. Also some key metrics is missing like latency and also there is no proper experimentation. The authors mentioning VANET like environment is not actual VANET environment.
+   \end{itemize}
+\subsubsection{Hasan's V2X securing}
+\begin{itemize}
+    \item The V2X secure paper \cite{hasan2020securing} tries to do a survey of how to secure V2V communications.
+    \item Traditional way of doing this would be to use normal PKI infrastruture. but problems like time taken to verify certificate etc pose challenges.
+    \item Paper mentions the use of misbehviour as a factor to identify further authenticity of the msg.
+    \item As per WAVE SAE standard the rule is to use PKI based \href{https://autocrypt.io/security-credential-management-system/}{SCMS}.
+    \item SCMS (Security Credential Management System) is a PKI-based infrastructure designed for V2X that issues, manages, and verifies digital certificates so vehicles can trust each other’s messages securely and privately at scale. It works by first enrolling a vehicle and issuing it long-term credentials, then providing it with many short-lived pseudonym certificates for privacy; when a vehicle sends a message, it signs it using its private key and attaches one of these certificates, and the receiver verifies the certificate using trusted authorities and checks the signature before accepting the message. Behind the scenes, SCMS also maintains certificate revocation lists and misbehavior detection so that malicious or faulty vehicles can be removed from the system, ensuring only trusted participants are accepted in the network.
+    \item The way it detects bad authors is through multiple ways, wrong certificate, someone reporting him as fraud etc.
+    \item Overview of IEEE 1609.2 Standard Support system. The key sigining and verification is done through ECDSA algorithm. he distribution of all security certificates (including
+    CRLs - Certificate Revocation Lists) is performed by the SCMS.
+    \item There are lot of things like GPS spoofing, DOS attacks like attackers sending too much msg and blocking the bandwidth. 
+    \item Read section 5 for in-depth understanding of how they are trying to block.
+\end{itemize}
+
+\subsubsection{Chenglin's Wireless Distributed PBFT Consensus}
+\begin{itemize}
+    \item The paper \cite{10041971} adopts for Perception-Initiative-
+Consensus-Action (PICA) to solve the same problem we are solving.
+    \item The author initially discusses about two well known applications to deal with it. Blockchain based and Classical State Machine Replication(SMR). Not any effort did for blockchain, they agreed it would be computationally and time wise better to do SMR and they proceeded.
+    \item Think about the concept of \textbf{platooning}
+    \item The authors stressed the importance of having full consensus in the network since half consensus is good, but vehicles can be confused about their positions in the lane and can act differently if they have not received the consensus decision yet.
+    \item The authors say that there is a problem of having a lot of manuevers and taking a solo decision based on the manuever is a huge problem. So they introduced the veto collection phase after the proposal phase.  \ref{fig:veto}
+    \item This is done through a cryptography method: threshold signa-
+    ture [to perform this process. In a (k, N )-threshold signature
+    algorithm, there is a single public key held by all replicas, while
+    N replicas hold a different private key fragment. If there are at
+    least k replicas that signed a partial signature to the proposal,
+    the k partial signatures can then be combined into a complete
+    signature, which can be verified by the public key held by all
+    members. In the veto-collection phase, the replicas sign a partial
+    signature to the proposal if they have no objections, and then
+    unicast the signature back to the primary node. The feasibility
+    proofing can be proved by the feedback from replicas if there
+    are N partial signatures, i.e., all vehicles agree on the proposal.
+    Then, the primary vehicle combines the partial signatures to a
+    complete one and send as evidence in the following consensus
+    procedures.
+    \item The paper did discuss about clustering under vehicle clustering section for scaling PBFT. 
+    \item They also talk about the important of maintaining equal cluster sizes. When a new vehicle seeks to join an existing autonomous vehicle network, it initiates an accession request that is routed through nearby vehicles to the primary node, which then begins a PBFT-based consensus process. If enough vehicles approve the request, the network updates its size and incorporates the new vehicle at a scheduled execution time, ensuring all members maintain a consistent view of the network size. This dynamic process allows vehicles to join seamlessly, maintaining safety and coordination, while ongoing requests with earlier timestamps do not interfere with the current consensus updates.
+    \item They use some probabilistic based mechanism to find out the cluster size.
+    \item Regarding their decision tree, I am convinced that it has some loopholes and there maybe a situation where it fails to get even one decision bcoz of veto process.
+    \item The paper utilizes a epidemiology gossip algorithm to make up for the deficiencies in PBFT.
+    \item The paper only talks mainly about how gossip is increasing the probability of consensus. Not performance benchmarks no latency not even throughputs.
+    \item This paper provides good gurantees on wireless protocol and also how can we ensure one single cluster but in terms of performance I believe not so good. and this is a let off.
+\begin{figure}
+    \centering
+    \includegraphics[width=0.5\linewidth]{veto.png}
+    \caption{Veto Phase in Chenglin Paper}
+    \label{fig:veto}
+\end{figure}
+\end{itemize}
+\subsection{Regarding Network}
+\subsubsection{Vehicular Networks}
+\begin{itemize}
+    \item Wave is just a protocol stack like TCP/IP.
+    \item Found out that there is CCH and SCH in WAVE \cite{7435228}, which corresponds to need for fast and priortized need for delivery. CCH enables fast and priority delivery while SCH is just opportunistic. 
+    \item Currently in our code all are CCH, but we can look into using SCH for reducing congestion.
+\end{itemize}
+
 
 \subsection*{Related Works}
 
-Research on different applications and protocols of distributed consensus in an Autonomous Vehicle space.
+Research on different applications and protocols of distributed consensus in an Autonomous Vehicle space. 
 
-In \cite{blockchain_for_avs}, they propose a blockchain-based approach to secure autonomous vehicles. They use a blockchain to store the transactions of the autonomous vehicles.
-They implement v2v stuff in python.
-
-
-\subsection{Survey Paper}
+\subsection{Yash Survey}
 
 \begin{enumerate}
 
@@ -22,7 +140,7 @@ They implement v2v stuff in python.
 \subsubsection{Decentralized vs Centralized }
 The typical approach for CAV intersection is distributed or centralized. Centralized can be split into a query-based Intersection manager or an Assignment-based. 
 
-IN QB-IM, the IM will accept or reject requests from a CAV, while in AB-IM the IM will assign a reservation to the CAV. 
+IN QB-IM, the IM will accept or reject requests from a CAV, whilpre in AB-IM the IM will assign a reservation to the CAV. 
 
 AB-IM can achieve higher throughputs compared to QB-IM, but processing time is greater.
 
@@ -172,161 +290,990 @@ They split the BFT-CUP into three phases:
 
 The combination of k-OSR PD and RRB ensures that consensus is achievable in an open, unknown-participant setting. The sink component provides a consistent membership basis for safety, while availability is preserved through the propagation of the final decision to non-sink nodes.
 
+
+
+
+\subsection{System Model and Assumptions}
+\label{subsec:system-model}
+
+We consider a single intersection instrumented with connected and autonomous vehicles (CAVs) that cooperate to agree on a safe and fair crossing order. Our protocol runs in three modes---BFT consensus, abortable small-$n$ consensus, and a time-slotted fallback---all under the following common model.
+
+\paragraph{Network and timing.}
+We assume a \emph{partially synchronous} communication model: there exists an unknown global stabilization time after which all messages between vehicles within communication range are delivered within a bounded delay $\Delta$. Each vehicle $v$ has access to a local hardware clock $\mathsf{clk}_v(t)$, and clocks are synchronized using a trusted time-synchronization service (e.g., GNSS + infrastructure support). We assume a known bound $\epsilon$ on clock skew:
+\[
+  \forall u,v:\;\bigl|\mathsf{clk}_u(t) - \mathsf{clk}_v(t)\bigr| \le \epsilon.
+\]
+In fallback mode, time is partitioned into \emph{frames} of length $F$, and each frame is further divided into \emph{slots} of length $\delta$. We choose $F$ and $\delta$ such that
+\[
+  \delta \gg \epsilon + \Delta + \text{(braking / sensing margin)},
+\]
+so that slots assigned to conflicting maneuvers do not overlap for honest vehicles that respect the slotting rule.
+
+\paragraph{Vehicles, identities, and fault model.}
+Each physical vehicle $v$ is provisioned with a globally unique, certification-authority (CA) issued public key $\mathsf{pk}_v$ and corresponding private key $\mathsf{sk}_v$. Certificates bind $\mathsf{pk}_v$ to a physical vehicle identity and prevent Sybil attacks (i.e., a vehicle cannot cheaply create multiple identities). All vehicles can verify signatures and certificates of other vehicles.
+
+We assume at most one Byzantine vehicle among the set of vehicles that are simultaneously within communication range of the intersection:
+\[
+  f = 1.
+\]
+A Byzantine vehicle may deviate arbitrarily from the protocol: send conflicting messages, omit messages, or refuse to sign. However, the adversary cannot break standard cryptographic primitives (e.g., cannot forge signatures) and cannot forge CA-issued certificates. Physical aspects such as a vehicle deliberately driving through a red phase or permanently blocking the intersection are handled by separate safety and enforcement mechanisms and are out of scope for the protocol analysis.
+
+\paragraph{Intersection identity and localization.}
+Each intersection $I$ is associated with:
+\begin{itemize}
+  \item a unique logical identifier $\mathsf{id}_I$ (e.g., derived from map coordinates), and
+  \item a geographic region $R_I$ that captures the spatial extent of the intersection.
+\end{itemize}
+Vehicles use on-board localization (GNSS, maps) to determine when they are within $R_I$. We assume that a vehicle cannot arbitrarily claim to be in a different intersection region without being detected by the physical safety system; i.e., localization errors are bounded and cannot be exploited to move a certificate from one intersection to another. All quorum certificates described below are bound to a specific intersection identifier $\mathsf{id}_I$.
+
+\paragraph{Quorum certificates (QCs).}
+A \emph{quorum certificate} (QC) for intersection $I$ and epoch $e$ has the form
+\[
+  \mathsf{QC} = \Bigl(\mathsf{id}_I,\; e,\; \mathsf{order},\; \Sigma\Bigr)
+\]
+where:
+\begin{itemize}
+  \item $\mathsf{order}$ is a finite sequence of vehicle identifiers describing a crossing order, and
+  \item $\Sigma$ is a set of signatures over $(\mathsf{id}_I, e, \mathsf{order})$.
+\end{itemize}
+We distinguish the following cases:
+\begin{itemize}
+  \item For $n \ge 4$ participants (the BFT mode with $f=1$), a QC is valid if $|\Sigma| \ge 3$, i.e., if it contains signatures from at least three distinct vehicles present at the intersection.
+  \item For $n = 3$ participants, we require \emph{unanimity}: a QC is valid only if all three vehicles sign the same $\mathsf{order}$, i.e., $|\Sigma| = 3$. If any vehicle withholds a signature or sends an inconsistent proposal, no QC is formed and the small-$n$ consensus attempt aborts.
+  \item For $n = 2$ participants, the protocol does not form a full QC but instead uses bilateral \emph{go/yield} certificates as described below.
+\end{itemize}
+In all cases, vehicles verify that $\mathsf{QC}$ is correctly signed, bound to $\mathsf{id}_I$, and that $\mathsf{order}$ satisfies the protocol's fairness and safety constraints before accepting it.
+
+\paragraph{Waiting certificates (waitingQCs).}
+When consensus aborts, or when a vehicle remains waiting while others are allowed to cross, we issue weaker certificates of the form
+\[
+  \mathsf{wQC} = \Bigl(\mathsf{id}_I,\; e,\; v,\; \mathsf{meta},\; \Sigma'\Bigr),
+\]
+where $v$ is the vehicle identifier, $\mathsf{meta}$ may include local arrival time and approach lane, and $\Sigma'$ is a set of signatures attesting that ``vehicle $v$ was present at intersection $I$ in epoch $e$ and has not yet crossed.'' We require $|\Sigma'| \ge 2$ whenever possible (e.g., in $n=2$ and $n=3$ scenarios), so that no single vehicle can unilaterally mint a waitingQC for itself. In the $n=2$ case, both vehicles sign each other's waitingQCs when one yields and remains behind.
+
+WaitingQCs do not directly encode a complete crossing order, but they provide cryptographic evidence of \emph{waiting history} that influences priority in future decisions and in the fallback time-slotted regime.
+
+\paragraph{Epochs and certificate validity.}
+Time at an intersection is divided into \emph{epochs} $e = 0,1,2,\dots$. Each QC and waitingQC is tagged with the epoch in which it was created. Certificates are only valid for a bounded time window $T_{\mathit{expire}}$ (e.g., on the order of a few minutes):
+\[
+  \text{A QC or waitingQC is valid at time } t \text{ only if } t - t_{\mathit{issue}} \le T_{\mathit{expire}}.
+\]
+An epoch is reset (and all prior QCs and waitingQCs are ignored for fairness) when:
+\begin{itemize}
+  \item the intersection has been idle (no vehicles within $R_I$) for longer than a configured threshold, or
+  \item the latest QC and associated waitingQCs have all expired.
+\end{itemize}
+This prevents vehicles from replaying stale certificates obtained at the same intersection long in the past to cut ahead of a new queue.
+
+\paragraph{Modes of operation.}
+Under these assumptions, the protocol operates in three modes:
+\begin{itemize}
+  \item \emph{BFT mode} (typically $n \ge 4$): vehicles run a Byzantine fault-tolerant consensus protocol that produces QCs satisfying safety and a strong fairness property.
+  \item \emph{Small-$n$ abortable mode} ($n \in \{2,3\}$): vehicles attempt to agree unanimously on a crossing decision; on success, they issue a QC or bilateral go/yield certificates; on failure, no vehicle moves and waitingQCs are issued instead.
+  \item \emph{Fallback time-slotted mode}: if consensus fails to make progress, vehicles use their synchronized clocks, QCs, and waitingQCs to compute priority-aware time slots for crossing, while relying on onboard sensing to ensure physical safety.
+\end{itemize}
+In all three modes, we assume that at most one vehicle within communication range is Byzantine and that honest vehicles follow the protocol and do not intentionally violate physical safety constraints.
+
+
+
+
+
+\subsection{ResDB PBFT Background}
+
+The current implementation uses ResilientDB as the PBFT engine. Each vehicle is a replica, and all PBFT traffic is carried through the Veins radio channel rather than through a wired or socket-based network. The consensus value is not a finished trajectory plan; it is the binary proposal containing the certified vehicle-state entries for the epoch. After commit, the deterministic executor computes the crossing order.
+
+\begin{algorithm}[H]
+\caption{\textsc{ResDBPBFTConsensus}$(proposal)$}
+\begin{algorithmic}[1]
+\State $view \gets$ current ResDB view
+\State $primary \gets view \bmod N$
+\If{$replicaId = primary$}
+    \State broadcast \textsc{PrePrepare}$(view,\ seq,\ digest(proposal), proposal)$
+\EndIf
+\For{each replica that receives a valid \textsc{PrePrepare}}
+    \State verify primary, view, sequence, digest, and proposal structure
+    \State broadcast \textsc{Prepare}$(view,\ seq,\ digest(proposal))$
+\EndFor
+\For{each replica with the ResDB prepare condition satisfied}
+    \State broadcast \textsc{Commit}$(view,\ seq,\ digest(proposal))$
+\EndFor
+\For{each replica with a $2f+1$ commit quorum}
+    \State $order \gets \textsc{ExecuteIntersectionOrder}(proposal.vehicleEntries)$
+    \State apply $order$ through the vehicle application callback
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+\subsubsection{Primary Selection}
+
+The primary is determined by the current ResDB view. All replicas can compute the expected primary for that view, and followers reject primary messages that do not match the current view. If the primary fails to propose, proposes malformed data, or stops sending PBFT traffic, followers use the view-change path described later in Section~\ref{subsec:leader-change}.
+
+\subsubsection{Normal-Case Phases}
+
+\textbf{Pre-prepare.} The primary broadcasts the proposal bytes and their digest. Followers check that the message comes from the expected primary and that the binary proposal is structurally valid.
+
+\textbf{Prepare.} Replicas that accept the pre-prepare message broadcast prepare messages for the same view, sequence number, and digest. The prepare phase establishes that enough replicas observed the same primary proposal.
+
+\textbf{Commit.} Once the prepare condition is satisfied, replicas broadcast commit messages. A decision is delivered when the PBFT commit quorum is reached.
+
+\subsubsection{Complexity}
+
+The normal case remains $O(N^2)$ in the number of vehicle replicas because prepare and commit messages are broadcast among replicas. In this system those messages are serialized as type 8 radio frames, signed by the sender, and delivered into ResDB through the socketless bridge.
+
+\subsection{Arrival-Based Participation}
+
+The current design does not run a separate group-membership consensus before ordering. Participation is derived from arrival certificates. A vehicle that reaches the stop zone broadcasts an arrival announcement; witnesses independently verify the claimed lane and queue position through TraCI; and the vehicle becomes eligible for \texttt{SIGNED} proposal only after collecting $f+1$ valid witness echoes.
+
+This arrival-certificate step serves the role that a separate view-formation phase would otherwise serve. It gives the primary a bounded set of expected replica ids, gives followers cryptographic evidence for certified vehicles, and gives the executor a conservative representation for missing or uncertified vehicles through \texttt{QUIET} entries. Once an order is committed and applied, vehicles that clear the intersection mark themselves departed and ignore later messages for that epoch.
+
+% Start of Mathesh RAFT
+
+\section{RAFT}
+
+I just try to break down my protocol into flowchart of steps on how it is happening and explain key concepts alone below :
+
+\begin{tikzpicture}[node distance=2cm]
+
+  \node (start)  [startstop]              {Start};
+  \node (proc1)  [process, below of=start] {Discovery Phase (sign your proposal and send it)};
+  \node (proc2)  [process, below of=proc1] {Stop at  Intersection. All lane leaders / all vehicles (depending upon the mode) exchange their vehicle views with each other};
+  \node (dec1)   [decision, below of=proc2, yshift=-0.5cm] {Decision phase.};
+  \node (proc3)  [process, below of=dec1, yshift=-0.8cm]  {Start RAFT, elect leader and ask status from all followers};
+  \node (proc4)  [process, below of=proc3]  {Take decision and Assemble Quorum Certificate and broadcast it};
+  \node (proc5)  [process, below of=proc4]  {Continue executing the decision Pass Order};
+  \node (stop)   [startstop, below of=proc5] {Stop};
+
+  \draw [arrow] (start)  -- (proc1);
+  \draw [arrow] (proc1)  -- (proc2);
+  \draw [arrow] (proc2)  -- (dec1);
+  \draw [arrow] (dec1)   -- node[anchor=east] {Decision not taken} (proc3);
+  \draw [arrow] (dec1.east) -- ++(2,0) node[anchor=west] {Decision Already taken for all vehicles} |- (proc4);
+  \draw [arrow] (proc3)  -- (proc4);
+  \draw [arrow] (proc4)  -- (proc5);
+  \draw [arrow] (proc5)  -- (stop);
+
+\end{tikzpicture}
+
+\textbf{Writing the core algorithm in steps below : }
+\begin{enumerate}
+    \item Start Simulation. All vehicles start from their position and initialize key components, like generating their own certificates, generating their own proposal. Proposal details are mentioned in table 1.
+    \item Vehicle stars moving, use communication protocol (UDP or WAVE) to transmit their proposals to everyone.
+    \item All vehicles will also be listening, if they hear some one proposals new for first time, they will add it to their view. 
+    \item All vehicles stops at intersection, first vehicle stops at 5m from the intersection center, and all Lane leaders try to send RAFT Cluster invitation to each other. Only invitation, does not share the entire vehicle databases yet.
+    \item Once heard from all sides, start RAFT election. Leader gets elected and asks for status requests to all its cluster members (lane leaders)
+    \item Each lane leader sends its full vehicleDB (own proposal + all queued vehicles it knows) back to the leader
+    \item Leader merges all DBs — unions all vehicleDB maps → one combined proposal list covering all vehicles
+    \item Leader calls proposePassOrder() — computes batch schedule,
+    \item QC signing — all cluster members sign the schedule, send QCSIGNRESPONSE to leader and submits via RAFT replication — AppendEntries to all followers, quorum ACKs
+    \item Leader assembles QC — once quorum signatures collected, broadcasts PASSORDERBROADCAST with schedule + QC to everyone (including queued non-cluster vehicles)
+    \item Vehicles execute — Batch 0 moves immediately, subsequent batches wait for VEHICLELEFT from previous batch before calling resumeMovement()
+\end{enumerate}
+
+\subsection{Security and Authentication}
+For security, we are using Private and Public key mechanism to verify the authenticity of the user.
+
+
+\subsubsection{Cryptographic Method: ECDSA with P-256}
+
+Each vehicle holds a private key $d$ (secret) and a public key $Q = d \cdot G$ (shared). To sign a message, the sender computes a signature $(r,s)$ over $\mathrm{SHA256}(\text{payload})$ using its private key. The receiver verifies the signature using the sender's public key. Security rests on the Elliptic Curve Discrete Logarithm Problem: recovering $d$ from $Q$ is computationally infeasible. ECDSA P-256 is the algorithm mandated by IEEE 1609.2 / ETSI TS 103 097 for V2X security \cite{10075082}; it offers 128-bit security with 65-byte keys and fast operations. The implementation uses the \textbf{OpenSSL 3.0} EVP API (\texttt{libssl-dev}, standard on Ubuntu).
+
+\subsubsection{Certificate Issuance}
+
+Two Certificate Authorities (CAs) exist: \texttt{Emergency\_CA} (ambulances) and \texttt{Vehicle\_CA} (normal vehicles). At startup, each CA generates a P-256 keypair. When a vehicle initialises, it generates its own keypair and requests a certificate:
+
 \begin{verbatim}
-broadcast VOTE_REQ(from_meta := my current meta)
+V14 (ambulance) sends: pubKey_V14 + "ambulance" + "Emergency_CA"
 
-upon receiving VOTE_RESP from peer p:
-if response == ACK:
+Emergency_CA signs: tbs = pubKey_V14 || "ambulance" || "Emergency_CA"
+                    caSignature = ECDSA_Sign(privKey_CA_E, SHA256(tbs))
 
-// time of first ACK
- election_time := now()   
- 
- received_votes := received_votes + 1
- if p reported direction_no_collision = True:
-     no_collision_list := no_collision_list ∪ {p.id}
-
-if received_votes ≥ quorum:
-    status := FIN_CANDIDATE
-
-    broadcast LEADER_REQ(fin_candidate_meta := my meta)
-    leader_acks := 0
-    
-    upon receiving LEADER_RESP from peer p:
-      if response == ACK:
-         leader_acks := leader_acks + 1
-      else 
-         if (p.received_votes > my.received_votes) or
-            (p.received_votes == my.received_votes and
-            p.election_time < my.election_time):
-              status := FOLLOWER
-              received_votes := p.received_votes
-              election_time := p.election_time
-    
-    if leader_acks + 1 (self) ≥ quorum:
-       status := LEADER
-        
-
+Certificate: { pubKey_V14, role="ambulance", issuer="Emergency_CA",
+               caSignature=<72 bytes> }
 \end{verbatim}
 
-Handler for VOTE-REQ
-\begin{verbatim}
-mutex lock
-if sent_votes == 0 then 
-   sent_votes := 1         
-   direction_no_collision := !collides(req.from.direction, my.direction)
-   reply VOTE_RESP(ACK, direction_no_collision, my_meta)
-else
-   reply VOTE_RESP(IGNORED, responder_meta := my_meta)
-mutex unlock
+\subsubsection{Message Verification and Attack Resistance}
 
+Every PEER\_BEACON carries the sender's certificate and an ECDSA signature over the payload. When V12 receives a beacon from V14, it performs two checks:
+
+\begin{enumerate}
+    \item \textbf{Cert check}: verify \texttt{caSignature} against \texttt{pubKey\_CA\_E}. If valid, the role \texttt{"ambulance"} is trustworthy.
+    \item \textbf{Payload check}: verify the message signature against \texttt{pubKey\_V14}. If valid, the payload was not tampered.
+\end{enumerate}
+
+\noindent Only after both checks pass does the receiver set \texttt{isPriority = true}. A self-claimed priority field in the payload is always ignored.
+
+\textbf{Fake ambulance attack}: If attacker V5 sets \texttt{role="ambulance"} and \texttt{issuer="Emergency\_CA"} in its certificate, it cannot forge a valid \texttt{caSignature} without \texttt{privKey\_CA\_E}. Verification fails and priority is denied.
+
+
+
+
+\subsection{Performance Metrics and Evaluation Methodology}
+
+All metrics are derived from per-vehicle JSON records emitted at the end of each
+simulation run. Each record contains two timestamps---\texttt{stopped\_ms} (the
+simulation time at which the vehicle halted at the intersection stop line) and
+\texttt{passed\_ms} (the time at which it cleared the intersection)---together with
+message counters and a coordination outcome label (\texttt{raft} or
+\texttt{fallback}). Unless otherwise stated, \emph{fallback vehicles} (those that
+did not achieve RAFT consensus) are excluded from metric calculations.
+
+Let $\mathcal{R}$ denote the set of RAFT-coordinated vehicles in a single simulation
+run and let $N = |\mathcal{R}|$.
+
+%-------------------------------------------------------------------
+\subsubsection{Intersection Throughput}
+
+Throughput measures how many vehicles the intersection clears per unit time.
+For each vehicle $i \in \mathcal{R}$ the individual crossing latency is
+
+\[
+  \ell_i = t_i^{\mathrm{passed}} - t_i^{\mathrm{stopped}} \quad [\text{seconds}]
+\]
+
+The mean crossing latency across all RAFT vehicles in the run is
+
+\[
+  \bar{\ell} = \frac{1}{N} \sum_{i \in \mathcal{R}} \ell_i
+\]
+
+and the run-level throughput is defined as
+
+\[
+  \Theta = \frac{N}{\bar{\ell}} \quad [\text{vehicles s}^{-1}]
+\]
+
+Reported values are the mean and standard deviation of $\Theta$ across all
+repetitions of each scenario.
+
+%-------------------------------------------------------------------
+
+\subsubsection{RAFT Consensus Decision Time}
+
+The RAFT decision time captures the end-to-end latency of the consensus protocol
+from the moment the cluster is formed until the pass-order log entry is committed
+by a quorum. Concretely, a start timestamp is recorded when
+\texttt{formCluster()} instantiates the RAFT server (i.e.\ the first
+\texttt{raft\_new()} call), and a stop timestamp is recorded inside
+\texttt{doApplyLog()} when the \texttt{PassScheduleEntry} is applied to the state
+machine. The decision time for vehicle $i$ is therefore
+
+\[
+  d_i = t_i^{\mathrm{commit}} - t_i^{\mathrm{cluster\text{-}formed}}
+        \quad [\text{milliseconds}]
+\]
+
+This single interval encompasses cluster formation, leader election,
+status-request round-trips, pass-order computation, and the AppendEntries
+replication round. Only the vehicle that proposed the winning log entry has
+$d_i > 0$; followers report zero. The run-level RAFT decision time is the sum
+across all contributing vehicles:
+
+\[
+  D = \sum_{i \in \mathcal{R},\; d_i > 0} d_i \quad [\text{ms}]
+\]
+
+Reported values are the mean and standard deviation of $D$ across repetitions.
+
+%-------------------------------------------------------------------
+\subsubsection{Total Wait Time and its CDF}
+
+The total wait time for vehicle $i$ is identical to the individual crossing
+latency:
+
+\[
+  w_i = t_i^{\mathrm{passed}} - t_i^{\mathrm{stopped}} \quad [\text{seconds}]
+\]
+
+The empirical CDF is constructed by pooling all $w_i$ values across every
+repetition of a scenario, sorting them in ascending order
+$w_{(1)} \le w_{(2)} \le \cdots \le w_{(n)}$, and assigning
+
+\[
+  \hat{F}(w_{(k)}) = \frac{k}{n}, \quad k = 1, \ldots, n
+\]
+
+This gives the fraction of vehicles that completed their crossing within a given
+wait time, making the tail behaviour and inter-protocol differences directly
+visible.
+
+%-------------------------------------------------------------------
+\subsubsection{Priority Vehicle Latency}
+
+When the scenario includes a priority (ambulance) vehicle, each vehicle is
+labelled \texttt{is\_priority\_vehicle} in its JSON record. The mean crossing
+latency is computed separately for priority and normal vehicles:
+
+\[
+  \bar{\ell}^{\mathrm{prio}} = \frac{1}{|\mathcal{P}|} \sum_{i \in \mathcal{P}} \ell_i,
+  \qquad
+  \bar{\ell}^{\mathrm{norm}} = \frac{1}{|\mathcal{N}|} \sum_{i \in \mathcal{N}} \ell_i
+\]
+
+where $\mathcal{P}$ and $\mathcal{N}$ are the sets of priority and normal
+RAFT-coordinated vehicles, respectively, and $\ell_i$ is the crossing latency as
+defined above. The aggregate mean over all vehicles is also reported:
+
+\[
+  \bar{\ell}^{\mathrm{all}} = \frac{1}{|\mathcal{P}| + |\mathcal{N}|}
+    \sum_{i \in \mathcal{P} \cup \mathcal{N}} \ell_i
+\]
+
+%-------------------------------------------------------------------
+\subsubsection{Message Overhead}
+
+Message overhead quantifies the signalling cost of the protocol. For a run with
+$N_{\mathrm{total}}$ vehicles (including fallback vehicles), let $S$ and $R$
+denote the total messages sent and received across all vehicles. The per-vehicle
+averages are
+
+\[
+  \bar{s} = \frac{S}{N_{\mathrm{total}}}, \qquad
+  \bar{r} = \frac{R}{N_{\mathrm{total}}}
+\]
+
+Reported values are the mean and standard deviation of $\bar{s}$ and $\bar{r}$
+across repetitions. Messages include all RAFT RPCs (RequestVote, AppendEntries,
+their responses) as well as application-layer coordination messages
+(status requests/responses, pass-order broadcasts).
+
+%-------------------------------------------------------------------
+\subsubsection{Fallback Rate}
+
+The fallback rate measures the fraction of vehicles that could not reach RAFT
+consensus and fell back to a time-based gap-acceptance strategy. For a run with
+$N_{\mathrm{total}}$ vehicles, let $F$ be the number of fallback vehicles. The
+run-level fallback rate is
+
+\[
+  \phi = \frac{F}{N_{\mathrm{total}}} \times 100\% 
+\]
+
+Reported values are the mean and standard deviation of $\phi$ across repetitions.
+A non-zero fallback rate typically indicates cluster-formation failure due to
+asymmetric beacon reception or radio channel loss.
+
+
+\subsection{Decision Algorithm}
+
+\subsubsection{Proposal Contents}
+\begin{table}[H]
+\centering
+\caption{Fields in \texttt{VehicleProposal}}
+\label{tab:vehicle-proposal}
+\begin{tabular}{|l|l|p{8cm}|}
+\hline
+\textbf{Field} & \textbf{Type} & \textbf{Description} \\
+\hline
+\texttt{vehicleId} & \texttt{int} & OMNeT++ module index (0-based) \\
+\hline
+\texttt{laneEdgeId} & \texttt{char[64]} & SUMO road ID string (e.g., ``W2C'') \\
+\hline
+\texttt{positionOnLane} & \texttt{double} & Position along the lane edge \\
+\hline
+\texttt{speed} & \texttt{double} & Current speed (m/s) \\
+\hline
+\texttt{laneIndex} & \texttt{int} & Direction: 0=W, 1=S, 2=E, 3=N \\
+\hline
+\texttt{intendedTurn} & \texttt{int} & 0=STRAIGHT, 1=LEFT, 2=RIGHT \\
+\hline
+\texttt{isFirstInLane} & \texttt{bool} & True if this vehicle is the lane leader (closest to junction) \\
+\hline
+\texttt{blockedByVehicleId} & \texttt{int} & ID of vehicle directly in front, -1 if none \\
+\hline
+\texttt{waitingTimeMs} & \texttt{double} & How long this vehicle has been stopped \\
+\hline
+\texttt{distanceToJunction} & \texttt{double} & Distance to the stop line (m) \\
+\hline
+\texttt{isPriority} & \texttt{bool} & True if verified as emergency/priority vehicle (set by receiver after cert check, never from raw payload) \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsubsection{Main Algorithm}
+
+% ─── Helper: MovementsConflict ─────────────────────────────────────────────
+\begin{algorithm}[H]
+\caption{\textsc{MovementsConflict}$(laneA, turnA, laneB, turnB)$}
+\begin{algorithmic}[1]
+\If{$laneA = laneB$}
+    \State \Return \textbf{true}
+\EndIf
+\State $opposing \gets (laneA + laneB = 2) \lor (laneA + laneB = 4)$
+\If{$opposing \land turnA = \text{STRAIGHT} \land turnB = \text{STRAIGHT}$}
+    \State \Return \textbf{false}
+\EndIf
+\If{$opposing \land turnA = \text{LEFT} \land turnB = \text{LEFT}$}
+    \State \Return \textbf{false}
+\EndIf
+\State \Return \textbf{true}
+\end{algorithmic}
+\end{algorithm}
+
+% ─── Helper: IsBlockerScheduled ───────────────────────────────────────────
+\begin{algorithm}[H]
+\caption{\textsc{IsBlockerScheduled}$(v, scheduled)$}
+\begin{algorithmic}[1]
+\State \Return $v.blockedByVehicleId < 0 \lor v.blockedByVehicleId \in scheduled$
+\end{algorithmic}
+\end{algorithm}
+
+% ─── Helper: ConflictsWithBatch ───────────────────────────────────────────
+\begin{algorithm}[H]
+\caption{\textsc{ConflictsWithBatch}$(v,\ batch,\ proposals)$}
+\begin{algorithmic}[1]
+\For{each vehicle $e$ in $batch$}
+    \If{\textsc{MovementsConflict}$(laneOf(e),\ turnOf(e),\ v.laneIndex,\ v.intendedTurn)$}
+        \State \Return \textbf{true}
+    \EndIf
+\EndFor
+\State \Return \textbf{false}
+\end{algorithmic}
+\end{algorithm}
+
+% ─── Helper: AddVehicleToBatch ────────────────────────────────────────────
+\begin{algorithm}[H]
+\caption{\textsc{AddVehicleToBatch}$(v,\ schedule,\ proposals,\ scheduled)$}
+\begin{algorithmic}[1]
+\While{$schedule.numBatches < 16$}
+    \State $b \gets schedule.batches[schedule.numBatches]$
+    \If{$\neg\textsc{ConflictsWithBatch}(v,\ b,\ proposals) \land b.numVehicles < 8$}
+        \State Add $v$ to $b$
+        \State insert $v$ into $scheduled$
+        \State \Return
+    \EndIf
+    \If{$b.numVehicles > 0$}
+        \State $schedule.numBatches \gets schedule.numBatches + 1$
+    \EndIf
+\EndWhile
+\end{algorithmic}
+\end{algorithm}
+
+% ─── Helper: FillBatchWithNormals ─────────────────────────────────────────
+\begin{algorithm}[H]
+\caption{\textsc{FillBatchWithNormals}$(normalPool,\ schedule,\ proposals,\ scheduled)$}
+\begin{algorithmic}[1]
+\State $b \gets schedule.batches[schedule.numBatches]$
+\For{each $v \in normalPool$ while $b.numVehicles < 8$}
+    \If{$\neg\textsc{IsBlockerScheduled}(v,\ scheduled)$}
+        \State \textbf{continue}
+    \EndIf
+    \If{$\neg\textsc{ConflictsWithBatch}(v,\ b,\ proposals)$}
+        \State Add $v$ to $b$
+        \State insert $v$ into $scheduled$
+        \State remove $v$ from $normalPool$
+    \EndIf
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+% ─── Main Algorithm ───────────────────────────────────────────────────────
+\begin{algorithm}[H]
+\caption{\textsc{ComputePassOrder}$(proposals)$}
+\begin{algorithmic}[1]
+
+\State $schedule \gets \emptyset$
+\State $scheduled \gets \emptyset$
+
+\Statex \textbf{// Step 1: Identify priority lanes}
+\State $priorityLanes \gets \{ v.laneIndex \mid v \in proposals,\ v.isPriority \}$
+
+\Statex \textbf{// Build normal pool}
+\State $normalPool \gets \{ v \in proposals \mid v.laneIndex \notin priorityLanes \}$
+\State Sort $normalPool$ by:
+\Statex \quad 1. $isFirstInLane$ descending
+\Statex \quad 2. wait time descending
+\Statex \quad 3. $laneIndex$ ascending
+\Statex \quad 4. distance ascending
+
+\Statex \textbf{// Step 2: Priority scheduling}
+\If{$priorityLanes \neq \emptyset$}
+    \While{$priorityLanes \neq \emptyset$}
+        \For{each lane $\ell \in priorityLanes$}
+            \For{each vehicle $v$ in $\ell$}
+                \If{$\neg\textsc{IsBlockerScheduled}(v,\ scheduled)$}
+                    \State \textbf{continue}
+                \EndIf
+
+                \State \textsc{AddVehicleToBatch}$(v,\ schedule,\ proposals,\ scheduled)$
+                \State \textsc{FillBatchWithNormals}$(normalPool,\ schedule,\ proposals,\ scheduled)$
+
+                \If{$v.isPriority$}
+                    \State remove $\ell$ from $priorityLanes$
+                \EndIf
+
+                \State \textbf{break}
+            \EndFor
+        \EndFor
+    \EndWhile
+\EndIf
+
+\Statex \textbf{// Step 3: Normal scheduling}
+\State $pool \gets \{ v \in proposals \mid v \notin scheduled \}$
+\State Sort $pool$ by same fairness rules
+
+\If{$schedule.batches[schedule.numBatches].numVehicles > 0$}
+    \State $schedule.numBatches \gets schedule.numBatches + 1$
+\EndIf
+
+\While{$pool \neq \emptyset \land schedule.numBatches < 16$}
+    \State $b \gets schedule.batches[schedule.numBatches]$
+    \State $primary \gets$ first schedulable vehicle in $pool$
+
+    \State Add $primary$ to $b$
+    \State remove $primary$ from $pool$
+    \State insert $primary$ into $scheduled$
+
+    \For{each $v \in pool$ while $b.numVehicles < 8$}
+        \If{$\neg\textsc{IsBlockerScheduled}(v,\ scheduled)$}
+            \State \textbf{continue}
+        \EndIf
+        \If{$\neg\textsc{ConflictsWithBatch}(v,\ b,\ proposals)$}
+            \State Add $v$ to $b$
+            \State remove $v$ from $pool$
+            \State insert $v$ into $scheduled$
+        \EndIf
+    \EndFor
+
+    \State $schedule.numBatches \gets schedule.numBatches + 1$
+\EndWhile
+
+\State \Return $schedule$
+
+\end{algorithmic}
+\end{algorithm}
+
+
+
+
+%start Yash BFT % 
+
+
+
+\section{BFT Consensus}
+\label{sec:bft-consensus}
+
+This section describes the current ResilientDB-over-Veins consensus path. Every simulated vehicle runs a C++ \texttt{ResDBIntersectionApp}, participates as one ResDB PBFT replica, and exchanges all protocol traffic through Veins 802.11p radio frames. ResDB decides a binary intersection order; the vehicle application then uses TraCI to stop, resume, and verify clearance.
+
+\subsection{System Architecture}
+\label{subsec:resdb-system-architecture}
+
+The runtime stack is:
+
+\begin{verbatim}
+OMNeT++ / Veins vehicle app
+  -> ResDBIntersectionApp C++ arrival-cert protocol
+  -> ResilientDB PBFT through resdb_omnet_bridge
+  -> 802.11p radio frames for all inter-vehicle traffic
+  -> direct C++ order callback
+  -> TraCI vehicle control
 \end{verbatim}
 
-Handler for LEADER-REQ:
+Each vehicle node owns the following components:
+
 \begin{verbatim}
-let S := my state, R := req.fin_candidate_meta
-
-if R.status == FOLLOWER:
-    reply LEADER_RESP(IGNORED, my_meta)
-    return
-
-sender_ahead :=
-   (R.received_votes > S.received_votes) OR
-   (R.received_votes == S.received_votes AND R.election_time > S.election_time)
-
-if sender_ahead:
-    S.status := FOLLOWER
-    S.received_votes := R.received_votes
-    S.election_time := R.election_time
-    reply LEADER_RESP(ACK, my_meta)
-else:
-    reply LEADER_RESP(IGNORED, my_meta)
-
+Vehicle node i
+|
++-- ResDBIntersectionApp
+|   |
+|   +-- TraCI helpers
+|   |   +-- lane discovery
+|   |   +-- stop-line distance
+|   |   +-- stop / resume vehicle
+|   |   +-- intersection-clearance checks
+|   |
+|   +-- Arrival certificate protocol
+|   |   +-- ARRIVAL_ANNOUNCE type 1
+|   |   +-- ARRIVAL_ECHO type 4
+|   |   +-- ARRIVAL_CERT type 5
+|   |
+|   +-- ResDB bridge handle
+|   |   +-- socketless ServiceNetwork
+|   |   +-- OmnetConsensusManagerPBFT
+|   |   +-- IntersectionExecutor
+|   |   +-- order callback
+|   |
+|   +-- Radio transport
+|   |   +-- outbound ResDB queue from worker threads
+|   |   +-- signed type 8 PBFT radio frames
+|   |   +-- inbound type 8 delivery to ResDB
+|   |
+|   +-- Decision gossip
+|       +-- signed type 9 order broadcast
+|       +-- f+1 matching gossip votes to apply missed order
+|
++-- Veins NIC / 802.11p channel
 \end{verbatim}
 
+The main design boundary is thread ownership. ResDB worker threads may generate outbound PBFT packets and committed order callbacks, but they do not call OMNeT++ simulation APIs directly. Instead, they enqueue outbound packets and decided orders. The OMNeT++ simulation thread drains those queues through periodic self-messages, signs and broadcasts radio frames, updates simulated time, and applies vehicle movement through TraCI.
 
+\subsection{Node and Fault Model}
+\label{subsec:node-fault-model}
 
-Byzantine Consensus using amplification:
+The system assumes $N = 3f + 1$ vehicle replicas, with at most $f$ Byzantine replicas per consensus epoch. Vehicle \texttt{veh0} maps to ResDB replica $0$, \texttt{veh1} maps to replica $1$, and so on. ResDB's internal configuration uses one-based node identifiers, so the bridge translates between ResDB node id $i+1$ and OMNeT++ replica id $i$.
+
+The quorum sizes used by the protocol are:
+
+\begin{itemize}
+    \item \textbf{PBFT quorum:} $2f+1$ matching PBFT votes are required for ResDB commit.
+    \item \textbf{Arrival certificate threshold:} $f+1$ distinct witness echoes are required before a vehicle can be proposed as \texttt{SIGNED}.
+    \item \textbf{Decision gossip threshold:} $f+1$ matching signed gossip messages are required before a replica that missed PBFT delivery applies a gossiped order.
+\end{itemize}
+
+The $f+1$ thresholds are not PBFT commit quorums. They are witness thresholds. Under the $N=3f+1$ fault model, any set of $f+1$ distinct signers contains at least one honest signer. For arrival certificates this means at least one honest vehicle physically verified the claim before signing. For decision gossip this means at least one honest replica is attesting to an order that it already learned from ResDB.
+
+\subsection{Communication Model and Message Types}
+\label{subsec:communication-model}
+
+The simulated wireless network is asynchronous at the radio layer: frames can be delayed, lost, duplicated, or received in different orders depending on the Veins 802.11p model. The protocol therefore does not assume reliable broadcast or TCP links. Liveness still follows the usual PBFT partial-synchrony model: once message delay becomes bounded for long enough, timers allow honest replicas to complete consensus or move to a new primary.
+
+All inter-vehicle traffic is carried as \texttt{BFTMessage} packets. The current message registry is:
+
+\begin{center}
+\begin{tabular}{c|l|p{0.58\linewidth}}
+\textbf{Type} & \textbf{Name} & \textbf{Current meaning} \\
+\hline
+1 & \texttt{ARRIVAL\_ANNOUNCE} & Vehicle announces arrival state, including lane, position, direction, ambulance flag, epoch, and self signature. \\
+4 & \texttt{ARRIVAL\_ECHO} & Witness echo after TraCI verification. The echo contains the witness id, public key, and ECDSA signature. \\
+5 & \texttt{ARRIVAL\_CERT} & Bundle of at least $f+1$ valid witness echoes for one vehicle. \\
+8 & ResDB PBFT bytes & Signed radio wrapper around serialized ResDB PBFT traffic, including \textsc{PrePrepare}, \textsc{Prepare}, \textsc{Commit}, \textsc{ViewChange}, and \textsc{NewView}. \\
+9 & Decision gossip & Signed post-consensus order gossip for replicas that missed the PBFT message burst. \\
+\end{tabular}
+\end{center}
+
+Types 8 and 9 use the shared \texttt{resdbwire} envelope:
+
 \begin{verbatim}
-status := INIT_CANDIDATE
-QC1 := ⊥
-sent_votes := 0
-received_votes := 1 
-election_time := ⊥
-no_collision_list := ∅
-
-payload := my_meta
-h := H(payload)
-
-broadcast SEND_VOTE(view, subject := my_id, h, sig := sign(...))
-
-upon receiving first valid SEND_VOTE(view, subject := s, payload := meta(s), sig)
-  or first valid ECHO_VOTE(view, subject := s, ...):
-  if verify(sig) = True then
-     broadcast ECHO_VOTE(view, subject := s, payload := meta(s), sig := sign(...))
-
-upon |ECHO_VOTE(subject := s)| ≥ f+1 and not yet sent READY_VOTE(s):
-  broadcast READY_VOTE(view, subject := s, payload := meta(s), sig := sign(...))
-
-upon |READY_VOTE(subject := s)| ≥ 2f+1:
-  DELIVER_VOTE(view, subject := s) with QC1 := set of those 2f+1 READY signatures
-  if s = my_id:
-     status := FIN_CANDIDATE
-  else
-     status := FOLLOWER
-
-if status = FIN_CANDIDATE:
-    QC1 := previously collected Phase-1 quorum certificate
-    QC2 := ⊥
-    
-    broadcast SEND_LEADER(view, subject := my_id, payload := (meta(me), QC1), sig := sign(...))
-    
-    upon receiving first valid SEND_LEADER(view, subject := s, payload := (meta(s), QC1_s), sig)
-      or first valid ECHO_LEADER(view, subject := s, ...):
-      if verifyQC(QC1_s) = True then
-         broadcast ECHO_LEADER(view, subject := s, payload := (meta(s), QC1_s), sig := sign(...))
-    
-    upon |ECHO_LEADER(subject := s)| ≥ f+1 and not yet sent READY_LEADER(s):
-      broadcast READY_LEADER(view, subject := s, payload := (meta(s), QC1_s), sig := sign(...))
-    
-    upon |READY_LEADER(subject := s)| ≥ 2f+1:
-      DELIVER_LEADER(view, subject := s) with QC2 := set of those 2f+1 READY signatures
-      if s = my_id:
-         status := LEADER
-      else
-         status := FOLLOWER
-
-// No leader_acks counter, no timestamp override logic, and no LEADER_RESP RPCs in Variant A.
-
-
+[33 bytes sender public key, compressed P-256]
+[1 byte signature length]
+[DER ECDSA-SHA256 signature over inner bytes]
+[inner bytes]
 \end{verbatim}
 
+For type 8, the inner bytes are serialized ResDB network messages. For type 9, the inner bytes are \texttt{epoch || order\_bytes}. A receiver drops the frame if the wrapper cannot be parsed, the inner byte string is empty, or the P-256 signature does not verify. This wrapper provides packet integrity for radio delivery. The current implementation does not yet bind every public key to a long-lived replica identity registry; that hardening step is future work.
+
+\subsection{Pre-Consensus: Per-Car Arrival Certification}
+\label{subsec:arrival-certification}
+
+Before PBFT begins, each vehicle must earn an arrival certificate. The certificate is a bundle of $f+1$ independent physical witness signatures over the vehicle's claimed state. This is the physical-to-digital firewall: consensus is not asked to decide whether a lane claim is physically plausible until enough independent replicas have checked that claim through TraCI.
+
+\begin{itemize}
+    \item \textbf{Phase 1: \texttt{ARRIVAL\_ANNOUNCE}.} When a vehicle reaches the stop zone, it periodically broadcasts its claimed state: vehicle id, lane, position in lane, intended direction, ambulance flag, claimed arrival time, epoch, and self signature. The announcement is repeated until the vehicle broadcasts its certificate or consensus begins.
+    \item \textbf{Phase 2: \texttt{ARRIVAL\_ECHO}.} Each receiving replica parses the announcement, ignores departed vehicles, and checks the claim with \texttt{verifyCarPosition(carId, laneId, positionInLane, tolerance)} through TraCI. Three outcomes are possible:
+    \begin{itemize}
+        \item \textbf{Match:} the vehicle is physically present in the claimed lane and queue position. The witness signs the canonical echo string $(\texttt{carId}:\texttt{lane}:\texttt{positionInLane}:\texttt{direction}:\texttt{isAmbulance}:\texttt{echoingReplicaId})$ with its ECDSA P-256 key and broadcasts an \texttt{ARRIVAL\_ECHO}.
+        \item \textbf{Wrong lane:} the vehicle exists but the claimed lane does not match the physical observation. The receiver records local physical state but sends no echo.
+        \item \textbf{Absent:} the vehicle is not physically visible to the verifier, so the announcement is ignored.
+    \end{itemize}
+    \item \textbf{Phase 3: \texttt{ARRIVAL\_CERT}.} Once a vehicle collects at least $f+1$ echoes from distinct witnesses, it assembles an \texttt{ARRIVAL\_CERT}. Receivers accept the cert only if it contains at least $f+1$ distinct signers and every echo signature verifies against the echoed car id, lane, position, direction, ambulance flag, and witness id.
+    \item \textbf{Phase 4: certificate retry and relay.} The certificate owner rebroadcasts its cert on a retry timer until proposal, order application, a configured retry limit, or observation of type 8 PBFT traffic from the current primary. In addition, every replica that validates a cert relays that cert once. This eager epidemic relay is safe because the cert already contains the $f+1$ witness signatures; the relay node does not create new authority, it only improves dissemination over lossy broadcast.
+    \item \textbf{Phase 5: leader collection timeout.} The current ResDB primary collects certs until all expected replica ids are covered or \texttt{certCollectionTimeoutSec} expires. Missing vehicles are padded into the proposal as \texttt{QUIET} entries. If the primary has local physical state for a missing vehicle, it includes the observed lane and position; otherwise it uses the quiet sentinel fields.
+\end{itemize}
+
+A Byzantine vehicle that lies about its lane cannot force honest witnesses to sign the false claim, because each witness independently checks the claim against TraCI before echoing. A vehicle that equivocates by sending different directions or lanes to different peers must still assemble $f+1$ echoes over one identical certificate string; inconsistent echoes do not combine into a valid cert.
+
+\begin{algorithm}[H]
+\caption{\textsc{ArrivalEchoDecide}$(v,\ replicas)$}
+\begin{algorithmic}[1]
+\State $v$ periodically broadcasts \textsc{Arrival\_Announce}$(carId, lane, pos, dir, isAmb, epoch)$
+\For{each replica $r$ that receives the announcement}
+    \State $result \gets \text{TraCI.verifyCarPosition}(v.carId, v.lane, v.pos, tolerance)$
+    \If{$result = \text{MATCH}$}
+        \State $m \gets v.carId : v.lane : v.pos : v.dir : v.isAmb : r.id$
+        \State $\sigma_r \gets \text{ECDSA-P256.Sign}(sk_r,\; \text{SHA-256}(m))$
+        \State broadcast \textsc{Arrival\_Echo}$(v.carId,\; r.id,\; pk_r,\; \sigma_r)$
+    \ElsIf{$result = \text{WRONG\_LANE}$}
+        \State record local physical state; send no echo
+    \EndIf
+\EndFor
+\State $v$ collects distinct valid echoes for itself
+\If{$|echoes| \ge f+1$}
+    \State broadcast \textsc{Arrival\_Cert}$(v.carId, echoes)$
+    \State self-store the cert and start cert retry timer
+\EndIf
+\For{each replica that receives a valid cert for the first time}
+    \State store cert and relay it once
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Consensus Proposal Payload}
+\label{subsec:consensus-payload}
+
+After certificate collection, the primary does not propose a precomputed schedule string. Instead, it proposes the vehicle-state input to the deterministic ResDB executor. The binary proposal is:
+
+\begin{verbatim}
+ResdbProposeHdr
+ResdbVehicleEntry[hdr.n_vehicles]
+\end{verbatim}
+
+\noindent The proposal header contains the epoch, leader id, proposal timestamp in simulated microseconds, and number of vehicles. Each vehicle entry contains the replica id, observed simulated time, ambulance bit, lane, direction, position in lane, and cyber status. The cyber status is \texttt{SIGNED} when a valid arrival certificate exists and \texttt{QUIET} otherwise. A quiet synthetic entry uses \texttt{UINT64\_MAX} as its simulated-time sentinel.
+
+The current bridge pre-verifier checks proposal shape before a follower proceeds with the ResDB \textsc{PrePrepare}: the payload must parse, contain the expected number of vehicles, contain unique in-range replica ids, use boolean ambulance and cyber-status fields, use a valid leader id, and provide enough bytes for all entries. Cryptographic witness validity is enforced when type 5 certificates are stored by \texttt{validateArrivalCert()}; the bridge pre-verifier is therefore structural, while physical-state validity is enforced by the arrival-certificate path.
+
+\begin{algorithm}[H]
+\caption{\textsc{BuildResDBProposal}$(certs,\ observed,\ N,\ epoch)$}
+\begin{algorithmic}[1]
+\State $entries \gets []$
+\For{$replicaId = 0$ to $N-1$}
+    \If{$certs[replicaId]$ is valid}
+        \State $entry \gets$ vehicle fields reconstructed from $certs[replicaId]$
+        \State $entry.cyberStatus \gets \textsc{SIGNED}$
+    \Else
+        \State $entry.replicaId \gets replicaId$
+        \State $entry.simTimeUs \gets \texttt{UINT64\_MAX}$
+        \State $entry.cyberStatus \gets \textsc{QUIET}$
+        \State fill lane and position from $observed[replicaId]$ if available
+    \EndIf
+\State append $entry$ to $entries$
+\EndFor
+\State $hdr \gets \textsc{ResdbProposeHdr}(epoch,\ primaryId,\ nowUs,\ N)$
+\State \Return $hdr \| entries$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{ResDB PBFT Core}
+\label{subsec:resdb-pbft-core}
+
+ResDB supplies the safety-critical PBFT state machine. The Veins integration changes the transport and simulated-time source, but not the normal PBFT quorum logic.
+
+\begin{enumerate}
+    \item \textbf{Client request injection.} The primary calls \texttt{ResdbOmnetTriggerConsensus()} with the binary proposal. The bridge wraps the bytes as a ResDB client request and injects it into the local socketless \texttt{ServiceNetwork}.
+    \item \textbf{\textsc{PrePrepare}.} The primary broadcasts a \textsc{PrePrepare} containing the request digest and proposal data. Followers run the bridge pre-verifier before accepting the request into the PBFT path.
+    \item \textbf{\textsc{Prepare}.} Replicas that accept the \textsc{PrePrepare} broadcast \textsc{Prepare} messages for the same view, sequence number, and digest.
+    \item \textbf{\textsc{Commit}.} After a replica observes the ResDB prepare condition, it broadcasts \textsc{Commit}. A request commits once the PBFT commit quorum is satisfied.
+    \item \textbf{Execution.} The committed proposal bytes are passed to \texttt{IntersectionExecutor::ExecuteData()}, which deterministically computes the intersection order and returns order bytes.
+    \item \textbf{Callback.} The executor invokes the registered C callback. The vehicle app enqueues the order, and the OMNeT++ thread later applies it through the same \texttt{processOrders()} path used by gossiped decisions.
+\end{enumerate}
+
+Because Veins radio broadcasts do not deliver a node's own MAC frame back to itself, the ResDB communicator self-injects broadcast PBFT bytes into the local \texttt{ServiceNetwork}. This preserves the normal PBFT accounting where each replica counts its own vote.
+
+\subsection{Deterministic Intersection Executor}
+\label{subsec:intersection-executor}
+
+The committed proposal is interpreted by a deterministic executor rather than by the leader alone. Every correct replica that commits the same proposal bytes executes the same scheduling logic and obtains the same order bytes:
+
+\begin{verbatim}
+ResdbOrderHdr
+ResdbVehicleDecision[hdr.n_vehicles]
+\end{verbatim}
+
+The order assigns each vehicle a zero-based batch index. Vehicles with the same batch index may cross together. A vehicle in batch $k>0$ waits until all vehicles in batch $k-1$ have cleared the conflict region according to TraCI.
+
+\begin{algorithm}[H]
+\caption{\textsc{IsSameLaneFrontPlaced}$(v,\ view,\ placed)$}
+\begin{algorithmic}[1]
+\For{each $u \in view$ s.t. $u.lane = v.lane$}
+    \If{$\text{compareLaneQueueOrder}(u, v) < 0 \land u \notin placed$}
+        \State \Return \textbf{false}
+    \EndIf
+\EndFor
+\State \Return \textbf{true}
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{\textsc{IsSafeToBatch}$(a,\ b)$}
+\begin{algorithmic}[1]
+\If{$a.lane = b.lane$}
+    \State \Return \textbf{false} \Comment{rear-end risk}
+\EndIf
+\State $keyA \gets a.lane + \text{dirCode}(a.direction)$
+\State $keyB \gets b.lane + \text{dirCode}(b.direction)$
+\State \Return $\text{SAFE\_SET.contains}(\{keyA, keyB\})$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{\textsc{ExecuteIntersectionOrder}$(view)$}
+\begin{algorithmic}[1]
+\State $schedule \gets []$
+\State $placed \gets \emptyset$
+\State $ambulances \gets \{ v \in view \mid v.isAmbulance \}$
+\State Sort $ambulances$ by ($positionInLane$ asc, $vehicleIdNumeric$ asc)
+\State $workQueue \gets []$
+\For{each ambulance $a \in ambulances$}
+    \State $blockers \gets \{ v \in view \mid v.lane = a.lane \land \neg v.isAmbulance \land \text{compareLaneQueueOrder}(v, a) < 0 \}$
+    \State Sort $blockers$ by ($positionInLane$ asc, $vehicleIdNumeric$ asc)
+    \State append $blockers \to workQueue$
+    \State append $a \to workQueue$
+\EndFor
+\State $remaining \gets \{ v \in view \mid v \notin workQueue \}$
+\State Sort $remaining$ by ($positionInLane$ asc, $vehicleIdNumeric$ asc)
+\State append $remaining \to workQueue$
+\While{$placed.size() < view.size()$}
+    \State $head \gets \text{first } v \in workQueue \text{ s.t. } v \notin placed \land \textsc{IsSameLaneFrontPlaced}(v, view, placed)$
+    \If{$head = \text{null}$}
+        \State \textbf{break}
+    \EndIf
+    \State $batch \gets \{ head \}$
+    \State $placed \gets placed \cup \{ head \}$
+    \If{$head.cyberStatus = \text{QUIET}$}
+        \State append $batch$ to $schedule$ \Comment{QUIET entries are isolated}
+    \Else
+        \Repeat
+            \State $grew \gets \textbf{false}$
+            \For{each $candidate \in workQueue$ s.t. $candidate \notin placed \land \textsc{IsSameLaneFrontPlaced}(candidate, view, placed) \land candidate.cyberStatus \neq \text{QUIET}$}
+                \If{$\forall e \in batch: \textsc{IsSafeToBatch}(e, candidate)$}
+                    \State $batch \gets batch \cup \{ candidate \}$
+                    \State $placed \gets placed \cup \{ candidate \}$
+                    \State $grew \gets \textbf{true}$
+                \EndIf
+            \EndFor
+        \Until{$\neg grew$}
+        \State append $batch$ to $schedule$
+    \EndIf
+\EndWhile
+\State \Return $schedule$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Priority, Fairness, and QUIET Handling}
+\label{subsec:priority-fairness-quiet}
+
+The executor's priority rule is intentionally simple and deterministic. If an ambulance is present, the executor first schedules non-ambulance vehicles blocking that ambulance in the same lane, then schedules the ambulance. This flushes the ambulance lane while preserving same-lane front-to-back order. After ambulance-related work is placed, the remaining vehicles are scheduled by deterministic queue order and greedily packed into non-conflicting batches.
+
+QUIET vehicles are treated conservatively. A QUIET entry means the primary did not have a valid $f+1$ arrival certificate for that replica by proposal time. The executor still includes the replica so that the epoch covers all expected vehicles, but it isolates the vehicle into a singleton batch. A QUIET vehicle cannot share a batch with honest signed traffic, and signed vehicles are not added to a QUIET vehicle's batch. This preserves progress while avoiding unsafe co-scheduling with a vehicle whose digital claim was not certified.
+
+The batching rule is greedy rather than globally optimal. A candidate may join the current batch only if it is not behind an unplaced vehicle in the same lane and its movement is safe with every vehicle already in the batch according to the conflict matrix. Same-lane pairs are always rejected to prevent rear-end conflicts. Cross-lane pairs are accepted only if their lane-direction pair is in the safe set.
+
+\subsection{Leader Change}
+\label{subsec:leader-change}
+
+Primary failure is handled by ResDB's PBFT view-change machinery. The Veins application exposes a simulation-level trigger so experiments can force progress when the primary is silent or sends a malformed proposal.
+
+\begin{itemize}
+    \item \textbf{Follower timer.} When a follower enters the stop zone and no order arrives, it schedules a view-change trigger for \texttt{certCollectionTimeoutSec + pbftVcTimeoutSec}. If the timer fires, the app calls \texttt{ResdbOmnetForceViewChange()}.
+    \item \textbf{Bridge trigger.} The bridge forwards the request to ResDB's \texttt{ViewChangeManager::TriggerViewChangeNow()} through \texttt{OmnetConsensusManagerPBFT}.
+    \item \textbf{PBFT view-change traffic.} ResDB broadcasts view-change and new-view messages as type 8 signed radio frames. These messages use the same socketless radio transport as normal \textsc{PrePrepare}, \textsc{Prepare}, and \textsc{Commit} traffic.
+    \item \textbf{New primary proposal.} The application polls \texttt{ResdbOmnetGetPrimary()} during transport polling. If the primary has changed and the local replica is now primary, and no order has been applied or submitted, the new primary calls \texttt{proposeAll()} using its current certificate state.
+\end{itemize}
+
+A silent primary fault is injected by suppressing the application proposal and also configuring the ResDB communicator to drop outbound PBFT messages. A bad-proposal fault is injected by corrupting the proposal shape before consensus; followers reject the malformed \textsc{PrePrepare} in the bridge pre-verifier, after which the view-change path can recover.
+
+\subsection{Decision Gossip}
+\label{subsec:decision-gossip}
+
+Decision gossip is a post-consensus catch-up mechanism. It does not replace PBFT and does not create a second consensus protocol. Its role is to deliver the already committed order to replicas that missed enough type 8 PBFT traffic to fail local delivery.
+
+When \texttt{processOrders()} applies a committed order and \texttt{enableDecisionGossip} is enabled, the replica serializes:
+
+\begin{verbatim}
+uint32_t epoch
+uint8_t  order_bytes[]
+\end{verbatim}
+
+It signs these bytes with the same type 8/type 9 radio wrapper and broadcasts a type 9 frame. Retries use exponential backoff:
+
+\begin{verbatim}
+next_interval = decisionGossipInitialIntervalSec * (1 << retry_count)
+\end{verbatim}
+
+Retries stop when \texttt{decisionGossipMaxRetries} is reached or the local gossip state is cleared.
+
+On receipt, a replica verifies the wrapper signature, parses the epoch and order bytes, and records a vote from the sender. If the replica has not already applied an order, it waits until $f+1$ distinct senders report identical order bytes for the same epoch. It then calls \texttt{applyGossipOrder()}, which pushes the gossiped order into the same pending-order queue used by the ResDB callback. As a result, gossiped and directly committed orders follow one application path: parse the order, find the local batch index, gossip if enabled, and resume only when the preceding batch has cleared.
+
+\subsection{Timers and Progress Conditions}
+\label{subsec:timers-progress}
+
+The implementation uses timers at three layers:
+
+\begin{itemize}
+    \item \textbf{Arrival announcement timer.} Each vehicle rebroadcasts \texttt{ARRIVAL\_ANNOUNCE} until it creates a cert or consensus begins.
+    \item \textbf{Certificate collection timer.} The primary waits for certs until all $N$ certs are known or \texttt{certCollectionTimeoutSec} expires. Timeout converts missing certs into QUIET entries rather than blocking the epoch.
+    \item \textbf{Certificate retry timer.} A vehicle with a cert rebroadcasts it every \texttt{arrivalCertRetryIntervalSec}, subject to \texttt{arrivalCertRetryMax} and stop conditions.
+    \item \textbf{Transport poll timer.} The OMNeT++ app periodically drains outbound ResDB packets, processes pending orders, and checks whether the primary changed.
+    \item \textbf{View-change timer.} A follower that enters the stop zone without receiving an order forces ResDB view change after the configured PBFT timeout window.
+    \item \textbf{Decision gossip retry timer.} A deciding replica rebroadcasts the order with exponential backoff.
+    \item \textbf{Clearance poll timer.} A vehicle assigned to batch $k>0$ polls TraCI until every vehicle in batch $k-1$ clears the conflict region.
+\end{itemize}
+
+These timers serve different purposes. Arrival and certificate timers prevent uncertified or silent vehicles from blocking proposal. PBFT view-change timers handle faulty primaries. Gossip timers improve post-commit dissemination. Clearance timers enforce physical sequencing after the digital order has been decided.
+
+\subsection{Order Application and Movement}
+\label{subsec:order-application}
+
+The ResDB executor callback runs on a ResDB worker thread, so it only copies the order bytes into a pending queue. The simulation thread later parses the order in \texttt{processOrders()}, records the decided time, cancels outstanding consensus timers, finds this vehicle's batch index, and enters the executing phase.
+
+Vehicles in batch $0$ resume immediately. Vehicles in later batches build a set of preceding-batch vehicle ids and poll TraCI until all preceding vehicles have cleared the intersection. If \texttt{clearanceTimeoutSec} expires, the vehicle resumes as a simulation safety fallback. Once the local vehicle clears the intersection, it marks itself departed and ignores later V2V messages through the departed-vehicle filter.
+
+\subsection{Safety and Liveness Guarantees}
+\label{subsec:bft-safety-liveness}
+
+\textbf{Agreement.} ResDB PBFT provides agreement for the committed proposal bytes: two correct replicas do not commit different requests for the same PBFT sequence in the same view history. Since the executor is deterministic, identical committed proposal bytes produce identical order bytes.
+
+\textbf{Sensor-anchored validity.} A vehicle is marked \texttt{SIGNED} only when it has a valid arrival certificate containing $f+1$ distinct witness echoes. Since at most $f$ replicas are Byzantine, at least one honest witness signed the certified physical claim after checking it through TraCI.
+
+\textbf{Conservative handling of uncertified vehicles.} Missing or uncertified vehicles are not dropped from the epoch. They are represented as QUIET entries and isolated into singleton batches, which preserves progress without allowing uncertified claims to co-batch with certified traffic.
+
+\textbf{Leader-failure liveness.} If the primary is silent or sends malformed data, followers eventually trigger ResDB view change. Once the system reaches a sufficiently synchronous period and an honest primary is installed, the new primary can propose from its current certificate state.
+
+\textbf{Post-commit dissemination.} Decision gossip helps replicas that missed PBFT delivery learn the committed order. The $f+1$ matching-gossip threshold ensures that at least one honest sender attests to the order before a non-deciding replica applies it.
+
+\section{Formal Property Verification}
+\label{sec:formal-property-verification}
+
+We reason about the ResDB-over-Veins protocol as a replicated state machine whose input is anchored in physical witness certificates. The digital consensus layer decides one binary proposal per epoch. The physical layer constrains which vehicle states can enter that proposal as \texttt{SIGNED}.
+
+\subsection{Property 1: Sensor-Anchored Validity}
+
+A decided order is sensor-valid if every \texttt{SIGNED} vehicle in the committed proposal has a valid \texttt{ARRIVAL\_CERT}, and every uncertified vehicle is represented as \texttt{QUIET}.
+
+\begin{itemize}
+    \item \textbf{Certified case.} A \texttt{SIGNED} entry requires at least $f+1$ distinct ECDSA witness echoes over the same vehicle id, lane, queue position, direction, ambulance flag, and witness id format. Since at most $f$ replicas are Byzantine, at least one echo comes from an honest witness that passed the TraCI physical check.
+    \item \textbf{Uncertified case.} If a vehicle does not produce a valid cert before proposal timeout, the primary marks it \texttt{QUIET}. The executor isolates QUIET entries into singleton batches, preventing uncertified claims from sharing a crossing batch with certified traffic.
+\end{itemize}
+
+\subsection{Property 2: Agreement}
+
+No two correct replicas apply different order bytes for the same committed ResDB request.
+
+\begin{itemize}
+    \item ResDB PBFT requires a $2f+1$ commit quorum. Any two quorums of size $2f+1$ in a $3f+1$ system intersect in at least one correct replica, preventing conflicting commits for the same sequence.
+    \item The committed request contains deterministic proposal bytes, and \texttt{IntersectionExecutor::ExecuteData()} is deterministic. Therefore all correct replicas that execute the same committed request compute the same order.
+\end{itemize}
+
+\subsection{Property 3: Integrity}
+
+A correct replica applies at most one order for a given epoch.
+
+\begin{itemize}
+    \item The application marks \texttt{order\_applied\_} after processing either a ResDB callback order or a gossiped order. Later duplicate deliveries are ignored or treated as already-applied state.
+    \item Decision gossip enters the same pending-order path as the ResDB callback, so gossip does not create a second execution channel with separate movement semantics.
+\end{itemize}
+
+\subsection{Property 4: Conservative Movement}
+
+A correct vehicle does not intentionally enter the intersection before its decided batch is eligible.
+
+\begin{itemize}
+    \item Batch $0$ vehicles resume immediately after applying the order.
+    \item A vehicle assigned to batch $k>0$ waits until TraCI reports that every vehicle in batch $k-1$ has cleared the conflict region.
+    \item The executor never places two same-lane vehicles in the same batch and admits cross-lane pairs only when the conflict matrix marks the pair safe.
+\end{itemize}
+
+\subsection{Property 5: Leader-Failure Recovery}
+
+If the primary is silent or submits malformed data, correct followers eventually try to leave the faulty view.
+
+\begin{itemize}
+    \item A follower that enters the stop zone without receiving an order schedules a view-change trigger after the configured certificate and PBFT timeout window.
+    \item On timeout, the application calls \texttt{ResdbOmnetForceViewChange()}, which invokes ResDB's view-change manager.
+    \item Once a new primary is observed through \texttt{ResdbOmnetGetPrimary()}, that primary calls \texttt{proposeAll()} if no order has already been applied or submitted.
+\end{itemize}
+
+\subsection{Property 6: Termination Under Partial Synchrony}
+
+If the physical verification layer is operational, at most $f$ replicas are Byzantine, and the network eventually provides a sufficiently long synchronous period, then correct replicas eventually decide or learn an order for the epoch.
+
+\begin{itemize}
+    \item The certificate collection timeout prevents a silent or uncertified vehicle from blocking proposal forever.
+    \item ResDB PBFT makes progress after view change once an honest primary has a stable enough communication window.
+    \item Decision gossip allows a correct replica that missed the original PBFT delivery to apply the same order after receiving $f+1$ matching signed gossip messages.
+\end{itemize}
 
 
 
+\bibliographystyle{plain}
 \bibliography{sample}
 
 \end{document}
-
-
-
-running simulation- find data, see what it is, 
-
-bring BFT.
-
-BFT-smart lib
-
-once you have total order, just push recongigureation as a event in the Total Order Broadcast 
-
-optimizaing protocol for intersection 
-
-recongiureation - single shot, only one person crosses- what about the other cars - can say its multishot, can integrate reconfiguration and fast and BZT 
-
-BFT smart in this enviornment now I want to be able to do BFT - look if there are BZ nodes 
-
-look at non byz protocl and then use BFT smart to do the reconfigureation 
-
-then HQS - I dont want to have uniform - only trust cars I know - that can detemined by wahtever we want, UC, Police, Digital signutre, now I have slices of trust, now I have to generatea heterogenous protocol after slices are made - PBC consensus
-
-Going in with limited knowlede - CUP 
-
-

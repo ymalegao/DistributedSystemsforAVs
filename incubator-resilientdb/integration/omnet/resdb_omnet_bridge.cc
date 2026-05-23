@@ -7,12 +7,12 @@
 #include <sstream>
 #include <string>
 #include <thread>
-#include <unordered_set>
 #include <vector>
 
 #include "chain/storage/memory_db.h"
 #include "executor/common/transaction_manager.h"
 #include "integration/omnet/resdb_omnet_bridge.h"
+#include "integration/omnet/resdb_intersection_scheduler.h"
 #include "platform/config/resdb_config_utils.h"
 #include "platform/consensus/ordering/pbft/checkpoint_manager.h"
 #include "platform/consensus/ordering/pbft/commitment.h"
@@ -32,78 +32,9 @@ int ResdbIdToOmnetReplica(int64_t resdb_node_id) {
   return static_cast<int>(resdb_node_id - 1);
 }
 
-// ── IsSafeToBatch ─────────────────────────────────────────────────────────────
-// Port of ConflictMatrix.java::isSafeToBatch().
-// lane: 0=N,1=S,2=E,3=W  direction: 0=Straight,1=Left,2=Right
-static bool IsSafeToBatch(uint8_t lane_a, uint8_t dir_a,
-                           uint8_t lane_b, uint8_t dir_b) {
-  if (lane_a == lane_b) return false;  // same lane → rear-end risk
-  // 12 safe pairs from ConflictMatrix.java (symmetric lookup below)
-  static const uint8_t kSafe[12][4] = {
-    {0,0, 1,0},  // NS, SS — opposite straights
-    {2,0, 3,0},  // ES, WS
-    {0,2, 1,2},  // NR, SR — all right-turn combos
-    {0,2, 2,2},  // NR, ER
-    {0,2, 3,2},  // NR, WR
-    {1,2, 2,2},  // SR, ER
-    {1,2, 3,2},  // SR, WR
-    {2,2, 3,2},  // ER, WR
-    {0,2, 1,0},  // NR, SS — right turn + opposite straight
-    {1,2, 0,0},  // SR, NS
-    {2,2, 3,0},  // ER, WS
-    {3,2, 2,0},  // WR, ES
-  };
-  for (const auto& p : kSafe) {
-    if ((lane_a==p[0]&&dir_a==p[1]&&lane_b==p[2]&&dir_b==p[3]) ||
-        (lane_a==p[2]&&dir_a==p[3]&&lane_b==p[0]&&dir_b==p[1]))
-      return true;
-  }
-  return false;
-}
-
-static bool IsQuietEntry(const ResdbVehicleEntry& e) {
-  return e.cyber_status == 0 || e.sim_time_us == UINT64_MAX;
-}
-
-// IntersectionTypes.java::compareLaneQueueOrder (same lane only meaningful).
-static int CompareLaneQueueOrder(const ResdbVehicleEntry& a,
-                                 const ResdbVehicleEntry& b) {
-  if (a.position_in_lane != b.position_in_lane)
-    return (int)a.position_in_lane - (int)b.position_in_lane;
-  if (a.replica_id < b.replica_id) return -1;
-  if (a.replica_id > b.replica_id) return 1;
-  return 0;
-}
-
-// OrderScheduler.java::allSameLaneFrontPlaced — exact port, no QUIET skip.
-// QUIET vehicles are still physically present in the lane; any same-lane
-// vehicle behind them (including an ambulance) must wait until the QUIET car
-// has been assigned its singleton batch and can clear the intersection first.
-static bool AllSameLaneFrontPlaced(
-    const ResdbVehicleEntry& candidate,
-    const std::vector<ResdbVehicleEntry>& view,
-    const std::unordered_set<int32_t>& placed) {
-  for (const auto& v : view) {
-    if (v.lane != candidate.lane) continue;
-    if (CompareLaneQueueOrder(v, candidate) < 0 &&
-        placed.find(v.replica_id) == placed.end())
-      return false;
-  }
-  return true;
-}
-
-static bool SafeWithWholeBatch(const ResdbVehicleEntry& e,
-                               const std::vector<ResdbVehicleEntry>& batch) {
-  if (IsQuietEntry(e)) return false;
-  for (const auto& b : batch) {
-    if (!IsSafeToBatch(e.lane, e.direction, b.lane, b.direction)) return false;
-  }
-  return true;
-}
-
 // ── IntersectionExecutor ──────────────────────────────────────────────────────
-// Parses the ProposeAll wire format, runs OrderScheduler.java-compatible
-// batch packing (workQueue + head + grow-until-stable), emits OrderDecision.
+// Parses the ProposeAll wire format, runs deterministic intersection scheduling,
+// and emits OrderDecision bytes.
 
 class IntersectionExecutor : public resdb::TransactionManager {
  public:
@@ -153,142 +84,11 @@ class IntersectionExecutor : public resdb::TransactionManager {
     }
     std::cout << "\n";
 
-    // ── OrderScheduler.java::buildProposal (C++ port) ─────────────────────────
-
-    // Log helper: first ambulance lane (same convention as before).
-    int ambu_lane = -1;
-    for (const auto& e : entries)
-      if (e.is_ambulance) {
-        ambu_lane = static_cast<int>(e.lane);
-        break;
-      }
-
-    std::vector<ResdbVehicleEntry> ambulances;
-    for (const auto& e : entries)
-      if (e.is_ambulance) ambulances.push_back(e);
-    std::sort(ambulances.begin(), ambulances.end(),
-              [](const ResdbVehicleEntry& a, const ResdbVehicleEntry& b) {
-                if (a.position_in_lane != b.position_in_lane)
-                  return a.position_in_lane < b.position_in_lane;
-                return a.replica_id < b.replica_id;
-              });
-
-    std::unordered_set<int32_t> priority_ids;
-    std::vector<ResdbVehicleEntry> work_queue;
-    for (const auto& ambulance : ambulances) {
-      std::vector<ResdbVehicleEntry> blockers;
-      for (const auto& v : entries) {
-        if (v.lane != ambulance.lane || v.is_ambulance) continue;
-        if (CompareLaneQueueOrder(v, ambulance) < 0) blockers.push_back(v);
-      }
-      std::sort(blockers.begin(), blockers.end(),
-                [](const ResdbVehicleEntry& a, const ResdbVehicleEntry& b) {
-                  if (a.position_in_lane != b.position_in_lane)
-                    return a.position_in_lane < b.position_in_lane;
-                  return a.replica_id < b.replica_id;
-                });
-      for (const auto& blocker : blockers) {
-        if (priority_ids.insert(blocker.replica_id).second)
-          work_queue.push_back(blocker);
-      }
-      if (priority_ids.insert(ambulance.replica_id).second)
-        work_queue.push_back(ambulance);
-    }
-
-    std::vector<ResdbVehicleEntry> remaining_entries;
-    for (const auto& e : entries) {
-      if (priority_ids.find(e.replica_id) == priority_ids.end())
-        remaining_entries.push_back(e);
-    }
-    // Java OrderScheduler: waitRegistry desc, then positionInLane, then vehicle id.
-    // waitRegistry is not on the wire — do NOT use sim_time_us as primary key:
-    // stop-zone entry order can put a follower before their same-lane leader in
-    // the work queue, so the greedy head picks the follower first and assigns an
-    // earlier batch (rear crosses before front → collision).
-    // Physical queue order must dominate: position_in_lane (1=front), then replica_id,
-    // then sim_time_us only as a final tiebreaker.
-    std::sort(remaining_entries.begin(), remaining_entries.end(),
-              [](const ResdbVehicleEntry& a, const ResdbVehicleEntry& b) {
-                if (a.position_in_lane != b.position_in_lane)
-                  return a.position_in_lane < b.position_in_lane;
-                if (a.replica_id != b.replica_id)
-                  return a.replica_id < b.replica_id;
-                return a.sim_time_us < b.sim_time_us;
-              });
-    for (const auto& e : remaining_entries) work_queue.push_back(e);
-
-    uint32_t n = static_cast<uint32_t>(entries.size());
-    std::vector<ResdbVehicleDecision> decisions(n);
-
-    std::vector<std::vector<ResdbVehicleEntry>> batches_out;
-    std::unordered_set<int32_t> placed;
-
-    while (placed.size() < n) {
-      const ResdbVehicleEntry* head_ptr = nullptr;
-      for (const auto& cand : work_queue) {
-        if (placed.count(cand.replica_id)) continue;
-        if (!AllSameLaneFrontPlaced(cand, entries, placed)) continue;
-        head_ptr = &cand;
-        break;
-      }
-      if (!head_ptr) {
-        std::cout << "[EXECUTOR] no schedulable head placed=" << placed.size()
-                  << "/" << n << "\n";
-        for (const auto& e : entries) {
-          if (placed.count(e.replica_id)) continue;
-          batches_out.push_back({e});
-          placed.insert(e.replica_id);
-        }
-        break;
-      }
-
-      ResdbVehicleEntry head = *head_ptr;
-      std::vector<ResdbVehicleEntry> batch;
-      batch.push_back(head);
-      placed.insert(head.replica_id);
-
-      if (IsQuietEntry(head)) {
-        batches_out.push_back(std::move(batch));
-        continue;
-      }
-
-      bool grew = false;
-      do {
-        grew = false;
-        for (const auto& cand : work_queue) {
-          if (placed.count(cand.replica_id)) continue;
-          if (!AllSameLaneFrontPlaced(cand, entries, placed)) continue;
-          if (IsQuietEntry(cand)) continue;
-          if (!SafeWithWholeBatch(cand, batch)) continue;
-          batch.push_back(cand);
-          placed.insert(cand.replica_id);
-          grew = true;
-        }
-      } while (grew);
-
-      batches_out.push_back(std::move(batch));
-    }
-
-    uint32_t n_batches = static_cast<uint32_t>(batches_out.size());
-    for (uint32_t bi = 0; bi < batches_out.size(); ++bi) {
-      for (const auto& b : batches_out[bi]) {
-        for (uint32_t i = 0; i < n; ++i) {
-          if (entries[i].replica_id == b.replica_id)
-            decisions[i] = {b.replica_id, bi};
-        }
-      }
-    }
-
-    // Build binary OrderDecision: ResdbOrderHdr + n × ResdbVehicleDecision.
-    std::string result(sizeof(ResdbOrderHdr) + n * sizeof(ResdbVehicleDecision), '\0');
-    uint8_t* out = reinterpret_cast<uint8_t*>(&result[0]);
-    ResdbOrderHdr ohdr{hdr.epoch, n, n_batches};
-    std::memcpy(out, &ohdr, sizeof(ohdr));
-    out += sizeof(ohdr);
-    for (uint32_t i = 0; i < n; ++i) {
-      std::memcpy(out, &decisions[i], sizeof(ResdbVehicleDecision));
-      out += sizeof(ResdbVehicleDecision);
-    }
+    auto schedule = resdb::omnet::BuildIntersectionSchedule(hdr, entries);
+    const std::string& result = schedule.order_bytes;
+    const uint32_t n = static_cast<uint32_t>(entries.size());
+    const uint32_t n_batches = schedule.n_batches;
+    const int ambu_lane = schedule.ambulance_lane;
 
     {
       std::lock_guard<std::mutex> lk(cb_mutex_);

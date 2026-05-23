@@ -5,8 +5,14 @@ package(default_visibility = ["//visibility:public"])
 
 cc_library(
     name = "resdb_bridge",
-    srcs = ["resdb_omnet_bridge.cc"],
-    hdrs = ["resdb_omnet_bridge.h"],
+    srcs = [
+        "resdb_intersection_scheduler.cc",
+        "resdb_omnet_bridge.cc",
+    ],
+    hdrs = [
+        "resdb_intersection_scheduler.h",
+        "resdb_omnet_bridge.h",
+    ],
     alwayslink = True,
     deps = [
         "//chain/storage:memory_db",

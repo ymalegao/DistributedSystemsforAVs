@@ -163,6 +163,7 @@ RE_PRIMARY_CHANGED = re.compile(
     r'\[VC-DEBUG\]\s+r(\d+)\s+primary changed:\s+(\d+)\s+->\s+(\d+)\s+t=(\S+)'
 )
 RE_GOSSIP_APPLY = re.compile(r'\[GOSSIP-APPLY\]\s+r(\d+)\s+epoch=(\d+)\s+t=(\S+)')
+RE_GOSSIP_SEND = re.compile(r'\[GOSSIP-SEND\]\s+r(\d+)\s+epoch=(\d+)\s+retry=(\d+)\s+t=(\S+)')
 RE_BYZANTINE_CONFIG = re.compile(r'\[BYZANTINE\]\s+r(\d+)\s+([A-Z_]+)')
 RE_STOPSIGN_TIMEOUT  = re.compile(r'\[METRICS (\d+)\] StopSign_Timeout: 1')
 RE_AMBULANCE_SCHED   = re.compile(r'\[AMBULANCE_SCHED\] (veh\d+) batch=')
@@ -233,6 +234,7 @@ cert_collection_start_by_epoch = {}  # epoch -> earliest cert collection start t
 replica_vc_trigger_time = {}        # replica -> VC trigger time (sim s)
 replica_primary_change_times = defaultdict(list)  # replica -> [t_s, ...]
 replica_gossip_apply_time = {}      # replica -> t_s when gossip order applied
+replica_gossip_send_time_by_epoch = {}  # (replica, epoch) -> earliest t_s for GOSSIP-SEND
 replica_byzantine_types = defaultdict(set)  # replica -> {"SILENT_PRIMARY", ...}
 vc_trigger_times_by_epoch = defaultdict(list)      # epoch -> [t_s, ...]
 primary_change_times_by_epoch = defaultdict(list)  # epoch -> [t_s, ...]
@@ -486,6 +488,19 @@ with open(LOG_FILE, "r", errors="replace") as f:
             rep = int(m.group(1))
             try:
                 replica_gossip_apply_time[rep] = float(m.group(3))
+            except ValueError:
+                pass
+            continue
+
+        m = RE_GOSSIP_SEND.search(line)
+        if m:
+            rep = int(m.group(1))
+            ep = int(m.group(2))
+            try:
+                t_s = float(m.group(4))
+                key = (rep, ep)
+                prev = replica_gossip_send_time_by_epoch.get(key)
+                replica_gossip_send_time_by_epoch[key] = t_s if prev is None else min(prev, t_s)
             except ValueError:
                 pass
             continue
@@ -1038,6 +1053,8 @@ def write_metrics_json(path):
             decision_latency_ms = None
             first_propose_t = _epoch_first_propose_time(ep) if isinstance(ep, int) else None
             decide_recv_t = (decided_all_by_replica.get(rep) or [None])[0]
+            if decide_recv_t is None and isinstance(ep, int):
+                decide_recv_t = replica_gossip_send_time_by_epoch.get((rep, ep))
             if first_propose_t is not None and decide_recv_t is not None and decide_recv_t >= first_propose_t:
                 decision_latency_ms = (decide_recv_t - first_propose_t) * 1000.0
 

@@ -67,7 +67,7 @@ private:
 
     // ── Arrival-cert direction ────────────────────────────────────────────────
 
-    // ── Arrival cert protocol structs (mirror V2VProxyModule) ─────────────────
+    // ── Arrival cert protocol structs ─────────────────────────────────────────
     struct VehicleState {
         std::string vehicleId;
         std::string lane;
@@ -121,22 +121,17 @@ private:
         double      actualPosition = 0.0;
     };
 
-    // ── Step-2 logging transport ──────────────────────────────────────────────
+    // ── Transport ─────────────────────────────────────────────────────────────
     class LoggingTransport : public IV2VTransport {
     public:
-        explicit LoggingTransport(int rid) : rid_(rid) {}
-        void sendTo(int to, const uint8_t*, uint32_t len) override {
-            fprintf(stderr, "[ResDB-TRANSPORT r%d] unicast → r%d  %u bytes\n", rid_, to, len);
-        }
-        void broadcast(const uint8_t*, uint32_t len) override {
-            fprintf(stderr, "[ResDB-TRANSPORT r%d] broadcast  %u bytes\n", rid_, len);
-        }
+        explicit LoggingTransport(int rid);
+        void sendTo(int to, const uint8_t*, uint32_t len) override;
+        void broadcast(const uint8_t*, uint32_t len) override;
        
     private:
         int rid_;
     };
 
-    // ── Step-3 radio transport ────────────────────────────────────────────────
     class VeinsTransport : public IV2VTransport {
     public:
         explicit VeinsTransport(ResDBIntersectionApp* app) : app_(app) {}
@@ -151,21 +146,13 @@ private:
         std::vector<uint8_t> resdbBytes;
     };
 
-    // ── ResDB order-decided callback ──────────────────────────────────────────
-    static void onOrderDecided(void* ctx, const uint8_t* bytes, uint32_t len);
-
-    // ── ResDB / transport helpers ─────────────────────────────────────────────
     void registerTransport();
     void enqueueOutbound(int toReplicaId, const uint8_t* data, uint32_t len);
     void drainOutboundQueue();
-    void proposeAll();
-    void processOrders();
-
-    // ── Cert-protocol radio send (no PBFT, no crypto wrapper) ────────────────
+    void handleResdbConsensusMessage(BFTMessage* bft);
     void sendBFTMessage(int toReplicaId, const std::vector<uint8_t>& payload, int msgType);
 
-    // ── Arrival cert protocol (ported from V2VArrivalProtocol.cc) ────────────
-    // Arm (or re-arm) primary cert-collection deadline; only valid in stop zone (V2V parity).
+    // ── Arrival cert protocol ────────────────────────────────────────────────
     void tryStartCertCollectionTimer(bool rearm = false);
     void broadcastArrivalAnnouncement();
     void handleArrivalAnnouncement(BFTMessage* msg);
@@ -190,6 +177,11 @@ private:
     ArrivalEcho          deserializeArrivalEcho(BFTMessage* msg);
     std::vector<uint8_t> serializeArrivalCert(const ArrivalCert& cert);
     ArrivalCert          deserializeArrivalCert(BFTMessage* msg);
+
+    // ── ResDB decision handling ───────────────────────────────────────────────
+    static void onOrderDecided(void* ctx, const uint8_t* bytes, uint32_t len);
+    void proposeAll();
+    void processOrders();
 
     // ── TraCI helpers (ported from V2VTraCI.cc) ───────────────────────────────
     double getDistanceToIntersection();
