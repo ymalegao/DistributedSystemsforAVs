@@ -28,6 +28,7 @@ class VEINS_API ResDBIntersectionApp : public DemoBaseApplLayer {
 public:
     ~ResDBIntersectionApp() override;
     enum Direction { DIR_STRAIGHT = 0, DIR_LEFT = 1, DIR_RIGHT = 2 };
+    void recordIntersectionDeparture(simtime_t departedAt);
 
 
 protected:

@@ -182,6 +182,7 @@ protected:
 
     /** Same predicate as V2VProxyModule::vehicleHasClearedIntersectionTraCI (four-way C2* departure legs). */
     bool vehiclePastIntersectionDepartureLeg(const std::string& vehicleId);
+    void notifyIntersectionDeparture(const std::string& vehicleId);
     void tryShutdownOnIntersectionBatchCleared(const std::string& vehicleId);
 
     virtual void init_traci();

@@ -34,6 +34,7 @@
 #include "veins/modules/mobility/traci/TraCICommandInterface.h"
 #include "veins/modules/mobility/traci/TraCIConstants.h"
 #include "veins/modules/mobility/traci/TraCIMobility.h"
+#include "veins/modules/application/resDB/ResDBIntersectionApp.h"
 #include "veins/modules/obstacle/ObstacleControl.h"
 #include "veins/modules/world/traci/trafficLight/TraCITrafficLightInterface.h"
 
@@ -994,7 +995,11 @@ bool TraCIScenarioManager::vehiclePastIntersectionDepartureLeg(const std::string
         std::string roadId = v.getRoadId();
         bool onDepartureLeg = (roadId.size() >= 2 && std::toupper(static_cast<unsigned char>(roadId[0])) == 'C' && std::toupper(static_cast<unsigned char>(roadId[1])) == '2');
         if (onDepartureLeg) {
-            return v.getLanePosition() >= intersectionDepartureMinMeters;
+            bool cleared = v.getLanePosition() >= intersectionDepartureMinMeters;
+            if (cleared) {
+                notifyIntersectionDeparture(vehicleId);
+            }
+            return cleared;
         }
         return false;
     } catch (...) {
@@ -1003,12 +1008,22 @@ bool TraCIScenarioManager::vehiclePastIntersectionDepartureLeg(const std::string
     }
 }
 
+void TraCIScenarioManager::notifyIntersectionDeparture(const std::string& vehicleId)
+{
+    cModule* car = getManagedModule(vehicleId);
+    if (!car) return;
+
+    for (auto* app : getSubmodulesOfType<ResDBIntersectionApp>(car, true)) {
+        app->recordIntersectionDeparture(simTime());
+    }
+}
+
 void TraCIScenarioManager::tryShutdownOnIntersectionBatchCleared(const std::string& vehicleId)
 {
-    if (!shutdownOnIntersectionBatchCleared || autoShutdownTriggered) {
+    if (!vehiclePastIntersectionDepartureLeg(vehicleId)) {
         return;
     }
-    if (!vehiclePastIntersectionDepartureLeg(vehicleId)) {
+    if (!shutdownOnIntersectionBatchCleared || autoShutdownTriggered) {
         return;
     }
     auto inserted = vehiclesClearedIntersection.insert(vehicleId);

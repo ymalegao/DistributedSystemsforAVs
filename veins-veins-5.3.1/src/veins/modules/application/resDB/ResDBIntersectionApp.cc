@@ -535,34 +535,6 @@ void ResDBIntersectionApp::handlePositionUpdate(cObject* obj)
 
     discoverLane();
 
-    // Gap 9: detect departure and lock out cert protocol for this vehicle.
-    if (current_phase_ == ConsensusPhase::EXECUTING && order_applied_) {
-        std::string myCarId = "veh" + std::to_string(replicaId_);
-        if (vehicleHasClearedIntersectionTraCI(myCarId)) {
-            current_phase_ = ConsensusPhase::DEPARTED;
-            cleared_time_ = simTime();
-            std::cout << "[DEPARTED] Replica " << replicaId_ << " cleared intersection t=" << simTime() << "\n";
-            std::cout << "[METRICS " << replicaId_ << "] Total Latency (cleared-stop): "
-            << (cleared_time_ - stop_time_) << std::endl;
-            {
-                double wait_sec = (stop_time_ >= SIMTIME_ZERO) ? (cleared_time_ - stop_time_).dbl() : -1.0;
-                double stop_dbl = (stop_time_ >= SIMTIME_ZERO) ? stop_time_.dbl() : -1.0;
-                const char* role = is_ambulance_ ? "ambulance" : "normal";
-                std::cout << "[CAR-METRICS] veh" << replicaId_
-                          << " role=" << role
-                          << " epoch=" << current_epoch_
-                          << " stop_time=" << stop_dbl
-                          << " depart_time=" << cleared_time_.dbl()
-                          << " wait_stop_to_departure_sec=" << wait_sec << "\n";
-                if (is_ambulance_) {
-                    std::cout << "[AMBULANCE_METRICS] veh" << replicaId_
-                              << " sim_wait_stop_to_departure_sec=" << wait_sec
-                              << " epoch=" << current_epoch_ << "\n";
-                }
-            }
-        }
-    }
-
     if (order_applied_) return;
 
     double dist = getDistanceToIntersection();
@@ -610,6 +582,34 @@ void ResDBIntersectionApp::handlePositionUpdate(cObject* obj)
                       << simTime() + vc_delay << " (primary=" << primary
                       << ", vc_delay_sec=" << vc_delay << ")\n";
         }
+    }
+}
+
+void ResDBIntersectionApp::recordIntersectionDeparture(simtime_t departedAt)
+{
+    if (departureTime >= SIMTIME_ZERO) return;
+
+    departureTime = departedAt;
+    cleared_time_ = departedAt;
+    is_departed_ = true;
+    current_phase_ = ConsensusPhase::DEPARTED;
+
+    const double wait_sec = (stop_time_ >= SIMTIME_ZERO) ? (cleared_time_ - stop_time_).dbl() : -1.0;
+    const double stop_dbl = (stop_time_ >= SIMTIME_ZERO) ? stop_time_.dbl() : -1.0;
+    const char* role = is_ambulance_ ? "ambulance" : "normal";
+
+    std::cout << "[DEPARTED] Replica " << replicaId_ << " cleared intersection t=" << departedAt << "\n";
+    std::cout << "[METRICS " << replicaId_ << "] Total Latency (cleared-stop): " << wait_sec << std::endl;
+    std::cout << "[CAR-METRICS] veh" << replicaId_
+              << " role=" << role
+              << " epoch=" << current_epoch_
+              << " stop_time=" << stop_dbl
+              << " depart_time=" << cleared_time_.dbl()
+              << " wait_stop_to_departure_sec=" << wait_sec << "\n";
+    if (is_ambulance_) {
+        std::cout << "[AMBULANCE_METRICS] veh" << replicaId_
+                  << " sim_wait_stop_to_departure_sec=" << wait_sec
+                  << " epoch=" << current_epoch_ << "\n";
     }
 }
 
