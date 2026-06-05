@@ -153,6 +153,31 @@ int ResdbOmnetSetOrderCallback(void* server_handle,
  * Returns 0 if the handle is null or the consensus is not yet started. */
 int ResdbOmnetGetPrimary(void* server_handle);
 
+/* Diagnostic metadata decoded from a serialized ResDBMessage/Request packet. */
+typedef struct ResdbPacketRequestInfo {
+    int      parse_ok;
+    int32_t  type;
+    uint64_t current_view;
+    uint64_t seq;
+    int32_t  sender_id;
+    int32_t  primary_id;
+    int64_t  proxy_id;
+    uint64_t current_executed_seq;
+    uint32_t data_len;
+    uint32_t hash_len;
+} ResdbPacketRequestInfo;
+
+/* Decode a serialized ResDBMessage/Request packet carried by Type 8.
+ * Returns the inner Request::Type numeric value, or -1 if parsing fails. */
+int ResdbOmnetGetPacketRequestType(const uint8_t* data, uint32_t len);
+
+/* Decode detailed Request fields from a Type 8 packet for logging. */
+int ResdbOmnetGetPacketRequestInfo(const uint8_t* data, uint32_t len,
+                                   ResdbPacketRequestInfo* info);
+
+/* Human-readable name for ResdbOmnetGetPacketRequestType() values. */
+const char* ResdbOmnetRequestTypeName(int request_type);
+
 /* Remove a departed replica from the active set (epoch reset).
  * Returns 0 on success, -1 if handle is null. */
 int ResdbOmnetRemoveReplica(void* server_handle, int replica_id);
@@ -178,6 +203,37 @@ int ResdbOmnetForceViewChange(void* server_handle);
  * view-change runs.  Call after ResdbOmnetRunServer.
  * Returns 0 on success, -1 if handle/consensus is null. */
 int ResdbOmnetSetPbftSilent(void* server_handle, int silent);
+
+/* ── Step 5 (M4): cert-omission guard (Java OrderRequestVerifier Check 7) ──── */
+
+/* Per-cert entry returned by ResdbCertSnapshotFn.
+ * Carries the replica ID and the cert-attested vehicle state fields so the
+ * pre-verify can check both QUIET suppression (Check 9) and state-field
+ * tampering (Check 10) in a single callback invocation. */
+#pragma pack(push, 1)
+typedef struct ResdbCertEntry {
+    int32_t replica_id;
+    uint8_t lane;             /* 0=N,1=S,2=E,3=W — same encoding as ResdbVehicleEntry */
+    uint8_t position_in_lane; /* 1=front, 2=second, … */
+    uint8_t direction;        /* 0=Straight,1=Left,2=Right */
+    uint8_t is_ambulance;     /* 0 or 1 */
+} ResdbCertEntry;             /* 8 bytes */
+#pragma pack(pop)
+
+/* Callback filled in by the OMNeT++ app to give the bridge a snapshot of the
+ * local C++ collectedCerts with full cert-attested state fields.
+ * Called from a ResDB worker thread during PRE_PREPARE verification — must be
+ * thread-safe.
+ * entries_out: caller-supplied buffer of ResdbCertEntry.
+ * count_inout: capacity on entry, actual count written on exit. */
+typedef void (*ResdbCertSnapshotFn)(void* ctx,
+                                    ResdbCertEntry* entries_out,
+                                    uint32_t*       count_inout);
+
+/* Register the cert-snapshot provider.  Call after CreateKvServer, before RunServer.
+ * Returns 0 on success, -1 if handle is null. */
+int ResdbOmnetSetCertSnapshotFn(void* server_handle,
+                                ResdbCertSnapshotFn fn, void* ctx);
 
 #ifdef __cplusplus
 }  // extern "C"

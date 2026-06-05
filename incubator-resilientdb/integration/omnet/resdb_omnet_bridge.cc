@@ -7,6 +7,8 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "chain/storage/memory_db.h"
@@ -328,6 +330,12 @@ class OmnetConsensusManagerPBFT : public resdb::ConsensusManagerPBFT {
 
 // ── Handle ────────────────────────────────────────────────────────────────────
 
+struct CertCheckState {
+  std::mutex          mu;
+  ResdbCertSnapshotFn fn  = nullptr;
+  void*               ctx = nullptr;
+};
+
 struct ResdbOmnetServerHandle {
   std::unique_ptr<resdb::ServiceNetwork> server;
   ResdbOmnetTransportCallbacks transport{nullptr, nullptr, nullptr};
@@ -337,6 +345,7 @@ struct ResdbOmnetServerHandle {
   OmnetConsensusManagerPBFT* consensus = nullptr;
   IntersectionExecutor* executor = nullptr;
   int64_t vc_timeout_us = 3000000;  // 3 s default
+  std::shared_ptr<CertCheckState> cert_state;
 };
 
 }  // namespace
@@ -372,7 +381,8 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
   // N entries in server.config). SUMO / *.manager.intersectionBatchSize are kept in
   // sync with that N in the scenario; the bridge does not infer N from traffic.
   const int expected = static_cast<int>(config->GetReplicaInfos().size());
-  service_ptr->SetPreVerifyFunc([expected](const resdb::Request& req) -> bool {
+  auto cert_state = std::make_shared<CertCheckState>();
+  service_ptr->SetPreVerifyFunc([expected, cert_state](const resdb::Request& req) -> bool {
     if (req.type() != resdb::Request::TYPE_PRE_PREPARE) return true;
     // In this integration path, PRE_PREPARE carries serialized BatchUserRequest,
     // and each UserRequest contains the raw Propose payload.
@@ -473,7 +483,92 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
     }
     // Check 8: deterministic sort always has a unique tiebreaker because
     // checks 3+4 guarantee unique valid replica IDs. Log that we verified.
-    LOG(INFO) << "[OMNET-PREVERIFY] pass: all 8 checks ok"
+
+    // Checks 9 & 10 — cert-omission guard + state-field verification.
+    // Mirrors Java OrderRequestVerifier Checks 7 & 8 (re-execution not needed
+    // in C++ since the schedule is computed post-consensus by all replicas).
+    //
+    // Check 9: if this follower holds certs for > f cars the leader marked
+    //          QUIET, reject (Byzantine QUIET suppression).
+    //          Up to f omissions tolerated as plausible channel loss.
+    //
+    // Check 10: for every SIGNED entry whose cert this follower holds, the
+    //           proposal's lane/position_in_lane/direction/is_ambulance must
+    //           match the cert-attested values.  Any mismatch is Byzantine
+    //           state-field tampering; zero tolerance (cert is ground truth).
+    {
+      std::unique_lock<std::mutex> lk(cert_state->mu);
+      ResdbCertSnapshotFn snap_fn  = cert_state->fn;
+      void*               snap_ctx = cert_state->ctx;
+      lk.unlock();
+
+      if (snap_fn != nullptr) {
+        // Build a map of proposal entries keyed by replica_id.
+        std::unordered_map<int32_t, ResdbVehicleEntry> proposal_map;
+        const uint8_t* ep = reinterpret_cast<const uint8_t*>(d.data()) + sizeof(ResdbProposeHdr);
+        for (uint32_t i = 0; i < hdr.n_vehicles; ++i) {
+          ResdbVehicleEntry e;
+          std::memcpy(&e, ep, sizeof(e));
+          proposal_map[e.replica_id] = e;
+          ep += sizeof(e);
+        }
+
+        // Fetch local cert snapshot (replica ID + attested state).
+        static constexpr uint32_t kMaxReplicas = 256;
+        ResdbCertEntry cert_entries[kMaxReplicas];
+        uint32_t cert_count = kMaxReplicas;
+        snap_fn(snap_ctx, cert_entries, &cert_count);
+
+        const int f = (expected - 1) / 3;
+        int omitted = 0;
+        for (uint32_t i = 0; i < cert_count; ++i) {
+          const ResdbCertEntry& ce = cert_entries[i];
+          auto it = proposal_map.find(ce.replica_id);
+          if (it == proposal_map.end()) continue;
+          const ResdbVehicleEntry& pe = it->second;
+
+          // Check 9: QUIET suppression.
+          if (pe.cyber_status == 0 || pe.sim_time_us == UINT64_MAX) {
+            ++omitted;
+            continue;  // state fields are undefined for QUIET entries
+          }
+
+          // Check 10: state-field match for SIGNED entries.
+          if (pe.lane             != ce.lane             ||
+              pe.position_in_lane != ce.position_in_lane ||
+              pe.direction        != ce.direction        ||
+              pe.is_ambulance     != ce.is_ambulance) {
+            LOG(ERROR) << "[OMNET-PREVERIFY] reject: state-field mismatch"
+                       << " replica_id=" << ce.replica_id
+                       << " cert(lane=" << (int)ce.lane
+                       << " pos="       << (int)ce.position_in_lane
+                       << " dir="       << (int)ce.direction
+                       << " ambu="      << (int)ce.is_ambulance << ")"
+                       << " proposal(lane=" << (int)pe.lane
+                       << " pos="           << (int)pe.position_in_lane
+                       << " dir="           << (int)pe.direction
+                       << " ambu="          << (int)pe.is_ambulance << ")"
+                       << " epoch=" << hdr.epoch;
+            return false;
+          }
+        }
+
+        if (omitted > f) {
+          LOG(ERROR) << "[OMNET-PREVERIFY] reject: cert-omission "
+                     << omitted << " local cert(s) QUIET in proposal"
+                     << " (threshold f+1=" << (f + 1) << ")"
+                     << " epoch=" << hdr.epoch;
+          return false;
+        }
+        if (omitted > 0) {
+          LOG(WARNING) << "[OMNET-PREVERIFY] cert-omission TOLERATED "
+                       << omitted << "/" << f << " (<=f, channel loss)"
+                       << " epoch=" << hdr.epoch;
+        }
+      }
+    }
+
+    LOG(INFO) << "[OMNET-PREVERIFY] pass: all 10 checks ok"
               << " n_vehicles=" << hdr.n_vehicles << " epoch=" << hdr.epoch;
     return true;
   });
@@ -488,9 +583,10 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
   resdb::SimTimeProvider::UpdateNowUs(1);
 
   auto* handle = new ResdbOmnetServerHandle();
-  handle->server   = std::move(server);
-  handle->consensus = service_ptr;
-  handle->executor  = executor_ptr;
+  handle->server     = std::move(server);
+  handle->consensus  = service_ptr;
+  handle->executor   = executor_ptr;
+  handle->cert_state = cert_state;
   return handle;
 }
 
@@ -647,6 +743,66 @@ extern "C" int ResdbOmnetGetPrimary(void* server_handle) {
   return id < 0 ? 0 : id;
 }
 
+extern "C" int ResdbOmnetGetPacketRequestType(const uint8_t* data, uint32_t len) {
+  if (!data || len == 0) return -1;
+  resdb::ResDBMessage wire;
+  if (!wire.ParseFromArray(data, static_cast<int>(len))) return -1;
+  resdb::Request req;
+  if (!req.ParseFromString(wire.data())) return -1;
+  return req.type();
+}
+
+extern "C" int ResdbOmnetGetPacketRequestInfo(const uint8_t* data, uint32_t len,
+                                              ResdbPacketRequestInfo* info) {
+  if (!info) return -1;
+  std::memset(info, 0, sizeof(*info));
+  info->type = -1;
+
+  if (!data || len == 0) return -1;
+  resdb::ResDBMessage wire;
+  if (!wire.ParseFromArray(data, static_cast<int>(len))) return -1;
+  resdb::Request req;
+  if (!req.ParseFromString(wire.data())) return -1;
+
+  info->parse_ok = 1;
+  info->type = req.type();
+  info->current_view = req.current_view();
+  info->seq = req.seq();
+  info->sender_id = req.sender_id();
+  info->primary_id = req.primary_id();
+  info->proxy_id = req.proxy_id();
+  info->current_executed_seq = req.current_executed_seq();
+  info->data_len = static_cast<uint32_t>(req.data().size());
+  info->hash_len = static_cast<uint32_t>(req.hash().size());
+  return 0;
+}
+
+extern "C" const char* ResdbOmnetRequestTypeName(int request_type) {
+  switch (request_type) {
+    case resdb::Request::TYPE_NONE: return "TYPE_NONE";
+    case resdb::Request::TYPE_HEART_BEAT: return "TYPE_HEART_BEAT";
+    case resdb::Request::TYPE_CLIENT_REQUEST: return "TYPE_CLIENT_REQUEST";
+    case resdb::Request::TYPE_PRE_PREPARE: return "TYPE_PRE_PREPARE";
+    case resdb::Request::TYPE_PREPARE: return "TYPE_PREPARE";
+    case resdb::Request::TYPE_COMMIT: return "TYPE_COMMIT";
+    case resdb::Request::TYPE_CLIENT_CERT: return "TYPE_CLIENT_CERT";
+    case resdb::Request::TYPE_RESPONSE: return "TYPE_RESPONSE";
+    case resdb::Request::TYPE_RECOVERY_DATA: return "TYPE_RECOVERY_DATA";
+    case resdb::Request::TYPE_RECOVERY_DATA_RESP: return "TYPE_RECOVERY_DATA_RESP";
+    case resdb::Request::TYPE_CHECKPOINT: return "TYPE_CHECKPOINT";
+    case resdb::Request::TYPE_QUERY: return "TYPE_QUERY";
+    case resdb::Request::TYPE_REPLICA_STATE: return "TYPE_REPLICA_STATE";
+    case resdb::Request::TYPE_NEW_TXNS: return "TYPE_NEW_TXNS";
+    case resdb::Request::TYPE_GEO_REQUEST: return "TYPE_GEO_REQUEST";
+    case resdb::Request::TYPE_VIEWCHANGE: return "TYPE_VIEWCHANGE";
+    case resdb::Request::TYPE_NEWVIEW: return "TYPE_NEWVIEW";
+    case resdb::Request::TYPE_CUSTOM_QUERY: return "TYPE_CUSTOM_QUERY";
+    case resdb::Request::TYPE_CUSTOM_CONSENSUS: return "TYPE_CUSTOM_CONSENSUS";
+    case resdb::Request::TYPE_STATUS_SYNC: return "TYPE_STATUS_SYNC";
+    default: return "TYPE_UNKNOWN";
+  }
+}
+
 extern "C" int ResdbOmnetRemoveReplica(void* server_handle, int /*replica_id*/) {
   return server_handle ? 0 : -1;
 }
@@ -675,5 +831,16 @@ extern "C" int ResdbOmnetSetPbftSilent(void* server_handle, int silent) {
   if (!h->consensus) return -1;
   std::cout << "[VC-BRIDGE] SetPbftSilent silent=" << silent << "\n";
   h->consensus->SetPbftSilent(silent != 0);
+  return 0;
+}
+
+extern "C" int ResdbOmnetSetCertSnapshotFn(void* server_handle,
+                                            ResdbCertSnapshotFn fn, void* ctx) {
+  if (!server_handle) return -1;
+  auto* h = static_cast<ResdbOmnetServerHandle*>(server_handle);
+  if (!h->cert_state) return -1;
+  std::lock_guard<std::mutex> lk(h->cert_state->mu);
+  h->cert_state->fn  = fn;
+  h->cert_state->ctx = ctx;
   return 0;
 }
