@@ -1,7 +1,7 @@
 #include "veins/modules/application/resDB/ResDBIntersectionApp.h"
 #include "veins/modules/application/resDB/ResDBUtil.h"
 #include "veins/modules/application/resDB/sinr/ChannelMetrics.h"
-#include "veins/modules/bftsmart/BFTMessage_m.h"
+#include "veins/modules/application/resDB/messages/BFTMessage_m.h"
 #include "veins/modules/mac/ieee80211p/Mac1609_4.h"
 #include "veins/base/phyLayer/PhyToMacControlInfo.h"
 #include "veins/modules/phy/DeciderResult80211.h"
@@ -108,7 +108,14 @@ void ResDBIntersectionApp::initialize(int stage)
         enable_sim_time_provider_ = par("enableSimTimeProvider").boolValue();
         time_tick_interval_       = par("timeTickInterval").doubleValue();
         broadcast_arrival_announcement_interval_ = par("broadcastArrivalAnnouncementIntervalSec").doubleValue();
-        cert_collection_timeout_  = par("certCollectionTimeoutSec").doubleValue();
+        const double cert_timeout_base_sec = par("certCollectionTimeoutSec").doubleValue();
+        const double cert_timeout_scale_sec = std::floor(static_cast<double>(total_vehicles_) / 5.0);
+        cert_collection_timeout_ = SimTime(cert_timeout_base_sec + cert_timeout_scale_sec);
+
+        const double view_change_timeout_sec = par("pbftVcTimeoutSec").doubleValue();
+        const double view_change_timeout_scale_sec = std::floor(static_cast<double>(total_vehicles_) / 5.0);
+        pbft_vc_timeout_sec_ = (view_change_timeout_sec + view_change_timeout_scale_sec);
+
         debug_cert_protocol_    = par("debugCertProtocol").boolValue();
         debug_order_delivery_ = par("debugOrderDelivery").boolValue();
         enable_cert_retries_    = par("enableArrivalCertRetries").boolValue();
@@ -131,7 +138,7 @@ void ResDBIntersectionApp::initialize(int stage)
         intended_lane_         = par("intendedLane").stdstringValue();
         is_byzantine_        = par("isByzantine").boolValue();
         byzantine_type_      = static_cast<ByzantineType>(par("byzantineType").intValue());
-        pbft_vc_timeout_sec_ = par("pbftVcTimeoutSec").doubleValue();
+
         const int ambulance_replica_id = par("ambulanceReplicaId").intValue();
         if (ambulance_replica_id >= 0) {
             is_ambulance_ = (replicaId_ == ambulance_replica_id);
@@ -182,6 +189,8 @@ void ResDBIntersectionApp::initialize(int stage)
         registerTransport();
         ResdbOmnetSetOrderCallback(resdb_server_handle_,
                                    &ResDBIntersectionApp::onOrderDecided, this);
+        ResdbOmnetSetCertSnapshotFn(resdb_server_handle_,
+                                    &ResDBIntersectionApp::certSnapshotCallback, this);
         ResdbOmnetSetVcTimeoutUs(resdb_server_handle_,
                                  static_cast<int64_t>(pbft_vc_timeout_sec_ * 1e6));
         last_known_primary_ = ResdbOmnetGetPrimary(resdb_server_handle_);
@@ -402,6 +411,7 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
 
     if (msg == vc_trigger_msg_) {
         vc_trigger_msg_ = nullptr;
+        processOrders();
         if (!order_applied_) {
             int primary = ResdbOmnetGetPrimary(resdb_server_handle_);
             std::cout << "[VC-TRIGGER] r" << replicaId_
@@ -545,6 +555,16 @@ void ResDBIntersectionApp::handlePositionUpdate(cObject* obj)
         stop_time_ = simTime();
         current_phase_ = ConsensusPhase::WAITING_FOR_CLEARANCE;
         std::cout << "[METRICS " << replicaId_ << "] Stop_Time: " << stop_time_ << "\n";
+
+        for (auto& [key, pr] : pending_relays_) {
+            if (pr.relayCount >= 3) continue;
+            if (collected_certs_.count(pr.carId)) continue;
+
+            sendArrivalAnnouncementGossipPayload(
+                pr.carId, pr.epoch, pr.serializedAnnounce, "stop-zone");
+            pr.relayCount++;
+        }
+        pending_relays_.clear();
 
         stopVehicle();
         
@@ -706,9 +726,74 @@ void ResDBIntersectionApp::onWSM(BaseFrame1609_4* wsm)
         return;
     }
 
+    // ── Type 10: Arrival announce gossip ─────────────────────────────────────
+    if (msgType == kArrivalAnnounceGossipType) {
+        handleArrivalAnnouncementGossip(bft);
+        return;
+    }
+
+    // ── Type 11: ResDB PBFT consensus relay ───────────────────────────────────
+    if (msgType == kResdbConsensusRelayType) {
+        handleResdbConsensusRelay(bft);
+        bool has_pending_order = false;
+        {
+            std::lock_guard<std::mutex> lk(orders_mutex_);
+            has_pending_order = !pending_orders_.empty();
+        }
+        if (vc_trigger_msg_ && vc_trigger_msg_->isScheduled()) {
+            if (order_applied_ || has_pending_order) {
+                cancelEvent(vc_trigger_msg_);
+                delete vc_trigger_msg_;
+                vc_trigger_msg_ = nullptr;
+                std::cout << "[VC-DEBUG] r" << replicaId_
+                          << " canceled follower vc_trigger on relayed delivered order at "
+                          << simTime()
+                          << " order_applied=" << order_applied_
+                          << " pending_order=" << has_pending_order << "\n";
+            } else {
+                cancelEvent(vc_trigger_msg_);
+                scheduleAt(simTime() + pbft_vc_timeout_sec_, vc_trigger_msg_);
+                std::cout << "[VC-DEBUG] r" << replicaId_
+                          << " rearmed follower vc_trigger on relayed PBFT traffic at "
+                          << simTime() + pbft_vc_timeout_sec_
+                          << " grace=" << pbft_vc_timeout_sec_ << "s\n";
+            }
+        }
+        return;
+    }
+
     // ── Type 8: ResDB PBFT consensus bytes ────────────────────────────────────
     if (msgType == kResdbConsensusMsgType) {
+        // Leader is active — cert retransmits are no longer useful.
+        if (cert_retry_timer_ && cert_retry_timer_->isScheduled())
+            cancelEvent(cert_retry_timer_);
+
         handleResdbConsensusMessage(bft);
+
+        bool has_pending_order = false;
+        {
+            std::lock_guard<std::mutex> lk(orders_mutex_);
+            has_pending_order = !pending_orders_.empty();
+        }
+        if (vc_trigger_msg_ && vc_trigger_msg_->isScheduled()) {
+            if (order_applied_ || has_pending_order) {
+                cancelEvent(vc_trigger_msg_);
+                delete vc_trigger_msg_;
+                vc_trigger_msg_ = nullptr;
+                std::cout << "[VC-DEBUG] r" << replicaId_
+                          << " canceled follower vc_trigger on delivered order at "
+                          << simTime()
+                          << " order_applied=" << order_applied_
+                          << " pending_order=" << has_pending_order << "\n";
+            } else {
+                cancelEvent(vc_trigger_msg_);
+                scheduleAt(simTime() + pbft_vc_timeout_sec_, vc_trigger_msg_);
+                std::cout << "[VC-DEBUG] r" << replicaId_
+                          << " rearmed follower vc_trigger on PBFT traffic at "
+                          << simTime() + pbft_vc_timeout_sec_
+                          << " grace=" << pbft_vc_timeout_sec_ << "s\n";
+            }
+        }
     }
 }
 
@@ -827,5 +912,7 @@ bool ResDBIntersectionApp::applyGossipOrder(const std::vector<uint8_t>& order_by
     stopGossip();
     gossip_acc_.reset();
     cert_relay_tracker_.reset();
+    announcement_relay_tracker_.reset();
+    consensus_relay_seen_.clear();
     return true;
 }

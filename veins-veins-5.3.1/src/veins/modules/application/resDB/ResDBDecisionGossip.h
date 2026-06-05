@@ -5,6 +5,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include "veins/modules/application/ieee80211p/DemoBaseApplLayer.h"
 
 // Post-consensus order gossip helpers (Type 9).
 //
@@ -18,6 +19,15 @@
 // in ResDBIntersectionApp (which holds the private key and cMessage objects).
 
 namespace resdb_gossip {
+
+// Stored custody copy for delayed announce gossip.
+struct PendingRelay {
+    std::string carId;
+    uint32_t epoch;
+    std::vector<uint8_t> serializedAnnounce;  // original signed bytes, unchanged
+    double firstRelayedAt;
+    int relayCount;
+};
 
 // --- Serialization -----------------------------------------------------------
 
@@ -62,6 +72,37 @@ struct CertRelayTracker {
     // Returns false on subsequent calls (caller should skip).
     bool tryRelay(const std::string& carId);
 
+    void reset();
+
+private:
+    std::set<std::string> relayed_;
+};
+
+// --- Arrival announce gossip -------------------------------------------------
+
+// Build an announce-gossip inner payload: epoch(4B) || original ARRIVAL_ANNOUNCE bytes.
+// The original announce bytes are not modified or re-signed by the carrier.
+std::vector<uint8_t> serializeAnnouncement(uint32_t epoch,
+                                           const std::vector<uint8_t>& announce_bytes);
+
+// Parse an announce-gossip payload.
+bool parseAnnouncement(const uint8_t* inner, uint32_t len,
+                       uint32_t& epoch_out, std::vector<uint8_t>& announce_out);
+
+// --- Consensus relay gossip --------------------------------------------------
+
+// Build a consensus-relay inner payload: epoch(4B) || original raw ResDB bytes.
+// The original ResDB bytes are not modified or re-signed by the carrier.
+std::vector<uint8_t> serializeConsensusRelay(uint32_t epoch,
+                                             const std::vector<uint8_t>& resdb_bytes);
+
+// Parse a consensus-relay payload.
+bool parseConsensusRelay(const uint8_t* inner, uint32_t len,
+                         uint32_t& epoch_out, std::vector<uint8_t>& resdb_out);
+
+// Tracks which (epoch, carId) announcements this node has already relayed.
+struct AnnouncementRelayTracker {
+    bool tryRelay(uint32_t epoch, const std::string& carId);
     void reset();
 
 private:

@@ -48,6 +48,26 @@ DEFAULT_SCENARIOS: list[tuple[str, list[str], str]] = []
 # -----------------------------------------------------------------------------
 DEFAULT_BAR_SERIES: list[tuple[str, dict[int, list[str]]]] = [
     (
+        "Baseline no priority",
+        {
+            4: ["BaselinePriority4cars/no_amb/run_*/4veh_*.json"],
+            8: ["BaselinePriority8cars/no_amb/run_*/8veh_*.json"],
+            12: ["BaselinePriority12cars/no_amb/run_*/12veh_*.json"],
+            16: ["BaselinePriority16cars/no_amb/run_*/16veh_*.json"],
+            20: ["BaselinePriority20cars/no_amb/run_*/20veh_*.json"],
+        },
+    ),
+    (
+        "Baseline priority",
+        {
+            4: ["BaselinePriority4cars/amb_honest/run_*/4veh_*.json"],
+            8: ["BaselinePriority8cars/amb_honest/run_*/8veh_*.json"],
+            12: ["BaselinePriority12cars/amb_honest/run_*/12veh_*.json"],
+            16: ["BaselinePriority16cars/amb_honest/run_*/16veh_*.json"],
+            20: ["BaselinePriority20cars/amb_honest/run_*/20veh_*.json"],
+        },
+    ),
+    (
         "No ambulance (all regular)",
         {
             4: [
@@ -162,7 +182,8 @@ NORM_BAR_COLOR = "#95a5a6"
 NO_PRIO_BAR_COLOR = "#7f8c8d"
 
 # Partner overlay (RAFT allVehicles scenario only)
-from partner_metrics_io import partner_run_metrics, partner_wait_time_samples_s
+from partner_metrics_io import PARTNER_ROOT, partner_run_metrics, partner_wait_time_samples_s
+from benchmark_metrics_io import metric_json_paths, load_wait_samples_from_metric_jsons
 
 PARTNER_LABEL = "RAFT allVehicles (partner)"
 
@@ -367,7 +388,8 @@ def mean_or_none(vals: list[float]) -> float | None:
 
 def role_for_scenario_cdf(label: str) -> str:
     """Role filter for CDF when splitting by scenario label."""
-    if "no ambulance" in label.lower():
+    low = label.lower()
+    if "no ambulance" in low or "no priority" in low:
         return "normal"
     return "all"
 
@@ -771,9 +793,23 @@ def parse_args() -> argparse.Namespace:
         help="Moving-average radius on binned CDF for --cdf-smooth (default: 2)",
     )
     p.add_argument(
-        "--partner-data",
+        "--cdf-scenario-grid",
         action="store_true",
-        help="Overlay RAFT partner data (allVehicles) from /home/yash/partnersv2v/res.",
+        help="Use the older scenario-by-scenario CDF grid instead of the 6-line method comparison.",
+    )
+    partner_group = p.add_mutually_exclusive_group()
+    partner_group.add_argument(
+        "--partner-data",
+        dest="partner_data",
+        action="store_true",
+        default=None,
+        help="Overlay RAFT partner data. By default this is auto-enabled when partner_results exists.",
+    )
+    partner_group.add_argument(
+        "--no-partner-data",
+        dest="partner_data",
+        action="store_false",
+        help="Disable RAFT partner overlay even if partner_results exists.",
     )
     p.add_argument("--no-show", action="store_true", help="Do not plt.show()")
     return p.parse_args()
@@ -1032,6 +1068,156 @@ def plot_cdf_grid(
         + smooth_extra
     )
     fig.suptitle(supt, fontsize=12, fontweight="bold")
+    fig.tight_layout()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    fig.savefig(out.with_suffix(".pdf"), bbox_inches="tight")
+    print(f"Wrote {out}")
+    print(f"Wrote {out.with_suffix('.pdf')}")
+    plt.close(fig)
+
+
+def _method_cdf_series_for_n(
+    base_dir: Path,
+    n: int,
+    exclude_fallback: bool,
+    include_partner: bool,
+) -> list[tuple[str, list[float]]]:
+    base_s = str(base_dir)
+    series: list[tuple[str, list[float]]] = []
+
+    series.append((
+        "BFT no priority",
+        load_wait_samples_from_metric_jsons(
+            metric_json_paths(base_s, "Priority", n, "no_amb"),
+            role_filter="all",
+            exclude_fallback=exclude_fallback,
+        ),
+    ))
+    series.append((
+        "BFT priority",
+        load_wait_samples_from_metric_jsons(
+            metric_json_paths(base_s, "Priority", n, "amb_honest"),
+            role_filter="all",
+            exclude_fallback=exclude_fallback,
+        ),
+    ))
+    series.append((
+        "Baseline no priority",
+        load_wait_samples_from_metric_jsons(
+            metric_json_paths(base_s, "BaselinePriority", n, "no_amb"),
+            role_filter="all",
+            exclude_fallback=exclude_fallback,
+        ),
+    ))
+    series.append((
+        "Baseline priority",
+        load_wait_samples_from_metric_jsons(
+            metric_json_paths(base_s, "BaselinePriority", n, "amb_honest"),
+            role_filter="all",
+            exclude_fallback=exclude_fallback,
+        ),
+    ))
+
+    if include_partner:
+        raft_no = partner_wait_time_samples_s(
+            n,
+            mode="allVehicles_nopriority",
+            include_fallback=(not exclude_fallback),
+        )
+        raft_prio = partner_wait_time_samples_s(
+            n,
+            mode="allVehicles",
+            include_fallback=(not exclude_fallback),
+        )
+        series.extend([
+            ("RAFT no priority", raft_no),
+            ("RAFT priority", raft_prio),
+        ])
+
+    return [(label, waits) for label, waits in series if waits]
+
+
+def plot_method_cdf_grid(
+    base_dir: Path,
+    out: Path,
+    title: str | None,
+    exclude_fallback: bool,
+    include_partner: bool,
+    cdf_smooth: bool,
+    cdf_smooth_bins: int,
+    cdf_smooth_blur: int,
+) -> None:
+    """Six-line method comparison CDF: BFT, baseline, and optional RAFT with/without priority."""
+    assert plt is not None
+    fig, axes = plt.subplots(2, 2, figsize=(12.5, 10), sharey=True)
+    axes_flat = axes.ravel()
+    color_by_label = {
+        "BFT no priority": "#1f77b4",
+        "BFT priority": "#4fa3ff",
+        "Baseline no priority": "#2ca02c",
+        "Baseline priority": "#7bd77b",
+        "RAFT no priority": "#111111",
+        "RAFT priority": "#777777",
+    }
+    linestyle_by_label = {
+        "BFT no priority": "-",
+        "BFT priority": "--",
+        "Baseline no priority": "-",
+        "Baseline priority": "--",
+        "RAFT no priority": "-",
+        "RAFT priority": "--",
+    }
+
+    for ax_idx, n in enumerate(GRID_VEHICLE_COUNTS):
+        ax = axes_flat[ax_idx]
+        curves = _method_cdf_series_for_n(base_dir, n, exclude_fallback, include_partner)
+        for label, waits in curves:
+            xs, ys = _cdf_xy_from_waits(
+                waits,
+                cdf_smooth,
+                cdf_smooth_bins,
+                cdf_smooth_blur,
+            )
+            ax.plot(
+                xs,
+                ys,
+                color=color_by_label.get(label, "#333333"),
+                linestyle=linestyle_by_label.get(label, "-"),
+                linewidth=2.1,
+                label=f"{label} (n={len(waits)})",
+            )
+        ax.set_title(f"n = {n} vehicles", fontsize=11, fontweight="bold")
+        ax.set_xlabel("Total wait time (s)", fontsize=10)
+        if ax_idx in (0, 2):
+            ax.set_ylabel("CDF", fontsize=10)
+        ax.set_ylim(0, 1.05)
+        ax.set_xlim(left=0)
+        ax.grid(True, alpha=0.3)
+        if curves:
+            ax.legend(fontsize=7, loc="lower right")
+        else:
+            ax.text(
+                0.5,
+                0.5,
+                "No data for this n",
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+                fontsize=11,
+                color="gray",
+            )
+
+    smooth_extra = "\n(smoothed display)" if cdf_smooth else ""
+    fig.suptitle(
+        title or (
+            "CDF of wait time by coordination method\n"
+            "BFT, SUMO baseline, and RAFT; with/without priority vehicle"
+            + smooth_extra
+        ),
+        fontsize=12,
+        fontweight="bold",
+    )
     fig.tight_layout()
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=150, bbox_inches="tight")
@@ -1480,13 +1666,10 @@ def plot_ambulance_vs_normal_wait(
     include_partner: bool,
 ) -> None:
     """
-    Apples-to-apples priority benefit summary (partner plotPriority-style, simplified):
+    Apples-to-apples wait summary grouped by scenario:
     For each n ∈ {4,8,12,16}:
-      - BFT priority vehicle mean wait (amb_honest)
-      - BFT normal vehicles mean wait (amb_honest)
-      - BFT no-priority mean wait (no_amb; all vehicles)
-      - (optional) RAFT priority vehicle mean wait (allVehicles)
-      - (optional) RAFT no-priority mean wait (allVehicles_nopriority; all vehicles)
+      - No ambulance group: BFT, baseline, optional RAFT
+      - Ambulance group: BFT normal, BFT ambulance, baseline ambulance, optional RAFT ambulance
     """
     assert plt is not None
 
@@ -1501,69 +1684,104 @@ def plot_ambulance_vs_normal_wait(
         # BFT data (our repo): honest ambulance vs no-ambulance baseline.
         amb_patterns = [f"Priority{vc}cars/amb_honest/run_*/{vc}veh_*.json"]
         no_prio_patterns = [f"Priority{vc}cars/no_amb/run_*/{vc}veh_*.json"]
+        baseline_amb_patterns = [f"BaselinePriority{vc}cars/amb_honest/run_*/{vc}veh_*.json"]
+        baseline_no_prio_patterns = [f"BaselinePriority{vc}cars/no_amb/run_*/{vc}veh_*.json"]
 
         bft_prio, bft_norm = pooled_waits_by_role(amb_patterns, base_dir, exclude_fallback)
         bft_no_prio_all = scenario_waits(no_prio_patterns, base_dir, "all", exclude_fallback)
+        baseline_prio, _baseline_norm = pooled_waits_by_role(
+            baseline_amb_patterns, base_dir, exclude_fallback
+        )
+        baseline_no_prio_all = scenario_waits(
+            baseline_no_prio_patterns, base_dir, "all", exclude_fallback
+        )
 
         bft_prio_mean = mean_or_none(bft_prio)
         bft_norm_mean = mean_or_none(bft_norm)
         bft_no_prio_mean = mean_or_none(bft_no_prio_all)
+        baseline_prio_mean = mean_or_none(baseline_prio)
+        baseline_no_prio_mean = mean_or_none(baseline_no_prio_all)
 
-        labels = ["BFT priority", "BFT normal", "BFT no priority"]
-        values: list[float | None] = [bft_prio_mean, bft_norm_mean, bft_no_prio_mean]
-        colors = [AMB_BAR_COLOR, NORM_BAR_COLOR, NO_PRIO_BAR_COLOR]
-        hatches = ["", "", "//"]
+        no_amb_bars: list[tuple[str, float | None, str, str]] = [
+            ("BFT", bft_no_prio_mean, "#1f77b4", ""),
+            ("Baseline", baseline_no_prio_mean, "#2ca02c", ""),
+        ]
+        amb_bars: list[tuple[str, float | None, str, str]] = [
+            ("BFT normal", bft_norm_mean, "#1f77b4", "//"),
+            ("BFT ambulance", bft_prio_mean, AMB_BAR_COLOR, ""),
+            ("Baseline ambulance", baseline_prio_mean, "#2ca02c", ""),
+        ]
 
         if include_partner:
             from partner_metrics_io import partner_priority_and_normal_wait_means_s, partner_wait_time_samples_s
 
-            raft_prio_mean, _raft_norm_mean = partner_priority_and_normal_wait_means_s(vc, mode="allVehicles")
+            raft_prio_mean, raft_norm_mean = partner_priority_and_normal_wait_means_s(vc, mode="allVehicles")
             raft_no_prio_all = partner_wait_time_samples_s(vc, mode="allVehicles_nopriority")
             raft_no_prio_mean = mean_or_none(raft_no_prio_all) if raft_no_prio_all else None
 
-            labels.extend(["RAFT priority", "RAFT no priority"])
-            values.extend([raft_prio_mean, raft_no_prio_mean])
-            colors.extend(["black", "black"])
-            hatches.extend(["", "//"])
+            no_amb_bars.append(("RAFT", raft_no_prio_mean, "black", ""))
+            amb_bars.extend([
+                ("RAFT normal", raft_norm_mean, "black", "//"),
+                ("RAFT ambulance", raft_prio_mean, "#555555", ""),
+            ])
 
-        x = np.arange(len(labels), dtype=float)
-        ymax = max([float(v) for v in values if v is not None] + [0.0])
-        for i, (lab, val, col, hat) in enumerate(zip(labels, values, colors, hatches)):
-            if val is None:
-                continue
-            ax.bar(
-                x[i],
-                float(val),
-                0.72,
-                color=col,
-                alpha=0.9,
-                edgecolor="black",
-                linewidth=0.7,
-                hatch=hat,
-            )
-            ax.text(
-                x[i],
-                float(val) + 0.05,
-                f"{float(val):.1f}s",
-                ha="center",
-                va="bottom",
-                fontsize=8,
-                fontweight="bold",
-            )
+        groups = [("No ambulance", no_amb_bars), ("Ambulance", amb_bars)]
+        bar_width = 0.16 if include_partner else 0.20
+        group_centers = np.array([0.0, 1.25], dtype=float)
+        all_vals = [float(v) for _, bars in groups for _, v, _, _ in bars if v is not None]
+        ymax = max(all_vals + [0.0])
 
-        ax.set_xticks(x)
-        ax.set_xticklabels(labels, rotation=16, ha="right", fontsize=8)
+        legend_handles: dict[str, Patch] = {}
+        for g_idx, (group_label, bars) in enumerate(groups):
+            offsets = (np.arange(len(bars), dtype=float) - (len(bars) - 1) / 2.0) * bar_width
+            for offset, (lab, val, col, hat) in zip(offsets, bars):
+                if val is None:
+                    continue
+                x_pos = group_centers[g_idx] + offset
+                role_alpha = 0.9 if "ambulance" in lab.lower() or group_label == "No ambulance" else 0.72
+                ax.bar(
+                    x_pos,
+                    float(val),
+                    bar_width * 0.92,
+                    color=col,
+                    alpha=role_alpha,
+                    edgecolor="black",
+                    linewidth=0.7,
+                    hatch=hat,
+                )
+                ax.text(
+                    x_pos,
+                    float(val) + 0.05,
+                    f"{float(val):.1f}s",
+                    ha="center",
+                    va="bottom",
+                    fontsize=7,
+                    fontweight="bold",
+                )
+                legend_handles.setdefault(lab, Patch(facecolor=col, edgecolor="black", hatch=hat, label=lab, alpha=role_alpha))
+
+        ax.set_xticks(group_centers)
+        ax.set_xticklabels([g[0] for g in groups], fontsize=9, fontweight="bold")
         ax.set_title(f"n = {vc} vehicles", fontsize=11, fontweight="bold")
-        ax.set_xlim(-0.6, len(labels) - 0.4)
+        ax.set_xlim(group_centers[0] - 0.55, group_centers[-1] + 0.65)
         top = ymax * 1.22 + 0.35 if ymax > 0 else 1.0
         ax.set_ylim(0, top)
         ax.grid(True, alpha=0.3, axis="y")
         if ax_idx in (0, 2):
             ax.set_ylabel("Mean wait time (s)", fontsize=10, fontweight="bold")
+        if legend_handles:
+            ax.legend(
+                list(legend_handles.values()),
+                list(legend_handles.keys()),
+                fontsize=6.5,
+                loc="upper left",
+                ncols=2,
+                framealpha=0.9,
+            )
 
     fig.suptitle(
-        f"Priority benefit: wait time at intersection{title_suffix}\n"
-        "Stop → depart (mean wait per vehicle); BFT uses amb_honest vs no_amb; RAFT uses allVehicles vs allVehicles_nopriority",
+        f"Wait time at intersection by scenario{title_suffix}\n"
+        "Grouped by no-ambulance vs ambulance runs; bars compare BFT, baseline, and optional RAFT",
         fontsize=12,
         fontweight="bold",
     )
@@ -1588,6 +1806,9 @@ def main() -> int:
 
     script_dir = Path(__file__).resolve().parent
     base_dir = args.base_dir.resolve() if args.base_dir else script_dir
+    include_partner = bool(args.partner_data) if args.partner_data is not None else PARTNER_ROOT.is_dir()
+    if include_partner:
+        print(f"Partner/RAFT data enabled: {PARTNER_ROOT}")
 
     bar_series_cfg: list[tuple[str, dict[int, list[str]]]] | None = None
     vehicle_counts_cfg: list[int] | None = None
@@ -1690,18 +1911,30 @@ def main() -> int:
             else:
                 plot_cdf(series, out_cdf, args.title, cdf_smooth_note)
         else:
-            plot_cdf_grid(
-                base_dir,
-                bar_series_cfg,
-                out_cdf,
-                args.title,
-                exclude_fallback,
-                args.cdf_no_ambulance_marker,
-                args.cdf_smooth,
-                args.cdf_smooth_bins,
-                args.cdf_smooth_blur,
-                args.partner_data,
-            )
+            if args.cdf_scenario_grid:
+                plot_cdf_grid(
+                    base_dir,
+                    bar_series_cfg,
+                    out_cdf,
+                    args.title,
+                    exclude_fallback,
+                    args.cdf_no_ambulance_marker,
+                    args.cdf_smooth,
+                    args.cdf_smooth_bins,
+                    args.cdf_smooth_blur,
+                    include_partner,
+                )
+            else:
+                plot_method_cdf_grid(
+                    base_dir,
+                    out_cdf,
+                    args.title,
+                    exclude_fallback,
+                    include_partner,
+                    args.cdf_smooth,
+                    args.cdf_smooth_bins,
+                    args.cdf_smooth_blur,
+                )
 
     # --- Bars ---
     if "bars" in plot_modes:
@@ -1712,7 +1945,7 @@ def main() -> int:
             out_dir_bars,
             args.bar_prefix,
             bar_title_note or "",
-            args.partner_data,
+            include_partner,
         )
 
     # --- Ambulance vs normal mean wait ---
@@ -1723,7 +1956,7 @@ def main() -> int:
             args.bar_prefix,
             bar_title_note or "",
             exclude_fallback,
-            args.partner_data,
+            include_partner,
         )
 
     return 0

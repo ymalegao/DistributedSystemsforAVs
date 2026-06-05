@@ -12,10 +12,93 @@ from __future__ import annotations
 
 import csv
 import glob
+import json
 import os
 from typing import Iterable
 
 import numpy as np
+
+
+def metric_json_paths(
+    benchmark_base_dir: str,
+    family_prefix: str,
+    vehicle_count: int,
+    scenario_subdir: str,
+) -> list[str]:
+    """Return analyze_log JSONs for e.g. Priority16cars/no_amb/run_*/16veh_*.json."""
+    pattern = os.path.join(
+        benchmark_base_dir,
+        f"{family_prefix}{vehicle_count}cars",
+        scenario_subdir,
+        "run_*",
+        f"{vehicle_count}veh_*.json",
+    )
+    return sorted(glob.glob(pattern))
+
+
+def _vehicle_wait_s(vehicle: dict) -> float | None:
+    if "wait_intersection_s" in vehicle:
+        try:
+            return float(vehicle.get("wait_intersection_s"))
+        except (TypeError, ValueError):
+            pass
+    durs = vehicle.get("durations_ms")
+    if isinstance(durs, dict):
+        try:
+            ms = float(durs.get("total_wait_time"))
+            return ms / 1000.0
+        except (TypeError, ValueError):
+            pass
+    ts = vehicle.get("timestamps_ms")
+    if isinstance(ts, dict):
+        try:
+            stopped = float(ts.get("stopped", 0) or 0)
+            passed = float(ts.get("passed", 0) or 0)
+            if passed > 0 and stopped > 0 and passed >= stopped:
+                return (passed - stopped) / 1000.0
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
+def load_wait_samples_from_metric_jsons(
+    paths: Iterable[str],
+    role_filter: str = "all",
+    exclude_fallback: bool = True,
+) -> list[float]:
+    """Load wait samples from partner-style or analyze_log legacy JSON files."""
+    waits: list[float] = []
+    for path in paths:
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            print(f"WARNING: could not read {path}: {e}")
+            continue
+        if isinstance(data, list):
+            vehicles = [v for v in data if isinstance(v, dict)]
+        elif isinstance(data, dict) and isinstance(data.get("per_car"), list):
+            vehicles = [v for v in data["per_car"] if isinstance(v, dict)]
+        else:
+            vehicles = []
+        for v in vehicles:
+            if exclude_fallback:
+                used_fb = v.get("used_fallback")
+                if used_fb is None and isinstance(v.get("bft_stats"), dict):
+                    used_fb = v["bft_stats"].get("used_fallback")
+                if used_fb is True or v.get("coordination_method") == "fallback":
+                    continue
+            role = v.get("role")
+            if not isinstance(role, str):
+                role = "ambulance" if bool(v.get("is_priority_vehicle", False)) else "normal"
+            if role_filter == "normal" and role != "normal":
+                continue
+            if role_filter == "ambulance" and role != "ambulance":
+                continue
+            wt = _vehicle_wait_s(v)
+            if wt is not None and wt > 0:
+                waits.append(wt)
+    return waits
 
 
 def run_directories_for_scenario(scenario_dir: str, csv_glob: str) -> list[str]:

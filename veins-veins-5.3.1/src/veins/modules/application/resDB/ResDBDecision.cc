@@ -2,6 +2,7 @@
 #include "veins/modules/application/resDB/ResDBUtil.h"
 #include "veins/modules/application/resDB/ResdbV2VWire.h"
 
+
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
@@ -169,6 +170,35 @@ void ResDBIntersectionApp::proposeAll()
     int rc = ResdbOmnetTriggerConsensus(resdb_server_handle_, buf.data(), (uint32_t)buf.size());
     std::cout << "[ResDB r" << replicaId_ << "] TriggerConsensus rc=" << rc
               << " vehicles=" << n << "\n";
+}
+
+// ── certSnapshotCallback (ResDB worker thread) ───────────────────────────────
+// Called by the bridge pre-verify to get the replica IDs this node has certs for.
+
+/*static*/ void ResDBIntersectionApp::certSnapshotCallback(
+    void* ctx, ResdbCertEntry* out, uint32_t* cnt)
+{
+    auto* app = static_cast<ResDBIntersectionApp*>(ctx);
+    std::lock_guard<std::mutex> lk(app->certs_mutex_);
+    uint32_t capacity = *cnt;
+    uint32_t i = 0;
+    for (const auto& kv : app->collected_certs_) {
+        if (i >= capacity) break;
+        const std::string& carId = kv.first;
+        if (carId.size() > 3) {
+            try {
+                const ArrivalCert& cert = kv.second;
+                out[i].replica_id       = std::stoi(carId.substr(3));
+                out[i].lane             = laneCode(cert.lane);
+                out[i].position_in_lane = static_cast<uint8_t>(
+                    std::min(cert.positionInLane, 255));
+                out[i].direction        = directionCode(cert.direction);
+                out[i].is_ambulance     = cert.isAmbulance ? 1 : 0;
+                ++i;
+            } catch (...) {}
+        }
+    }
+    *cnt = i;
 }
 
 // ── onOrderDecided (ResDB worker thread) ─────────────────────────────────────

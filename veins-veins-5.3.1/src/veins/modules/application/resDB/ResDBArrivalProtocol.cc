@@ -1,6 +1,7 @@
 #include "veins/modules/application/resDB/ResDBIntersectionApp.h"
 #include "veins/modules/application/resDB/ResDBUtil.h"
-#include "veins/modules/bftsmart/BFTMessage_m.h"
+#include "veins/modules/application/resDB/ResdbV2VWire.h"
+#include "veins/modules/application/resDB/messages/BFTMessage_m.h"
 
 #include <algorithm>
 #include <cctype>
@@ -13,6 +14,32 @@
 
 using namespace veins;
 using namespace veins::resdb_app_util;
+
+namespace {
+
+std::vector<uint8_t> payloadBytes(BFTMessage* msg)
+{
+    std::vector<uint8_t> payload(msg->getPayloadArraySize());
+    for (size_t i = 0; i < payload.size(); ++i)
+        payload[i] = msg->getPayload(i);
+    return payload;
+}
+
+BFTMessage* makeArrivalAnnouncementMessage(const std::vector<uint8_t>& payload,
+                                           int fromReplicaId,
+                                           int toReplicaId)
+{
+    BFTMessage* msg = new BFTMessage("gossipedArrivalAnnouncement");
+    msg->setFromReplicaId(fromReplicaId);
+    msg->setToReplicaId(toReplicaId);
+    msg->setPayloadArraySize(payload.size());
+    for (size_t i = 0; i < payload.size(); ++i)
+        msg->setPayload(i, payload[i]);
+    msg->setPayloadLength((int)payload.size());
+    return msg;
+}
+
+} // namespace
 
 std::vector<uint8_t> ResDBIntersectionApp::serializeArrivalAnnouncement(
         const ArrivalAnnouncement& ann)
@@ -316,10 +343,86 @@ void ResDBIntersectionApp::broadcastArrivalAnnouncement()
 
 void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg)
 {
-    std::cout << "[ANN-RECV] Replica " << replicaId_ << " received ARRIVAL_ANNOUNCE from "
-              << msg->getFromReplicaId() << " at t=" << simTime() << "\n";
+    handleArrivalAnnouncement(msg, false, -1);
+}
+
+void ResDBIntersectionApp::gossipArrivalAnnouncement(const ArrivalAnnouncement& ann,
+                                                     const std::vector<uint8_t>& announceBytes)
+{
+    if (!gossip_enabled_ || announceBytes.empty() || ann.carId.empty()) return;
+    if (propose_submitted_ || order_applied_) return;
+    if (!announcement_relay_tracker_.tryRelay((uint32_t)ann.epoch, ann.carId)) return;
+
+    sendArrivalAnnouncementGossipPayload(
+        ann.carId, (uint32_t)ann.epoch, announceBytes, "verified");
+}
+
+void ResDBIntersectionApp::sendArrivalAnnouncementGossipPayload(
+    const std::string& carId,
+    uint32_t epoch,
+    const std::vector<uint8_t>& announceBytes,
+    const char* reason)
+{
+    if (!gossip_enabled_ || announceBytes.empty() || carId.empty()) return;
+    if (propose_submitted_ || order_applied_) return;
+
+    auto inner = resdb_gossip::serializeAnnouncement(epoch, announceBytes);
+    auto signedPayload = resdbwire::packSignedPacket(
+        ec_private_key_, ec_pub_key_, inner.data(), (uint32_t)inner.size());
+    if (signedPayload.empty()) return;
+
+    sendBFTMessage(-1, signedPayload, kArrivalAnnounceGossipType);
+    std::cout << "[ANN-GOSSIP-SEND] r" << replicaId_
+              << " car=" << carId
+              << " epoch=" << epoch
+              << " bytes=" << announceBytes.size()
+              << " reason=" << (reason ? reason : "relay")
+              << " t=" << simTime() << "\n";
+}
+
+void ResDBIntersectionApp::handleArrivalAnnouncementGossip(BFTMessage* msg)
+{
+    int plen = msg->getPayloadArraySize();
+    if (plen <= 0) return;
+    std::vector<uint8_t> buf((size_t)plen);
+    for (int i = 0; i < plen; ++i) buf[i] = msg->getPayload(i);
+
+    resdbwire::SignedPacketView view;
+    if (!resdbwire::unpackSignedPacket(buf.data(), (uint32_t)buf.size(), &view)) return;
+    if (view.resdbLen == 0) return;
+    if (!CryptoAuth::instance().verifyBytes(view.pubKey, view.resdbBytes, view.resdbLen,
+                                            view.sig, view.sigLen)) {
+        std::cout << "[ANN-GOSSIP-RECV] r" << replicaId_
+                  << " dropped forged announce gossip from r"
+                  << msg->getFromReplicaId() << "\n";
+        return;
+    }
+
+    uint32_t epoch = 0;
+    std::vector<uint8_t> announceBytes;
+    if (!resdb_gossip::parseAnnouncement(view.resdbBytes, view.resdbLen,
+                                         epoch, announceBytes)) return;
+    if (has_committed_order_ && epoch <= last_committed_epoch_) return;
+    if ((int)epoch < (int)current_epoch_) return;
+
+    BFTMessage* announceMsg = makeArrivalAnnouncementMessage(
+        announceBytes, msg->getFromReplicaId(), replicaId_);
+    handleArrivalAnnouncement(announceMsg, true, msg->getFromReplicaId());
+    delete announceMsg;
+}
+
+void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
+                                                     bool viaGossip,
+                                                     int carrierReplicaId)
+{
+    std::vector<uint8_t> announceBytes = payloadBytes(msg);
     ArrivalAnnouncement ann = deserializeArrivalAnnouncement(msg);
     if (ann.carId.empty()) return;
+    std::cout << "[ANN-RECV] Replica " << replicaId_ << " received ARRIVAL_ANNOUNCE from "
+              << ann.carId << " frameFrom=" << msg->getFromReplicaId()
+              << " via=" << (viaGossip ? "gossip" : "direct");
+    if (viaGossip) std::cout << " carrier=" << carrierReplicaId;
+    std::cout << " at t=" << simTime() << "\n";
 
     // Dedup: only re-echo if we VERIFIED and echoed this car before (not FALSE_LANE).
     // echoed_cars_ is populated only after verifyCarPosition passes, so FALSE_LANE
@@ -331,8 +434,11 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg)
         // this replica assembles its own cert.
         if (echoed_cars_.count(ann.carId)
                 && !collected_certs_.count(ann.carId)
-                && !propose_submitted_ && !order_applied_)
+                && !propose_submitted_ && !order_applied_) {
+            pending_relays_[std::make_pair((uint32_t)ann.epoch, ann.carId)] = {
+                ann.carId, (uint32_t)ann.epoch, announceBytes, simTime().dbl(), 0};
             sendArrivalEcho(ann);
+        }
         return;
     }
 
@@ -354,7 +460,9 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg)
         arrival_announcements_received_.insert(ann.carId);
         physically_observed_cars_.insert(ann.carId);
         std::cout << "[ANN-RECV] Replica " << replicaId_ << " FALSE_LANE from "
-                  << ann.carId << " — no echo\n";
+                  << ann.carId
+                  << " via=" << (viaGossip ? "gossip" : "direct")
+                  << " — no echo\n";
         return;
     }
 
@@ -370,11 +478,15 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg)
     arrival_announcements_received_.insert(ann.carId);
     physically_observed_cars_.insert(ann.carId);
     echoed_cars_.insert(ann.carId);  // record that we actually echoed this car
+    pending_relays_[std::make_pair((uint32_t)ann.epoch, ann.carId)] = {
+        ann.carId, (uint32_t)ann.epoch, announceBytes, simTime().dbl(), 0};
 
     sendArrivalEcho(ann);
+    gossipArrivalAnnouncement(ann, announceBytes);
 
     std::cout << "[ANN-RECV] Replica " << replicaId_ << " stored VehicleState for "
-              << ann.carId << " (" << physically_observed_cars_.size()
+              << ann.carId << " via=" << (viaGossip ? "gossip" : "direct")
+              << " (" << physically_observed_cars_.size()
               << "/" << total_vehicles_ << " observed)\n";
 
     if (physically_observed_cars_.size() == total_vehicles_) {
@@ -545,6 +657,7 @@ void ResDBIntersectionApp::broadcastArrivalCert(const ArrivalCert& cert)
 
     // OMNeT++ modules don't receive their own channel broadcasts — self-store.
     if (!collected_certs_.count(cert.carId)) {
+        std::lock_guard<std::mutex> lk(certs_mutex_);
         collected_certs_[cert.carId] = cert;
         std::cout << "[CERT-STORED-SELF] Replica " << replicaId_ << " self-stored cert for "
                   << cert.carId << " (" << collected_certs_.size() << "/" << total_vehicles_ << ")\n";
@@ -576,7 +689,10 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
     }
     if (collected_certs_.count(cert.carId)) return;  // dedup
 
-    collected_certs_[cert.carId] = cert;
+    {
+        std::lock_guard<std::mutex> lk(certs_mutex_);
+        collected_certs_[cert.carId] = cert;
+    }
     std::cout << "[CERT-STORED] Replica " << replicaId_ << " stored ARRIVAL_CERT for "
               << cert.carId << " (" << collected_certs_.size() << "/" << total_vehicles_ << ")\n";
 
@@ -601,9 +717,10 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
                   << cert.carId << " t=" << simTime() << "\n";
     }
 
+    int cur_primary = ResdbOmnetGetPrimary(resdb_server_handle_);
+
     // Primary: if in stop zone and all certs collected → propose.
-    if (replicaId_ == ResdbOmnetGetPrimary(resdb_server_handle_)
-            && entered_stop_zone_ && !propose_submitted_) {
+    if (replicaId_ == cur_primary && entered_stop_zone_ && !propose_submitted_) {
         if ((int)collected_certs_.size() >= total_vehicles_) {
             if (propose_timeout_msg_) {
                 cancelEvent(propose_timeout_msg_);

@@ -20,7 +20,7 @@ from typing import Any
 
 import numpy as np
 
-PARTNER_ROOT = Path("/home/yash/partnersv2v/res")
+PARTNER_ROOT = Path("/Users/yashmalegaonkar/Documents/v2v/partner_results")
 PARTNER_PROTOCOL_PREFIX = "simple_raftwave"
 PARTNER_MODE = "allVehicles"
 

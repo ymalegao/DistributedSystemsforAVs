@@ -1,17 +1,47 @@
 #include "veins/modules/application/resDB/ResDBIntersectionApp.h"
 #include "veins/modules/application/resDB/ResDBUtil.h"
 #include "veins/modules/application/resDB/ResdbV2VWire.h"
-#include "veins/modules/bftsmart/BFTMessage_m.h"
+#include "veins/modules/application/resDB/messages/BFTMessage_m.h"
 
 #include <cstdio>
+#include <cstdint>
 #include <deque>
 #include <iostream>
+#include <iomanip>
 #include <mutex>
+#include <sstream>
+#include <string>
 #include <utility>
 #include <vector>
 
+#include <openssl/evp.h>
+
 using namespace veins;
 using namespace veins::resdb_app_util;
+
+namespace {
+
+std::string sha256Hex(const uint8_t* data, uint32_t len)
+{
+    unsigned char digest[EVP_MAX_MD_SIZE];
+    unsigned int digestLen = 0;
+
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    if (!ctx) return "";
+    bool ok = EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr) == 1 &&
+              EVP_DigestUpdate(ctx, data, len) == 1 &&
+              EVP_DigestFinal_ex(ctx, digest, &digestLen) == 1;
+    EVP_MD_CTX_free(ctx);
+    if (!ok) return "";
+
+    std::ostringstream oss;
+    oss << std::hex << std::setfill('0');
+    for (unsigned int i = 0; i < digestLen; ++i)
+        oss << std::setw(2) << static_cast<unsigned int>(digest[i]);
+    return oss.str();
+}
+
+} // namespace
 
 ResDBIntersectionApp::LoggingTransport::LoggingTransport(int rid)
     : rid_(rid)
@@ -107,9 +137,25 @@ void ResDBIntersectionApp::drainOutboundQueue()
         double jmin  = par("broadcastJitterMin").doubleValue();
         double jmax  = par("broadcastJitterMax").doubleValue();
         double delay = replicaId_ * slot + ((jmax > jmin) ? uniform(jmin, jmax) : 0.0);
+        ResdbPacketRequestInfo inner = {};
+        ResdbOmnetGetPacketRequestInfo(pkt.resdbBytes.data(),
+                                       (uint32_t)pkt.resdbBytes.size(),
+                                       &inner);
+
         std::cout << "[TYPE8-DRAIN] r" << replicaId_ << " to=" << pkt.toReplicaId
                   << " resdbLen=" << pkt.resdbBytes.size()
                   << " signedLen=" << signed_payload.size()
+                  << " inner=" << ResdbOmnetRequestTypeName(inner.type)
+                  << "(" << inner.type << ")"
+                  << " view=" << inner.current_view
+                  << " seq=" << inner.seq
+                  << " sender=" << inner.sender_id
+                  << " primary=" << inner.primary_id
+                  << " proxy=" << inner.proxy_id
+                  << " executed=" << inner.current_executed_seq
+                  << " dataLen=" << inner.data_len
+                  << " hashLen=" << inner.hash_len
+                  << " parseOk=" << inner.parse_ok
                   << " delay=" << delay << " t=" << simTime() << "\n";
         sendDelayedDown(bft, delay);
     }
@@ -144,7 +190,7 @@ void ResDBIntersectionApp::sendBFTMessage(int toReplicaId,
     } else if (msgType == kArrivalCertType) {
         delaySec = replicaId_ * par("arrivalSlotSec").doubleValue() + uniform(par("viewJitterMin").doubleValue(), par("viewJitterMax").doubleValue());
         // delaySec = uniform(par("viewJitterMin").doubleValue(), par("viewJitterMax").doubleValue());
-    } else if (msgType == kArrivalAnnounceType) {
+    } else if (msgType == kArrivalAnnounceType || msgType == kArrivalAnnounceGossipType) {
         delaySec = replicaId_ * par("arrivalSlotSec").doubleValue()
             + uniform(par("broadcastJitterMin").doubleValue(), par("broadcastJitterMax").doubleValue());
     } else {
@@ -153,9 +199,10 @@ void ResDBIntersectionApp::sendBFTMessage(int toReplicaId,
     }
 
     if (debug_cert_protocol_) {
-        const char* kind = (msgType == kArrivalAnnounceType)   ? "ANN"
-                           : (msgType == kArrivalEchoType)     ? "ECHO"
-                           : (msgType == kArrivalCertType)     ? "CERT"
+        const char* kind = (msgType == kArrivalAnnounceType)       ? "ANN"
+                           : (msgType == kArrivalAnnounceGossipType) ? "ANN-GOSSIP"
+                           : (msgType == kArrivalEchoType)         ? "ECHO"
+                           : (msgType == kArrivalCertType)         ? "CERT"
                            : "?";
         std::cout << "[CERT-DEBUG] sendBFT r" << replicaId_ << " kind=" << kind
                   << " type=" << msgType << " toReplicaId=" << toReplicaId
@@ -184,14 +231,160 @@ void ResDBIntersectionApp::handleResdbConsensusMessage(BFTMessage* bft)
                   << bft->getFromReplicaId() << "\n";
         return;
     }
+    ResdbPacketRequestInfo inner = {};
+    ResdbOmnetGetPacketRequestInfo(view.resdbBytes, view.resdbLen, &inner);
     std::cout << "[TYPE8-RECV] r" << replicaId_ << " from=" << bft->getFromReplicaId()
-              << " resdbLen=" << view.resdbLen << " t=" << simTime() << "\n";
+              << " resdbLen=" << view.resdbLen
+              << " inner=" << ResdbOmnetRequestTypeName(inner.type)
+              << "(" << inner.type << ")"
+              << " view=" << inner.current_view
+              << " seq=" << inner.seq
+              << " sender=" << inner.sender_id
+              << " primary=" << inner.primary_id
+              << " proxy=" << inner.proxy_id
+              << " executed=" << inner.current_executed_seq
+              << " dataLen=" << inner.data_len
+              << " hashLen=" << inner.hash_len
+              << " parseOk=" << inner.parse_ok
+              << " t=" << simTime() << "\n";
     int primary = ResdbOmnetGetPrimary(resdb_server_handle_);
     if (primary >= 0 && bft->getFromReplicaId() == primary)
         stopCertBroadcastRetries();
 
     ResdbOmnetDeliverPacket(resdb_server_handle_, bft->getFromReplicaId(),
                             view.resdbBytes, view.resdbLen);
+    maybeRelayResdbConsensusBytes(view.resdbBytes, view.resdbLen, inner, "type8");
+}
+
+bool ResDBIntersectionApp::isConsensusRelayEligible(const ResdbPacketRequestInfo& info) const
+{
+    if (!info.parse_ok) return false;
+    switch (info.type) {
+    case 3:  // TYPE_PRE_PREPARE
+    case 4:  // TYPE_PREPARE
+    case 5:  // TYPE_COMMIT
+        return true;
+    default:
+        return false;
+    }
+}
+
+std::string ResDBIntersectionApp::consensusRelayKey(
+    const uint8_t* data, uint32_t len, const ResdbPacketRequestInfo& info) const
+{
+    return std::to_string(info.type) + ":" +
+           std::to_string(info.current_view) + ":" +
+           std::to_string(info.seq) + ":" +
+           std::to_string(info.sender_id) + ":" +
+           sha256Hex(data, len);
+}
+
+void ResDBIntersectionApp::maybeRelayResdbConsensusBytes(
+    const uint8_t* data, uint32_t len, const ResdbPacketRequestInfo& info,
+    const char* source)
+{
+    if (!gossip_enabled_ || order_applied_ || !data || len == 0) return;
+    if (!isConsensusRelayEligible(info)) return;
+
+    std::string key = consensusRelayKey(data, len, info);
+    if (!consensus_relay_seen_.insert(key).second) {
+        std::cout << "[TYPE11-DROP] r" << replicaId_
+                  << " reason=duplicate source=" << (source ? source : "?")
+                  << " inner=" << ResdbOmnetRequestTypeName(info.type)
+                  << " view=" << info.current_view
+                  << " seq=" << info.seq
+                  << " sender=" << info.sender_id
+                  << " hash=" << key.substr(key.rfind(':') + 1)
+                  << " t=" << simTime() << "\n";
+        return;
+    }
+
+    std::vector<uint8_t> raw(data, data + len);
+    auto inner = resdb_gossip::serializeConsensusRelay(current_epoch_, raw);
+    auto signed_payload = resdbwire::packSignedPacket(
+        ec_private_key_, ec_pub_key_, inner.data(), (uint32_t)inner.size());
+    if (signed_payload.empty()) return;
+
+    sendBFTMessage(-1, signed_payload, kResdbConsensusRelayType);
+    std::cout << "[TYPE11-SEND] r" << replicaId_
+              << " source=" << (source ? source : "?")
+              << " inner=" << ResdbOmnetRequestTypeName(info.type)
+              << " view=" << info.current_view
+              << " seq=" << info.seq
+              << " sender=" << info.sender_id
+              << " hash=" << key.substr(key.rfind(':') + 1)
+              << " bytes=" << len
+              << " t=" << simTime() << "\n";
+}
+
+void ResDBIntersectionApp::handleResdbConsensusRelay(BFTMessage* bft)
+{
+    int plen = bft->getPayloadArraySize();
+    if (plen <= 0) return;
+    std::vector<uint8_t> buf((size_t)plen);
+    for (int i = 0; i < plen; ++i) buf[i] = bft->getPayload(i);
+
+    resdbwire::SignedPacketView view;
+    if (!resdbwire::unpackSignedPacket(buf.data(), (uint32_t)buf.size(), &view)) return;
+    if (view.resdbLen == 0) return;
+
+    if (!CryptoAuth::instance().verifyBytes(view.pubKey, view.resdbBytes, view.resdbLen,
+                                            view.sig, view.sigLen)) {
+        std::cout << "[TYPE11-RECV] r" << replicaId_
+                  << " dropped forged relay from " << bft->getFromReplicaId()
+                  << "\n";
+        return;
+    }
+
+    uint32_t epoch = 0;
+    std::vector<uint8_t> raw;
+    if (!resdb_gossip::parseConsensusRelay(view.resdbBytes, view.resdbLen,
+                                           epoch, raw)) return;
+    if (has_committed_order_ && epoch <= last_committed_epoch_) return;
+    if ((int)epoch < (int)current_epoch_) return;
+
+    ResdbPacketRequestInfo info = {};
+    ResdbOmnetGetPacketRequestInfo(raw.data(), (uint32_t)raw.size(), &info);
+    std::string key = consensusRelayKey(raw.data(), (uint32_t)raw.size(), info);
+
+    if (!isConsensusRelayEligible(info)) {
+        std::cout << "[TYPE11-DROP] r" << replicaId_
+                  << " reason=ineligible carrier=" << bft->getFromReplicaId()
+                  << " inner=" << ResdbOmnetRequestTypeName(info.type)
+                  << " view=" << info.current_view
+                  << " seq=" << info.seq
+                  << " sender=" << info.sender_id
+                  << " parseOk=" << info.parse_ok
+                  << " t=" << simTime() << "\n";
+        return;
+    }
+
+    if (consensus_relay_seen_.count(key) != 0) {
+        std::cout << "[TYPE11-DROP] r" << replicaId_
+                  << " reason=duplicate carrier=" << bft->getFromReplicaId()
+                  << " inner=" << ResdbOmnetRequestTypeName(info.type)
+                  << " view=" << info.current_view
+                  << " seq=" << info.seq
+                  << " sender=" << info.sender_id
+                  << " hash=" << key.substr(key.rfind(':') + 1)
+                  << " t=" << simTime() << "\n";
+        return;
+    }
+
+    std::cout << "[TYPE11-RECV] r" << replicaId_
+              << " carrier=" << bft->getFromReplicaId()
+              << " inner=" << ResdbOmnetRequestTypeName(info.type)
+              << " view=" << info.current_view
+              << " seq=" << info.seq
+              << " sender=" << info.sender_id
+              << " hash=" << key.substr(key.rfind(':') + 1)
+              << " bytes=" << raw.size()
+              << " t=" << simTime() << "\n";
+
+    int original_from = info.sender_id > 0 ? info.sender_id - 1 : bft->getFromReplicaId();
+    ResdbOmnetDeliverPacket(resdb_server_handle_, original_from,
+                            raw.data(), (uint32_t)raw.size());
+    maybeRelayResdbConsensusBytes(raw.data(), (uint32_t)raw.size(), info, "type11");
 }
 
 // ── onWSM ─────────────────────────────────────────────────────────────────────

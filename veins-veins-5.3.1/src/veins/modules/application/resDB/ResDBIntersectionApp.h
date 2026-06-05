@@ -151,12 +151,27 @@ private:
     void enqueueOutbound(int toReplicaId, const uint8_t* data, uint32_t len);
     void drainOutboundQueue();
     void handleResdbConsensusMessage(BFTMessage* bft);
+    void handleResdbConsensusRelay(BFTMessage* bft);
+    void maybeRelayResdbConsensusBytes(const uint8_t* data, uint32_t len,
+                                       const ResdbPacketRequestInfo& info,
+                                       const char* source);
+    bool isConsensusRelayEligible(const ResdbPacketRequestInfo& info) const;
+    std::string consensusRelayKey(const uint8_t* data, uint32_t len,
+                                  const ResdbPacketRequestInfo& info) const;
     void sendBFTMessage(int toReplicaId, const std::vector<uint8_t>& payload, int msgType);
 
     // ── Arrival cert protocol ────────────────────────────────────────────────
     void tryStartCertCollectionTimer(bool rearm = false);
     void broadcastArrivalAnnouncement();
     void handleArrivalAnnouncement(BFTMessage* msg);
+    void handleArrivalAnnouncement(BFTMessage* msg, bool viaGossip, int carrierReplicaId);
+    void gossipArrivalAnnouncement(const ArrivalAnnouncement& ann,
+                                   const std::vector<uint8_t>& announceBytes);
+    void sendArrivalAnnouncementGossipPayload(const std::string& carId,
+                                             uint32_t epoch,
+                                             const std::vector<uint8_t>& announceBytes,
+                                             const char* reason);
+    void handleArrivalAnnouncementGossip(BFTMessage* msg);
     void sendArrivalEcho(const ArrivalAnnouncement& ann);
     void handleArrivalEcho(BFTMessage* msg);
     void broadcastArrivalCert(const ArrivalCert& cert);
@@ -181,6 +196,7 @@ private:
 
     // ── ResDB decision handling ───────────────────────────────────────────────
     static void onOrderDecided(void* ctx, const uint8_t* bytes, uint32_t len);
+    static void certSnapshotCallback(void* ctx, ResdbCertEntry* out, uint32_t* cnt);
     void proposeAll();
     void processOrders();
 
@@ -266,6 +282,8 @@ private:
     std::string log_dir_;
 
     // ── Cert protocol state ───────────────────────────────────────────────────
+    // Guards collected_certs_ against concurrent access from ResDB pre-verify threads.
+    mutable std::mutex                              certs_mutex_;
     std::map<std::string, VehicleState>             local_vehicle_states_;
     std::map<std::string, ArrivalCert>              collected_certs_;
     std::map<std::string, std::vector<ArrivalEcho>> my_received_echoes_;
@@ -285,9 +303,14 @@ private:
 
     // ── Post-consensus order gossip (Type 9) ──────────────────────────────────
     static constexpr int kDecisionGossipType = 9;
+    static constexpr int kArrivalAnnounceGossipType = 10;
+    static constexpr int kResdbConsensusRelayType = 11;
 
     resdb_gossip::GossipAccumulator  gossip_acc_;
     resdb_gossip::CertRelayTracker   cert_relay_tracker_;
+    resdb_gossip::AnnouncementRelayTracker announcement_relay_tracker_;
+    std::set<std::string> consensus_relay_seen_;
+    std::map<std::pair<uint32_t, std::string>, resdb_gossip::PendingRelay> pending_relays_;
     cMessage*            gossip_timer_              = nullptr;
     int                  gossip_retry_count_        = 0;
     uint32_t             gossip_epoch_              = 0;

@@ -33,6 +33,8 @@ There is no Java or JNI consensus path on the current hot path. Older BFT-SMaRt 
 
 7. **Type 9 is now decision gossip.** In the legacy Java path, type 9 carried Java client-request broadcasts. In the current ResDB path, type 9 carries signed post-consensus order gossip so stragglers can catch up after missing the PBFT storm.
 
+8. **Type 10 is arrival-announce gossip.** Replicas that verify an `ARRIVAL_ANNOUNCE` may relay the original announcement bytes through the existing signed gossip wrapper. The relayer signs only the outer carrier frame; the inner announcement remains the originating vehicle's byte-for-byte payload.
+
 ---
 
 ## 2. High-Level Node Model
@@ -52,6 +54,7 @@ Vehicle node i
 |   |
 |   +-- Arrival certificate protocol
 |   |   +-- ARRIVAL_ANNOUNCE type 1
+|   |   +-- ARRIVAL_ANNOUNCE_GOSSIP type 10
 |   |   +-- ARRIVAL_ECHO type 4
 |   |   +-- ARRIVAL_CERT type 5
 |   |
@@ -85,8 +88,8 @@ The ResDB library still runs internal worker threads, but all interaction with V
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc` | Main app implementation. Owns initialization, timers, radio receive dispatch, arrival protocol, ResDB transport drain, `proposeAll()`, order processing, gossip, and fault injection. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.ned` | NED parameters for replica identity, ResDB paths, radio transport, jitter, cert timeout, gossip, view-change timeout, Byzantine injection, and TraCI behavior. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/IV2VTransport.h` | Minimal abstract transport interface. Provides C-compatible adapters for the bridge callback table. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResdbV2VWire.h` | Shared signed-envelope helper for type 8 and type 9 radio payloads. Layout is pubkey, signature length, DER ECDSA signature, then inner bytes. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBDecisionGossip.h/.cc` | Pure relay-dedup logic for two independent mechanisms: (1) decision gossip — serializes `epoch \|\| order_bytes`, parses TYPE9 payloads, counts matching votes per sender via `GossipAccumulator`; (2) cert relay — `CertRelayTracker` deduplicates per-carId ARRIVAL_CERT re-floods so each node relays each validated cert exactly once. |
+| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResdbV2VWire.h` | Shared signed-envelope helper for type 8, type 9, and type 10 radio payloads. Layout is pubkey, signature length, DER ECDSA signature, then inner bytes. |
+| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBDecisionGossip.h/.cc` | Pure relay-dedup logic for three independent mechanisms: (1) decision gossip — serializes `epoch \|\| order_bytes`, parses TYPE9 payloads, counts matching votes per sender via `GossipAccumulator`; (2) cert relay — `CertRelayTracker` deduplicates per-carId ARRIVAL_CERT re-floods so each node relays each validated cert exactly once; (3) announce gossip — serializes `epoch \|\| original_announce_bytes` and deduplicates per `(epoch, carId)` through `AnnouncementRelayTracker`. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBTraCI.cc` | TraCI helpers extracted from the legacy V2V module: distance-to-lane-end, lane queue discovery, vehicle stop/resume helpers, and clearance detection. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/crypto/CryptoAuth.h/.cc` | OpenSSL ECDSA P-256 helper. Generates per-vehicle EC keys, signs arbitrary byte buffers, verifies signatures, and contains CA certificate helpers. |
 | `incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h` | C ABI between Veins and ResDB. Defines lifecycle, transport callback registration, sim-time update, consensus trigger, order callback, primary lookup, view-change hooks, and shared packed structs. |
@@ -107,6 +110,7 @@ sequenceDiagram
     participant TraCI as SUMO_TraCI
 
     App->>Radio: ARRIVAL_ANNOUNCE_type1
+    Radio->>App: ARRIVAL_ANNOUNCE_GOSSIP_type10
     Radio->>App: ARRIVAL_ECHO_type4
     App->>Radio: ARRIVAL_CERT_type5
     App->>App: validateArrivalCert_and_store
@@ -149,10 +153,11 @@ The key split is between ResDB worker threads and the OMNeT++ simulation thread.
 5. Creates a real ResDB server handle with `ResdbOmnetCreateKvServer()` when config paths are present; otherwise creates a null handle.
 6. Registers transport callbacks through `ResdbOmnetSetTransport()`.
 7. Registers the order callback through `ResdbOmnetSetOrderCallback()`.
-8. Configures the PBFT view-change timeout through `ResdbOmnetSetVcTimeoutUs()`.
-9. Starts sim-time ticking through `ResdbOmnetUpdateSimTimeUs()`.
-10. Runs the socketless ResDB server thread through `ResdbOmnetRunServer()`.
-11. If `BYZANTINE_SILENT_PRIMARY` is enabled, calls `ResdbOmnetSetPbftSilent()` after the server starts.
+8. Registers the cert-snapshot callback through `ResdbOmnetSetCertSnapshotFn()` — enables pre-verify Checks 9 and 10.
+9. Configures the PBFT view-change timeout through `ResdbOmnetSetVcTimeoutUs()`.
+10. Starts sim-time ticking through `ResdbOmnetUpdateSimTimeUs()`.
+11. Runs the socketless ResDB server thread through `ResdbOmnetRunServer()`.
+12. If `BYZANTINE_SILENT_PRIMARY` is enabled, calls `ResdbOmnetSetPbftSilent()` after the server starts.
 
 ### Stage 1 initialization
 
@@ -180,6 +185,7 @@ All inter-vehicle traffic is carried in `BFTMessage` packets over the Veins 802.
 | `5` | `ARRIVAL_CERT` | Vehicle broadcasts f+1 collected echoes as a participation certificate. | Text/pipe encoded cert with echo signer ids, pubkeys, and signatures. |
 | `8` | ResDB PBFT bytes | ResDB PRE_PREPARE, PREPARE, COMMIT, VIEW_CHANGE, NEW_VIEW, and related PBFT traffic. | `resdbwire` signed wrapper around serialized ResDB bytes. |
 | `9` | Decision gossip | Post-consensus order dissemination for stragglers that missed PBFT delivery. | `resdbwire` signed wrapper around `epoch || order_bytes`. |
+| `10` | Arrival announce gossip | Relay of an already-signed `ARRIVAL_ANNOUNCE` by a witness or carrier replica. | `resdbwire` signed wrapper around `epoch || original ARRIVAL_ANNOUNCE bytes`. |
 
 Important legacy note: type `9` used to mean Java/BFT-SMaRt client-request broadcast in the JNI architecture. In the current ResDB architecture it is not a client request; it is post-consensus decision gossip.
 
@@ -187,7 +193,7 @@ Important legacy note: type `9` used to mean Java/BFT-SMaRt client-request broad
 
 ## 7. Wire Formats
 
-### Signed radio wrapper for type 8 and type 9
+### Signed radio wrapper for type 8, type 9, and type 10
 
 Defined in `ResdbV2VWire.h`:
 
@@ -198,15 +204,17 @@ Defined in `ResdbV2VWire.h`:
 [inner bytes]
 ```
 
-For type `8`, inner bytes are serialized ResDB network bytes. For type `9`, inner bytes are decision-gossip bytes.
+For type `8`, inner bytes are serialized ResDB network bytes. For type `9`, inner bytes are decision-gossip bytes. For type `10`, inner bytes are announce-gossip bytes.
 
-Inbound type `8` and type `9` messages are dropped if:
+Inbound type `8`, type `9`, and type `10` messages are dropped if:
 
 1. The signed packet cannot be parsed.
 2. The inner byte length is zero.
 3. `CryptoAuth::verifyBytes(pubKey, innerBytes, sig)` fails.
 
 The wrapper proves that the inner bytes were signed by the included P-256 public key. The current code does not maintain a separate pubkey-to-replica registry, so this is an integrity check for the radio envelope rather than a complete identity-binding layer. ResDB's built-in node signature verifier is disabled in the simulation bridge because the bridge uses this P-256 wrapper and socketless injection instead.
+
+For type `10`, this outer signature authenticates the carrier frame, not the original vehicle. The carried announcement bytes are not rewritten. They remain the exact `ARRIVAL_ANNOUNCE` payload produced by the origin vehicle, including its self-signature and claimed fields.
 
 ### Consensus proposal payload
 
@@ -291,6 +299,17 @@ uint8_t  order_bytes[]
 
 The gossip payload is then wrapped in the same `resdbwire` signed wrapper used by type `8`.
 
+### Arrival announce gossip payload
+
+Defined in `ResDBDecisionGossip.h/.cc`:
+
+```text
+uint32_t epoch
+uint8_t  original_arrival_announce_bytes[]
+```
+
+The original announce bytes are copied unchanged from the type `1` payload. `ResDBIntersectionApp::sendArrivalAnnouncementGossipPayload()` wraps these inner bytes in `resdbwire::packSignedPacket()` before sending type `10`.
+
 ---
 
 ## 8. Arrival Certificate Protocol
@@ -334,7 +353,7 @@ When a replica receives an announcement:
 3. It checks whether it has already verified and echoed the car.
 4. It calls `verifyCarPosition(carId, laneId, positionInLane, tolerance)` using TraCI.
 5. If the car is physically present but lying about lane, the receiver records the car but does not echo.
-6. If verification passes, it stores a `VehicleState`, records physical observation, and broadcasts an `ARRIVAL_ECHO`.
+6. If verification passes, it stores a `VehicleState`, records physical observation, stores the original announce bytes for possible custody relay, broadcasts an `ARRIVAL_ECHO`, and may gossip the announcement.
 
 The echo signature covers:
 
@@ -343,6 +362,41 @@ carId:lane:positionInLane:direction:isAmbulance:echoingReplicaId
 ```
 
 Each echo includes the signer's compressed P-256 public key and DER ECDSA signature.
+
+### Announce gossip and custody relay
+
+Announce gossip closes a topology gap where a late-arriving vehicle can directly reach only a small witness set. A witness that hears and verifies that vehicle can carry the original announcement outward so replicas outside the origin vehicle's current radio range can still echo it.
+
+The flow is:
+
+```text
+veh18 -> ARRIVAL_ANNOUNCE type 1
+replica 4 verifies with TraCI
+replica 4 -> ARRIVAL_ECHO for veh18
+replica 4 -> ARRIVAL_ANNOUNCE_GOSSIP type 10 carrying veh18's original announce bytes
+replica 9 receives type 10
+replica 9 reconstructs a synthetic ARRIVAL_ANNOUNCE message
+replica 9 runs the normal handleArrivalAnnouncement path
+replica 9 verifies with TraCI
+replica 9 -> ARRIVAL_ECHO for veh18
+```
+
+Security boundary:
+
+- The relayer signs only the outer type `10` carrier frame.
+- The inner announcement bytes remain the exact type `1` payload from the origin vehicle.
+- A Byzantine carrier can drop, delay, or replay within dedup limits, but cannot modify the original announcement and still preserve the origin vehicle's self-signature.
+- Honest recipients still run `verifyCarPosition()` before echoing, so a relayed announce is not accepted merely because a carrier gossiped it.
+
+Implementation:
+
+- `gossipArrivalAnnouncement()` deduplicates immediate announce gossip with `AnnouncementRelayTracker::tryRelay(epoch, carId)`.
+- `sendArrivalAnnouncementGossipPayload()` signs and broadcasts the type `10` carrier packet. It is used both by immediate verified gossip and delayed custody replay.
+- `handleArrivalAnnouncementGossip()` verifies the carrier wrapper, parses `epoch || original_announce_bytes`, creates a temporary `BFTMessage`, and calls `handleArrivalAnnouncement(..., viaGossip=true, carrierReplicaId=...)`.
+- `pending_relays_` is an app-local map keyed by `(epoch, carId)` that stores original announce bytes after successful verification.
+- When a vehicle enters the stop zone, it flushes pending announce relays as proper signed type `10` packets with reason `stop-zone`, then clears the custody map.
+
+This relay is intentionally not a new consensus rule. It only improves witness discovery before cert assembly. Echo dedup still prevents repeated echoes from the same replica for the same car.
 
 ### Phase C: Arrival certificate
 
@@ -480,26 +534,49 @@ This is required because real TCP deployments count a replica's own votes, while
 
 ## 10. PRE_PREPARE Pre-Verify
 
-The bridge registers a `SetPreVerifyFunc` lambda. This runs on ResDB PRE_PREPARE requests before a follower proceeds with voting.
+The bridge registers a `SetPreVerifyFunc` lambda inside `ResdbOmnetCreateKvServer()`. This runs on every follower's ResDB worker thread for each incoming PRE_PREPARE, before the follower sends a PREPARE vote. If any check fails the PRE_PREPARE is rejected, which feeds into ResDB's built-in view-change machinery.
 
-Current checks:
+The ResDB consensus engine itself is **not modified**. `SetPreVerifyFunc` is an existing ResDB hook; all logic is in the bridge layer.
+
+### Structural checks (1–8)
+
+These verify the binary proposal is well-formed for this cluster:
 
 1. Non-PRE_PREPARE requests pass through.
-2. PRE_PREPARE data must parse as `BatchUserRequest`.
-3. The batch must contain at least one user request.
-4. Wrapped request data must contain a `ResdbProposeHdr`.
-5. `hdr.n_vehicles` must equal the replica count from ResDB config.
-6. Payload size must contain all `ResdbVehicleEntry` records.
-7. Replica ids must be unique.
-8. Replica ids must be in `[0, expected)`.
-9. `sim_time_us` must be non-zero. `UINT64_MAX` is allowed as the QUIET sentinel.
-10. `is_ambulance` must be boolean.
-11. `cyber_status` must be `0` or `1`.
-12. `leader_id` must be in range.
+2. PRE_PREPARE data parses as `BatchUserRequest`.
+3. Batch contains at least one user request.
+4. Payload is large enough to hold `ResdbProposeHdr`.
+5. `hdr.n_vehicles` equals the replica count from ResDB config.
+6. Payload is large enough for all `ResdbVehicleEntry` records.
+7. All `replica_id` values are unique.
+8. All `replica_id` values are in `[0, expected)`.
 
-The log message currently says "all 8 checks ok", but these are structural and sanity checks on the binary proposal. They are not a full port of the old Java `OrderRequestVerifier`.
+Per-entry field sanity (part of the above gate): `sim_time_us ≠ 0` (UINT64_MAX is the QUIET sentinel), `is_ambulance ∈ {0,1}`, `cyber_status ∈ {0,1}`, `leader_id ∈ [0, expected)`.
 
-Cryptographic witness validity is enforced when type `5` certificates are stored through `validateArrivalCert()`. The bridge pre-verify does not currently consult each follower's `collected_certs_` map, so the old Java cert-omission guard is not fully replicated.
+### Semantic checks (9–10) — cert-based
+
+These run only when the app has registered a `ResdbCertSnapshotFn` via `ResdbOmnetSetCertSnapshotFn()`. The callback is called from the pre-verify thread (ResDB worker) under `certs_mutex_` and returns a snapshot of the follower's `collected_certs_` as `ResdbCertEntry` structs.
+
+**Check 9 — cert-omission guard** (mirrors Java `OrderRequestVerifier` Check 7):
+
+For every cert in the local snapshot, if the corresponding proposal entry has `cyber_status == 0` or `sim_time_us == UINT64_MAX` (QUIET), increment an omission counter. If `omitted > f` where `f = (N−1)/3`, reject. Up to `f` omissions are tolerated as plausible channel loss. A Byzantine leader must suppress at least `f+1` cars' certs to hide them; at least one honest follower in any quorum holds each of those certs and will see `omitted > f` and reject.
+
+**Check 10 — state-field verification**:
+
+For every SIGNED proposal entry (`cyber_status == 1`) whose cert the follower holds, the proposal's `lane`, `position_in_lane`, `direction`, and `is_ambulance` must exactly match the cert-attested values. Any mismatch means the leader falsified that car's physical state in the proposal. Threshold is zero — the cert is ground truth (f+1 ECDSA echo signatures).
+
+Check 8 (deterministic schedule re-execution in Java) is not needed in C++ because the proposal contains only raw vehicle entries, no pre-computed schedule. The schedule is computed post-consensus by `IntersectionExecutor::ExecuteData()` identically on every replica. A Byzantine leader cannot submit a wrong schedule because the schedule is not part of the proposal.
+
+### Pre-verify callback registration
+
+In `initialize()`, after `ResdbOmnetSetOrderCallback()`:
+
+```cpp
+ResdbOmnetSetCertSnapshotFn(resdb_server_handle_,
+                             &ResDBIntersectionApp::certSnapshotCallback, this);
+```
+
+`certSnapshotCallback` is a static method in `ResDBIntersectionApp`. It locks `certs_mutex_`, iterates `collected_certs_`, parses `"vehN"` → replica id, and fills the `ResdbCertEntry` buffer with cert-attested state. All writes to `collected_certs_` in `ResDBArrivalProtocol.cc` also lock `certs_mutex_` to protect against concurrent pre-verify reads from the ResDB worker thread.
 
 ---
 
@@ -722,6 +799,23 @@ When this fires, the app calls `ResdbOmnetForceViewChange()`. The bridge calls `
 
 This app-level trigger is a safety valve for simulation progress and Byzantine-primary experiments. It does not replace PBFT correctness; it pushes the ResDB view-change machinery to run.
 
+Before forcing view change, the handler calls `processOrders()`. This closes the race where ResDB has already executed and enqueued an order through `onOrderDecided()`, but the simulation thread has not yet applied it and set `order_applied_`.
+
+### VC timer cancellation on delivery
+
+Type `8` PBFT traffic normally proves the primary is active, so followers may rearm `vc_trigger_msg_` while no order has arrived. Once an order is either queued or applied, the app cancels and deletes the follower VC trigger instead of rearming it.
+
+The cancellation rule is:
+
+```text
+if order_applied_ == true or pending_orders_ is non-empty:
+    cancel vc_trigger_msg_
+else:
+    rearm vc_trigger_msg_ for pbftVcTimeoutSec
+```
+
+This prevents late PBFT/control traffic after an `[EXECUTOR] OrderDecision` from keeping a stale app-level VC timer alive and forcing a view change after consensus is already over.
+
 ### Primary change polling
 
 Every transport poll, the app checks:
@@ -783,12 +877,15 @@ Examples:
 |--------|-----------------|
 | False physical lane | TraCI verification before echo. |
 | Forged arrival cert | f+1 distinct ECDSA echo signatures checked in `validateArrivalCert()`. |
-| Malformed binary proposal | Bridge PRE_PREPARE pre-verify. |
+| Malformed binary proposal | Bridge pre-verify structural checks 1–8. |
+| Byzantine leader QUIET suppression | Pre-verify Check 9: reject if > f certs held by follower are marked QUIET. |
+| Byzantine leader state-field tampering | Pre-verify Check 10: proposal entry fields must match local cert for every SIGNED car. |
 | Unsafe co-batching | Executor `IsSafeToBatch()` conflict matrix port. |
 | Same-lane rear crossing before front | Executor `AllSameLaneFrontPlaced()`. |
 | Missing cert at proposal deadline | QUIET padding and singleton batch isolation. |
+| Isolated announce source | Type 10 announce gossip carries the original signed announce through verified witnesses. |
 | Missed PBFT decision | Type 9 decision gossip with f+1 matching signed senders. |
-| Primary silence | PBFT silent fault plus app-level forced view-change. |
+| Primary silence | PBFT silent fault plus app-level forced view-change, canceled once an order is pending or applied. |
 
 ---
 
@@ -849,7 +946,7 @@ Defined in `ResDBIntersectionApp.ned`.
 |-----------|---------|
 | `isByzantine` | Enables Byzantine behavior for this vehicle. |
 | `byzantineType` | Fault type `0` through `5`. |
-| `enableDecisionGossip` | Enables type 9 decision gossip. |
+| `enableDecisionGossip` | Enables the shared gossip machinery: type 9 decision gossip and type 10 announce gossip. |
 | `decisionGossipInitialIntervalSec` | First retry interval for gossip. |
 | `decisionGossipMaxRetries` | Maximum gossip retries. |
 | `pbftVcTimeoutSec` | Extra wait before app-level forced view-change. |
@@ -870,11 +967,14 @@ Common log markers used by benchmark scripts and debugging:
 | `[METRICS r] Batch_Assignment` | Local vehicle's decided batch index. |
 | `[METRICS r] Resume_Time` | Vehicle resumed movement. |
 | `[CAR-METRICS]` | Per-car wait/departure summary. |
+| `[ANN-RECV]` | Arrival announcement received. Includes `via=direct` or `via=gossip`; gossiped messages also log the carrier replica. |
 | `[TYPE8-DRAIN]` | Outbound signed PBFT bytes sent to radio. |
 | `[TYPE8-RECV]` | Inbound signed PBFT bytes verified and delivered. |
 | `[GOSSIP-SEND]` | Type 9 order gossip broadcast. |
 | `[GOSSIP-RECV]` | Type 9 order gossip vote received. |
 | `[GOSSIP-APPLY]` | Replica applied an order through gossip catch-up. |
+| `[ANN-GOSSIP-SEND]` | Type 10 announce gossip broadcast; `reason=verified` for immediate relay, `reason=stop-zone` for delayed custody relay. |
+| `[ANN-GOSSIP-RECV]` | Type 10 announce gossip received, parsed, and handed to the normal announcement path. |
 | `[VC-DEBUG]`, `[VC-TRIGGER]`, `[APP-VC]` | View-change instrumentation. |
 | `[OMNET-PREVERIFY]` | Bridge PRE_PREPARE pre-verify result. |
 | `[EXECUTOR]`, `[EXEC-CB]` | ResDB executor and order callback logs. |
@@ -922,15 +1022,17 @@ The bridge function currently returns success for non-null handles but does not 
 
 `CryptoAuth` supports CA-issued `VehicleCert` verification, but `handleArrivalAnnouncement()` currently trusts `ann.isAmbulance` after TraCI position verification. A Byzantine vehicle can still claim ambulance priority unless the ambulance certificate path is completed.
 
-### Java `OrderRequestVerifier` is not fully ported
+### Java `OrderRequestVerifier` port status
 
-The bridge pre-verify is structural. The executor enforces important scheduling invariants, but the old Java verifier's full semantic checks are not all replicated before voting. In particular:
+The key semantic checks from the old Java verifier are now ported to the bridge pre-verify:
 
-1. Follower-local cert-omission guard is not wired into bridge pre-verify.
-2. The bridge does not directly compare a leader-submitted schedule against a follower recomputation because scheduling happens after commit in `IntersectionExecutor`.
-3. QUIET singleton behavior is enforced by executor batching, not by rejecting a malformed leader schedule.
+- **Check 9** (cert-omission guard, Java Check 7): wired via `ResdbCertSnapshotFn` callback.
+- **Check 10** (state-field verification): follower compares each SIGNED entry's lane/position/direction/ambulance against its own cert.
+- **Java Check 8** (deterministic schedule re-execution): not needed in C++ — the leader does not embed a schedule in the proposal; `IntersectionExecutor` computes it deterministically post-consensus on every replica.
 
-This is acceptable for the current ResDB design because the leader proposes vehicle state and the deterministic executor computes the order after commit. It is still different from the old Java design where the leader proposed the schedule string and followers verified it before WRITE.
+Remaining gaps:
+- QUIET singleton isolation is enforced by the executor (post-commit), not by pre-vote rejection of a malformed schedule — because there is no schedule in the proposal to reject.
+- Collision-safety and lane-queue-order checks (Java Checks 4 and 5) run in the executor post-commit, not as pre-vote firewall. A Byzantine leader that submits wrong lane/position values for cars it has no cert for (i.e., QUIET cars) can affect their batch placement, but cannot affect SIGNED cars whose state is checked by Check 10.
 
 ### App-level fallbacks are not PBFT proofs
 
@@ -943,13 +1045,14 @@ The current design does not port Java `ReliableV2VMessaging` sequence maps, ACKs
 1. MAC staggering and jitter.
 2. PBFT phase messages as implicit acknowledgments.
 3. Type `5` cert retries.
-4. Type `9` decision gossip for post-commit catch-up.
+4. Type `10` announce gossip for witness discovery across topology gaps.
+5. Type `9` decision gossip for post-commit catch-up.
 
 This avoids ACK implosion on broadcast V2V channels, but it means lossy-radio behavior must be evaluated at the PBFT and gossip layers.
 
 ### Type 8 radio signatures are not a full replica identity registry
 
-Type `8` and type `9` payloads are signed and verified with the public key embedded in the radio wrapper. That prevents accidental corruption and detects a forged signature for that embedded key, but the current code does not yet check that the embedded key is the expected key for `fromReplicaId`. A future hardening pass should add a pubkey registry or bind keys through the arrival/cert layer.
+Type `8`, type `9`, and type `10` carrier payloads are signed and verified with the public key embedded in the radio wrapper. That prevents accidental corruption and detects a forged signature for that embedded key, but the current code does not yet check that the embedded key is the expected key for `fromReplicaId`. For type `10`, the original vehicle's announcement remains inside the carrier unchanged; the outer signature authenticates the relayer frame only. A future hardening pass should add a pubkey registry or bind keys through the arrival/cert layer.
 
 ---
 
@@ -964,7 +1067,7 @@ The old architecture is useful for comparison but is not the current hot path.
 | `IntersectionServer` / `ServiceReplica` | Socketless ResDB `ServiceNetwork` with `OmnetConsensusManagerPBFT` |
 | `ServerRunner.triggerJoinForReplica()` | `ResdbOmnetTriggerConsensus()` |
 | Java `TOMMessage` client request | Binary `ResdbProposeHdr + ResdbVehicleEntry[]` |
-| Java type 9 client-request broadcast | Type 8 ResDB PBFT bytes; type 9 is now decision gossip |
+| Java type 9 client-request broadcast | Type 8 ResDB PBFT bytes; type 9 is decision gossip; type 10 is announce gossip |
 | `V2VServersCommunicationLayer` | `OmnetReplicaCommunicator` + `VeinsTransport` callbacks |
 | `ReliableV2VMessaging` | No direct port; jitter, PBFT phases, cert retries, and gossip provide current reliability strategy |
 | `OrderScheduler` | `IntersectionExecutor::ExecuteData()` |
@@ -989,7 +1092,3 @@ When continuing work on this system, first identify which layer owns the behavio
 7. **Experiment knobs:** `ResDBIntersectionApp.ned` and `fourway/omnetpp.ini`.
 
 Before changing behavior, check whether the old Java docs describe an invariant that still matters. Then implement it in the current C++/ResDB ownership boundary rather than reintroducing Java/JNI assumptions.
-
-
-
-

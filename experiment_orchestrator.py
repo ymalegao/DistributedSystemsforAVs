@@ -22,6 +22,7 @@ import argparse
 import os
 import random
 import re
+import shutil
 import shlex
 import subprocess
 import sys
@@ -110,11 +111,15 @@ def omnet_config_basename(n: int) -> str:
 def omnet_config_name(n: int) -> str:
     return f"{omnet_config_basename(n)}VehiclesResDB"
 
+def baseline_omnet_config_name(n: int) -> str:
+    return f"baseline{n}veh"
 
-def benchmark_run_dir(n: int, scenario_name: str, rep: int) -> Path:
+
+def benchmark_run_dir(n: int, scenario_name: str, rep: int, *, baseline: bool = False) -> Path:
     """Per-run output directory (JSON/logs from analyze_log; channel CSVs from the sim)."""
     sub = SCENARIO_SUBDIR[scenario_name]
-    return REPO_ROOT / "benchmarks" / f"Priority{n}cars" / sub / f"run_{rep}"
+    family = "BaselinePriority" if baseline else "Priority"
+    return REPO_ROOT / "benchmarks" / f"{family}{n}cars" / sub / f"run_{rep}"
 
 
 def run_seed(master: int, n: int, scenario_name: str, rep: int) -> int:
@@ -285,6 +290,13 @@ def randomize_args_for_scenario(n: int, scenario_name: str) -> List[str]:
         return []
     raise ValueError(scenario_name)
 
+def baseline_randomize_args_for_scenario(n: int, scenario_name: str) -> List[str]:
+    if scenario_name == "Honest_Ambulance":
+        return ["--baseline", "--randomize", str(n), "0"]
+    if scenario_name == "No_Ambulance_Honest":
+        return ["--baseline"]
+    raise ValueError(f"Baseline supports only no-ambulance and honest-ambulance scenarios, got {scenario_name}")
+
 
 def run_one_simulation(
     n: int,
@@ -293,15 +305,16 @@ def run_one_simulation(
     *,
     dry_run: bool,
     randomize_leader: bool = False,
+    baseline: bool = False,
 ) -> None:
-    cfg = omnet_config_name(n)
-    extra = randomize_args_for_scenario(n, scenario_name)
+    cfg = baseline_omnet_config_name(n) if baseline else omnet_config_name(n)
+    extra = baseline_randomize_args_for_scenario(n, scenario_name) if baseline else randomize_args_for_scenario(n, scenario_name)
     seed = run_seed(MASTER_SEED, n, scenario_name, rep)
-    run_dir = benchmark_run_dir(n, scenario_name, rep)
+    run_dir = benchmark_run_dir(n, scenario_name, rep, baseline=baseline)
     metrics_dir = str(run_dir.resolve())
 
     leader_args: List[str] = []
-    if randomize_leader:
+    if randomize_leader and not baseline:
         # XOR with a constant so leader draw is independent of Byzantine node draw.
         rng = random.Random(run_seed(MASTER_SEED, n, scenario_name, rep) ^ 0xDEADBEEF)
         leader_id = rng.randint(0, n - 1)
@@ -331,11 +344,24 @@ def run_one_simulation(
     run_in_bash_with_omnet(inner, dry_run=dry_run)
 
 
-def run_analyze(n: int, scenario_name: str, rep: int, *, dry_run: bool) -> None:
-    save_to = benchmark_run_dir(n, scenario_name, rep)
+def collect_baseline_sumo_outputs(n: int, run_dir: Path, *, dry_run: bool) -> Path:
+    tripinfo = FOURWAY_DIR / f"baseline_{n}veh.tripinfo.xml"
+    for suffix in ("tripinfo.xml", "summary.xml", "statistics.xml"):
+        src = FOURWAY_DIR / f"baseline_{n}veh.{suffix}"
+        dst = run_dir / src.name
+        if dry_run:
+            print(f"[dry-run] would copy {src} -> {dst}")
+        elif src.is_file():
+            shutil.copy2(src, dst)
+    return tripinfo
+
+
+def run_analyze(n: int, scenario_name: str, rep: int, *, dry_run: bool, baseline: bool = False) -> None:
+    save_to = benchmark_run_dir(n, scenario_name, rep, baseline=baseline)
     save_to.mkdir(parents=True, exist_ok=True)
     analyze = REPO_ROOT / "fourway" / "analyze_log.py"
     scen = ANALYZE_SCENARIO[scenario_name]
+    tripinfo = collect_baseline_sumo_outputs(n, save_to, dry_run=dry_run) if baseline else None
     cmd: List[str] = [
         sys.executable,
         str(analyze),
@@ -348,6 +374,15 @@ def run_analyze(n: int, scenario_name: str, rep: int, *, dry_run: bool) -> None:
         str(n),
         "--no-scenario-subdir",
     ]
+    if baseline:
+        cmd.extend([
+            "--coordination-method",
+            "sumo_baseline",
+            "--baseline-tripinfo",
+            str(tripinfo),
+            "--scenario-ini",
+            str(FOURWAY_DIR / "random_scenario.ini"),
+        ])
     print(f"+ {' '.join(cmd)}")
     if dry_run:
         return
@@ -395,6 +430,11 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help="Pick a random initial consensus leader (replica ID) per run instead of always using replica 0.",
     )
     p.add_argument(
+        "--baseline",
+        action="store_true",
+        help="Run SUMO all-way-stop baseline configs for no-priority and priority-vehicle scenarios.",
+    )
+    p.add_argument(
         "--dry-run",
         action="store_true",
         help="Print commands only.",
@@ -416,6 +456,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         scenarios = SCENARIO_ORDER
 
+    if args.baseline:
+        allowed = ("No_Ambulance_Honest", "Honest_Ambulance")
+        scenarios = tuple(s for s in scenarios if s in allowed)
+        if not scenarios:
+            print("ERROR: --baseline only supports scenario codes 1 and 2.", file=sys.stderr)
+            return 2
+
     if args.start_rep < 0:
         print("ERROR: --start-rep must be >= 0", file=sys.stderr)
         return 2
@@ -428,10 +475,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     for n in n_values:
         print(f"\n========== Scale N={n} ==========")
-        if not args.dry_run:
+        if not args.dry_run and not args.baseline:
             run_key_generation(dry_run=args.dry_run, scale=n)
-        else:
+        elif args.dry_run and not args.baseline:
             print(f"[dry-run] would run_key_generation({n})")
+        else:
+            print("========== Skipping Key Generation (baseline) ==========")
 
         print(f"========== Skipping Build (N={n}) ==========")
         # build_veins_and_bft(dry_run=args.dry_run)
@@ -445,8 +494,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             for i, rep in enumerate(rep_indices, start=1):
                 print(f"\n--- {scenario_name} rep {i}/{args.reps} (run_{rep}) ---")
-                run_one_simulation(n, scenario_name, rep, dry_run=args.dry_run, randomize_leader=args.randomize_leader)
-                run_analyze(n, scenario_name, rep, dry_run=args.dry_run)
+                run_one_simulation(
+                    n,
+                    scenario_name,
+                    rep,
+                    dry_run=args.dry_run,
+                    randomize_leader=args.randomize_leader,
+                    baseline=args.baseline,
+                )
+                run_analyze(n, scenario_name, rep, dry_run=args.dry_run, baseline=args.baseline)
 
     return 0
 
