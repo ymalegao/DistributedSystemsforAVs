@@ -1,19 +1,8 @@
 #!/bin/bash
-# Run script for fourway simulation with Veins
+# Run the default ResDB fourway simulation with Qtenv.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-VEINS_ROOT="${VEINS_ROOT:-${REPO_ROOT}/veins-veins-5.3.1}"
 
-exec "${REPO_ROOT}/bftsmart/run-omnet-simulation.sh" \
-    "${SCRIPT_DIR}" \
-    -m \
-    -u Qtenv \
-    -c WithChannelSwitching \
-    -n ".:${VEINS_ROOT}/src:${VEINS_ROOT}/examples/veins" \
-    --image-path="${VEINS_ROOT}/images" \
-    -l "${VEINS_ROOT}/src/veins" \
-    omnetpp.ini \
-    "$@"
+exec "${SCRIPT_DIR}/run-resdb-simulation.sh" -u Qtenv -c FourVehiclesResDB "$@"

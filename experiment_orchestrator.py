@@ -51,7 +51,6 @@ VEINS_DIR = REPO_ROOT / "veins-veins-5.3.1"
 FOURWAY_DIR = REPO_ROOT / "fourway"
 CONFIG_DIR = FOURWAY_DIR / "resdb_crypto"
 RUN_SCRIPT = REPO_ROOT / "fourway" / "run-resdb-simulation.sh"
-V2V_PROXY_H = VEINS_DIR / "src/veins/modules/application/resDB/ResDBV2VProxyModule.h"
 LOG_FILE = Path("/tmp/resdb-simulation.log")
 
 HOST_LINE = re.compile(r"^(\s*#?\s*)(\d+)(\s+127\.0\.0\.1\s+\d+\s+\d+)\s*$")
@@ -190,30 +189,6 @@ def run_seed(master: int, n: int, scenario_name: str, rep: int) -> int:
 #     path.write_text(text)
 
 
-# def patch_batch_sizes(n: int) -> None:
-#     h = V2V_PROXY_H.read_text()
-#     h, c = re.subn(
-#         r"static const int BATCH_SIZE = \d+;",
-#         f"static const int BATCH_SIZE = {n};",
-#         h,
-#         count=1,
-#     )
-#     if c != 1:
-#         raise RuntimeError(f"Could not patch BATCH_SIZE in {V2V_PROXY_H}")
-#     V2V_PROXY_H.write_text(h)
-
-#     j = SERVER_RUNNER_JAVA.read_text()
-#     j, c2 = re.subn(
-#         r"private static final int BATCH_SIZE = \d+;",
-#         f"private static final int BATCH_SIZE = {n};",
-#         j,
-#         count=1,
-#     )
-#     if c2 != 1:
-#         raise RuntimeError(f"Could not patch BATCH_SIZE in {SERVER_RUNNER_JAVA}")
-#     SERVER_RUNNER_JAVA.write_text(j)
-
-
 def clear_stale_random_ini() -> None:
     """Remove random_scenario.ini before honest/no-ambulance scenarios so the previous run's overrides don't bleed in."""
     rnd = FOURWAY_DIR / "random_scenario.ini"
@@ -283,11 +258,6 @@ def run_key_generation(*, dry_run: bool, scale: int) -> None:
     else:
         print(f"[dry-run] would reset_resdb_keys({scale}) (delete cert_1..cert_{scale}, node1..node{scale} key files)")
     run_in_bash_with_omnet(f"cd {shlex.quote(str(CONFIG_DIR))} && ./gen_resdb_keys.sh {scale}", dry_run=dry_run)
-# def build_veins_and_bft(*, dry_run: bool) -> None:
-#     run_in_bash_with_omnet(f"cd {shlex.quote(str(VEINS_DIR))} && make", dry_run=dry_run)
-#     run_in_bash_with_omnet(f"cd {shlex.quote(str(BFT_LIBRARY))} && ./gradlew installDist", dry_run=dry_run)
-
-
 # def apply_scale(n: int) -> None:
 #     patch_hosts_config(CONFIG_DIR / "hosts.config", n)
 #     patch_system_config(CONFIG_DIR / "system.config", n, clear_malicious=True)

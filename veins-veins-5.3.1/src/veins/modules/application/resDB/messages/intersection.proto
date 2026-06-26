@@ -2,9 +2,6 @@ syntax = "proto3";
 
 package veins.resdb;
 
-option java_package = "org.car2x.veins.resdb";
-option java_outer_classname = "IntersectionProto";
-
 // ── Vehicle state broadcast (replaces BFTMessage ARRIVAL_ANNOUNCE payload) ──
 
 message VehicleState {

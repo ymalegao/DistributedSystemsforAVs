@@ -248,7 +248,7 @@ void ResDBIntersectionApp::tryStartCertCollectionTimer(bool rearm)
               << cert_collection_timeout_ << "s rearm=" << (rearm ? 1 : 0) << ")\n";
 }
 
-// ── attachAmbulanceCryptoToAnnouncement (port of V2VProxyModule) ─────────────
+// ── attachAmbulanceCryptoToAnnouncement (ported from legacy arrival path) ────
 
 void ResDBIntersectionApp::attachAmbulanceCryptoToAnnouncement(ArrivalAnnouncement& ann)
 {

@@ -1,6 +1,6 @@
 # System Architecture: ResDB-over-Veins V2V Intersection Coordination
 
-This is the current architecture handoff for the V2V intersection coordination system. It reflects the migration from the old Java/BFT-SMaRt/JNI stack to the current C++ ResilientDB integration.
+This is the current architecture handoff for the V2V intersection coordination system. The runnable codebase now uses the C++ ResilientDB integration; the old Java/BFT-SMaRt/JNI implementation has been removed from the active source tree.
 
 The canonical runtime path is:
 
@@ -13,7 +13,7 @@ OMNeT++ / Veins vehicle app
   -> TraCI vehicle control
 ```
 
-There is no Java or JNI consensus path on the current hot path. Older BFT-SMaRt files and docs are still useful as reference material, especially for the original arrival protocol, conflict matrix, verifier semantics, and leader-change research, but they are no longer the primary implementation.
+There is no Java or JNI consensus path on the current hot path. Archived migration docs may still mention BFT-SMaRt/JNI as historical reference material, especially for the original arrival protocol, conflict matrix, verifier semantics, and leader-change research, but those files are not part of the build or runtime.
 
 ---
 
@@ -1259,7 +1259,7 @@ Defined in `ResDBIntersectionApp.ned`.
 |-----------|---------|
 | `isByzantine` | Enables Byzantine behavior for this vehicle. |
 | `byzantineType` | Fault type `0` through `8`. See Byzantine fault model table. |
-| `enableAmbulanceCertGate` | When true, the arrival-echo path rejects any `isAmbulance=true` announcement without a valid Emergency_CA `VehicleCert` and payload signature. Legitimate ambulances (`ambulanceReplicaId`) auto-issue the cert at init and attach it in `broadcastArrivalAnnouncement()` (ported from `V2VProxyModule::attachAmbulanceCryptoToAnnouncement`). Ablation toggle for cert-gate scenarios (types 10 and 11). |
+| `enableAmbulanceCertGate` | When true, the arrival-echo path rejects any `isAmbulance=true` announcement without a valid Emergency_CA `VehicleCert` and payload signature. Legitimate ambulances (`ambulanceReplicaId`) auto-issue the cert at init and attach it in `broadcastArrivalAnnouncement()` using the ported legacy ambulance-cert helper. Ablation toggle for cert-gate scenarios (types 10 and 11). |
 | `enableDecisionGossip` | Enables the shared gossip machinery: type 9 decision gossip and type 10 announce gossip. |
 | `decisionGossipInitialIntervalSec` | First retry interval for gossip. |
 | `decisionGossipMaxRetries` | Maximum gossip retries. |
@@ -1435,7 +1435,7 @@ The old architecture is useful for comparison but is not the current hot path.
 | Legacy Java/BFT-SMaRt concept | Current ResDB/C++ equivalent |
 |-------------------------------|------------------------------|
 | `V2VProxyModule` | `ResDBIntersectionApp` |
-| JNI JVM lifecycle | Deleted from current consensus path |
+| JNI JVM lifecycle | Removed from the active codebase |
 | `IntersectionServer` / `ServiceReplica` | Socketless ResDB `ServiceNetwork` with `OmnetConsensusManagerPBFT` |
 | `ServerRunner.triggerJoinForReplica()` | `ResdbOmnetTriggerConsensus()` |
 | Java `TOMMessage` client request | Binary `ResdbProposeHdr + ResdbVehicleEntry[]` |
@@ -1464,4 +1464,4 @@ When continuing work on this system, first identify which layer owns the behavio
 7. **Consensus time behavior:** `SimTimeProvider` and `ResdbOmnetUpdateSimTimeUs()`.
 8. **Experiment knobs:** `ResDBIntersectionApp.ned` and `fourway/omnetpp.ini`.
 
-Before changing behavior, check whether the old Java docs describe an invariant that still matters. Then implement it in the current C++/ResDB ownership boundary rather than reintroducing Java/JNI assumptions.
+Before changing behavior, archived Java migration docs can be consulted for historical invariants. Implement any still-relevant behavior in the current C++/ResDB ownership boundary rather than reintroducing Java/JNI assumptions.
