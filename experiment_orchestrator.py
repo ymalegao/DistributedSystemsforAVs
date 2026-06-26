@@ -64,6 +64,15 @@ SCENARIO_SUBDIR = {
     "Honest_Ambulance": "amb_honest",
     "No_Ambulance_Honest": "no_amb",
     "ByzLeader_NoAmbulance": "no_amb_byz_leader",
+    "NoFW_ByzFollower_FalseLane": "no_fw_false_lane",
+    "NoFW_ByzLeader_BadProposal": "no_fw_bad_proposal",
+    "NoFW_ByzLeader_FakeAmbulance": "no_fw_fake_ambulance",
+    "NoCertGate_ByzFollower_FakeAmbu": "no_cert_gate_fake_ambu",
+    "CertGate_ByzFollower_FakeAmbu": "cert_gate_fake_ambu",
+    "NoFW_ByzLeader_TamperLane": "no_fw_tamper_lane",
+    "FW_ByzLeader_FakeAmbulance": "fw_fake_ambulance",
+    "FW_ByzLeader_TamperLane": "fw_tamper_lane",
+    "Emergency_Preempt_DynamicN": "rollback_emergency_dynamic_n",
 }
 
 # analyze_log.py --scenario codes (also used by --scenario CLI flag)
@@ -74,6 +83,15 @@ ANALYZE_SCENARIO = {
     "Honest_Ambulance": 2,
     "No_Ambulance_Honest": 1,
     "ByzLeader_NoAmbulance": 5,
+    "NoFW_ByzFollower_FalseLane": 3,
+    "NoFW_ByzLeader_BadProposal": 4,
+    "NoFW_ByzLeader_FakeAmbulance": 4,
+    "NoCertGate_ByzFollower_FakeAmbu": 3,
+    "CertGate_ByzFollower_FakeAmbu": 3,
+    "NoFW_ByzLeader_TamperLane": 5,
+    "FW_ByzLeader_FakeAmbulance": 4,
+    "FW_ByzLeader_TamperLane": 5,
+    "Emergency_Preempt_DynamicN": 2,
 }
 SCENARIO_BY_CODE = {
     1: "No_Ambulance_Honest",
@@ -82,6 +100,15 @@ SCENARIO_BY_CODE = {
     4: "ByzLeader_Ambulance",
     5: "ByzLeader_NoAmbulance",
     6: "ByzFollower_NoAmbulance",
+    7: "NoFW_ByzFollower_FalseLane",
+    8: "NoFW_ByzLeader_BadProposal",
+    9: "NoFW_ByzLeader_FakeAmbulance",
+    10: "NoCertGate_ByzFollower_FakeAmbu",
+    11: "CertGate_ByzFollower_FakeAmbu",
+    12: "NoFW_ByzLeader_TamperLane",
+    13: "FW_ByzLeader_FakeAmbulance",
+    14: "FW_ByzLeader_TamperLane",
+    15: "Emergency_Preempt_DynamicN",
 }
 
 DEFAULT_N_VALUES = (4, 8, 12, 16, 20)
@@ -102,7 +129,7 @@ def bft_f(n: int) -> int:
 
 
 def omnet_config_basename(n: int) -> str:
-    names = {4: "Four", 8: "Eight", 12: "Twelve", 16: "Sixteen", 20: "Twenty"}
+    names = {4: "Four", 8: "Eight", 12: "Twelve", 16: "Sixteen", 18: "Eighteen", 20: "Twenty"}
     if n not in names:
         raise ValueError(f"Unsupported N={n}; expected one of {tuple(names)}")
     return names[n]
@@ -288,6 +315,35 @@ def randomize_args_for_scenario(n: int, scenario_name: str) -> List[str]:
         return ["--randomize", str(n), "0"]
     if scenario_name == "No_Ambulance_Honest":
         return []
+    if scenario_name == "NoFW_ByzFollower_FalseLane":
+        return ["--randomize", str(n), str(f), "--no-firewall"]
+    if scenario_name == "NoFW_ByzLeader_BadProposal":
+        return ["--randomize", str(n), str(f - 1), "--byzleader", "0", "--no-firewall"]
+    if scenario_name == "NoFW_ByzLeader_FakeAmbulance":
+        return [
+            "--randomize", str(n), str(f - 1), "--byzleader", "0",
+            "--leader-byz-type", "6", "--no-firewall",
+        ]
+    if scenario_name == "NoCertGate_ByzFollower_FakeAmbu":
+        return ["--randomize", str(n), str(f), "--follower-byz-type", "7"]
+    if scenario_name == "CertGate_ByzFollower_FakeAmbu":
+        return ["--randomize", str(n), str(f), "--follower-byz-type", "7", "--cert-gate"]
+    if scenario_name == "NoFW_ByzLeader_TamperLane":
+        return [
+            "--randomize", str(n), "0", "--byzleader", "0",
+            "--leader-byz-type", "8", "--no-ambulance", "--no-firewall",
+        ]
+    if scenario_name == "FW_ByzLeader_FakeAmbulance":
+        return ["--randomize", str(n), str(f - 1), "--byzleader", "0", "--leader-byz-type", "6"]
+    if scenario_name == "FW_ByzLeader_TamperLane":
+        return [
+            "--randomize", str(n), "0", "--byzleader", "0",
+            "--leader-byz-type", "8", "--no-ambulance",
+        ]
+    if scenario_name == "Emergency_Preempt_DynamicN":
+        if n != 18:
+            raise ValueError("Emergency_Preempt_DynamicN is currently defined only for N=18")
+        return ["--rollback-late-emergency", "--leader", "0"]
     raise ValueError(scenario_name)
 
 def baseline_randomize_args_for_scenario(n: int, scenario_name: str) -> List[str]:
@@ -411,10 +467,15 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         type=int,
         choices=sorted(SCENARIO_BY_CODE),
         metavar="CODE",
-        help="Restrict to one or more scenario codes (matches analyze_log.py): "
+        help="Restrict to one or more scenario codes: "
              "1=No_Ambulance_Honest, 2=Honest_Ambulance, 3=ByzFollower_Ambulance, "
-             "4=ByzLeader_Ambulance, 5=ByzLeader_NoAmbulance, 6=ByzFollower_NoAmbulance. "
-             "Default: all six scenarios in order 1,6,5,2,3,4.",
+             "4=ByzLeader_Ambulance, 5=ByzLeader_NoAmbulance, 6=ByzFollower_NoAmbulance, "
+             "7=NoFW_ByzFollower_FalseLane, 8=NoFW_ByzLeader_BadProposal, "
+             "9=NoFW_ByzLeader_FakeAmbulance, 10=NoCertGate_ByzFollower_FakeAmbu, "
+             "11=CertGate_ByzFollower_FakeAmbu, 12=NoFW_ByzLeader_TamperLane, "
+             "13=FW_ByzLeader_FakeAmbulance, 14=FW_ByzLeader_TamperLane, "
+             "15=Emergency_Preempt_DynamicN. "
+             "Default: all six baseline scenarios in order 1,6,5,2,3,4.",
     )
     p.add_argument(
         "--start-rep",
@@ -449,6 +510,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if n not in DEFAULT_N_VALUES:
             print(f"WARNING: N={n} is outside the usual set {DEFAULT_N_VALUES}; "
                   "omnetpp.ini may not define a matching [Config].", file=sys.stderr)
+        if args.scenario and 15 in args.scenario and n != 18:
+            print("ERROR: scenario 15 Emergency_Preempt_DynamicN is currently defined only for --config 18.", file=sys.stderr)
+            return 2
 
     if args.scenario:
         # Respect user-requested order and de-duplicate aliases that map to the same scenario.
@@ -486,7 +550,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # build_veins_and_bft(dry_run=args.dry_run)
 
         for scenario_name in scenarios:
-            if scenario_name in ("Honest_Ambulance", "No_Ambulance_Honest"):
+            if scenario_name in ("Honest_Ambulance", "No_Ambulance_Honest", "Emergency_Preempt_DynamicN"):
                 if not args.dry_run:
                     clear_stale_random_ini()
                 else:

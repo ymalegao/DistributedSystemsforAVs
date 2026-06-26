@@ -24,9 +24,25 @@ PARTNER_ROOT = Path("/Users/yashmalegaonkar/Documents/v2v/partner_results")
 PARTNER_PROTOCOL_PREFIX = "simple_raftwave"
 PARTNER_MODE = "allVehicles"
 
+# Runs omitted from partner aggregates (decision-latency outliers skewing run means).
+# 8veh run_2/run_3: ~200ms and ~173ms vs rest <100ms; 16veh has no comparable spikes.
+PARTNER_EXCLUDED_RUNS: dict[str, frozenset[str]] = {
+    "simple_raftwave_8veh_allVehicles": frozenset({"run_2", "run_3"}),
+    "simple_raftwave_8veh_allVehicles_nopriority": frozenset({"run_2", "run_3"}),
+}
+
 
 def partner_scenario_dir(vehicle_count: int, mode: str = PARTNER_MODE) -> Path:
     return PARTNER_ROOT / f"{PARTNER_PROTOCOL_PREFIX}_{vehicle_count}veh_{mode}"
+
+
+def _partner_scenario_key(vehicle_count: int, mode: str) -> str:
+    return f"{PARTNER_PROTOCOL_PREFIX}_{vehicle_count}veh_{mode}"
+
+
+def _is_excluded_partner_run(vehicle_count: int, mode: str, run_dir: Path) -> bool:
+    excluded = PARTNER_EXCLUDED_RUNS.get(_partner_scenario_key(vehicle_count, mode), frozenset())
+    return run_dir.name in excluded
 
 
 def partner_run_dirs(vehicle_count: int, mode: str, file_glob: str) -> list[Path]:
@@ -36,6 +52,8 @@ def partner_run_dirs(vehicle_count: int, mode: str, file_glob: str) -> list[Path
     runs = sorted(Path(p) for p in glob.glob(str(scenario / "run_*")))
     out: list[Path] = []
     for d in runs:
+        if _is_excluded_partner_run(vehicle_count, mode, d):
+            continue
         if d.is_dir() and glob.glob(str(d / file_glob)):
             out.append(d)
     return out
@@ -305,7 +323,7 @@ def partner_decision_latency_samples_s(
 def partner_run_metrics(vehicle_count: int, mode: str = PARTNER_MODE) -> list[dict[str, float]]:
     """
     Per-run metrics matching the subset we overlay:
-      throughput_veh_per_s, fallback_rate, messages_sent, messages_received, decision_latency_s
+      throughput_veh_per_s, fallback_rate, messages_sent, messages_received, bytes_sent, decision_latency_s
     """
     out: list[dict[str, float]] = []
     for run in iter_partner_raft_runs(vehicle_count, mode):
@@ -337,6 +355,7 @@ def partner_run_metrics(vehicle_count: int, mode: str = PARTNER_MODE) -> list[di
 
         total_sent = 0.0
         total_recv = 0.0
+        total_bytes_sent = 0.0
         for v in run:
             msgs = v.get("messages") if isinstance(v.get("messages"), dict) else {}
             try:
@@ -345,6 +364,10 @@ def partner_run_metrics(vehicle_count: int, mode: str = PARTNER_MODE) -> list[di
                 pass
             try:
                 total_recv += float(msgs.get("received", 0) or 0)
+            except (TypeError, ValueError):
+                pass
+            try:
+                total_bytes_sent += float(msgs.get("bytes_sent", 0) or 0)
             except (TypeError, ValueError):
                 pass
 
@@ -366,6 +389,8 @@ def partner_run_metrics(vehicle_count: int, mode: str = PARTNER_MODE) -> list[di
                 "fallback_rate": float(fallback_rate),
                 "messages_sent": float(total_sent),
                 "messages_received": float(total_recv),
+                "bytes_sent": float(total_bytes_sent),
+                "megabytes_sent": float(total_bytes_sent / (1024.0 * 1024.0)),
                 "decision_latency_s": decision_latency_s,
             }
         )

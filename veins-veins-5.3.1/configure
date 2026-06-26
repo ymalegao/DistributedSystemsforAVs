@@ -52,22 +52,19 @@ if args:
     warning("Superfluous command line arguments: \"%s\"" % " ".join(args))
 
 
-# Start with default flags
-makemake_flags = ['-f', '--deep', '--make-so', '-I', '.', '-o', 'veins', '-O', 'out', '-p', 'VEINS']
-import os
-java_home = os.environ.get('JAVA_HOME', '/usr/lib/jvm/java-11-openjdk-amd64')
-makemake_flags.extend([
-    '-I' + os.path.join(java_home, 'include'),
-    '-I' + os.path.join(java_home, 'include', 'linux')
-])
-makemake_flags.extend(['-L' + os.path.join(java_home, 'lib', 'server'), '-ljvm'])
+# Start with default flags (--deep compiles all of src/; exclude legacy Java BFTSmart JNI).
+makemake_flags = [
+    '-f', '--deep', '--make-so', '-I', '.', '-o', 'veins', '-O', 'out', '-p', 'VEINS',
+    '-X', 'veins/modules/bftsmart',
+]
 
 # ResilientDB bridge defaults for OMNeT++ integration.
-# Can be overridden through environment variables.
-resdb_root = os.environ.get(
-    'RESDB_ROOT',
-    '/home/yash/DistributedSystemsforAVs/incubator-resilientdb',
+# ResDBIntersectionApp.h includes "integration/omnet/resdb_omnet_bridge.h", so only
+# -I<resdb_root> is required (not -I<resdb_root>/integration/omnet).
+_default_resdb_root = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), '..', 'incubator-resilientdb'),
 )
+resdb_root = os.environ.get('RESDB_ROOT', _default_resdb_root)
 resdb_bazel_bin = os.environ.get(
     'RESDB_BAZEL_BIN',
     os.path.join(resdb_root, 'bazel-bin'),
@@ -76,16 +73,10 @@ resdb_bridge_dir = os.environ.get(
     'RESDB_BRIDGE_DIR',
     os.path.join(resdb_bazel_bin, 'integration', 'omnet'),
 )
-resdb_bridge_include_dir = os.environ.get(
-    'RESDB_BRIDGE_INCLUDE_DIR',
-    os.path.join(resdb_root, 'integration', 'omnet'),
-)
 resdb_bridge_lib = os.environ.get('RESDB_BRIDGE_LIB', 'resdb_omnet_bridge')
 
 makemake_flags.extend([
     '-I' + resdb_root,
-    '-I' + resdb_bazel_bin,
-    '-I' + resdb_bridge_include_dir,
     '-L' + resdb_bridge_dir,
     '-l' + resdb_bridge_lib,
 ])

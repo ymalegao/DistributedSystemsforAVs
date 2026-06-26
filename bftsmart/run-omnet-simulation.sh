@@ -41,6 +41,10 @@
 #   ./run-omnet-simulation.sh --randomize 16 4 --byzleader 0 --sync-java -u Cmdenv -c SixteenVehiclesBFTOverV2V
 #   ./run-omnet-simulation.sh --leader 4 -u Cmdenv -c EightVehiclesBFTOverV2V
 #   ./run-omnet-simulation.sh --leader 7 --randomize 8 2 -u Cmdenv -c EightVehiclesBFTOverV2V
+#
+# --baseline
+#   SUMO-controlled baseline mode. Reuses ambulance randomization, but disables
+#   Byzantine and leader mutations.
 
 set -euo pipefail
 
@@ -307,6 +311,7 @@ ALLOW_REPLICA0_BYZ_FOLLOWER=0
 SYNC_JAVA=""
 NO_AMBULANCE=0
 BFT_INITIAL_LEADER=""   # "" = use default (replica 0); else rotate system.initial.view
+BASELINE=0
 EXTRA_INI_ARG=()
 
 args=("$@")
@@ -338,6 +343,9 @@ while [[ $i -lt ${#args[@]} ]]; do
             i=$(( i + 1 ))
             BFT_INITIAL_LEADER="${args[$i]}"
             ;;
+        --baseline)
+            BASELINE=1
+            ;;
         *)
             filtered_args+=("${args[$i]}")
             ;;
@@ -345,6 +353,13 @@ while [[ $i -lt ${#args[@]} ]]; do
     i=$(( i + 1 ))
 done
 set -- "${filtered_args[@]+"${filtered_args[@]}"}"
+
+if [[ "${BASELINE}" -eq 1 ]]; then
+    BYZ_LEADER=-1
+    ALLOW_REPLICA0_BYZ_FOLLOWER=1
+    SYNC_JAVA=""
+    BFT_INITIAL_LEADER=""
+fi
 
 # ---------------------------------------------------------------------------
 

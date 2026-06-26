@@ -90,10 +90,12 @@ The ResDB library still runs internal worker threads, but all interaction with V
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/IV2VTransport.h` | Minimal abstract transport interface. Provides C-compatible adapters for the bridge callback table. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResdbV2VWire.h` | Shared signed-envelope helper for type 8, type 9, and type 10 radio payloads. Layout is pubkey, signature length, DER ECDSA signature, then inner bytes. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBDecisionGossip.h/.cc` | Pure relay-dedup logic for three independent mechanisms: (1) decision gossip — serializes `epoch \|\| order_bytes`, parses TYPE9 payloads, counts matching votes per sender via `GossipAccumulator`; (2) cert relay — `CertRelayTracker` deduplicates per-carId ARRIVAL_CERT re-floods so each node relays each validated cert exactly once; (3) announce gossip — serializes `epoch \|\| original_announce_bytes` and deduplicates per `(epoch, carId)` through `AnnouncementRelayTracker`. |
+| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBRollbackProtocol.cc` | Cancel/rollback protocol module. Owns type 12 cancel echoes, type 13 cancel certs, fast local halt, rollback re-discovery, rollback proposal construction, epoch tombstones, and retry/relay state. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBTraCI.cc` | TraCI helpers extracted from the legacy V2V module: distance-to-lane-end, lane queue discovery, vehicle stop/resume helpers, and clearance detection. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/crypto/CryptoAuth.h/.cc` | OpenSSL ECDSA P-256 helper. Generates per-vehicle EC keys, signs arbitrary byte buffers, verifies signatures, and contains CA certificate helpers. |
 | `incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h` | C ABI between Veins and ResDB. Defines lifecycle, transport callback registration, sim-time update, consensus trigger, order callback, primary lookup, view-change hooks, and shared packed structs. |
 | `incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc` | ResDB-side integration. Builds socketless PBFT service, installs OMNeT communicator, registers pre-verify function, hosts `IntersectionExecutor`, injects inbound packets, and exposes the C API. |
+| `incubator-resilientdb/platform/consensus/ordering/pbft/omnet_forced_view.h` | Header-only rollback active-view registry. Stores request-scoped, proposal-defined rollback membership `M`, quorum `2f+1`, forced primary, and sender-admission helpers for PBFT. |
 | `incubator-resilientdb/common/utils/sim_time_provider.h/.cpp` | Global simulated-time provider used by ResDB worker threads. Updated by the OMNeT simulation thread. |
 
 ---
@@ -186,6 +188,9 @@ All inter-vehicle traffic is carried in `BFTMessage` packets over the Veins 802.
 | `8` | ResDB PBFT bytes | ResDB PRE_PREPARE, PREPARE, COMMIT, VIEW_CHANGE, NEW_VIEW, and related PBFT traffic. | `resdbwire` signed wrapper around serialized ResDB bytes. |
 | `9` | Decision gossip | Post-consensus order dissemination for stragglers that missed PBFT delivery. | `resdbwire` signed wrapper around `epoch || order_bytes`. |
 | `10` | Arrival announce gossip | Relay of an already-signed `ARRIVAL_ANNOUNCE` by a witness or carrier replica. | `resdbwire` signed wrapper around `epoch || original ARRIVAL_ANNOUNCE bytes`. |
+| `11` | ResDB consensus relay | Re-flood of selected raw ResDB PBFT bytes through the existing signed carrier. | `resdbwire` signed wrapper around `epoch || raw ResDB bytes`. |
+| `12` | `CANCEL_ECHO` | Witness attests that epoch `e` should be cancelled for a verified emergency or crash reason. | Text/pipe encoded cancel echo with signer's compressed P-256 pubkey and ECDSA signature. |
+| `13` | `CANCEL_CERT` | f+1 collected `CANCEL_ECHO`s for epoch `e`; valid receivers halt locally and start rollback discovery. | Text/pipe encoded cancel cert carrying echo signer ids, pubkeys, and signatures. |
 
 Important legacy note: type `9` used to mean Java/BFT-SMaRt client-request broadcast in the JNI architecture. In the current ResDB architecture it is not a client request; it is post-consensus decision gossip.
 
@@ -546,12 +551,12 @@ These verify the binary proposal is well-formed for this cluster:
 2. PRE_PREPARE data parses as `BatchUserRequest`.
 3. Batch contains at least one user request.
 4. Payload is large enough to hold `ResdbProposeHdr`.
-5. `hdr.n_vehicles` equals the replica count from ResDB config.
+5. For normal proposals, `hdr.n_vehicles` equals the replica count from ResDB config. For rollback proposals, `hdr.n_vehicles` is the proposal-defined forced membership size `|M|` and must be in `(0, static_config_N]`.
 6. Payload is large enough for all `ResdbVehicleEntry` records.
 7. All `replica_id` values are unique.
 8. All `replica_id` values are in `[0, expected)`.
 
-Per-entry field sanity (part of the above gate): `sim_time_us ≠ 0` (UINT64_MAX is the QUIET sentinel), `is_ambulance ∈ {0,1}`, `cyber_status ∈ {0,1}`, `leader_id ∈ [0, expected)`.
+Per-entry field sanity (part of the above gate): `sim_time_us ≠ 0` (UINT64_MAX is the QUIET sentinel), `is_ambulance ∈ {0,1}`, `cyber_status ∈ {0,1}`, `leader_id ∈ [0, expected)`. For rollback proposals, `leader_id` must also be a member of `M`.
 
 ### Semantic checks (9–10) — cert-based
 
@@ -577,6 +582,23 @@ ResdbOmnetSetCertSnapshotFn(resdb_server_handle_,
 ```
 
 `certSnapshotCallback` is a static method in `ResDBIntersectionApp`. It locks `certs_mutex_`, iterates `collected_certs_`, parses `"vehN"` → replica id, and fills the `ResdbCertEntry` buffer with cert-attested state. All writes to `collected_certs_` in `ResDBArrivalProtocol.cc` also lock `certs_mutex_` to protect against concurrent pre-verify reads from the ResDB worker thread.
+
+### Rollback forced-M install
+
+Rollback PRE_PREPAREs are validated in two phases:
+
+1. The existing proposal checks validate the rollback wrapper, cancel justification shape, entry bounds, duplicate ids, and cert-backed state fields.
+2. Only after those checks pass, the bridge builds an `OmnetForcedView` candidate from the inner `ResdbVehicleEntry[].replica_id` list and installs it in the PBFT active-view registry.
+
+Malformed or rejected rollback proposals do not mutate the active-view registry. The active view is request-scoped by rollback epoch, PBFT sequence, and request hash where available. A locally submitted rollback proposal is first installed as a pending forced view keyed by request hash; when the PRE_PREPARE receives its PBFT sequence, it is promoted to the full request identity.
+
+The forced membership is proposal-defined:
+
+```text
+M = { ResdbVehicleEntry.replica_id from the validated rollback payload }
+```
+
+ResDB does not infer `M` from traffic, responsive senders, or local observations. `M` stores canonical OMNeT replica ids (`0..N-1`), matching `ResdbVehicleEntry.replica_id`. ResDB message sender ids are still 1-based node ids, so PBFT filtering converts `Request.sender_id()` to OMNeT id exactly once at the membership boundary.
 
 ---
 
@@ -745,7 +767,276 @@ This is intentionally lower than PBFT commit quorum. Gossip is not a replacement
 
 ---
 
-## 15. Simulated Time
+## 15. Cancel / Rollback Protocol
+
+Rollback is the multi-epoch recovery path used when an already-committed order for epoch `e` becomes unsafe or stale before all scheduled vehicles have crossed. The first concrete triggers are:
+
+1. a certified emergency vehicle arrives after epoch `e` committed and is absent from epoch `e`'s order; or
+2. a crash / unsafe committed batch is detected after order delivery.
+
+The rollback design deliberately separates two operations:
+
+```text
+halt locally       -> fast, unilateral, no consensus
+resume / re-order  -> PBFT consensus over a fresh epoch
+```
+
+### Ownership boundary
+
+`ResDBRollbackProtocol.cc` owns the Veins-side rollback protocol. It does not live in `ResDBArrivalProtocol.cc`; arrival code only stores and validates arrival facts. Rollback consumes those facts and decides when a cancel reason exists.
+
+The bridge owns binary payload parsing, PRE_PREPARE pre-verify, executor dispatch, and rollback forced membership injection. It unwraps rollback proposals, validates the proposal-defined `M`, installs a request-scoped PBFT active view, and commits the same payload under quorum `N = |M|`. Static `server.config` remains an identity/address/key registry; it is not mutated or shrunk.
+
+### Cancel echo and cancel cert
+
+`CANCEL_ECHO` mirrors arrival echoes. A witness signs:
+
+```text
+cancelledEpoch:reason:reasonRef:echoingReplicaId
+```
+
+`reason` is:
+
+```text
+0 = CRASH
+1 = EMERGENCY
+```
+
+`reasonRef` must be deterministic. For emergency rollback, it should identify the ambulance cert or ambulance vehicle/epoch. For crash rollback, it should identify the canonical unsafe condition, such as `unsafe_batch:e:b:vehA+vehB`.
+
+`CANCEL_CERT` mirrors arrival certs:
+
+1. at least `f + 1` distinct echo signers;
+2. no duplicate signer ids;
+3. every echo signature verifies against the embedded signer pubkey;
+4. every signed string matches the cert's `cancelledEpoch`, `reason`, `reasonRef`, and signer id.
+
+Any replica that validates a `CANCEL_CERT` may relay it once. The cert already contains f+1 independent signatures, so relay does not need another gossip vote threshold.
+
+`CANCEL_CERT` is the rollback barrier. An emergency arrival cert or crash observation may cause a replica to send a `CANCEL_ECHO`, but it must not start rollback discovery or submit a rollback proposal until a valid `CANCEL_CERT` is assembled or received.
+
+### Fast local halt
+
+Once a replica receives valid cancel evidence, halt is local and immediate for recallable vehicles. A vehicle is recallable when it is still far enough from the conflict box to brake before entry:
+
+```text
+recallable = distanceToConflictBox >
+             speed^2 / (2 * brakingDecelMps2) + processingLatencyMargin
+```
+
+Recallable vehicles cancel pending resume / clearance timers, call the existing TraCI stop helper, and set `cancel_pending_` for the cancelled epoch. Non-recallable vehicles are already physically committed and are not force-stopped; the rollback membership excludes them.
+
+While `cancel_pending_` is true, the normal simulation fallback meaning inverts:
+
+```text
+stopSignTimeoutSec / consensusTimeoutSec / clearanceTimeoutSec
+    means stay stopped, not resume
+```
+
+This keeps a vehicle that heard cancel evidence from crossing just because an app-level safety timer expired.
+
+### Re-discovery and rollback proposal
+
+After cancel cert validation, recallable vehicles restart arrival discovery for epoch `e + 1`. Old arrival certs are epoch-bound and should not authorize the new order. The fresh membership `M` is the Veins-side responsive set:
+
+```text
+M = certified/observed responsive vehicles for epoch e+1
+    excluding departed, wrecked, and non-recallable old-epoch vehicles
+    including the new certified ambulance/emergency vehicle
+```
+
+The rollback proposal payload is:
+
+```text
+ResdbRollbackHdr
+justification[justification_len]
+ResdbProposeHdr
+ResdbVehicleEntry[ResdbProposeHdr.n_vehicles]
+```
+
+`ResdbRollbackHdr` is:
+
+```c
+#pragma pack(push, 1)
+typedef struct ResdbRollbackHdr {
+    uint32_t new_epoch;        // e + 1
+    uint32_t cancelled_epoch;  // e
+    uint8_t  reason;           // 0=CRASH, 1=EMERGENCY
+    uint8_t  _pad[3];
+    uint32_t justification_len;
+} ResdbRollbackHdr;
+#pragma pack(pop)
+```
+
+The inner `ResdbProposeHdr + ResdbVehicleEntry[]` is the proposed epoch `e+1` membership/order input. For rollback, this payload is the only source of `M`; ResDB validates it and then forces PREPARE/COMMIT quorum counting, sender admission, and primary identity to that exact membership for the rollback request.
+
+Rollback discovery runs until either:
+
+1. every locally visible rollback candidate has a fresh epoch `e+1` arrival cert, and `|M|` is at least the configured minimum; or
+2. `rollbackDiscoveryTimeoutSec` expires, currently `8s` in scenario `15`.
+
+Before that point, followers only broadcast/relay cancel evidence and arrival discovery traffic. They do not submit rollback proposals. When the timeout fires, the proposer still includes the locally visible intersection set `M`: cert-backed members are encoded as signed/active entries, while visible members that did not assemble a fresh cert are encoded as QUIET (`cyber_status=0`, `sim_time_us=UINT64_MAX`). Quiet members remain part of the scheduling input because they are physically present at the intersection, even if they did not acknowledge cancellation or form a cert.
+
+This keeps the rollback membership compatible with future perception-engine changes: if perception later changes who is visible, only the Veins-side discovery result changes, not the ResDB forced-M rules.
+
+### Deterministic rollback proposer
+
+The rollback proposer is derived from the rediscovered epoch `e+1` membership candidates. The same `shouldIncludeInRollbackMembership()` filter is used for proposer selection and proposal construction, so the app-level proposer is a member of the proposal-defined `M`:
+
+```text
+smallest replica id in the sorted rollback membership candidates,
+rotated by rollback_rotation_index_ on retry
+```
+
+The selected proposer is encoded as `ResdbProposeHdr.leader_id`. When the bridge validates the rollback proposal, that leader becomes the PBFT primary for the rollback instance. `ResdbOmnetGetPrimary()`, PBFT `SystemInfo`, and the app-level proposer therefore agree on the same 0-based replica id for epoch `e+1`.
+
+If the forced rollback primary is silent after the rollback instance starts, full forced-M view-change is not implemented yet. The current prototype fails loud with `[ROLLBACK-VC-UNSUPPORTED]` rather than falling back to the original static `N`.
+
+### Tombstones and gossip suppression
+
+When rollback for `cancelled_epoch=e` commits at `new_epoch=e+1`, the app records a tombstone for `e`.
+
+Tombstoned epochs must be refused by:
+
+1. `handleDecisionGossip()` before counting type 9 votes;
+2. `applyGossipOrder()` before enqueueing the gossiped order;
+3. `processOrders()` before applying queued order bytes.
+
+This prevents a missed or delayed type 9 gossip frame from resurrecting the cancelled order after rollback.
+
+### Bridge pre-verify for rollback
+
+The bridge pre-verify path must distinguish normal proposals from rollback proposals:
+
+```text
+normal:   ResdbProposeHdr + entries
+rollback: ResdbRollbackHdr + justification + ResdbProposeHdr + entries
+```
+
+For this pass, Check 11 is structural cancel-justification validation:
+
+1. `reason` is valid;
+2. `justification_len` is non-zero and in bounds;
+3. crash justification parses as a cancel cert shape;
+4. emergency justification carries ambulance arrival-cert bytes.
+
+Full cryptographic CA enforcement for emergency certs and the complete Check 12 membership-corroboration rule remain follow-up work. They should consume the same proposal-defined `M`; they must not introduce a second independently computed membership set.
+
+### Forced-M PBFT active view
+
+Rollback does not call BFT-SMaRt-style runtime reconfiguration and does not rewrite ResDB `server.config`. Instead, `omnet_forced_view.h` provides a request-scoped active-view registry:
+
+| Concern | Current behavior |
+|---------|------------------|
+| Active membership storage | `OmnetForcedViewRegistry` is injected into PBFT managers. It stores forced rollback views keyed by request identity: epoch, sequence, and request hash when available. |
+| Membership source | The only source is the validated rollback proposal's inner `ResdbVehicleEntry[].replica_id` list. ResDB does not infer active membership from traffic. |
+| Id basis | `M` stores OMNeT 0-based replica ids. PBFT `Request.sender_id()` is converted from ResDB 1-based node id at the filter/counting boundary. |
+| Quorum | For rollback PREPARE/COMMIT, `quorum = 2f + 1` with `f = (|M| - 1) / 3`. Example: `|M|=11` gives `f=3`, quorum `7`. |
+| Primary | The validated rollback `leader_id` is forced into PBFT `SystemInfo`; `ResdbOmnetGetPrimary()` returns that active rollback primary. |
+| Sender admission | PRE_PREPARE/PREPARE/COMMIT senders outside `M` are non-voting and dropped/logged before collector vote bits are counted. |
+| Non-members | Non-members are passive/non-voting. They may still learn tombstones or final rollback knowledge so stale decision gossip cannot resurrect epoch `e`. |
+| Scope | Forced `N` applies only to rollback request identity. Static config remains the registry for known ids, addresses, and keys. |
+| Executor consistency | `IntersectionExecutor` schedules exactly the same inner `M` that PBFT committed under forced-M quorum. |
+
+Checkpoint/recovery and forced-M view-change/new-view are not part of this first implementation. If a rollback VIEWCHANGE or NEWVIEW is encountered while a forced rollback view exists, the node logs `[ROLLBACK-VC-UNSUPPORTED]` and rejects it rather than silently using the original `N`. The Veins app-level `vc_trigger_msg_` is also suppressed while `cancel_pending_` is true, because forcing ResDB's normal static-`N` view-change during rollback can assert on missing fixed-membership proofs.
+
+### Scenario 15: late emergency rollback test
+
+The first orchestrated rollback experiment is scenario code `15`, named `Emergency_Preempt_DynamicN`.
+
+It is currently hard-scoped to `N=18`:
+
+```bash
+python3 experiment_orchestrator.py --config 18 --scenario 15 --reps 1
+```
+
+The orchestrator expands scenario `15` to:
+
+```bash
+fourway/run-resdb-simulation.sh ... --rollback-late-emergency --leader 0
+```
+
+with OMNeT++ config `EighteenVehiclesResDB`.
+
+`--rollback-late-emergency` writes `fourway/rollback_late_emergency.ini` at run time and selects:
+
+```text
+*.manager.launchConfig = xmldoc("resdb_bft_18veh_rollback_late.launchd.xml")
+*.manager.intersectionBatchSize = 16
+*.node[*].appl.totalVehicles = 16
+*.node[*].appl.ambulanceReplicaId = 16
+*.node[*].appl.enableRollback = true
+*.node[*].appl.enableAmbulanceCertGate = true
+*.node[*].appl.rollbackDiscoveryTimeoutSec = 8s
+```
+
+The fixed SUMO route is `fourway/bft_18veh_rollback_late.rou.xml`:
+
+```text
+veh0..veh15  depart at 0s    (16 vehicles, epoch 0 batch)
+veh16        ambulance, depart at 40s
+veh17        normal car, depart at 40s
+```
+
+The late `depart` time must land **after** epoch 0 commits (roughly `t=18–23s`
+with 16 cars) and **before** the batch fully clears / SUMO auto-shutdown. Tune
+`depart` in `bft_18veh_rollback_late.rou.xml` if consensus or clearance timing
+shifts (e.g. `depart=40` after moving epoch-0 commit earlier via the bridge fix).
+
+`totalVehicles = 16` is the critical parameter, even though 18 replicas exist.
+`proposeAll()` in `ResDBDecision.cc` pads the committed order with a QUIET entry
+for every `rid` in `[0, totalVehicles)`. If `totalVehicles` were 18, replica 16
+(the ambulance) would be QUIET-padded into epoch 0's committed order, and
+`maybeTriggerEmergencyRollbackFromCert()` (which skips when the ambulance id is
+already in `committed_order_vehicle_ids_`) would never fire. Keeping it at 16
+means epoch 0 commits exactly `{0..15}`, so the late ambulance is genuinely
+"unscheduled" and triggers the rollback. The late arrivals `veh16`/`veh17` still
+receive correct replica ids: the SUMO identity binding only overrides ids
+`< totalVehicles`, so they fall back to the NED `node[16]/node[17].replicaId`
+values (valid because they spawn last, so node index equals veh number).
+`intersectionBatchSize = 16` lets epoch 0 commit the 16 present vehicles.
+
+The ResDB bridge pre-verify (`resdb_omnet_bridge.cc`) uses `expected =
+server.config` replica count (18). Normal (non-rollback) proposals are accepted
+when `0 < hdr.n_vehicles <= expected`, so epoch 0 with 16 signed entries passes
+even though 18 keys exist. Rebuild the bridge after changing this check:
+`bazel build //integration/omnet:resdb_omnet_bridge`.
+
+The intended timeline is:
+
+1. Static ResDB starts with config `N=18` (18 pre-generated keysets).
+2. The first physical wave has 16 vehicles (`veh0..veh15`) at the intersection.
+3. The initial epoch `e` commits a normal order over `M0 = {0..15}`; replicas 16 and 17 stay silent (16 present >= quorum `2f+1 = 11`).
+4. Some vehicles begin crossing and at least two leave or become non-recallable.
+5. `veh16` arrives as the emergency vehicle, with `veh17` as an additional late non-emergency participant.
+6. Vehicles that can verify the emergency reason send `CANCEL_ECHO`.
+7. `f+1` cancel echoes form a `CANCEL_CERT`.
+8. Recallable vehicles halt, tombstone epoch `e`, restart discovery for epoch `e+1`, and propose rollback membership `M`.
+9. Rollback consensus commits under forced `N=|M|` (M = the 16 still-present vehicles: `{0..15}` minus the two departed, plus `{16, 17}`), not static `18`.
+
+This scenario was added because a tiny `N=4` rollback case is structurally weak: after two vehicles leave, fewer than four may remain, so the rollback consensus instance cannot demonstrate a meaningful forced-M quorum. The `N=18` test commits 16 vehicles first, lets two depart, and admits two pre-keyed late arrivals (one emergency, one ordinary), leaving a forced-M rollback membership of 16. Note that the two late arrivals are *pre-provisioned* replicas physically idle until `t=12`, not a runtime ResDB join (which remains the pending `resdb_dynamic_N_reconfiguration` work).
+
+Known suspicion if scenario `15` does not trigger rollback:
+
+- Timing may be wrong. If `veh16` arrives too late, too many vehicles may already be departed/non-recallable before cancel evidence spreads. If it arrives too early (before epoch 0 commits), it may be included in the first epoch instead of forcing a rollback. Tune the `depart="12"` time and `departPos` in `bft_18veh_rollback_late.rou.xml` so exactly two vehicles clear before the late arrivals.
+- If `totalVehicles` were left at 18 (instead of 16), `proposeAll()` would QUIET-pad replica 16 (the ambulance) into epoch 0's committed order, so the ambulance would already be in `committed_order_vehicle_ids_` and `maybeTriggerEmergencyRollbackFromCert()` would skip it (no rollback). The scenario therefore pins `totalVehicles = 16` so epoch 0 commits exactly `{0..15}`.
+- The analyzer mapping for scenario `15` currently reuses the emergency-priority analyzer path. Rollback-specific success criteria still need dedicated parsing for `[CANCEL-*]`, `[ROLLBACK-*]`, `[ACTIVE-*]`, tombstone, and forced-M quorum logs.
+
+### Departed replica lifecycle
+
+Departure has both physical and logical effects:
+
+1. `recordIntersectionDeparture()` marks the vehicle `DEPARTED` / `is_departed_`.
+2. It calls `ResdbOmnetMarkReplicaInactive(handle, replicaId, current_epoch_ + 1)`.
+3. The bridge sets PBFT silent mode for that local replica and logs `[ACTIVE-DEPART]`.
+4. `enqueueOutbound()` drops late ResDB worker-thread sends after departure, and pending outbound packets are cleared.
+5. `finish()` calls the same inactive marker before final server stop/destroy, acting as the cleanup safety net.
+
+The static config may still contain the departed id, but future rollback active memberships must treat that vehicle as gone unless a later proposal explicitly includes it and it is physically responsive.
+
+---
+
+## 16. Simulated Time
 
 OMNeT++ simulated time is the source of truth. The bridge provides:
 
@@ -774,7 +1065,7 @@ During teardown, the app updates sim time to `INT64_MAX` / max uint time to unbl
 
 ---
 
-## 16. View Change and Primary Failure
+## 17. View Change and Primary Failure
 
 ResDB's built-in PBFT view-change is the intended replacement for the old BFT-SMaRt `RequestsTimer` / STOP / STOP_NACK stack.
 
@@ -841,7 +1132,7 @@ This creates a realistic primary-silence fault at both app and PBFT transport le
 
 ---
 
-## 17. Byzantine Fault Model
+## 18. Byzantine Fault Model
 
 The system assumes:
 
@@ -870,6 +1161,26 @@ Examples:
 | `3` | `EQUIVOCATOR` | Vehicle sends different directions to different peers. | Echo signatures diverge by direction; cert validity depends on f+1 echoes agreeing on the cert fields. |
 | `4` | `SILENT_PRIMARY` | Primary suppresses app proposal and drops outbound PBFT messages. | Followers' VC triggers force ResDB view-change; new primary should propose. |
 | `5` | `BAD_PROPOSAL` | Primary corrupts proposal shape. | Bridge pre-verify rejects PRE_PREPARE; view-change path should recover. |
+| `6` | `FAKE_AMBULANCE` | Primary flips `is_ambulance` 0→1 for the first non-ambulance entry in the proposal. | Pre-verify Check 10 catches the `is_ambulance` mismatch vs cert. Without the firewall (`RESDB_NO_FIREWALL=1`), the fake car receives ambulance crossing priority. |
+| `7` | `FAKE_AMBULANCE_FOLLOWER` | Follower injects `isAmbulance=true` with empty cert bytes into its own `ARRIVAL_ANNOUNCE`. | When `enableAmbulanceCertGate=true`, the echo path rejects uncertified ambulance claims. With the cert gate off, honest echoes accept the claim and the wrong car gets priority. |
+| `8` | `TAMPER_LANE` | Primary disguises the front E-lane car as S-lane (`position=0`) in the proposal so the scheduler sees N-STRAIGHT + "S"-STRAIGHT as safe to co-batch. The N car (going south) and the E car (going west) are released simultaneously and cross in the intersection center. | Pre-verify Check 10 catches the cert-lane vs proposal-lane mismatch. Without the firewall, the unsafe order is committed and `[CRASH_DETECTED]` is logged post-consensus by each replica. |
+
+### Experiment scenario wrappers
+
+The orchestrator scenario names combine a traffic condition, a Byzantine role, and a targeted defense ablation:
+
+| Orchestrator scenario | Fault mode | Targeted ablation | Failure marker |
+|-----------------------|------------|-------------------|----------------|
+| `NoFW_ByzFollower_FalseLane` | `FALSE_LANE` follower input lie | Firewall-off output path for comparison; TraCI input verification is the actual defense. | `[CONSENSUS_ATTACK_OUTCOME] fault=FALSE_LANE ...`; success is `MALICIOUS_INPUT_COMMITTED`, blocked cases are `BLOCKED_NO_VALID_CERT` or `BLOCKED_OR_CANONICALIZED`. |
+| `NoFW_ByzLeader_BadProposal` | `BAD_PROPOSAL` leader structural corruption | `RESDB_NO_FIREWALL=1` disables bridge pre-verify checks. | `[CONSENSUS_ATTACK_OUTCOME] fault=BAD_PROPOSAL outcome=ORDER_COMMITTED_AFTER_MALFORMED_PROPOSAL`. |
+| `NoFW_ByzLeader_FakeAmbulance` | `FAKE_AMBULANCE` leader state-field tampering | `RESDB_NO_FIREWALL=1` disables Check 10. | `[CONSENSUS_ATTACK_OUTCOME] fault=FAKE_AMBULANCE outcome=FALSE_PRIORITY_GRANTED`; also logs `[FALSE_PRIORITY_GRANTED]`. |
+| `NoCertGate_ByzFollower_FakeAmbu` | `FAKE_AMBULANCE_FOLLOWER` input lie | `enableAmbulanceCertGate=false`. | `[CONSENSUS_ATTACK_OUTCOME] fault=FAKE_AMBULANCE_FOLLOWER outcome=UNCERTIFIED_PRIORITY_CLAIM_COMMITTED`. |
+| `CertGate_ByzFollower_FakeAmbu` | `FAKE_AMBULANCE_FOLLOWER` input lie | `enableAmbulanceCertGate=true`. | `[CONSENSUS_ATTACK_OUTCOME] fault=FAKE_AMBULANCE_FOLLOWER outcome=CERT_GATE_BLOCKED_OR_NOT_CERTIFIED`; echo path also logs `[CERT-GATE]`. |
+| `NoFW_ByzLeader_TamperLane` | `TAMPER_LANE` leader state-field tampering | `RESDB_NO_FIREWALL=1` disables Check 10. | `[CONSENSUS_ATTACK_OUTCOME] fault=TAMPER_LANE outcome=UNSAFE_ORDER_COMMITTED`; also logs `[CRASH_DETECTED]`. |
+
+### No-firewall ablation
+
+Setting `RESDB_NO_FIREWALL=1` at run time replaces all 10 pre-verify checks with a trivially-true lambda. This allows Byzantine proposals that Check 10 would normally reject to be committed. Scenarios 7–9 and 12 use this mode to demonstrate what each check prevents.
 
 ### Current defenses
 
@@ -880,16 +1191,18 @@ Examples:
 | Malformed binary proposal | Bridge pre-verify structural checks 1–8. |
 | Byzantine leader QUIET suppression | Pre-verify Check 9: reject if > f certs held by follower are marked QUIET. |
 | Byzantine leader state-field tampering | Pre-verify Check 10: proposal entry fields must match local cert for every SIGNED car. |
+| Unsafe ambulance claim by follower | `enableAmbulanceCertGate` NED flag: echo path rejects uncertified `isAmbulance=true` announce (cert gate ablation toggle). |
 | Unsafe co-batching | Executor `IsSafeToBatch()` conflict matrix port. |
 | Same-lane rear crossing before front | Executor `AllSameLaneFrontPlaced()`. |
 | Missing cert at proposal deadline | QUIET padding and singleton batch isolation. |
 | Isolated announce source | Type 10 announce gossip carries the original signed announce through verified witnesses. |
 | Missed PBFT decision | Type 9 decision gossip with f+1 matching signed senders. |
 | Primary silence | PBFT silent fault plus app-level forced view-change, canceled once an order is pending or applied. |
+| Post-commit unsafe batch (firewall-off ablation) | `detectUnsafeBatch()` checks every committed batch against cert lanes using the same kSafe table as the executor. Logs `[CRASH_DETECTED]` when any batch pair is unsafe under true cert lanes. |
 
 ---
 
-## 18. Important NED Parameters
+## 19. Important NED Parameters
 
 Defined in `ResDBIntersectionApp.ned`.
 
@@ -945,7 +1258,8 @@ Defined in `ResDBIntersectionApp.ned`.
 | Parameter | Meaning |
 |-----------|---------|
 | `isByzantine` | Enables Byzantine behavior for this vehicle. |
-| `byzantineType` | Fault type `0` through `5`. |
+| `byzantineType` | Fault type `0` through `8`. See Byzantine fault model table. |
+| `enableAmbulanceCertGate` | When true, the arrival-echo path rejects any `isAmbulance=true` announcement without a valid Emergency_CA `VehicleCert` and payload signature. Legitimate ambulances (`ambulanceReplicaId`) auto-issue the cert at init and attach it in `broadcastArrivalAnnouncement()` (ported from `V2VProxyModule::attachAmbulanceCryptoToAnnouncement`). Ablation toggle for cert-gate scenarios (types 10 and 11). |
 | `enableDecisionGossip` | Enables the shared gossip machinery: type 9 decision gossip and type 10 announce gossip. |
 | `decisionGossipInitialIntervalSec` | First retry interval for gossip. |
 | `decisionGossipMaxRetries` | Maximum gossip retries. |
@@ -953,9 +1267,22 @@ Defined in `ResDBIntersectionApp.ned`.
 | `intendedDirection` | `S`, `L`, or `R`, used in announcements. |
 | `intendedLane` | Optional `N/S/E/W` override to avoid SUMO lane-name ambiguity. |
 
+### Rollback
+
+| Parameter | Meaning |
+|-----------|---------|
+| `enableRollback` | Enables cancel echo/cert handling, fast local halt, rollback discovery, rollback proposals, and tombstone filtering. |
+| `cancelEchoTimeoutSec` | Window for collecting enough cancel echoes to assemble a cancel cert. |
+| `cancelCertRetryIntervalSec` | Retry interval for rebroadcasting an assembled cancel cert. |
+| `cancelCertRetryMax` | Maximum cancel cert retry count; `0` means unlimited while cancel remains pending. |
+| `brakingDecelMps2` | Deceleration used for recallable / committed horizon calculation. |
+| `processingLatencyMargin` | Extra distance margin added to the braking horizon. |
+| `rollbackDiscoveryTimeoutSec` | Maximum epoch `e+1` discovery window after a valid cancel cert before proposing with the visible responsive `M`. |
+| `rollbackVcTimeoutSec` | App-level timeout before rotating to the next deterministic rollback proposer. |
+
 ---
 
-## 19. Metrics and Logs
+## 20. Metrics and Logs
 
 Common log markers used by benchmark scripts and debugging:
 
@@ -975,13 +1302,31 @@ Common log markers used by benchmark scripts and debugging:
 | `[GOSSIP-APPLY]` | Replica applied an order through gossip catch-up. |
 | `[ANN-GOSSIP-SEND]` | Type 10 announce gossip broadcast; `reason=verified` for immediate relay, `reason=stop-zone` for delayed custody relay. |
 | `[ANN-GOSSIP-RECV]` | Type 10 announce gossip received, parsed, and handed to the normal announcement path. |
+| `[CANCEL-ECHO]` | Type 12 cancel echo sent or received. |
+| `[CANCEL-CERT]` | Type 13 cancel cert assembled, broadcast, received, or rejected. |
+| `[CANCEL-RELAY]` | Valid cancel cert relayed once by a receiver. |
+| `[HALT-LOCAL]` | Local halt decision on valid cancel evidence, including recallable classification. |
+| `[ROLLBACK-BEGIN]` | App entered rollback discovery for `cancelled_epoch` and `new_epoch`. |
+| `[ROLLBACK-PROPOSE]` | Deterministic rollback proposer submitted or skipped a rollback proposal. Includes `|M|` when submitted. |
+| `[ROLLBACK-COMMIT]` | Rollback order committed and cancelled epoch tombstoned. |
+| `[ROLLBACK-VC]` | App-level rollback proposer rotation timer fired. |
+| `[ACTIVE-VIEW]` | ResDB installed or promoted a forced rollback active view. Includes epoch, seq, hash, `N`, `f`, quorum, primary, and members. |
+| `[ACTIVE-VIEW-REJECT]` | Forced rollback membership was rejected, usually for conflicting membership or sender/leader mismatch. |
+| `[ACTIVE-VOTE-DROP]` | PBFT ignored a PRE_PREPARE/PREPARE/COMMIT vote because the sender is outside rollback `M`. |
+| `[ACTIVE-PASSIVE]` | A non-member observed rollback PBFT traffic but skipped voting or execution for that instance. |
+| `[ACTIVE-DEPART]` | A local vehicle departed and its ResDB/PBFT participation was disabled for future epochs. |
+| `[ROLLBACK-VC-UNSUPPORTED]` | A forced-M rollback view-change/new-view path was reached; the prototype rejects it instead of falling back to static `N`. |
 | `[VC-DEBUG]`, `[VC-TRIGGER]`, `[APP-VC]` | View-change instrumentation. |
 | `[OMNET-PREVERIFY]` | Bridge PRE_PREPARE pre-verify result. |
 | `[EXECUTOR]`, `[EXEC-CB]` | ResDB executor and order callback logs. |
+| `[CRASH_DETECTED]` | Emitted by `detectUnsafeBatch()` after order delivery. Identifies the batch index, both vehicle IDs, and their cert lanes. Fires on every honest replica that processes the committed order. Indicates a Byzantine leader committed an order that the firewall (Check 10) would have rejected. |
+| `[FALSE_PRIORITY_GRANTED]` | Emitted after order delivery when a leader-tampered fake ambulance proposal commits despite the local cert saying the vehicle is not an ambulance. |
+| `[CONSENSUS_ATTACK_OUTCOME]` | Unified post-order detector emitted by `detectConsensusAttackOutcome()`. Includes `fault=...` and `outcome=...` so experiment scripts can mark attack success or blocked recovery across scenarios. |
+| `[BYZANTINE]` | Byzantine primary or follower fault injection. Includes fault type name and affected replica IDs. |
 
 ---
 
-## 20. Build and Run Handoff
+## 21. Build and Run Handoff
 
 When changing the bridge, rebuild ResDB first, then Veins.
 
@@ -1006,17 +1351,44 @@ bazel --output_user_root=/tmp/bazel build //integration/omnet:resdb_omnet_bridge
 
 Use the scenario configs in `fourway/omnetpp.ini` for honest, ambulance, batch, Byzantine follower, and Byzantine primary experiments.
 
+### Orchestrator scenario codes (`experiment_orchestrator.py --scenario N`)
+
+| Code | Name | Description |
+|------|------|-------------|
+| 1 | `No_Ambulance_Honest` | Baseline: no ambulance, all honest. |
+| 2 | `Honest_Ambulance` | Ambulance present, all honest. |
+| 3 | `ByzFollower_Ambulance` | f Byzantine followers, ambulance present. |
+| 4 | `ByzLeader_Ambulance` | Byzantine primary (type 5), ambulance present. |
+| 5 | `ByzLeader_NoAmbulance` | Byzantine primary (type 5), no ambulance. |
+| 6 | `ByzFollower_NoAmbulance` | f Byzantine followers, no ambulance. |
+| 7 | `NoFW_ByzFollower_FalseLane` | FALSE_LANE follower, firewall off — attack succeeds. |
+| 8 | `NoFW_ByzLeader_BadProposal` | BAD_PROPOSAL primary, firewall off — attack succeeds. |
+| 9 | `NoFW_ByzLeader_FakeAmbulance` | FAKE_AMBULANCE primary (type 6), firewall off — wrong priority committed. |
+| 10 | `NoCertGate_ByzFollower_FakeAmbu` | FAKE_AMBULANCE_FOLLOWER (type 7), cert gate OFF — uncertified ambulance claim accepted. |
+| 11 | `CertGate_ByzFollower_FakeAmbu` | FAKE_AMBULANCE_FOLLOWER (type 7), cert gate ON — claim rejected, correct priority. |
+| 12 | `NoFW_ByzLeader_TamperLane` | TAMPER_LANE (type 8), firewall off — N+E co-batched, `[CRASH_DETECTED]` fires. Run with firewall on to confirm Check 10 prevents it. |
+
 ---
 
-## 21. Known Limitations and Technical Debt
+## 22. Known Limitations and Technical Debt
 
 ### Multi-epoch reset is incomplete
 
 `current_epoch_` is present, but full `resetForNextRound()` parity with the legacy V2V module is not implemented. Departed/zombie filtering exists, but a long scenario with multiple independent rounds needs more reset logic.
 
-### `ResdbOmnetRemoveReplica()` is a stub
+### `ResdbOmnetRemoveReplica()` is a stub; inactive marking is local
 
-The bridge function currently returns success for non-null handles but does not remove or reconfigure a replica. Departed-replica cleanup and epoch reconfiguration remain future work.
+The bridge function currently returns success for non-null handles but does not remove or reconfigure a replica. The implemented departure path instead uses `ResdbOmnetMarkReplicaInactive(handle, replica_id, min_epoch)`, which disables local PBFT outbound participation and prevents late outbound radio sends after physical departure. This is not static-config reconfiguration; the original config remains an identity registry.
+
+### Rollback forced-M implementation scope
+
+Rollback PREPARE/COMMIT now uses proposal-defined forced `M`: quorum is computed from `|M|`, non-members are non-voting, and the rollback `leader_id` is forced into PBFT primary state. This covers the intended "start fresh from 11 cars" case without mutating `server.config`.
+
+Remaining rollback membership limitations:
+
+- Forced-M view-change/new-view is not implemented. Rollback primary silence logs `[ROLLBACK-VC-UNSUPPORTED]` and fails loud.
+- Checkpoint/recovery dynamic membership is deferred; rollback experiments should not rely on checkpoint/recovery during the rollback instance.
+- The bridge validates cancel justification shape, but full emergency CA verification and membership-corroboration Check 12 remain follow-up work.
 
 ### Ambulance certificate verification is not fully enforced in the announce path
 
@@ -1056,7 +1428,7 @@ Type `8`, type `9`, and type `10` carrier payloads are signed and verified with 
 
 ---
 
-## 22. Legacy BFT-SMaRt / JNI Mapping
+## 23. Legacy BFT-SMaRt / JNI Mapping
 
 The old architecture is useful for comparison but is not the current hot path.
 
@@ -1079,7 +1451,7 @@ The old architecture is useful for comparison but is not the current hot path.
 
 ---
 
-## 23. Agent Orientation Checklist
+## 24. Agent Orientation Checklist
 
 When continuing work on this system, first identify which layer owns the behavior:
 
@@ -1087,8 +1459,9 @@ When continuing work on this system, first identify which layer owns the behavio
 2. **Radio carriage and signed V2V wrappers:** `ResDBIntersectionApp.cc`, `ResdbV2VWire.h`, and `CryptoAuth`.
 3. **PBFT integration and socketless ResDB behavior:** `resdb_omnet_bridge.cc`.
 4. **Binary proposal/order ABI:** `resdb_omnet_bridge.h`.
-5. **Post-consensus catch-up:** `ResDBDecisionGossip.h/.cc` plus `handleDecisionGossip()`.
-6. **Consensus time behavior:** `SimTimeProvider` and `ResdbOmnetUpdateSimTimeUs()`.
-7. **Experiment knobs:** `ResDBIntersectionApp.ned` and `fourway/omnetpp.ini`.
+5. **Rollback / cancel behavior:** `ResDBRollbackProtocol.cc`, rollback state in `ResDBIntersectionApp.h`, and rollback payload parsing in `resdb_omnet_bridge.cc`.
+6. **Post-consensus catch-up:** `ResDBDecisionGossip.h/.cc` plus `handleDecisionGossip()`.
+7. **Consensus time behavior:** `SimTimeProvider` and `ResdbOmnetUpdateSimTimeUs()`.
+8. **Experiment knobs:** `ResDBIntersectionApp.ned` and `fourway/omnetpp.ini`.
 
 Before changing behavior, check whether the old Java docs describe an invariant that still matters. Then implement it in the current C++/ResDB ownership boundary rather than reintroducing Java/JNI assumptions.

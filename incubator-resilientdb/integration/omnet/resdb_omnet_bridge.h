@@ -106,6 +106,23 @@ typedef struct ResdbProposeHdr {
     uint32_t n_vehicles;
 } ResdbProposeHdr;            /* 20 bytes */
 
+/* Rollback proposal wrapper.  The bytes after this header are:
+ *   justification[justification_len]
+ *   ResdbProposeHdr
+ *   ResdbVehicleEntry[ResdbProposeHdr.n_vehicles]
+ *
+ * reason: 0=CRASH, 1=EMERGENCY.
+ * TODO: ResDB-side dynamic-N membership/quorum reconfiguration is intentionally
+ * not implemented in this pass; this wrapper only carries the Veins-side
+ * rollback membership to the existing executor/pre-verify path. */
+typedef struct ResdbRollbackHdr {
+    uint32_t new_epoch;
+    uint32_t cancelled_epoch;
+    uint8_t  reason;
+    uint8_t  _pad[3];
+    uint32_t justification_len;
+} ResdbRollbackHdr;           /* 16 bytes */
+
 /* Per-vehicle batch assignment in the OrderDecision reply.
  *   replica_id  — which vehicle
  *   batch_index — 0-based; vehicles with same index cross simultaneously
@@ -203,6 +220,13 @@ int ResdbOmnetForceViewChange(void* server_handle);
  * view-change runs.  Call after ResdbOmnetRunServer.
  * Returns 0 on success, -1 if handle/consensus is null. */
 int ResdbOmnetSetPbftSilent(void* server_handle, int silent);
+
+/* Mark this local replica as inactive for future epochs. The static
+ * server.config remains unchanged; this only stops local OMNeT/PBFT
+ * participation so a departed vehicle cannot act as a ghost replica. */
+int ResdbOmnetMarkReplicaInactive(void* server_handle,
+                                  int replica_id,
+                                  uint32_t min_epoch);
 
 /* ── Step 5 (M4): cert-omission guard (Java OrderRequestVerifier Check 7) ──── */
 

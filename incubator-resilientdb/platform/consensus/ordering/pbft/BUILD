@@ -74,7 +74,10 @@ cc_library(
 cc_library(
     name = "message_manager",
     srcs = ["message_manager.cpp"],
-    hdrs = ["message_manager.h"],
+    hdrs = [
+        "message_manager.h",
+        "omnet_forced_view.h",
+    ],
     deps = [
         ":checkpoint_manager",
         ":lock_free_collector_pool",
@@ -238,7 +241,10 @@ cc_test(
 cc_library(
     name = "consensus_manager_pbft",
     srcs = ["consensus_manager_pbft.cpp"],
-    hdrs = ["consensus_manager_pbft.h"],
+    hdrs = [
+        "consensus_manager_pbft.h",
+        "omnet_forced_view.h",
+    ],
     visibility = [
         "//visibility:public",
     ],

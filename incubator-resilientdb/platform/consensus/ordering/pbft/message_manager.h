@@ -32,6 +32,7 @@
 #include "platform/config/resdb_config.h"
 #include "platform/consensus/ordering/pbft/checkpoint_manager.h"
 #include "platform/consensus/ordering/pbft/lock_free_collector_pool.h"
+#include "platform/consensus/ordering/pbft/omnet_forced_view.h"
 #include "platform/consensus/ordering/pbft/transaction_collector.h"
 #include "platform/consensus/ordering/pbft/transaction_utils.h"
 #include "platform/networkstrate/server_comm.h"
@@ -106,13 +107,20 @@ class MessageManager {
   void SendResponse(std::unique_ptr<Request> request);
 
   LockFreeCollectorPool* GetCollectorPool();
+  void SetOmnetForcedViewRegistry(
+      std::shared_ptr<OmnetForcedViewRegistry> registry);
+  bool HasForcedViewForRequest(const Request& request);
+  bool IsSelfActiveForRequest(const Request& request);
 
  private:
   bool IsValidMsg(const Request& request);
 
-  bool MayConsensusChangeStatus(int type, int received_count,
+  bool MayConsensusChangeStatus(const Request& request, int type,
+                                int received_count,
                                 std::atomic<TransactionStatue>* status,
                                 bool force);
+  int QuorumForRequest(const Request& request);
+  bool IsSenderActiveForRequest(const Request& request);
 
  private:
   ResDBConfig config_;
@@ -135,6 +143,7 @@ class MessageManager {
   std::mutex lct_lock_;
   std::map<uint64_t, uint64_t> last_committed_time_;
   std::map<uint64_t, uint32_t> last_update_time_;
+  std::shared_ptr<OmnetForcedViewRegistry> forced_view_registry_;
 };
 
 }  // namespace resdb

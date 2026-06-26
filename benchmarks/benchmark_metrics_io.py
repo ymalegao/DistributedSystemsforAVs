@@ -14,6 +14,7 @@ import csv
 import glob
 import json
 import os
+import re
 from typing import Iterable
 
 import numpy as np
@@ -34,6 +35,72 @@ def metric_json_paths(
         f"{vehicle_count}veh_*.json",
     )
     return sorted(glob.glob(pattern))
+
+
+def metric_log_paths(
+    benchmark_base_dir: str,
+    family_prefix: str,
+    vehicle_count: int,
+    scenario_subdir: str,
+) -> list[str]:
+    """Return analyze_log summary logs for e.g. Priority16cars/no_amb/run_*/16veh_*.log."""
+    pattern = os.path.join(
+        benchmark_base_dir,
+        f"{family_prefix}{vehicle_count}cars",
+        scenario_subdir,
+        "run_*",
+        f"{vehicle_count}veh_*.log",
+    )
+    return sorted(glob.glob(pattern))
+
+
+RUN_METRIC_RE = re.compile(r"^\[RUN-METRICS\]\s+([A-Za-z_][\w_]*):\s*([^\s]+)")
+ATTACK_OUTCOME_RE = re.compile(
+    r"^\[ATTACK-OUTCOME\]\s+epoch=(\d+)\s+fault=([A-Z_]+)\s+"
+    r"outcome=([A-Z_]+)\s+success=([01])(?:\s+(.*))?$"
+)
+
+
+def load_run_metrics_from_log(path: str) -> dict[str, float | int | str]:
+    """Parse [RUN-METRICS] lines from an analyze_log summary .log file."""
+    out: dict[str, float | int | str] = {}
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                m = RUN_METRIC_RE.match(line.strip())
+                if not m:
+                    continue
+                key, raw = m.group(1), m.group(2)
+                try:
+                    val = float(raw)
+                    out[key] = int(val) if val.is_integer() else val
+                except ValueError:
+                    out[key] = raw
+    except OSError as e:
+        print(f"WARNING: could not read {path}: {e}")
+    return out
+
+
+def load_attack_outcomes_from_log(path: str) -> list[dict[str, object]]:
+    """Parse [ATTACK-OUTCOME] lines from an analyze_log summary .log file."""
+    rows: list[dict[str, object]] = []
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                m = ATTACK_OUTCOME_RE.match(line.strip())
+                if not m:
+                    continue
+                rows.append({
+                    "epoch": int(m.group(1)),
+                    "fault": m.group(2),
+                    "outcome": m.group(3),
+                    "success": bool(int(m.group(4))),
+                    "detail": (m.group(5) or "").strip(),
+                    "path": path,
+                })
+    except OSError as e:
+        print(f"WARNING: could not read {path}: {e}")
+    return rows
 
 
 def _vehicle_wait_s(vehicle: dict) -> float | None:

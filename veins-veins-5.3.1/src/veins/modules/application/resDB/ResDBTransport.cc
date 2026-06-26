@@ -80,6 +80,7 @@ void ResDBIntersectionApp::enqueueOutbound(int toReplicaId,
                                             const uint8_t* data, uint32_t len)
 {
     if (!data || len == 0) return;
+    if (current_phase_ == ConsensusPhase::DEPARTED || is_departed_) return;
     std::vector<uint8_t> bytes(data, data + len);
     std::lock_guard<std::mutex> lk(outbound_mutex_);
     // Dedup: the bridge's per-recipient SendMessage calls broadcast() N-1 times
@@ -113,6 +114,7 @@ void ResDBIntersectionApp::drainOutboundQueue()
         if (signed_payload.empty()) continue;
 
         sentMessages_++;
+        sentPayloadBytes_ += signed_payload.size();
 
         BFTMessage* bft = new BFTMessage();
         bft->setFromReplicaId(replicaId_);
@@ -169,6 +171,7 @@ void ResDBIntersectionApp::sendBFTMessage(int toReplicaId,
 {
     if (payload.empty()) return;
     sentMessages_++;
+    sentPayloadBytes_ += payload.size();
     BFTMessage* bft = new BFTMessage();
     bft->setFromReplicaId(replicaId_);
     bft->setToReplicaId(toReplicaId);

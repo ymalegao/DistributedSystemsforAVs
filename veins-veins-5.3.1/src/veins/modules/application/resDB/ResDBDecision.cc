@@ -13,8 +13,36 @@
 using namespace veins;
 using namespace veins::resdb_app_util;
 
+bool ResDBIntersectionApp::isReplicaConfiguredByzantine(int replicaId) const
+{
+    if (replicaId == replicaId_)
+        return is_byzantine_;
+
+    cModule* system = getSimulation() ? getSimulation()->getSystemModule() : nullptr;
+    cModule* node = system ? system->getSubmodule("node", replicaId) : nullptr;
+    cModule* appl = node ? node->getSubmodule("appl") : nullptr;
+    if (!appl)
+        return false;
+    try {
+        return appl->par("isByzantine").boolValue();
+    } catch (...) {
+        return false;
+    }
+}
+
 void ResDBIntersectionApp::proposeAll()
 {
+    if (cancel_pending_) {
+        std::cout << "[ROLLBACK-PROPOSE] r" << replicaId_
+                  << " proposeAll redirected while cancel_pending\n";
+        trySubmitRollbackProposal("proposeAll-redirect");
+        return;
+    }
+    if (rollback_cancel_initiated_) {
+        std::cout << "[ROLLBACK-PROPOSE] r" << replicaId_
+                  << " normal propose suppressed while waiting for CANCEL_CERT\n";
+        return;
+    }
     if (propose_submitted_) {
         std::cout << "[VC-DEBUG] r" << replicaId_
                   << " proposeAll skipped: already submitted at " << propose_time_ << "\n";
@@ -32,7 +60,8 @@ void ResDBIntersectionApp::proposeAll()
     }
     std::cout << "[VC-TRACE] r" << replicaId_
               << " proposeAll context phase=" << phaseToStr(current_phase_)
-              << " certs=" << collected_certs_.size() << "/" << total_vehicles_
+              << " static_certs=" << countStaticCollectedCerts() << "/" << total_vehicles_
+              << " all_certs=" << collected_certs_.size()
               << " observed=" << physically_observed_cars_.size()
               << " primary=" << ResdbOmnetGetPrimary(resdb_server_handle_);
     if (stop_time_ >= SIMTIME_ZERO)
@@ -72,8 +101,17 @@ void ResDBIntersectionApp::proposeAll()
     int f_val = (total_vehicles_ - 1) / 3;
     (void)f_val;  // f threshold already enforced at cert-collection time
     for (const auto& kv : collected_certs_) {
+        const int rid = extractReplicaId(kv.first);
+        if (rid < 0 || (rid >= total_vehicles_ && !kv.second.isAmbulance)) {
+            std::cout << "[PROPOSE-PACK] r" << replicaId_
+                      << " skip regular late/static-external cert rid=" << rid
+                      << " car=" << kv.first
+                      << " totalVehicles=" << total_vehicles_
+                      << " epoch=" << current_epoch_ << "\n";
+            continue;
+        }
         ResdbVehicleEntry e{};
-        e.replica_id   = extractReplicaId(kv.first);
+        e.replica_id   = rid;
         e.is_ambulance = kv.second.isAmbulance ? 1 : 0;
         e.cyber_status = 1;  // SIGNED — has a valid cert with f+1 echoes
         if (local_vehicle_states_.count(kv.first)) {
@@ -107,7 +145,11 @@ void ResDBIntersectionApp::proposeAll()
     // so we use the primary's observed announcement state directly.
     // direction is intentional cyber-state and requires f+1 cert signatures —
     // it stays 0 (unknown) for QUIET entries.
+    uint64_t proposal_honest_opportunities = 0;
     for (int rid = 0; rid < total_vehicles_; ++rid) {
+        const bool target_is_byzantine = isReplicaConfiguredByzantine(rid);
+        if (!target_is_byzantine)
+            proposal_honest_opportunities++;
         if (!present_ids.count(rid)) {
             ResdbVehicleEntry quiet{};
             quiet.replica_id   = rid;
@@ -126,12 +168,29 @@ void ResDBIntersectionApp::proposeAll()
                 quiet.position_in_lane = 0;
             }
             entries.push_back(quiet);
+            if (!target_is_byzantine) {
+                quietHonestVehicles_++;
+            }
             std::cout << "[ResDB r" << replicaId_
                       << "] proposeAll: QUIET entry for replica " << rid
                       << " lane=" << (int)quiet.lane
-                      << " pos=" << (int)quiet.position_in_lane << "\n";
+                      << " pos=" << (int)quiet.position_in_lane
+                      << " target_is_byzantine=" << (target_is_byzantine ? 1 : 0)
+                      << "\n";
         }
     }
+    quietHonestOpportunities_ += proposal_honest_opportunities;
+    const double quiet_honest_rate =
+        quietHonestOpportunities_ > 0
+            ? (100.0 * static_cast<double>(quietHonestVehicles_) /
+               static_cast<double>(quietHonestOpportunities_))
+            : 0.0;
+    std::cout << "[METRICS " << replicaId_ << "] Quiet_Honest_Vehicles: "
+              << quietHonestVehicles_ << "\n";
+    std::cout << "[METRICS " << replicaId_ << "] Quiet_Honest_Opportunities: "
+              << quietHonestOpportunities_ << "\n";
+    std::cout << "[METRICS " << replicaId_ << "] Quiet_Honest_Rate: "
+              << quiet_honest_rate << "\n";
 
     uint32_t n = (uint32_t)entries.size();
     if (n == 0) {
@@ -154,22 +213,289 @@ void ResDBIntersectionApp::proposeAll()
     }
 
     // Byzantine primary fault injection.
-    if (is_byzantine_ && byzantine_type_ == BYZANTINE_SILENT_PRIMARY) {
-        std::cout << "[BYZANTINE] r" << replicaId_
-                  << " SILENT_PRIMARY: suppressing propose at " << simTime() << "\n";
-        return;
-    }
-    if (is_byzantine_ && byzantine_type_ == BYZANTINE_BAD_PROPOSAL) {
-        hdr.n_vehicles = hdr.n_vehicles + 1;  // fails PreVerify check 2
-        std::memcpy(buf.data(), &hdr, sizeof(hdr));
-        std::cout << "[BYZANTINE] r" << replicaId_
-                  << " BAD_PROPOSAL: corrupted n_vehicles=" << hdr.n_vehicles
-                  << " at " << simTime() << "\n";
-    }
+    if (is_byzantine_ && byzantine_type_ == BYZANTINE_SILENT_PRIMARY) { applyByzantineSilentPrimary(); return; }
+    if (is_byzantine_ && byzantine_type_ == BYZANTINE_BAD_PROPOSAL)   applyByzantineBadProposal(hdr, buf);
+    if (is_byzantine_ && byzantine_type_ == BYZANTINE_FAKE_AMBULANCE)  applyByzantineFakeAmbulance(buf.data() + sizeof(ResdbProposeHdr), n);
+    if (is_byzantine_ && byzantine_type_ == BYZANTINE_TAMPER_LANE)     applyByzantineTamperLane(buf.data() + sizeof(ResdbProposeHdr), n);
 
     int rc = ResdbOmnetTriggerConsensus(resdb_server_handle_, buf.data(), (uint32_t)buf.size());
     std::cout << "[ResDB r" << replicaId_ << "] TriggerConsensus rc=" << rc
               << " vehicles=" << n << "\n";
+}
+
+// ── Crash detection ──────────────────────────────────────────────────────────
+// Mirrors the kSafe table in resdb_intersection_scheduler.cc.  Runs on the
+// COMMITTED order using cert lanes (not proposal lanes) so a Byzantine-spoofed
+// proposal that sneaks through without the firewall is caught here.
+
+bool ResDBIntersectionApp::detectUnsafeBatch(
+    const ResdbVehicleDecision* decisions, uint32_t n, uint32_t n_batches)
+{
+    bool detected = false;
+    static const uint8_t kSafe[12][4] = {
+        {0, 0, 1, 0}, {2, 0, 3, 0}, {0, 2, 1, 2}, {0, 2, 2, 2},
+        {0, 2, 3, 2}, {1, 2, 2, 2}, {1, 2, 3, 2}, {2, 2, 3, 2},
+        {0, 2, 1, 0}, {1, 2, 0, 0}, {2, 2, 3, 0}, {3, 2, 2, 0},
+    };
+    auto isSafe = [&](uint8_t la, uint8_t da, uint8_t lb, uint8_t db) {
+        if (la == lb) return false;
+        for (const auto& p : kSafe)
+            if ((la==p[0]&&da==p[1]&&lb==p[2]&&db==p[3]) ||
+                (la==p[2]&&da==p[3]&&lb==p[0]&&db==p[1])) return true;
+        return false;
+    };
+
+    // Group replica IDs by batch.
+    std::vector<std::vector<int32_t>> batches(n_batches);
+    for (uint32_t i = 0; i < n; ++i)
+        if (decisions[i].batch_index < n_batches)
+            batches[decisions[i].batch_index].push_back(decisions[i].replica_id);
+
+    std::lock_guard<std::mutex> lk(certs_mutex_);
+    for (uint32_t b = 0; b < n_batches; ++b) {
+        const auto& members = batches[b];
+        if (members.size() < 2) continue;
+        for (size_t i = 0; i < members.size(); ++i) {
+            auto itA = collected_certs_.find("veh" + std::to_string(members[i]));
+            if (itA == collected_certs_.end()) continue;
+            uint8_t la = laneCode(itA->second.lane);
+            uint8_t da = directionCode(itA->second.direction);
+            for (size_t j = i + 1; j < members.size(); ++j) {
+                auto itB = collected_certs_.find("veh" + std::to_string(members[j]));
+                if (itB == collected_certs_.end()) continue;
+                uint8_t lb = laneCode(itB->second.lane);
+                uint8_t db = directionCode(itB->second.direction);
+                if (!isSafe(la, da, lb, db)) {
+                    detected = true;
+                    std::string crashRef = "unsafe_batch:" + std::to_string(current_epoch_) +
+                        ":" + std::to_string(b) +
+                        ":veh" + std::to_string(std::min(members[i], members[j])) +
+                        "+veh" + std::to_string(std::max(members[i], members[j]));
+                    std::cout << "[CRASH_DETECTED] r" << replicaId_
+                              << " epoch=" << current_epoch_
+                              << " batch=" << b
+                              << " veh" << members[i]
+                              << "(cert lane=" << itA->second.lane << ")"
+                              << " + veh" << members[j]
+                              << "(cert lane=" << itB->second.lane << ")"
+                              << " — unsafe pair committed by Byzantine leader\n";
+                    maybeTriggerCrashRollback(crashRef);
+                }
+            }
+        }
+    }
+    return detected;
+}
+
+bool ResDBIntersectionApp::detectFalsePriorityGrant(
+    const ResdbVehicleDecision* decisions, uint32_t n)
+{
+    if (fake_ambulance_proposal_replica_id_ < 0) return false;
+    if (ResdbOmnetGetPrimary(resdb_server_handle_) != replicaId_) {
+        std::cout << "[CONSENSUS_ATTACK_OUTCOME] r" << replicaId_
+                  << " epoch=" << current_epoch_
+                  << " fault=FAKE_AMBULANCE"
+                  << " outcome=PREVERIFY_BLOCKED_OR_VIEW_CHANGE_RECOVERED"
+                  << " target=veh" << fake_ambulance_proposal_replica_id_
+                  << "\n";
+        fake_ambulance_proposal_replica_id_ = -1;
+        return false;
+    }
+
+    uint32_t batch = UINT32_MAX;
+    for (uint32_t i = 0; i < n; ++i) {
+        if (decisions[i].replica_id == fake_ambulance_proposal_replica_id_) {
+            batch = decisions[i].batch_index;
+            break;
+        }
+    }
+    if (batch == UINT32_MAX) return false;
+
+    std::lock_guard<std::mutex> lk(certs_mutex_);
+    auto it = collected_certs_.find(
+        "veh" + std::to_string(fake_ambulance_proposal_replica_id_));
+    if (it == collected_certs_.end() || it->second.isAmbulance) return false;
+
+    std::cout << "[FALSE_PRIORITY_GRANTED] r" << replicaId_
+              << " epoch=" << current_epoch_
+              << " veh" << fake_ambulance_proposal_replica_id_
+              << " committed_batch=" << batch
+              << " proposal_ambulance=1 cert_ambulance=0"
+              << " — Byzantine leader fake ambulance proposal committed\n";
+    return true;
+}
+
+void ResDBIntersectionApp::detectConsensusAttackOutcome(
+    const ResdbVehicleDecision* decisions, uint32_t n, uint32_t n_batches)
+{
+    const bool unsafe_batch = detectUnsafeBatch(decisions, n, n_batches);
+    const bool false_priority = detectFalsePriorityGrant(decisions, n);
+
+    auto logOutcome = [&](const char* fault, const char* outcome, const std::string& detail) {
+        std::cout << "[CONSENSUS_ATTACK_OUTCOME] r" << replicaId_
+                  << " epoch=" << current_epoch_
+                  << " fault=" << fault
+                  << " outcome=" << outcome;
+        if (!detail.empty()) std::cout << " " << detail;
+        std::cout << "\n";
+    };
+
+    if (!is_byzantine_) {
+        if (unsafe_batch) {
+            logOutcome("TAMPER_LANE", "UNSAFE_ORDER_COMMITTED",
+                       "detector=cert_lane_batch_check");
+        }
+        std::lock_guard<std::mutex> lk(certs_mutex_);
+        for (const auto& carId : uncertified_ambulance_claimers_) {
+            auto it = collected_certs_.find(carId);
+            if (it == collected_certs_.end()) continue;
+            if (it->second.isAmbulance &&
+                !cert_gate_rejected_ambulance_claimers_.count(carId)) {
+                logOutcome("FAKE_AMBULANCE_FOLLOWER",
+                           "UNCERTIFIED_PRIORITY_CLAIM_COMMITTED",
+                           carId + " cert_ambulance=1");
+            } else if (cert_gate_rejected_ambulance_claimers_.count(carId) &&
+                       !it->second.isAmbulance) {
+                logOutcome("FAKE_AMBULANCE_FOLLOWER",
+                           "CERT_GATE_BLOCKED_OR_NOT_CERTIFIED",
+                           carId + " cert_ambulance=0");
+            }
+        }
+        return;
+    }
+
+    switch (byzantine_type_) {
+    case BYZANTINE_FALSE_LANE: {
+        std::lock_guard<std::mutex> lk(certs_mutex_);
+        auto it = collected_certs_.find("veh" + std::to_string(replicaId_));
+        if (it == collected_certs_.end()) {
+            logOutcome("FALSE_LANE", "BLOCKED_NO_VALID_CERT",
+                       "malicious_input=fake_lane");
+        } else if (it->second.lane != "N" && it->second.lane != "S" &&
+                   it->second.lane != "E" && it->second.lane != "W") {
+            logOutcome("FALSE_LANE", "MALICIOUS_INPUT_COMMITTED",
+                       "cert_lane=" + it->second.lane);
+        } else {
+            logOutcome("FALSE_LANE", "BLOCKED_OR_CANONICALIZED",
+                       "cert_lane=" + it->second.lane);
+        }
+        break;
+    }
+    case BYZANTINE_INVALID_SIG:
+        logOutcome("INVALID_SIG", "ORDER_COMMITTED_INVALID_ECHO_DROPPED",
+                   "malicious_input=bad_echo_signature");
+        break;
+    case BYZANTINE_EQUIVOCATOR:
+        logOutcome("EQUIVOCATOR", "ORDER_COMMITTED_WITH_CERT_QUORUM",
+                   "malicious_input=divergent_direction");
+        break;
+    case BYZANTINE_SILENT_PRIMARY:
+        logOutcome("SILENT_PRIMARY", "RECOVERED_AFTER_VIEW_CHANGE",
+                   "malicious_input=no_proposal");
+        break;
+    case BYZANTINE_BAD_PROPOSAL:
+        if (bad_proposal_injected_) {
+            logOutcome("BAD_PROPOSAL", "ORDER_COMMITTED_AFTER_MALFORMED_PROPOSAL",
+                       "malicious_input=bad_n_vehicles");
+        }
+        break;
+    case BYZANTINE_FAKE_AMBULANCE:
+        if (fake_ambulance_proposal_replica_id_ >= 0) {
+            logOutcome("FAKE_AMBULANCE",
+                       false_priority ? "FALSE_PRIORITY_GRANTED" : "COMMITTED_NO_CERT_MISMATCH_FOUND",
+                       "target=veh" + std::to_string(fake_ambulance_proposal_replica_id_));
+        }
+        break;
+    case BYZANTINE_FAKE_AMBULANCE_FOLLOWER:
+        logOutcome("FAKE_AMBULANCE_FOLLOWER", "FAULT_INJECTED_LOCAL_ONLY",
+                   "detector=honest_receivers");
+        break;
+    case BYZANTINE_TAMPER_LANE:
+        if (tamper_lane_proposal_replica_id_ >= 0 || unsafe_batch) {
+            logOutcome("TAMPER_LANE",
+                       unsafe_batch ? "UNSAFE_ORDER_COMMITTED" : "COMMITTED_NO_UNSAFE_PAIR_FOUND",
+                       tamper_lane_proposal_replica_id_ >= 0
+                           ? "target=veh" + std::to_string(tamper_lane_proposal_replica_id_)
+                           : "");
+        }
+        break;
+    case BYZANTINE_HONEST:
+        break;
+    }
+}
+
+// ── Byzantine primary fault injection helpers ─────────────────────────────────
+
+void ResDBIntersectionApp::applyByzantineSilentPrimary()
+{
+    std::cout << "[BYZANTINE] r" << replicaId_
+              << " SILENT_PRIMARY: suppressing propose at " << simTime() << "\n";
+}
+
+void ResDBIntersectionApp::applyByzantineBadProposal(ResdbProposeHdr& hdr, std::vector<uint8_t>& buf)
+{
+    bad_proposal_injected_ = true;
+    hdr.n_vehicles = hdr.n_vehicles + 1;  // fails PreVerify check 2
+    std::memcpy(buf.data(), &hdr, sizeof(hdr));
+    std::cout << "[BYZANTINE] r" << replicaId_
+              << " BAD_PROPOSAL: corrupted n_vehicles=" << hdr.n_vehicles
+              << " at " << simTime() << "\n";
+}
+
+void ResDBIntersectionApp::applyByzantineFakeAmbulance(uint8_t* base, uint32_t n)
+{
+    // Flip is_ambulance 0→1 for the first non-ambulance entry in the proposal.
+    // Caught by PreVerify Check 10 (is_ambulance mismatch vs cert). Without the
+    // firewall this commits and the fake car gets ambulance crossing priority.
+    for (uint32_t i = 0; i < n; ++i) {
+        ResdbVehicleEntry e;
+        std::memcpy(&e, base + i * sizeof(e), sizeof(e));
+        if (e.is_ambulance == 0) {
+            e.is_ambulance = 1;
+            std::memcpy(base + i * sizeof(e), &e, sizeof(e));
+            fake_ambulance_proposal_replica_id_ = e.replica_id;
+            std::cout << "[BYZANTINE] r" << replicaId_
+                      << " FAKE_AMBULANCE: marked replica " << e.replica_id
+                      << " as ambulance in proposal at " << simTime() << "\n";
+            return;
+        }
+    }
+}
+
+void ResDBIntersectionApp::applyByzantineTamperLane(uint8_t* base, uint32_t n)
+{
+    // Crash attack: disguise the front E-lane car as S-lane (position=0 sorts before
+    // all real S cars) so the scheduler sees N-STRAIGHT + "S"-STRAIGHT → kSafe {0,0,1,0}
+    // → same batch.  N car (going south) and E car (going west) enter the center
+    // simultaneously → CRASH.  No S car is quieted, so the real S queue proceeds
+    // normally and no approach-lane rear-ends occur.
+    // Caught by PreVerify Check 10 (cert lane=E, proposal lane=S).
+    // Without firewall: CRASH. With firewall: Check 10 rejects → view change → no crash.
+
+    // Find the front E-lane car (smallest position_in_lane) and disguise it as S with position=0.
+    uint32_t best_i   = n;
+    uint8_t  best_pos = 255;
+    for (uint32_t i = 0; i < n; ++i) {
+        ResdbVehicleEntry e;
+        std::memcpy(&e, base + i * sizeof(e), sizeof(e));
+        if (e.lane == 2 /* E */ && e.cyber_status == 1 &&
+            e.position_in_lane < best_pos) {
+            best_pos = e.position_in_lane;
+            best_i   = i;
+        }
+    }
+    if (best_i < n) {
+        ResdbVehicleEntry e;
+        std::memcpy(&e, base + best_i * sizeof(e), sizeof(e));
+        uint8_t orig = e.lane;
+        e.lane             = 1;
+        e.position_in_lane = 0;
+        std::memcpy(base + best_i * sizeof(e), &e, sizeof(e));
+        tamper_lane_proposal_replica_id_ = e.replica_id;
+        std::cout << "[BYZANTINE] r" << replicaId_
+                  << " TAMPER_LANE: replica " << e.replica_id
+                  << " lane " << (int)orig << "→S(1) — N+E batch → CRASH\n";
+    }
 }
 
 // ── certSnapshotCallback (ResDB worker thread) ───────────────────────────────
@@ -241,14 +567,6 @@ void ResDBIntersectionApp::processOrders()
     size_t ord_idx = 0;
     for (const auto& dec : local) {
         ++ord_idx;
-        if (order_applied_) {
-            if (debug_order_delivery_) {
-                std::cout << "[ORDER-TAIL-DROP] r" << replicaId_
-                          << " skipping_remaining=" << (local.size() - ord_idx + 1)
-                          << " (order_applied already)\n";
-            }
-            break;
-        }
         if (dec.size() < sizeof(ResdbOrderHdr)) {
             if (debug_order_delivery_) {
                 std::cout << "[ORDER-SKIP] r" << replicaId_
@@ -259,6 +577,20 @@ void ResDBIntersectionApp::processOrders()
 
         ResdbOrderHdr ohdr;
         std::memcpy(&ohdr, dec.data(), sizeof(ohdr));
+        if (tombstoned_epochs_.count(ohdr.epoch)) {
+            std::cout << "[ORDER-SKIP] r" << replicaId_
+                      << " reason=tombstoned epoch=" << ohdr.epoch << "\n";
+            continue;
+        }
+        if (order_applied_ && ohdr.epoch <= current_epoch_) {
+            if (debug_order_delivery_) {
+                std::cout << "[ORDER-TAIL-DROP] r" << replicaId_
+                          << " skipping epoch=" << ohdr.epoch
+                          << " current_epoch=" << current_epoch_
+                          << " (order_applied already)\n";
+            }
+            continue;
+        }
         // New format: n_vehicles × ResdbVehicleDecision (8 bytes each).
         if (dec.size() < sizeof(ResdbOrderHdr) +
                          ohdr.n_vehicles * sizeof(ResdbVehicleDecision)) {
@@ -272,10 +604,51 @@ void ResDBIntersectionApp::processOrders()
         const ResdbVehicleDecision* decisions = reinterpret_cast<const ResdbVehicleDecision*>(
             dec.data() + sizeof(ResdbOrderHdr));
 
+        committed_order_vehicle_ids_.clear();
+        committed_order_batches_.assign(ohdr.n_batches, {});
+        for (uint32_t i = 0; i < ohdr.n_vehicles; ++i) {
+            committed_order_vehicle_ids_.insert(decisions[i].replica_id);
+            if (decisions[i].batch_index < ohdr.n_batches)
+                committed_order_batches_[decisions[i].batch_index].push_back(decisions[i].replica_id);
+        }
+
+        if (cancel_pending_ && ohdr.epoch == rollback_new_epoch_) {
+            tombstoned_epochs_.insert(cancelled_epoch_);
+            cancel_pending_ = false;
+            rollback_cancel_initiated_ = false;
+            rollback_propose_submitted_ = false;
+            stopCancelCertRetries();
+            if (rollback_discovery_timer_) {
+                if (rollback_discovery_timer_->isScheduled()) cancelEvent(rollback_discovery_timer_);
+                delete rollback_discovery_timer_;
+                rollback_discovery_timer_ = nullptr;
+            }
+            if (rollback_vc_timer_) {
+                if (rollback_vc_timer_->isScheduled()) cancelEvent(rollback_vc_timer_);
+                delete rollback_vc_timer_;
+                rollback_vc_timer_ = nullptr;
+            }
+            std::cout << "[ROLLBACK-COMMIT] r" << replicaId_
+                      << " cancelled_epoch=" << cancelled_epoch_
+                      << " new_epoch=" << ohdr.epoch
+                      << " tombstoned=1\n";
+        }
+
+        if (cancel_pending_ && ohdr.epoch == cancelled_epoch_) {
+            std::cout << "[ORDER-SKIP] r" << replicaId_
+                      << " reason=cancel_pending cancelled_epoch="
+                      << cancelled_epoch_ << "\n";
+            continue;
+        }
+
+        detectConsensusAttackOutcome(decisions, ohdr.n_vehicles, ohdr.n_batches);
+
         std::cout << "[METRICS " << replicaId_ << "] Order_Decided_Time: " << simTime()
                   << " n_batches=" << ohdr.n_batches << "\n";
         
         has_committed_order_ = true;
+        last_committed_epoch_ = ohdr.epoch;
+        committed_order_bytes_ = dec;
         if (propose_time_ >= SIMTIME_ZERO) {
             double bft_sim  = (simTime() - propose_time_).dbl();
             double stop_dec = (stop_time_ >= SIMTIME_ZERO) ? (simTime() - stop_time_).dbl() : -1.0;
@@ -317,6 +690,11 @@ void ResDBIntersectionApp::processOrders()
                     std::cout << " " << decisions[i].replica_id;
                 std::cout << "\n";
             }
+            if (ohdr.epoch == current_epoch_) {
+                order_applied_ = true;
+                std::cout << "[ORDER-WARN] r" << replicaId_
+                          << " no slot in current epoch; staying stopped/excluded\n";
+            }
             continue;
         }
 
@@ -327,9 +705,7 @@ void ResDBIntersectionApp::processOrders()
 
         // Trigger post-consensus gossip so stragglers can catch up.
         if (gossip_enabled_) {
-            last_committed_epoch_ = ohdr.epoch;
             has_committed_order_  = true;
-            committed_order_bytes_ = dec;
             if (gossip_order_bytes_.empty())
                 triggerGossip(ohdr.epoch, dec);
         }
@@ -366,5 +742,3 @@ void ResDBIntersectionApp::processOrders()
         }
     }
 }
-
-

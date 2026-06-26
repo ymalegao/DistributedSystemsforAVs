@@ -211,11 +211,25 @@ ResDBIntersectionApp::deserializeArrivalCert(BFTMessage* msg)
 
 // ── tryStartCertCollectionTimer (V2V parity: deadline starts at primary stop-zone entry) ──
 
+int ResDBIntersectionApp::countStaticCollectedCerts() const
+{
+    int count = 0;
+    for (const auto& kv : collected_certs_) {
+        const int rid = extractReplicaId(kv.first);
+        if (rid >= 0 && rid < total_vehicles_)
+            ++count;
+    }
+    return count;
+}
+
 void ResDBIntersectionApp::tryStartCertCollectionTimer(bool rearm)
 {
     if (!resdb_server_handle_ || propose_submitted_) return;
     if (replicaId_ != ResdbOmnetGetPrimary(resdb_server_handle_)) return;
-    if ((int)collected_certs_.size() >= total_vehicles_) return;
+    {
+        std::lock_guard<std::mutex> lk(certs_mutex_);
+        if (countStaticCollectedCerts() >= total_vehicles_) return;
+    }
     if (!entered_stop_zone_) return;
     if (!rearm && cert_collection_started_) return;
     if (propose_timeout_msg_ && propose_timeout_msg_->isScheduled()) {
@@ -232,6 +246,44 @@ void ResDBIntersectionApp::tryStartCertCollectionTimer(bool rearm)
     std::cout << "[ResDB r" << replicaId_
               << "] Leader: cert-collection deadline at stop line (timeout="
               << cert_collection_timeout_ << "s rearm=" << (rearm ? 1 : 0) << ")\n";
+}
+
+// ── attachAmbulanceCryptoToAnnouncement (port of V2VProxyModule) ─────────────
+
+void ResDBIntersectionApp::attachAmbulanceCryptoToAnnouncement(ArrivalAnnouncement& ann)
+{
+    ann.isAmbulance = false;
+    ann.ambulanceCertBytes.clear();
+    ann.ambulanceSigBytes.clear();
+    if (!is_ambulance_)
+        return;
+
+    ann.isAmbulance = true;
+    ann.ambulanceCertBytes = my_ambulance_cert_bytes_;
+    if (!ambulance_private_key_ ||
+            my_ambulance_cert_bytes_.size() != sizeof(VehicleCert)) {
+        std::cerr << "[AMBULANCE] r" << replicaId_
+                  << " attach failed: key="
+                  << (ambulance_private_key_ ? "ok" : "null")
+                  << " certBytes=" << my_ambulance_cert_bytes_.size()
+                  << " expected=" << sizeof(VehicleCert) << "\n";
+        return;
+    }
+
+    const std::string ambPayload = ann.carId + ":" + ann.lane + ":"
+        + std::to_string(ann.positionInLane) + ":"
+        + dirToStr(ann.direction) + ":AMBULANCE";
+    uint8_t sigOut[CRYPTO_SIG_MAX_BYTES];
+    uint8_t sigLen = 0;
+    if (!CryptoAuth::instance().signBytes(
+            ambulance_private_key_,
+            reinterpret_cast<const uint8_t*>(ambPayload.c_str()), ambPayload.size(),
+            sigOut, sigLen)) {
+        std::cerr << "[AMBULANCE] r" << replicaId_
+                  << " signBytes failed for payload=" << ambPayload << "\n";
+        return;
+    }
+    ann.ambulanceSigBytes.assign(sigOut, sigOut + sigLen);
 }
 
 // ── broadcastArrivalAnnouncement (port of V2VArrivalProtocol::broadcastArrivalAnnouncement) ──
@@ -291,6 +343,14 @@ void ResDBIntersectionApp::broadcastArrivalAnnouncement()
 
     ann.direction          = strToDir(intended_direction_);
     ann.isAmbulance        = is_ambulance_;
+    if (is_byzantine_ && byzantine_type_ == BYZANTINE_FAKE_AMBULANCE_FOLLOWER) {
+        ann.isAmbulance = true;  // lie: claim ambulance without valid cert
+        // ambulanceCertBytes intentionally left empty — cert gate catches this
+        std::cout << "[BYZANTINE] r" << replicaId_
+                  << " FAKE_AMBULANCE_FOLLOWER: claiming ambulance without cert\n";
+    } else if (is_ambulance_) {
+        attachAmbulanceCryptoToAnnouncement(ann);
+    }
     ann.claimedArrivalTime = simTime().dbl();
     ann.epoch              = (int)current_epoch_;
 
@@ -466,13 +526,60 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
         return;
     }
 
+    // Ambulance certificate verification (Emergency_CA VehicleCert + payload sig).
+    bool effectiveIsAmbulance = ann.isAmbulance;
+    if (ann.isAmbulance && ann.ambulanceCertBytes.size() == sizeof(VehicleCert)) {
+        VehicleCert cert;
+        std::memcpy(&cert, ann.ambulanceCertBytes.data(), sizeof(VehicleCert));
+        std::string role = CryptoAuth::instance().verifyCert(cert);
+        if (role != "ambulance") {
+            std::cerr << "[ANN-RECV] r" << replicaId_
+                      << " DOWNGRADE: cert role='" << role << "' for " << ann.carId << "\n";
+            effectiveIsAmbulance = false;
+        } else if (!ann.ambulanceSigBytes.empty() &&
+                   ann.ambulanceSigBytes.size() <= CRYPTO_SIG_MAX_BYTES) {
+            std::string payload = ann.carId + ":" + ann.lane + ":"
+                + std::to_string(ann.positionInLane) + ":"
+                + dirToStr(ann.direction) + ":AMBULANCE";
+            if (!CryptoAuth::instance().verifyBytes(
+                    cert.publicKey,
+                    reinterpret_cast<const uint8_t*>(payload.c_str()), payload.size(),
+                    ann.ambulanceSigBytes.data(),
+                    static_cast<uint8_t>(ann.ambulanceSigBytes.size()))) {
+                std::cerr << "[ANN-RECV] r" << replicaId_
+                          << " DOWNGRADE: ambulance sig invalid for " << ann.carId << "\n";
+                effectiveIsAmbulance = false;
+            }
+        } else {
+            effectiveIsAmbulance = false;
+        }
+    } else if (ann.isAmbulance && !ann.ambulanceCertBytes.empty()) {
+        std::cerr << "[ANN-RECV] r" << replicaId_
+                  << " DOWNGRADE: ambulance cert wrong size ("
+                  << ann.ambulanceCertBytes.size() << " vs " << sizeof(VehicleCert)
+                  << ") for " << ann.carId << "\n";
+        effectiveIsAmbulance = false;
+    }
+    // Cert gate: when enabled, reject uncertified or cryptographically invalid claims.
+    const bool claimedAmbulance = ann.isAmbulance;
+    ann.isAmbulance = effectiveIsAmbulance;
+    if (claimedAmbulance && !effectiveIsAmbulance) {
+        uncertified_ambulance_claimers_.insert(ann.carId);
+    }
+    if (enableAmbulanceCertGate_ && claimedAmbulance && !effectiveIsAmbulance) {
+        cert_gate_rejected_ambulance_claimers_.insert(ann.carId);
+        std::cout << "[CERT-GATE] r" << replicaId_
+                  << " rejected uncertified ambulance claim from " << ann.carId << "\n";
+        ann.isAmbulance = false;
+    }
+
     // Build and store VehicleState.
     VehicleState vs;
     vs.vehicleId       = ann.carId;
     vs.lane            = ann.lane;
     vs.positionInLane  = ann.positionInLane;
     vs.direction       = ann.direction;
-    vs.isAmbulance     = ann.isAmbulance;  // trust for now; hardened cert path future work
+    vs.isAmbulance     = ann.isAmbulance;
     vs.arrival_time_us = (uint64_t)(ann.claimedArrivalTime * 1e6);
     local_vehicle_states_[ann.carId] = vs;
     arrival_announcements_received_.insert(ann.carId);
@@ -656,24 +763,34 @@ void ResDBIntersectionApp::broadcastArrivalCert(const ArrivalCert& cert)
     }
 
     // OMNeT++ modules don't receive their own channel broadcasts — self-store.
+    bool shouldPropose = false;
     if (!collected_certs_.count(cert.carId)) {
+        int staticCerts = 0;
+        int allCerts = 0;
         std::lock_guard<std::mutex> lk(certs_mutex_);
         collected_certs_[cert.carId] = cert;
+        staticCerts = countStaticCollectedCerts();
+        allCerts = (int)collected_certs_.size();
         std::cout << "[CERT-STORED-SELF] Replica " << replicaId_ << " self-stored cert for "
-                  << cert.carId << " (" << collected_certs_.size() << "/" << total_vehicles_ << ")\n";
-        // If primary and in stop zone and all certs now collected → propose immediately.
+                  << cert.carId << " static=(" << staticCerts << "/" << total_vehicles_
+                  << ") all=" << allCerts << "\n";
+        const bool emergencyCancelStarted = maybeTriggerEmergencyRollbackFromCert(cert);
+        // If primary and in stop zone and all static certs now collected → propose immediately.
         if (replicaId_ == ResdbOmnetGetPrimary(resdb_server_handle_)
                 && entered_stop_zone_ && !propose_submitted_) {
-            if ((int)collected_certs_.size() >= total_vehicles_) {
-                if (propose_timeout_msg_) {
-                    cancelEvent(propose_timeout_msg_);
-                    delete propose_timeout_msg_;
-                    propose_timeout_msg_ = nullptr;
-                }
-                proposeAll();
-            }
+            shouldPropose = !emergencyCancelStarted && (staticCerts >= total_vehicles_);
         }
     }
+    if (shouldPropose) {
+        if (propose_timeout_msg_) {
+            cancelEvent(propose_timeout_msg_);
+            delete propose_timeout_msg_;
+            propose_timeout_msg_ = nullptr;
+        }
+        proposeAll();
+    }
+    trySubmitRollbackProposal("self-cert");
+    maybeFinishRollbackDiscovery("self-cert");
 }
 
 // ── handleArrivalCert ─────────────────────────────────────────────────────────
@@ -693,8 +810,16 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
         std::lock_guard<std::mutex> lk(certs_mutex_);
         collected_certs_[cert.carId] = cert;
     }
+    int staticCerts = 0;
+    int allCerts = 0;
+    {
+        std::lock_guard<std::mutex> lk(certs_mutex_);
+        staticCerts = countStaticCollectedCerts();
+        allCerts = (int)collected_certs_.size();
+    }
     std::cout << "[CERT-STORED] Replica " << replicaId_ << " stored ARRIVAL_CERT for "
-              << cert.carId << " (" << collected_certs_.size() << "/" << total_vehicles_ << ")\n";
+              << cert.carId << " static=(" << staticCerts << "/" << total_vehicles_
+              << ") all=" << allCerts << "\n";
 
     // Reconstruct VehicleState if the announce was lost.
     if (!local_vehicle_states_.count(cert.carId)) {
@@ -717,11 +842,14 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
                   << cert.carId << " t=" << simTime() << "\n";
     }
 
+    const bool emergencyCancelStarted = maybeTriggerEmergencyRollbackFromCert(cert);
     int cur_primary = ResdbOmnetGetPrimary(resdb_server_handle_);
 
-    // Primary: if in stop zone and all certs collected → propose.
+    // Primary: if in stop zone and all static certs collected → propose.
+    // Emergency late certs take the cancel path first; the old normal order
+    // should not race the rollback trigger.
     if (replicaId_ == cur_primary && entered_stop_zone_ && !propose_submitted_) {
-        if ((int)collected_certs_.size() >= total_vehicles_) {
+        if (!emergencyCancelStarted && staticCerts >= total_vehicles_) {
             if (propose_timeout_msg_) {
                 cancelEvent(propose_timeout_msg_);
                 delete propose_timeout_msg_;
@@ -730,6 +858,8 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
             proposeAll();
         }
     }
+    trySubmitRollbackProposal("cert-stored");
+    maybeFinishRollbackDiscovery("cert-stored");
 }
 
 // ── validateArrivalCert ───────────────────────────────────────────────────────

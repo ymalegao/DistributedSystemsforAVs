@@ -209,6 +209,13 @@ int Commitment::ProcessProposeMsg(std::unique_ptr<Context> context,
                                              std::move(request));
   }
 
+  if (request->sender_id() != config_.GetSelfInfo().id()) {
+    if (pre_verify_func_ && !pre_verify_func_(*request)) {
+      LOG(ERROR) << " check by the user func fail";
+      return -2;
+    }
+  }
+
   if (request->sender_id() != message_manager_->GetCurrentPrimary()) {
     LOG(ERROR) << "the request is not from primary. sender:"
                << request->sender_id() << " seq:" << request->seq();
@@ -217,11 +224,16 @@ int Commitment::ProcessProposeMsg(std::unique_ptr<Context> context,
     return -2;
   }
 
+  if (message_manager_->HasForcedViewForRequest(*request) &&
+      !message_manager_->IsSelfActiveForRequest(*request)) {
+    std::cout << "[ACTIVE-PASSIVE] self=" << config_.GetSelfInfo().id()
+              << " seq=" << request->seq()
+              << " hash=" << request->hash()
+              << " action=skip_prepare\n";
+    return 0;
+  }
+
   if (request->sender_id() != config_.GetSelfInfo().id()) {
-    if (pre_verify_func_ && !pre_verify_func_(*request)) {
-      LOG(ERROR) << " check by the user func fail";
-      return -2;
-    }
     // global_stats_->GetTransactionDetails(std::move(request));
     BatchUserRequest batch_request;
     batch_request.ParseFromString(request->data());
@@ -283,6 +295,14 @@ int Commitment::ProcessPrepareMsg(std::unique_ptr<Context> context,
     }
     return ret;
   }
+  if (message_manager_->HasForcedViewForRequest(*request) &&
+      !message_manager_->IsSelfActiveForRequest(*request)) {
+    std::cout << "[ACTIVE-PASSIVE] self=" << config_.GetSelfInfo().id()
+              << " seq=" << request->seq()
+              << " hash=" << request->hash()
+              << " action=skip_commit\n";
+    return 0;
+  }
   // global_stats_->IncPrepare();
   std::unique_ptr<Request> commit_request = resdb::NewRequest(
       Request::TYPE_COMMIT, *request, config_.GetSelfInfo().id());
@@ -328,6 +348,14 @@ int Commitment::ProcessCommitMsg(std::unique_ptr<Context> context,
   if (request->is_recovery()) {
     return message_manager_->AddConsensusMsg(context->signature,
                                              std::move(request));
+  }
+  if (message_manager_->HasForcedViewForRequest(*request) &&
+      !message_manager_->IsSelfActiveForRequest(*request)) {
+    std::cout << "[ACTIVE-PASSIVE] self=" << config_.GetSelfInfo().id()
+              << " seq=" << request->seq()
+              << " hash=" << request->hash()
+              << " action=skip_execute\n";
+    return 0;
   }
   // global_stats_->IncCommit();
   // Add request to message_manager.

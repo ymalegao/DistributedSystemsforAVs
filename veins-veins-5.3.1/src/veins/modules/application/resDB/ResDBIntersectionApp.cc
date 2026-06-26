@@ -38,6 +38,9 @@ ResDBIntersectionApp::~ResDBIntersectionApp()
     if (stop_sign_timeout_msg_)   { cancelAndDelete(stop_sign_timeout_msg_);   stop_sign_timeout_msg_   = nullptr; }
     if (consensus_timeout_msg_)   { cancelAndDelete(consensus_timeout_msg_);   consensus_timeout_msg_   = nullptr; }
     if (resume_msg_)              { cancelAndDelete(resume_msg_);              resume_msg_              = nullptr; }
+    if (cancel_cert_retry_timer_) { cancelAndDelete(cancel_cert_retry_timer_); cancel_cert_retry_timer_ = nullptr; }
+    if (rollback_discovery_timer_) { cancelAndDelete(rollback_discovery_timer_); rollback_discovery_timer_ = nullptr; }
+    if (rollback_vc_timer_)       { cancelAndDelete(rollback_vc_timer_);       rollback_vc_timer_       = nullptr; }
     if (clearance_poll_msg_)      { cancelAndDelete(clearance_poll_msg_);      clearance_poll_msg_      = nullptr; }
     if (broadcastArrivalAnnouncement_timer_) { cancelAndDelete(broadcastArrivalAnnouncement_timer_); broadcastArrivalAnnouncement_timer_ = nullptr; }
     if (channel_metrics_timer_) {
@@ -59,6 +62,10 @@ ResDBIntersectionApp::~ResDBIntersectionApp()
     if (ec_private_key_) {
         EVP_PKEY_free(ec_private_key_);
         ec_private_key_ = nullptr;
+    }
+    if (ambulance_private_key_) {
+        EVP_PKEY_free(ambulance_private_key_);
+        ambulance_private_key_ = nullptr;
     }
 }
 
@@ -136,8 +143,17 @@ void ResDBIntersectionApp::initialize(int stage)
         clearance_timeout_sec_     = par("clearanceTimeoutSec").doubleValue();
         intended_direction_    = par("intendedDirection").stdstringValue();
         intended_lane_         = par("intendedLane").stdstringValue();
-        is_byzantine_        = par("isByzantine").boolValue();
-        byzantine_type_      = static_cast<ByzantineType>(par("byzantineType").intValue());
+        is_byzantine_            = par("isByzantine").boolValue();
+        byzantine_type_          = static_cast<ByzantineType>(par("byzantineType").intValue());
+        enableAmbulanceCertGate_ = par("enableAmbulanceCertGate").boolValue();
+        enableRollback_ = par("enableRollback").boolValue();
+        cancel_echo_timeout_sec_ = par("cancelEchoTimeoutSec").doubleValue();
+        cancel_cert_retry_interval_sec_ = par("cancelCertRetryIntervalSec").doubleValue();
+        cancel_cert_retry_max_ = par("cancelCertRetryMax").intValue();
+        braking_decel_mps2_ = par("brakingDecelMps2").doubleValue();
+        processing_latency_margin_ = par("processingLatencyMargin").doubleValue();
+        rollback_discovery_timeout_sec_ = par("rollbackDiscoveryTimeoutSec").doubleValue();
+        rollback_vc_timeout_sec_ = par("rollbackVcTimeoutSec").doubleValue();
 
         const int ambulance_replica_id = par("ambulanceReplicaId").intValue();
         if (ambulance_replica_id >= 0) {
@@ -150,6 +166,23 @@ void ResDBIntersectionApp::initialize(int stage)
 
         moduleIsAmbulance = is_ambulance_;
 
+        if (is_ambulance_) {
+            if (ambulance_private_key_) {
+                EVP_PKEY_free(ambulance_private_key_);
+                ambulance_private_key_ = nullptr;
+            }
+            my_ambulance_cert_bytes_.clear();
+            uint8_t amb_pub[CRYPTO_PUBKEY_BYTES];
+            ambulance_private_key_ = CryptoAuth::instance().generateKeyPair(amb_pub);
+            VehicleCert cert = CryptoAuth::instance().issueCert(
+                amb_pub, "ambulance", "Emergency_CA");
+            my_ambulance_cert_bytes_.assign(
+                reinterpret_cast<const uint8_t*>(&cert),
+                reinterpret_cast<const uint8_t*>(&cert) + sizeof(VehicleCert));
+            std::cout << "[AMBULANCE] r" << replicaId_
+                      << " auto-issued Emergency_CA cert ("
+                      << my_ambulance_cert_bytes_.size() << " bytes)\n";
+        }
 
         std::string crypto_dir = par("resdbCryptoDir").stdstringValue();
         config_file_      = par("resdbConfigFile").stdstringValue();
@@ -330,6 +363,15 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
         // by the FES until cancelled (see transport_poll_msg_ / time_tick_msg_ above).
         // Keep re-announcing until cert is assembled: a car may have observed all peers yet still
         // lack f+1 echoes, so witnesses need continued re-announces to trigger re-echoes.
+        if (cancel_pending_ && !rollback_local_recallable_) {
+            std::cout << "[ROLLBACK-DISCOVERY] r" << replicaId_
+                      << " suppress periodic announce; local non-recallable"
+                      << " cancelled_epoch=" << cancelled_epoch_
+                      << " new_epoch=" << rollback_new_epoch_ << "\n";
+            broadcastArrivalAnnouncement_timer_ = nullptr;
+            delete msg;
+            return;
+        }
         if (!cert_broadcast_ && !order_applied_ && !propose_submitted_) {
             broadcastArrivalAnnouncement();
             scheduleAt(simTime() + broadcast_arrival_announcement_interval_, broadcastArrivalAnnouncement_timer_);
@@ -376,8 +418,46 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
         return;
     }
 
+    if (msg == cancel_cert_retry_timer_) {
+        if (cancel_cert_pending_retries_.echoes.empty() || !cancel_pending_) {
+            stopCancelCertRetries();
+            return;
+        }
+        cancel_cert_retry_count_++;
+        sendBFTMessage(-1, serializeCancelCert(cancel_cert_pending_retries_), kCancelCertType);
+        std::cout << "[CANCEL-CERT-RETX] r" << replicaId_
+                  << " key=" << cancelReasonKey(cancel_cert_pending_retries_.cancelledEpoch,
+                                                 cancel_cert_pending_retries_.reason,
+                                                 cancel_cert_pending_retries_.reasonRef)
+                  << " retry=" << cancel_cert_retry_count_ << "\n";
+        if (cancel_cert_retry_max_ > 0 &&
+                cancel_cert_retry_count_ >= cancel_cert_retry_max_) {
+            stopCancelCertRetries();
+            return;
+        }
+        scheduleNextCancelCertRetry();
+        return;
+    }
+
+    if (msg == rollback_discovery_timer_) {
+        rollback_discovery_timer_ = nullptr;
+        rollback_discovery_ready_ = true;
+        std::cout << "[ROLLBACK-DISCOVERY] r" << replicaId_
+                  << " timeout; trying rollback proposal"
+                  << " |M_candidate|=" << rollbackMembershipCandidates().size()
+                  << " cancelled_epoch=" << cancelled_epoch_
+                  << " new_epoch=" << rollback_new_epoch_ << "\n";
+        trySubmitRollbackProposal("discovery-timeout");
+        delete msg; return;
+    }
+
     if (msg == propose_timeout_msg_) {
         propose_timeout_msg_ = nullptr;
+        if (cancel_pending_) {
+            std::cout << "[ROLLBACK-PROPOSE] r" << replicaId_
+                      << " ignore normal cert timeout during rollback discovery\n";
+            delete msg; return;
+        }
         if (!propose_submitted_) {
             if (!entered_stop_zone_) {
                 deferred_propose_after_cert_timeout_ = true;
@@ -413,6 +493,16 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
         vc_trigger_msg_ = nullptr;
         processOrders();
         if (!order_applied_) {
+            if (cancel_pending_) {
+                std::cout << "[ROLLBACK-VC-UNSUPPORTED] r" << replicaId_
+                          << " suppressed app forced view-change while cancel_pending"
+                          << " cancelled_epoch=" << cancelled_epoch_
+                          << " new_epoch=" << rollback_new_epoch_
+                          << " phase=" << phaseToStr(current_phase_)
+                          << " propose_submitted=" << propose_submitted_
+                          << " t=" << simTime() << "\n";
+                delete msg; return;
+            }
             int primary = ResdbOmnetGetPrimary(resdb_server_handle_);
             std::cout << "[VC-TRIGGER] r" << replicaId_
                       << " forcing view change at " << simTime()
@@ -432,6 +522,18 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
         delete msg; return;
     }
 
+    if (msg == rollback_vc_timer_) {
+        rollback_vc_timer_ = nullptr;
+        rollback_rotation_index_++;
+        rollback_propose_submitted_ = false;
+        std::cout << "[ROLLBACK-VC] r" << replicaId_
+                  << " rotating rollback proposer index=" << rollback_rotation_index_
+                  << " cancelled_epoch=" << cancelled_epoch_
+                  << " new_epoch=" << rollback_new_epoch_ << "\n";
+        trySubmitRollbackProposal("rollback-vc-timeout");
+        delete msg; return;
+    }
+
     if (msg == stop_sign_timeout_msg_) {
         stop_sign_timeout_msg_ = nullptr;
         // Apply any consensus orders already queued before declaring timeout.
@@ -447,6 +549,12 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
                   << " stop_sign after processOrders order_applied=" << order_applied_
                   << " t=" << simTime() << "\n";
         if (!order_applied_) {
+            if (cancel_pending_) {
+                std::cout << "[HALT-LOCAL] r" << replicaId_
+                          << " stop_sign_timeout suppressed while cancel_pending epoch="
+                          << cancelled_epoch_ << "\n";
+                delete msg; return;
+            }
             std::cout << "[METRICS " << replicaId_ << "] StopSign_Timeout: 1\n";
             std::cout << "[VC-TIMEOUT] r" << replicaId_
                       << " stop_sign_timeout_fired at=" << simTime()
@@ -475,6 +583,12 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
                   << " consensus after processOrders order_applied=" << order_applied_
                   << " t=" << simTime() << "\n";
         if (!order_applied_) {
+            if (cancel_pending_) {
+                std::cout << "[HALT-LOCAL] r" << replicaId_
+                          << " consensus_timeout suppressed while cancel_pending epoch="
+                          << cancelled_epoch_ << "\n";
+                delete msg; return;
+            }
             std::cout << "[METRICS " << replicaId_ << "] Consensus_Timeout: 1\n";
             std::cout << "[VC-TIMEOUT] r" << replicaId_
                       << " consensus_timeout_fired at=" << simTime()
@@ -489,6 +603,12 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
 
     if (msg == resume_msg_) {
         resume_msg_ = nullptr;
+        if (cancel_pending_) {
+            std::cout << "[HALT-LOCAL] r" << replicaId_
+                      << " pending resume suppressed while cancel_pending epoch="
+                      << cancelled_epoch_ << "\n";
+            delete msg; return;
+        }
         resumeVehicle(pending_resume_position_);
         delete msg; return;
     }
@@ -510,6 +630,15 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
                         ((simTime() - clearance_started_).dbl() >= clearance_timeout_sec_);
 
         if (all_cleared || timedOut) {
+            if (cancel_pending_) {
+                if (timedOut && !all_cleared) {
+                    std::cout << "[HALT-LOCAL] r" << replicaId_
+                              << " clearance timeout suppressed while cancel_pending epoch="
+                              << cancelled_epoch_ << "\n";
+                }
+                scheduleAt(simTime() + clearance_poll_period_sec_, clearance_poll_msg_);
+                return;
+            }
             if (timedOut && !all_cleared) {
                 std::cout << "[CLEARANCE r" << replicaId_ << "] TIMEOUT waiting for batch "
                           << (my_batch_index_ - 1) << "; resuming anyway\n";
@@ -613,6 +742,13 @@ void ResDBIntersectionApp::recordIntersectionDeparture(simtime_t departedAt)
     cleared_time_ = departedAt;
     is_departed_ = true;
     current_phase_ = ConsensusPhase::DEPARTED;
+    if (resdb_server_handle_) {
+        ResdbOmnetMarkReplicaInactive(resdb_server_handle_, replicaId_, current_epoch_ + 1);
+    }
+    {
+        std::lock_guard<std::mutex> lk(outbound_mutex_);
+        outbound_queue_.clear();
+    }
 
     const double wait_sec = (stop_time_ >= SIMTIME_ZERO) ? (cleared_time_ - stop_time_).dbl() : -1.0;
     const double stop_dbl = (stop_time_ >= SIMTIME_ZERO) ? stop_time_.dbl() : -1.0;
@@ -642,11 +778,25 @@ void ResDBIntersectionApp::finish()
     // so all SleepUntilUs waiters unblock before we call Stop()/join().
     std::cout << "[METRICS " << replicaId_ << "] Messages_Sent: " << sentMessages_ << "\n";
     std::cout << "[METRICS " << replicaId_ << "] Messages_Received: " << receivedMessages_ << "\n";
+    std::cout << "[METRICS " << replicaId_ << "] Bytes_Sent: " << sentPayloadBytes_ << "\n";
+    std::cout << "[METRICS " << replicaId_ << "] Megabytes_Sent: "
+              << (static_cast<double>(sentPayloadBytes_) / (1024.0 * 1024.0)) << "\n";
+    std::cout << "[METRICS " << replicaId_ << "] Quiet_Honest_Vehicles: "
+              << quietHonestVehicles_ << "\n";
+    std::cout << "[METRICS " << replicaId_ << "] Quiet_Honest_Opportunities: "
+              << quietHonestOpportunities_ << "\n";
+    std::cout << "[METRICS " << replicaId_ << "] Quiet_Honest_Rate: "
+              << (quietHonestOpportunities_ > 0
+                      ? (100.0 * static_cast<double>(quietHonestVehicles_) /
+                         static_cast<double>(quietHonestOpportunities_))
+                      : 0.0)
+              << "\n";
     
     std::cerr << "[FINISH-PROBE] r" << replicaId_
     << " handle=" << resdb_server_handle_ << std::endl;
 
     if (resdb_server_handle_) {
+        ResdbOmnetMarkReplicaInactive(resdb_server_handle_, replicaId_, current_epoch_ + 1);
         ResdbOmnetUpdateSimTimeUs(resdb_server_handle_,
                                   std::numeric_limits<int64_t>::max());
     }
@@ -762,6 +912,16 @@ void ResDBIntersectionApp::onWSM(BaseFrame1609_4* wsm)
         return;
     }
 
+    if (msgType == kCancelEchoType) {
+        handleCancelEcho(bft);
+        return;
+    }
+
+    if (msgType == kCancelCertType) {
+        handleCancelCert(bft);
+        return;
+    }
+
     // ── Type 8: ResDB PBFT consensus bytes ────────────────────────────────────
     if (msgType == kResdbConsensusMsgType) {
         // Leader is active — cert retransmits are no longer useful.
@@ -865,6 +1025,12 @@ void ResDBIntersectionApp::handleDecisionGossip(BFTMessage* bft)
     std::vector<uint8_t> order_bytes;
     if (!resdb_gossip::parse(view.resdbBytes, view.resdbLen, epoch, order_bytes)) return;
 
+    if (tombstoned_epochs_.count(epoch)) {
+        std::cout << "[TYPE9-RECV] r" << replicaId_
+                  << " dropped tombstoned epoch=" << epoch << "\n";
+        return;
+    }
+
     if (order_applied_) {
         if (gossip_enabled_ && has_committed_order_ && epoch == last_committed_epoch_
                 && order_bytes == committed_order_bytes_
@@ -898,6 +1064,11 @@ bool ResDBIntersectionApp::applyGossipOrder(const std::vector<uint8_t>& order_by
                                              uint32_t epoch)
 {
     if (order_applied_) return false;
+    if (tombstoned_epochs_.count(epoch)) {
+        std::cout << "[GOSSIP-APPLY] r" << replicaId_
+                  << " refused tombstoned epoch=" << epoch << "\n";
+        return false;
+    }
     std::cout << "[GOSSIP-APPLY] r" << replicaId_
               << " epoch=" << epoch << " t=" << simTime() << "\n";
     // Push into the same queue onOrderDecided uses.  The 1 ms transport-poll

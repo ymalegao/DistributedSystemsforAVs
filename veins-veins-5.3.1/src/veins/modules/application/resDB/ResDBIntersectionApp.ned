@@ -80,12 +80,23 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         bool   isAmbulance         = default(false);  // ambulance gets top priority in schedule
         int    ambulanceReplicaId  = default(-1);     // if >=0, marks veh<id> as ambulance after SUMO identity binding
         bool   isByzantine         = default(false);  // enables Byzantine fault injection
-        int    byzantineType       = default(0);      // 0=honest 1=false_lane 2=invalid_sig 3=equivocator 4=silent_primary 5=bad_proposal
+        int    byzantineType       = default(0);      // 0=honest 1=false_lane 2=invalid_sig 3=equivocator 4=silent_primary 5=bad_proposal 6=fake_ambulance 7=fake_ambulance_follower 8=tamper_lane
+        bool   enableAmbulanceCertGate = default(false); // when true, rejects ambulance claims with empty ambulanceCertBytes (ablation toggle)
 
         // ── Post-consensus order gossip (Type 9) ──────────────────────────────
         bool   enableDecisionGossip                        = default(true);
         double decisionGossipInitialIntervalSec @unit(s)  = default(0.5s);
         int    decisionGossipMaxRetries                    = default(5);
+
+        // ── Cancel / rollback protocol ───────────────────────────────────────
+        bool   enableRollback                              = default(false);
+        double cancelEchoTimeoutSec @unit(s)               = default(1s);
+        double cancelCertRetryIntervalSec @unit(s)         = default(0.1s);
+        int    cancelCertRetryMax                          = default(10);
+        double brakingDecelMps2                            = default(4.5);
+        double processingLatencyMargin                     = default(2.0);
+        double rollbackDiscoveryTimeoutSec @unit(s)         = default(8s);
+        double rollbackVcTimeoutSec @unit(s)               = default(3s);
 
         // ── Milestone 4: view-change (VC) support ─────────────────────────────
         // PBFT complaint-timer duration in sim-seconds.  After certCollectionTimeoutSec

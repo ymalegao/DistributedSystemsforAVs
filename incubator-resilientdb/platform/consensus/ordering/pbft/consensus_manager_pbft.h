@@ -24,6 +24,7 @@
 #include "platform/consensus/ordering/pbft/checkpoint_manager.h"
 #include "platform/consensus/ordering/pbft/commitment.h"
 #include "platform/consensus/ordering/pbft/message_manager.h"
+#include "platform/consensus/ordering/pbft/omnet_forced_view.h"
 #include "platform/consensus/ordering/pbft/performance_manager.h"
 #include "platform/consensus/ordering/pbft/query.h"
 #include "platform/consensus/ordering/pbft/response_manager.h"
@@ -54,6 +55,12 @@ class ConsensusManagerPBFT : public ConsensusManager {
 
   void SetPreVerifyFunc(std::function<bool(const Request&)>);
   void SetNeedCommitQC(bool need_qc);
+  void SetOmnetForcedViewRegistry(
+      std::shared_ptr<OmnetForcedViewRegistry> registry);
+  bool InstallOmnetForcedViewForRequest(const Request& request,
+                                        const OmnetForcedView& view);
+  void InstallOmnetPendingForcedView(const OmnetForcedView& view);
+  std::optional<OmnetForcedView> GetLatestOmnetForcedView() const;
 
   int ProcessRecoveryData(std::unique_ptr<Context> context,
                           std::unique_ptr<Request> request);
@@ -85,6 +92,7 @@ class ConsensusManagerPBFT : public ConsensusManager {
   std::unique_ptr<PerformanceManager> performance_manager_;
   std::unique_ptr<ViewChangeManager> view_change_manager_;
   std::unique_ptr<Recovery> recovery_;
+  std::shared_ptr<OmnetForcedViewRegistry> forced_view_registry_;
   Stats* global_stats_;
   std::queue<std::pair<std::unique_ptr<Context>, std::unique_ptr<Request>>>
       request_pending_;

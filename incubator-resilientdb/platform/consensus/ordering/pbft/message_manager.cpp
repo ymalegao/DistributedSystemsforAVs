@@ -143,9 +143,53 @@ bool MessageManager::IsValidMsg(const Request& request) {
   return true;
 }
 
+void MessageManager::SetOmnetForcedViewRegistry(
+    std::shared_ptr<OmnetForcedViewRegistry> registry) {
+  forced_view_registry_ = std::move(registry);
+}
+
+bool MessageManager::HasForcedViewForRequest(const Request& request) {
+  return forced_view_registry_ &&
+         forced_view_registry_->FindForRequest(request).has_value();
+}
+
+bool MessageManager::IsSelfActiveForRequest(const Request& request) {
+  if (!forced_view_registry_) return true;
+  auto view = forced_view_registry_->FindForRequest(request);
+  if (!view) return true;
+  return view->IsActiveOmnet(
+      OmnetForcedView::ResdbSenderToOmnet(config_.GetSelfInfo().id()));
+}
+
+int MessageManager::QuorumForRequest(const Request& request) {
+  if (forced_view_registry_) {
+    auto view = forced_view_registry_->FindForRequest(request);
+    if (view) return view->quorum;
+  }
+  return config_.GetMinDataReceiveNum();
+}
+
+bool MessageManager::IsSenderActiveForRequest(const Request& request) {
+  if (!forced_view_registry_) return true;
+  auto view = forced_view_registry_->FindForRequest(request);
+  if (!view) return true;
+  bool active = view->IsActiveResdbSender(request.sender_id());
+  if (!active) {
+    std::cout << "[ACTIVE-VOTE-DROP] sender=" << request.sender_id()
+              << " omnet_sender="
+              << OmnetForcedView::ResdbSenderToOmnet(request.sender_id())
+              << " epoch=" << view->epoch
+              << " seq=" << request.seq()
+              << " hash=" << request.hash()
+              << " reason=inactive\n";
+  }
+  return active;
+}
+
 bool MessageManager::MayConsensusChangeStatus(
-    int type, int received_count, std::atomic<TransactionStatue>* status,
-    bool ret) {
+    const Request& request, int type, int received_count,
+    std::atomic<TransactionStatue>* status, bool ret) {
+  const int quorum = QuorumForRequest(request);
   switch (type) {
     case Request::TYPE_PRE_PREPARE:
       if (*status == TransactionStatue::None) {
@@ -157,7 +201,7 @@ bool MessageManager::MayConsensusChangeStatus(
       break;
     case Request::TYPE_PREPARE:
       if (*status == TransactionStatue::READY_PREPARE &&
-          config_.GetMinDataReceiveNum() <= received_count) {
+          quorum <= received_count) {
         TransactionStatue old_status = TransactionStatue::READY_PREPARE;
         return status->compare_exchange_strong(
             old_status, TransactionStatue::READY_COMMIT,
@@ -166,7 +210,7 @@ bool MessageManager::MayConsensusChangeStatus(
       break;
     case Request::TYPE_COMMIT:
       if (*status == TransactionStatue::READY_COMMIT &&
-          config_.GetMinDataReceiveNum() <= received_count) {
+          quorum <= received_count) {
         TransactionStatue old_status = TransactionStatue::READY_COMMIT;
         return status->compare_exchange_strong(
             old_status, TransactionStatue::READY_EXECUTE,
@@ -196,6 +240,9 @@ CollectorResultCode MessageManager::AddConsensusMsg(
   uint64_t seq = request->seq();
   int resp_received_count = 0;
   int proxy_id = request->proxy_id();
+  if (!IsSenderActiveForRequest(*request)) {
+    return CollectorResultCode::OK;
+  }
   if (checkpoint_manager_->IsCommitted(seq)) {
     LOG(ERROR) << " seq:" << seq << " type:" << type << " has been committed";
     std::cout << "[ADDMSG-ALREADY-COMMITTED] seq=" << seq << " type=" << type << "\n";
@@ -207,7 +254,8 @@ CollectorResultCode MessageManager::AddConsensusMsg(
       [&](const Request& request, int received_count,
           TransactionCollector::CollectorDataType* data,
           std::atomic<TransactionStatue>* status, bool force) {
-        if (MayConsensusChangeStatus(type, received_count, status, force)) {
+        if (MayConsensusChangeStatus(request, type, received_count, status,
+                                     force)) {
           resp_received_count = 1;
         }
       });

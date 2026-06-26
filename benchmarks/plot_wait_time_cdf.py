@@ -536,6 +536,7 @@ def extract_run_metrics(path: Path) -> dict[str, float | None]:
 
         sent = 0.0
         recv = 0.0
+        sent_bytes = 0.0
         for v in per_car:
             msgs = v.get("messages") if isinstance(v.get("messages"), dict) else {}
             try:
@@ -544,6 +545,10 @@ def extract_run_metrics(path: Path) -> dict[str, float | None]:
                 pass
             try:
                 recv += float(msgs.get("received", 0) or 0)
+            except (TypeError, ValueError):
+                pass
+            try:
+                sent_bytes += float(msgs.get("bytes_sent", 0) or 0)
             except (TypeError, ValueError):
                 pass
 
@@ -580,6 +585,8 @@ def extract_run_metrics(path: Path) -> dict[str, float | None]:
             "fallback_rate": float(fallback_rate),
             "messages_sent": float(sent),
             "messages_received": float(recv),
+            "bytes_sent": float(sent_bytes),
+            "megabytes_sent": float(sent_bytes / (1024.0 * 1024.0)),
             "estimated_loss_rate": None,
             "consensus_latency_sim_s": consensus_latency_sim_s,
             "first_submit_to_commit_latency_sim_s": first_submit_to_commit_latency_sim_s,
@@ -591,11 +598,13 @@ def extract_run_metrics(path: Path) -> dict[str, float | None]:
 
     sent = 0
     recv = 0
+    sent_bytes = 0.0
     for c in per_car:
         if not isinstance(c, dict):
             continue
         s = c.get("messages_sent")
         r = c.get("messages_received")
+        b = c.get("bytes_sent")
         if s is not None:
             try:
                 sent += int(s)
@@ -604,6 +613,11 @@ def extract_run_metrics(path: Path) -> dict[str, float | None]:
         if r is not None:
             try:
                 recv += int(r)
+            except (TypeError, ValueError):
+                pass
+        if b is not None:
+            try:
+                sent_bytes += float(b)
             except (TypeError, ValueError):
                 pass
 
@@ -629,6 +643,8 @@ def extract_run_metrics(path: Path) -> dict[str, float | None]:
         "fallback_rate": fget("fallback_rate"),
         "messages_sent": float(sent),
         "messages_received": float(recv),
+        "bytes_sent": fget("bytes_sent_total") if fget("bytes_sent_total") is not None else float(sent_bytes),
+        "megabytes_sent": fget("megabytes_sent_total") if fget("megabytes_sent_total") is not None else float(sent_bytes / (1024.0 * 1024.0)),
         "estimated_loss_rate": fget("estimated_loss_rate"),
         "consensus_latency_sim_s": consensus_latency_sim_s,
         "first_submit_to_commit_latency_sim_s": first_submit_to_commit_latency_sim_s,
@@ -1296,6 +1312,7 @@ def plot_bars(
         "fallback_rate",
         "messages_sent",
         "messages_received",
+        "megabytes_sent",
         "estimated_loss_rate",
         "consensus_latency_sim_s",
         "first_submit_to_commit_latency_sim_s",
@@ -1470,6 +1487,7 @@ def plot_bars(
     msg_configs = [
         ("messages_sent", "Messages sent (total per run)", "Messages", 1.0),
         ("messages_received", "Messages received (total per run)", "Messages", 1.0),
+        ("megabytes_sent", "Payload sent (total per run)", "MB", 1.0),
         ("estimated_loss_rate", "Est. message loss (overall)", "Loss rate (%)", 100.0),
     ]
     for metric, mtitle, ylabel, scale in msg_configs:
@@ -1483,7 +1501,11 @@ def plot_bars(
             ax = axes_m[ax_idx]
 
             def text_fn(m: float, sc: float = scale) -> str:
-                return f"{m:.1f}%" if sc == 100.0 else f"{m:.0f}"
+                if sc == 100.0:
+                    return f"{m:.1f}%"
+                if metric == "megabytes_sent":
+                    return f"{m:.2f}"
+                return f"{m:.0f}"
 
             x = np.arange(len(series_keys))
             bw = 0.62
@@ -1668,8 +1690,8 @@ def plot_ambulance_vs_normal_wait(
     """
     Apples-to-apples wait summary grouped by scenario:
     For each n ∈ {4,8,12,16}:
-      - No ambulance group: BFT, baseline, optional RAFT
-      - Ambulance group: BFT normal, BFT ambulance, baseline ambulance, optional RAFT ambulance
+      - No priority vehicle: mean wait over all cars (BFT, baseline, optional RAFT)
+      - Priority vehicle present: separate means for regular cars vs the ambulance
     """
     assert plt is not None
 
@@ -1703,13 +1725,13 @@ def plot_ambulance_vs_normal_wait(
         baseline_no_prio_mean = mean_or_none(baseline_no_prio_all)
 
         no_amb_bars: list[tuple[str, float | None, str, str]] = [
-            ("BFT", bft_no_prio_mean, "#1f77b4", ""),
-            ("Baseline", baseline_no_prio_mean, "#2ca02c", ""),
+            ("BFT · all cars", bft_no_prio_mean, "#1f77b4", ""),
+            ("Baseline · all cars", baseline_no_prio_mean, "#2ca02c", ""),
         ]
         amb_bars: list[tuple[str, float | None, str, str]] = [
-            ("BFT normal", bft_norm_mean, "#1f77b4", "//"),
-            ("BFT ambulance", bft_prio_mean, AMB_BAR_COLOR, ""),
-            ("Baseline ambulance", baseline_prio_mean, "#2ca02c", ""),
+            ("BFT · regular cars", bft_norm_mean, "#1f77b4", "//"),
+            ("BFT · ambulance", bft_prio_mean, AMB_BAR_COLOR, ""),
+            ("Baseline · ambulance", baseline_prio_mean, "#2ca02c", ""),
         ]
 
         if include_partner:
@@ -1719,13 +1741,13 @@ def plot_ambulance_vs_normal_wait(
             raft_no_prio_all = partner_wait_time_samples_s(vc, mode="allVehicles_nopriority")
             raft_no_prio_mean = mean_or_none(raft_no_prio_all) if raft_no_prio_all else None
 
-            no_amb_bars.append(("RAFT", raft_no_prio_mean, "black", ""))
+            no_amb_bars.append(("RAFT · all cars", raft_no_prio_mean, "black", ""))
             amb_bars.extend([
-                ("RAFT normal", raft_norm_mean, "black", "//"),
-                ("RAFT ambulance", raft_prio_mean, "#555555", ""),
+                ("RAFT · regular cars", raft_norm_mean, "black", "//"),
+                ("RAFT · ambulance", raft_prio_mean, "#555555", ""),
             ])
 
-        groups = [("No ambulance", no_amb_bars), ("Ambulance", amb_bars)]
+        groups = [("No priority vehicle", no_amb_bars), ("Priority vehicle present", amb_bars)]
         bar_width = 0.16 if include_partner else 0.20
         group_centers = np.array([0.0, 1.25], dtype=float)
         all_vals = [float(v) for _, bars in groups for _, v, _, _ in bars if v is not None]
@@ -1738,7 +1760,11 @@ def plot_ambulance_vs_normal_wait(
                 if val is None:
                     continue
                 x_pos = group_centers[g_idx] + offset
-                role_alpha = 0.9 if "ambulance" in lab.lower() or group_label == "No ambulance" else 0.72
+                role_alpha = (
+                    0.9
+                    if "ambulance" in lab.lower() or g_idx == 0
+                    else 0.72
+                )
                 ax.bar(
                     x_pos,
                     float(val),
@@ -1781,7 +1807,7 @@ def plot_ambulance_vs_normal_wait(
 
     fig.suptitle(
         f"Wait time at intersection by scenario{title_suffix}\n"
-        "Grouped by no-ambulance vs ambulance runs; bars compare BFT, baseline, and optional RAFT",
+        "Left: no priority vehicle (all cars). Right: priority present (regular cars vs ambulance).",
         fontsize=12,
         fontweight="bold",
     )

@@ -29,12 +29,24 @@
 #   points at PATH (absolute path recommended). Used by experiment_orchestrator.py
 #   to place channel_*.csv / sinr_*.csv under benchmarks/.../run_<rep>/.
 #
+# --baseline
+#   SUMO-controlled baseline mode. Reuses ambulance randomization, but disables
+#   Byzantine and leader mutations.
+#
+# --rollback-late-emergency
+#   Fixed 18-replica rollback scenario: veh0..veh15 commit epoch 0, two clear the
+#   intersection, then veh16 (late ambulance) and veh17 (late normal car) arrive
+#   and force a rollback to M=16. Rollback and ambulance cert gate are enabled,
+#   and the 18-vehicle rollback late-arrival SUMO launch config is used.
+#
 # Examples:
 #   ./run-resdb-simulation.sh -u Cmdenv -c FourVehiclesResDB
 #   ./run-resdb-simulation.sh --randomize 12 3 -u Cmdenv -c TwelveVehiclesResDB
 #   ./run-resdb-simulation.sh --randomize 16 4 --byzleader 0 -u Cmdenv -c SixteenVehiclesResDB
 #   ./run-resdb-simulation.sh --leader 4 -u Cmdenv -c EightVehiclesResDB
 #   ./run-resdb-simulation.sh --leader 7 --randomize 8 2 -u Cmdenv -c EightVehiclesResDB
+#   ./run-resdb-simulation.sh --randomize 16 4 --no-firewall -u Cmdenv -c SixteenVehiclesResDB
+#   ./run-resdb-simulation.sh --randomize 16 0 --byzleader 0 --leader-byz-type 6 --no-firewall -u Cmdenv -c SixteenVehiclesResDB
 
 set -euo pipefail
 
@@ -123,10 +135,12 @@ has_ned_path_arg() {
 # node assignments.  The file uses [General] so it applies to any config.
 # Prints the path to the generated ini file on stdout; all other output goes
 # to stderr so callers can safely capture the path with $(...).
-# Usage: generate_random_scenario <N> <F> <sim_dir> <byz_leader|-1> <allow_r0_follower> <no_ambulance>
+# Usage: generate_random_scenario <N> <F> <sim_dir> <byz_leader|-1> <allow_r0_follower> <no_ambulance> <leader_byz_type> <follower_byz_type>
 #   byz_leader:        replica ID reserved as silent leader (-1 = none)
 #   allow_r0_follower: "1" = allow replica 0 in FALSE_LANE pool when byz_leader=-1; else exclude 0
 #   no_ambulance:      "1" = force no ambulance (ambulanceReplicaId=-1)
+#   leader_byz_type:   byzantineType for the byz leader (default 5=bad_proposal; 6=fake_ambulance)
+#   follower_byz_type: byzantineType for Byzantine followers (default 1=false_lane; 7=fake_ambulance_follower)
 # ---------------------------------------------------------------------------
 generate_random_scenario() {
     local n="$1"
@@ -135,6 +149,8 @@ generate_random_scenario() {
     local byz_leader="$4"   # -1 means no byz leader
     local allow_r0_follower="${5:-0}"
     local no_ambulance="${6:-0}"
+    local leader_byz_type="${7:-5}"
+    local follower_byz_type="${8:-1}"
 
     local out_ini="${sim_dir}/random_scenario.ini"
 
@@ -239,12 +255,12 @@ generate_random_scenario() {
         echo "# Do not edit by hand — regenerated each run."
         echo "[General]"
         echo "*.node[*].appl.ambulanceReplicaId = ${AMB_ID}"
-        # Byz leader: Byzantine at C++ layer (FALSE_LANE)
+        # Byz leader: Byzantine at C++ layer
         if [[ "${byz_leader}" -ge 0 ]]; then
             local leader_node
             leader_node="$(replica_to_node_idx "${n}" "${byz_leader}")"
             echo "*.node[${leader_node}].appl.isByzantine = true"
-            echo "*.node[${leader_node}].appl.byzantineType = 5   # FALSE_LANE (byz leader replica ${byz_leader})"
+            echo "*.node[${leader_node}].appl.byzantineType = ${leader_byz_type}   # byz leader replica ${byz_leader}"
         fi
         # FALSE_LANE nodes (C++ arrival layer only)
         if (( pick > 0 )); then
@@ -252,8 +268,12 @@ generate_random_scenario() {
                 local node_idx
                 node_idx="$(replica_to_node_idx "${n}" "${replica_id}")"
                 echo "*.node[${node_idx}].appl.isByzantine = true"
-                echo "*.node[${node_idx}].appl.byzantineType = 1   # FALSE_LANE (replica ${replica_id})"
+                echo "*.node[${node_idx}].appl.byzantineType = ${follower_byz_type}   # follower byz type (replica ${replica_id})"
             done
+        fi
+        # Cert gate override (written when --cert-gate is passed)
+        if [[ -n "${CERT_GATE_LINE:-}" ]]; then
+            echo "${CERT_GATE_LINE}"
         fi
     } > "${out_ini}"
 
@@ -268,10 +288,15 @@ RANDOMIZE=0
 RANDOMIZE_N=""
 RANDOMIZE_F=""
 BYZ_LEADER=-1       # -1 = no designated byz leader
+BYZ_LEADER_TYPE=5    # byzantineType for the byz leader (5=bad_proposal, 6=fake_ambulance)
+BYZ_FOLLOWER_TYPE=1  # byzantineType for Byzantine followers (1=false_lane, 7=fake_ambulance_follower)
+CERT_GATE_LINE=""   # set by --cert-gate: adds enableAmbulanceCertGate=true to scenario ini
 ALLOW_REPLICA0_BYZ_FOLLOWER=0
 NO_AMBULANCE=0
 INITIAL_LEADER=""   # "" = use default (replica 0)
 CHANNEL_METRICS_DIR=""  # "" = do not override (use omnetpp.ini / NED default)
+BASELINE=0
+ROLLBACK_LATE_EMERGENCY=0
 EXTRA_INI_ARG=()
 
 args=("$@")
@@ -290,6 +315,20 @@ while [[ $i -lt ${#args[@]} ]]; do
             i=$(( i + 1 ))
             BYZ_LEADER="${args[$i]}"
             ;;
+        --leader-byz-type)
+            i=$(( i + 1 ))
+            BYZ_LEADER_TYPE="${args[$i]}"
+            ;;
+        --follower-byz-type)
+            i=$(( i + 1 ))
+            BYZ_FOLLOWER_TYPE="${args[$i]}"
+            ;;
+        --no-firewall)
+            export RESDB_NO_FIREWALL=1
+            ;;
+        --cert-gate)
+            CERT_GATE_LINE="*.node[*].appl.enableAmbulanceCertGate = true"
+            ;;
         --allow-replica0-byz-follower)
             ALLOW_REPLICA0_BYZ_FOLLOWER=1
             ;;
@@ -304,6 +343,12 @@ while [[ $i -lt ${#args[@]} ]]; do
             i=$(( i + 1 ))
             CHANNEL_METRICS_DIR="${args[$i]}"
             ;;
+        --baseline)
+            BASELINE=1
+            ;;
+        --rollback-late-emergency)
+            ROLLBACK_LATE_EMERGENCY=1
+            ;;
         *)
             filtered_args+=("${args[$i]}")
             ;;
@@ -311,6 +356,12 @@ while [[ $i -lt ${#args[@]} ]]; do
     i=$(( i + 1 ))
 done
 set -- "${filtered_args[@]+"${filtered_args[@]}"}"
+
+if [[ "${BASELINE}" -eq 1 ]]; then
+    BYZ_LEADER=-1
+    ALLOW_REPLICA0_BYZ_FOLLOWER=1
+    INITIAL_LEADER=""
+fi
 
 # ---------------------------------------------------------------------------
 
@@ -373,10 +424,42 @@ if [[ "${RANDOMIZE}" -eq 1 ]]; then
         echo "ERROR: --randomize requires <N> <F> arguments" >&2
         exit 1
     fi
-    RANDOM_INI="$(generate_random_scenario "${RANDOMIZE_N}" "${RANDOMIZE_F}" "${SIM_DIR}" "${BYZ_LEADER}" "${ALLOW_REPLICA0_BYZ_FOLLOWER}" "${NO_AMBULANCE}")"
+    RANDOM_INI="$(generate_random_scenario "${RANDOMIZE_N}" "${RANDOMIZE_F}" "${SIM_DIR}" "${BYZ_LEADER}" "${ALLOW_REPLICA0_BYZ_FOLLOWER}" "${NO_AMBULANCE}" "${BYZ_LEADER_TYPE}" "${BYZ_FOLLOWER_TYPE}")"
     # When any -f flag is given, OMNeT++ stops auto-loading omnetpp.ini.
     # Explicitly load omnetpp.ini first, then the override file so it wins.
     EXTRA_INI_ARG=(-f "omnetpp.ini" -f "${RANDOM_INI}")
+fi
+
+if [[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 ]]; then
+    ROLLBACK_INI="${SIM_DIR}/rollback_late_emergency.ini"
+    {
+        echo "# Auto-generated by run-resdb-simulation.sh --rollback-late-emergency"
+        echo "# Do not edit by hand — regenerated each run."
+        echo "[General]"
+        echo "*.manager.launchConfig = xmldoc(\"resdb_bft_18veh_rollback_late.launchd.xml\")"
+        echo "*.manager.intersectionBatchSize = 16"
+        # totalVehicles=16 (NOT 18) so epoch 0's proposeAll does not QUIET-pad the
+        # ambulance slot (replica 16): the padding loop runs rid in [0, totalVehicles).
+        # Late replicas 16/17 still get correct ids from NED node[16]/node[17].replicaId
+        # because they spawn last (node index == veh number).
+        echo "*.node[*].appl.totalVehicles = 16"
+        echo "*.node[*].appl.ambulanceReplicaId = 16"
+        echo "*.node[*].appl.enableRollback = true"
+        echo "*.node[*].appl.enableAmbulanceCertGate = true"
+        echo "*.node[*].appl.cancelEchoTimeoutSec = 1s"
+        echo "*.node[*].appl.cancelCertRetryIntervalSec = 0.1s"
+        echo "*.node[*].appl.cancelCertRetryMax = 20"
+        echo "*.node[*].appl.rollbackDiscoveryTimeoutSec = 8s"
+        echo "*.node[*].appl.rollbackVcTimeoutSec = 8s"
+        echo "*.node[*].appl.brakingDecelMps2 = 4.5"
+        echo "*.node[*].appl.processingLatencyMargin = 2.0"
+    } > "${ROLLBACK_INI}"
+    echo "  Rollback late-emergency scenario: 16 commit, veh16 ambulance + veh17 normal arrive late (rollback_late_emergency.ini)" >&2
+    if [[ ${#EXTRA_INI_ARG[@]} -gt 0 ]]; then
+        EXTRA_INI_ARG+=(-f "${ROLLBACK_INI}")
+    else
+        EXTRA_INI_ARG=(-f "omnetpp.ini" -f "${ROLLBACK_INI}")
+    fi
 fi
 
 # Write a leader_override.ini to set the C++ PROPOSE_ALL leader if --leader was given.

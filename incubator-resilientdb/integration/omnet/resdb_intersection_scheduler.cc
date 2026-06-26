@@ -68,7 +68,7 @@ IntersectionScheduleResult BuildIntersectionSchedule(
   IntersectionScheduleResult result;
 
   for (const auto& e : entries) {
-    if (e.is_ambulance) {
+    if (e.is_ambulance && e.cyber_status == 1) {
       result.ambulance_lane = static_cast<int>(e.lane);
       break;
     }
@@ -76,7 +76,7 @@ IntersectionScheduleResult BuildIntersectionSchedule(
 
   std::vector<ResdbVehicleEntry> ambulances;
   for (const auto& e : entries) {
-    if (e.is_ambulance) ambulances.push_back(e);
+    if (e.is_ambulance && e.cyber_status == 1) ambulances.push_back(e);
   }
   std::sort(ambulances.begin(), ambulances.end(),
             [](const ResdbVehicleEntry& a, const ResdbVehicleEntry& b) {

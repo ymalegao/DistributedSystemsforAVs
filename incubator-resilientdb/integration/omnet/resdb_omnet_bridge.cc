@@ -34,6 +34,131 @@ int ResdbIdToOmnetReplica(int64_t resdb_node_id) {
   return static_cast<int>(resdb_node_id - 1);
 }
 
+struct ProposalView {
+  const uint8_t* data = nullptr;
+  size_t len = 0;
+  bool is_rollback = false;
+  ResdbRollbackHdr rollback{};
+};
+
+bool ParseNormalProposal(const uint8_t* data, size_t len, ResdbProposeHdr* hdr_out) {
+  if (data == nullptr || len < sizeof(ResdbProposeHdr)) return false;
+  ResdbProposeHdr hdr;
+  std::memcpy(&hdr, data, sizeof(hdr));
+  if (hdr.n_vehicles > 10000) return false;
+  const size_t needed = sizeof(ResdbProposeHdr) +
+      static_cast<size_t>(hdr.n_vehicles) * sizeof(ResdbVehicleEntry);
+  if (len < needed) return false;
+  if (hdr_out) *hdr_out = hdr;
+  return true;
+}
+
+bool UnwrapRollbackIfPresent(const std::string& raw, ProposalView* view) {
+  if (view == nullptr) return false;
+  view->data = reinterpret_cast<const uint8_t*>(raw.data());
+  view->len = raw.size();
+  view->is_rollback = false;
+
+  if (raw.size() < sizeof(ResdbRollbackHdr) + sizeof(ResdbProposeHdr))
+    return ParseNormalProposal(view->data, view->len, nullptr);
+
+  ResdbRollbackHdr rhdr;
+  std::memcpy(&rhdr, raw.data(), sizeof(rhdr));
+  if (rhdr.reason > 1) return ParseNormalProposal(view->data, view->len, nullptr);
+  if (rhdr.new_epoch != rhdr.cancelled_epoch + 1)
+    return ParseNormalProposal(view->data, view->len, nullptr);
+  const size_t inner_off = sizeof(ResdbRollbackHdr) + rhdr.justification_len;
+  if (inner_off > raw.size()) return ParseNormalProposal(view->data, view->len, nullptr);
+
+  ResdbProposeHdr inner_hdr;
+  const uint8_t* inner = reinterpret_cast<const uint8_t*>(raw.data()) + inner_off;
+  const size_t inner_len = raw.size() - inner_off;
+  if (!ParseNormalProposal(inner, inner_len, &inner_hdr))
+    return ParseNormalProposal(view->data, view->len, nullptr);
+  if (inner_hdr.epoch != rhdr.new_epoch)
+    return ParseNormalProposal(view->data, view->len, nullptr);
+
+  view->data = inner;
+  view->len = inner_len;
+  view->is_rollback = true;
+  view->rollback = rhdr;
+  return true;
+}
+
+bool StructurallyValidCancelJustification(const std::string& raw,
+                                          const ResdbRollbackHdr& rhdr) {
+  const size_t off = sizeof(ResdbRollbackHdr);
+  if (raw.size() < off + rhdr.justification_len) return false;
+  if (rhdr.reason > 1 || rhdr.justification_len == 0) return false;
+  std::string just(raw.data() + off, rhdr.justification_len);
+  if (rhdr.reason == 0) {
+    if (just.find("CANCEL_CERT|") != 0) return false;
+    std::unordered_set<std::string> signers;
+    std::stringstream ss(just);
+    std::string part;
+    int idx = 0;
+    while (std::getline(ss, part, '|')) {
+      if (idx++ < 4) continue;
+      size_t colon = part.find(':');
+      if (colon != std::string::npos)
+        signers.insert(part.substr(0, colon));
+    }
+    return !signers.empty();
+  }
+  // Emergency rollback carries the ambulance ARRIVAL_CERT bytes. Full CA /
+  // P-256 verification remains on the Veins side in this pass.
+  return !just.empty();
+}
+
+bool BuildForcedViewCandidate(const ProposalView& view,
+                              const ResdbProposeHdr& hdr,
+                              int expected_replicas,
+                              const resdb::Request* request,
+                              resdb::OmnetForcedView* out) {
+  if (!view.is_rollback || out == nullptr) return false;
+  if (hdr.n_vehicles == 0 || static_cast<int>(hdr.n_vehicles) > expected_replicas)
+    return false;
+  if (hdr.leader_id < 0 || hdr.leader_id >= expected_replicas) return false;
+
+  const uint8_t* p = view.data + sizeof(ResdbProposeHdr);
+  std::vector<int> members;
+  members.reserve(hdr.n_vehicles);
+  for (uint32_t i = 0; i < hdr.n_vehicles; ++i) {
+    ResdbVehicleEntry e;
+    std::memcpy(&e, p, sizeof(e));
+    p += sizeof(e);
+    if (e.replica_id < 0 || e.replica_id >= expected_replicas) return false;
+    members.push_back(e.replica_id);
+  }
+  std::sort(members.begin(), members.end());
+  if (std::adjacent_find(members.begin(), members.end()) != members.end())
+    return false;
+  if (!std::binary_search(members.begin(), members.end(), hdr.leader_id))
+    return false;
+
+  if (request != nullptr) {
+    int sender_omnet = ResdbIdToOmnetReplica(request->sender_id());
+    if (sender_omnet >= 0 && sender_omnet != hdr.leader_id) {
+      std::cout << "[ACTIVE-VIEW-REJECT] reason=sender-not-leader"
+                << " sender=" << sender_omnet
+                << " leader=" << hdr.leader_id
+                << " epoch=" << hdr.epoch
+                << " seq=" << request->seq()
+                << " hash=" << request->hash() << "\n";
+      return false;
+    }
+  }
+
+  resdb::OmnetForcedView candidate;
+  candidate.epoch = hdr.epoch;
+  candidate.seq = request ? request->seq() : 0;
+  candidate.request_hash = request ? request->hash() : std::string();
+  candidate.primary_omnet = hdr.leader_id;
+  candidate.active_omnet_ids = std::move(members);
+  *out = std::move(candidate);
+  return true;
+}
+
 // ── IntersectionExecutor ──────────────────────────────────────────────────────
 // Parses the ProposeAll wire format, runs deterministic intersection scheduling,
 // and emits OrderDecision bytes.
@@ -50,8 +175,20 @@ class IntersectionExecutor : public resdb::TransactionManager {
 
   std::unique_ptr<std::string> ExecuteData(const std::string& data) override {
     std::cout << "[EXECUTOR] ExecuteData called bytes=" << data.size() << "\n";
-    const uint8_t* p = reinterpret_cast<const uint8_t*>(data.data());
-    size_t remaining = data.size();
+    ProposalView view;
+    if (!UnwrapRollbackIfPresent(data, &view)) {
+      std::cout << "[EXECUTOR] payload parse failed\n";
+      return std::make_unique<std::string>();
+    }
+    if (view.is_rollback) {
+      std::cout << "[ROLLBACK-COMMIT] executor unwrap"
+                << " cancelled_epoch=" << view.rollback.cancelled_epoch
+                << " new_epoch=" << view.rollback.new_epoch
+                << " reason=" << static_cast<int>(view.rollback.reason)
+                << " TODO=resdb_dynamic_N_reconfiguration_pending\n";
+    }
+    const uint8_t* p = view.data;
+    size_t remaining = view.len;
 
     if (remaining < sizeof(ResdbProposeHdr)) {
       std::cout << "[EXECUTOR] payload too short\n";
@@ -375,15 +512,54 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
   auto service = std::make_unique<OmnetConsensusManagerPBFT>(
       *config, std::move(executor_owned), /*transport=*/nullptr);
   auto* service_ptr = service.get();
+  auto forced_views = std::make_shared<resdb::OmnetForcedViewRegistry>();
+  service_ptr->SetOmnetForcedViewRegistry(forced_views);
 
-  // Basic pre-verify: proposal matches cluster shape from server.config (keygen).
-  // This integration assumes one vehicle slot per ResDB replica (N cars = N replicas =
-  // N entries in server.config). SUMO / *.manager.intersectionBatchSize are kept in
-  // sync with that N in the scenario; the bridge does not infer N from traffic.
+  // Basic pre-verify: proposal vehicle slots must fit within static server.config.
+  // expected = total pre-keyed replicas (server.config size). Normal epoch-0 proposals
+  // may carry fewer entries when late replicas are physically absent (rollback scenario
+  // 15: 18 static keys, 16 at intersection, 2 arrive later). Rollback proposals use
+  // forced-M with |M| <= expected.
   const int expected = static_cast<int>(config->GetReplicaInfos().size());
   auto cert_state = std::make_shared<CertCheckState>();
-  service_ptr->SetPreVerifyFunc([expected, cert_state](const resdb::Request& req) -> bool {
-    if (req.type() != resdb::Request::TYPE_PRE_PREPARE) return true;
+
+  // RESDB_NO_FIREWALL=1 disables all 10 PreVerify checks for "firewall-off" experiments.
+  // Demonstrates that Byzantine proposals can be committed by PBFT but still cannot
+  // cause physical crashes (executor size guard + intersection scheduler still hold).
+  const char* no_fw_env = getenv("RESDB_NO_FIREWALL");
+  const bool firewall_disabled = (no_fw_env && std::string(no_fw_env) == "1");
+  if (firewall_disabled) {
+    LOG(WARNING) << "[OMNET-PREVERIFY] RESDB_NO_FIREWALL=1 — all 10 PreVerify checks DISABLED";
+    service_ptr->SetPreVerifyFunc([expected, service_ptr](const resdb::Request& req) -> bool {
+      if (req.type() != resdb::Request::TYPE_PRE_PREPARE &&
+          req.type() != resdb::Request::TYPE_NEW_TXNS) {
+        return true;
+      }
+      resdb::BatchUserRequest batch;
+      if (!batch.ParseFromString(req.data()) || batch.user_requests_size() <= 0)
+        return true;
+      const std::string& d = batch.user_requests(0).request().data();
+      ProposalView view;
+      if (!UnwrapRollbackIfPresent(d, &view) || !view.is_rollback) return true;
+      ResdbProposeHdr hdr;
+      std::memcpy(&hdr, view.data, sizeof(hdr));
+      if (!StructurallyValidCancelJustification(d, view.rollback)) return true;
+      resdb::OmnetForcedView forced_view;
+      if (!BuildForcedViewCandidate(view, hdr, expected, &req, &forced_view))
+        return true;
+      if (req.type() == resdb::Request::TYPE_PRE_PREPARE) {
+        service_ptr->InstallOmnetForcedViewForRequest(req, forced_view);
+      } else {
+        service_ptr->InstallOmnetPendingForcedView(forced_view);
+      }
+      return true;
+    });
+  } else {
+  service_ptr->SetPreVerifyFunc([expected, cert_state, service_ptr](const resdb::Request& req) -> bool {
+    if (req.type() != resdb::Request::TYPE_PRE_PREPARE &&
+        req.type() != resdb::Request::TYPE_NEW_TXNS) {
+      return true;
+    }
     // In this integration path, PRE_PREPARE carries serialized BatchUserRequest,
     // and each UserRequest contains the raw Propose payload.
     resdb::BatchUserRequest batch;
@@ -398,33 +574,63 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
     }
     const auto& wrapped = batch.user_requests(0).request();
     const std::string& d = wrapped.data();
-    if (d.size() < sizeof(ResdbProposeHdr)) {
-      LOG(ERROR) << "[OMNET-PREVERIFY] reject: payload too short for header"
-                 << " size=" << d.size()
-                 << " need_at_least=" << sizeof(ResdbProposeHdr);
+    ProposalView view;
+    if (!UnwrapRollbackIfPresent(d, &view)) {
+      LOG(ERROR) << "[OMNET-PREVERIFY] reject: payload too short or malformed"
+                 << " size=" << d.size();
       return false;
     }
     ResdbProposeHdr hdr;
-    std::memcpy(&hdr, d.data(), sizeof(hdr));
-    if (static_cast<int>(hdr.n_vehicles) != expected) {
-      LOG(ERROR) << "[OMNET-PREVERIFY] reject: vehicle count mismatch"
+    std::memcpy(&hdr, view.data, sizeof(hdr));
+    if (req.type() == resdb::Request::TYPE_NEW_TXNS && !view.is_rollback) {
+      return true;
+    }
+    const bool installing_pre_prepare =
+        view.is_rollback && req.type() == resdb::Request::TYPE_PRE_PREPARE;
+    const bool installing_pending =
+        view.is_rollback && req.type() == resdb::Request::TYPE_NEW_TXNS;
+    if (view.is_rollback &&
+        !StructurallyValidCancelJustification(d, view.rollback)) {
+      LOG(ERROR) << "[OMNET-PREVERIFY] reject: rollback Check11 invalid cancel justification"
+                 << " cancelled_epoch=" << view.rollback.cancelled_epoch
+                 << " new_epoch=" << view.rollback.new_epoch
+                 << " reason=" << static_cast<int>(view.rollback.reason);
+      return false;
+    }
+    // Normal proposals: allow hdr.n_vehicles <= expected so epoch 0 can commit only
+    // the cars physically at the intersection (e.g. 16 present, 18 static replicas).
+    if (!view.is_rollback &&
+        (hdr.n_vehicles == 0 || static_cast<int>(hdr.n_vehicles) > expected)) {
+      LOG(ERROR) << "[OMNET-PREVERIFY] reject: vehicle count out of range"
                  << " hdr.n_vehicles=" << hdr.n_vehicles
-                 << " expected_replicas=" << expected
+                 << " expected_max=" << expected
                  << " epoch=" << hdr.epoch;
       return false;
     }
+    if (view.is_rollback) {
+      if (hdr.n_vehicles == 0 || static_cast<int>(hdr.n_vehicles) > expected) {
+        LOG(ERROR) << "[OMNET-PREVERIFY] reject: rollback membership size out of range"
+                   << " hdr.n_vehicles=" << hdr.n_vehicles
+                   << " expected_max=" << expected
+                   << " epoch=" << hdr.epoch;
+        return false;
+      }
+      LOG(WARNING) << "[OMNET-PREVERIFY] rollback dynamic membership accepted at payload layer"
+                   << " n_vehicles=" << hdr.n_vehicles
+                   << " fixed_resdb_reconfiguration=TODO";
+    }
     const size_t needed_size =
         sizeof(ResdbProposeHdr) + hdr.n_vehicles * sizeof(ResdbVehicleEntry);
-    if (d.size() < needed_size) {
+    if (view.len < needed_size) {
       LOG(ERROR) << "[OMNET-PREVERIFY] reject: payload too short for entries"
-                 << " size=" << d.size()
+                 << " size=" << view.len
                  << " need_at_least=" << needed_size
                  << " n_vehicles=" << hdr.n_vehicles;
       return false;
     }
     // Check no duplicate replica IDs.
     std::vector<int32_t> ids;
-    const uint8_t* p = reinterpret_cast<const uint8_t*>(d.data()) + sizeof(ResdbProposeHdr);
+    const uint8_t* p = view.data + sizeof(ResdbProposeHdr);
     for (uint32_t i = 0; i < hdr.n_vehicles; ++i) {
       ResdbVehicleEntry e;
       std::memcpy(&e, p, sizeof(e));
@@ -450,7 +656,7 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
     // Check 5+6: non-zero timestamps (UINT64_MAX allowed as QUIET sentinel),
     //           boolean is_ambulance, and valid cyber_status.
     {
-      const uint8_t* ep = reinterpret_cast<const uint8_t*>(d.data()) + sizeof(ResdbProposeHdr);
+      const uint8_t* ep = view.data + sizeof(ResdbProposeHdr);
       for (uint32_t i = 0; i < hdr.n_vehicles; ++i) {
         ResdbVehicleEntry e;
         std::memcpy(&e, ep, sizeof(e));
@@ -505,7 +711,7 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
       if (snap_fn != nullptr) {
         // Build a map of proposal entries keyed by replica_id.
         std::unordered_map<int32_t, ResdbVehicleEntry> proposal_map;
-        const uint8_t* ep = reinterpret_cast<const uint8_t*>(d.data()) + sizeof(ResdbProposeHdr);
+        const uint8_t* ep = view.data + sizeof(ResdbProposeHdr);
         for (uint32_t i = 0; i < hdr.n_vehicles; ++i) {
           ResdbVehicleEntry e;
           std::memcpy(&e, ep, sizeof(e));
@@ -521,6 +727,25 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
 
         const int f = (expected - 1) / 3;
         int omitted = 0;
+        std::unordered_set<int32_t> cert_backed_ids;
+        for (uint32_t i = 0; i < cert_count; ++i) {
+          cert_backed_ids.insert(cert_entries[i].replica_id);
+        }
+
+        for (const auto& kv : proposal_map) {
+          const ResdbVehicleEntry& pe = kv.second;
+          if (pe.is_ambulance && (pe.cyber_status == 0 ||
+                                  pe.sim_time_us == UINT64_MAX ||
+                                  cert_backed_ids.find(pe.replica_id) == cert_backed_ids.end())) {
+            LOG(ERROR) << "[OMNET-PREVERIFY] reject: uncertified ambulance priority"
+                       << " replica_id=" << pe.replica_id
+                       << " cyber_status=" << (int)pe.cyber_status
+                       << " sim_time_us=" << pe.sim_time_us
+                       << " epoch=" << hdr.epoch;
+            return false;
+          }
+        }
+
         for (uint32_t i = 0; i < cert_count; ++i) {
           const ResdbCertEntry& ce = cert_entries[i];
           auto it = proposal_map.find(ce.replica_id);
@@ -568,10 +793,36 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
       }
     }
 
+    if (view.is_rollback) {
+      resdb::OmnetForcedView forced_view;
+      if (!BuildForcedViewCandidate(view, hdr, expected, &req, &forced_view)) {
+        LOG(ERROR) << "[OMNET-PREVERIFY] reject: rollback forced-M invalid"
+                   << " n_vehicles=" << hdr.n_vehicles
+                   << " leader_id=" << hdr.leader_id
+                   << " epoch=" << hdr.epoch
+                   << " request_type=" << req.type()
+                   << " seq=" << req.seq()
+                   << " hash=" << req.hash();
+        return false;
+      }
+      if (installing_pre_prepare) {
+        if (!service_ptr->InstallOmnetForcedViewForRequest(req, forced_view)) {
+          LOG(ERROR) << "[OMNET-PREVERIFY] reject: forced-M install failed"
+                     << " epoch=" << hdr.epoch
+                     << " seq=" << req.seq()
+                     << " hash=" << req.hash();
+          return false;
+        }
+      } else if (installing_pending) {
+        service_ptr->InstallOmnetPendingForcedView(forced_view);
+      }
+    }
+
     LOG(INFO) << "[OMNET-PREVERIFY] pass: all 10 checks ok"
               << " n_vehicles=" << hdr.n_vehicles << " epoch=" << hdr.epoch;
     return true;
   });
+  }  // end else (firewall enabled)
 
   auto server = std::make_unique<resdb::ServiceNetwork>(
       *config, std::move(service), /*enable_network_acceptor=*/false);
@@ -709,6 +960,37 @@ extern "C" int ResdbOmnetTriggerConsensus(void* server_handle,
   static std::atomic<uint64_t> tx_counter{0};
   req.set_hash("omnet-tx-" + std::to_string(tx_counter++));
 
+  {
+    std::string raw(reinterpret_cast<const char*>(payload), len);
+    ProposalView view;
+    if (UnwrapRollbackIfPresent(raw, &view) && view.is_rollback) {
+      ResdbProposeHdr hdr;
+      std::memcpy(&hdr, view.data, sizeof(hdr));
+      const int expected = h->consensus
+                               ? static_cast<int>(h->consensus->GetReplicas().size())
+                               : 0;
+      if (!StructurallyValidCancelJustification(raw, view.rollback)) {
+        std::cout << "[BRIDGE-TRIGGER] reject rollback: invalid justification"
+                  << " hash=" << req.hash() << "\n";
+        return -1;
+      }
+      resdb::OmnetForcedView forced_view;
+      if (!BuildForcedViewCandidate(view, hdr, expected, nullptr,
+                                    &forced_view)) {
+        std::cout << "[BRIDGE-TRIGGER] reject rollback: invalid forced M"
+                  << " hash=" << req.hash()
+                  << " epoch=" << hdr.epoch
+                  << " n=" << hdr.n_vehicles
+                  << " leader=" << hdr.leader_id << "\n";
+        return -1;
+      }
+      forced_view.request_hash = req.hash();
+      if (h->consensus) {
+        h->consensus->InstallOmnetPendingForcedView(forced_view);
+      }
+    }
+  }
+
   resdb::ResDBMessage wire;
   std::string req_bytes;
   if (!req.SerializeToString(&req_bytes)) return -1;
@@ -738,6 +1020,9 @@ extern "C" int ResdbOmnetGetPrimary(void* server_handle) {
   if (!server_handle) return 0;
   auto* h = static_cast<ResdbOmnetServerHandle*>(server_handle);
   if (!h->consensus) return 0;
+  if (auto forced = h->consensus->GetLatestOmnetForcedView()) {
+    if (forced->primary_omnet >= 0) return forced->primary_omnet;
+  }
   int id = ResdbIdToOmnetReplica(
       static_cast<int64_t>(h->consensus->GetPrimary()));
   return id < 0 ? 0 : id;
@@ -831,6 +1116,19 @@ extern "C" int ResdbOmnetSetPbftSilent(void* server_handle, int silent) {
   if (!h->consensus) return -1;
   std::cout << "[VC-BRIDGE] SetPbftSilent silent=" << silent << "\n";
   h->consensus->SetPbftSilent(silent != 0);
+  return 0;
+}
+
+extern "C" int ResdbOmnetMarkReplicaInactive(void* server_handle,
+                                             int replica_id,
+                                             uint32_t min_epoch) {
+  if (!server_handle) return -1;
+  auto* h = static_cast<ResdbOmnetServerHandle*>(server_handle);
+  if (!h->consensus) return -1;
+  h->consensus->SetPbftSilent(true);
+  std::cout << "[ACTIVE-DEPART] r" << replica_id
+            << " min_epoch=" << min_epoch
+            << " participation=inactive\n";
   return 0;
 }
 

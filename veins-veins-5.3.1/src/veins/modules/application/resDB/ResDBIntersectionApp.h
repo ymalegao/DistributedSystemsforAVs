@@ -1,6 +1,7 @@
 #pragma once
 
 #include <deque>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -51,8 +52,11 @@ private:
         BYZANTINE_FALSE_LANE     = 1,  // Claims wrong lane in ARRIVAL_ANNOUNCE
         BYZANTINE_INVALID_SIG    = 2,  // Attaches garbage signature bytes
         BYZANTINE_EQUIVOCATOR    = 3,  // Sends different direction to different peers
-        BYZANTINE_SILENT_PRIMARY = 4,  // Primary suppresses proposeAll() — triggers VC
-        BYZANTINE_BAD_PROPOSAL   = 5,  // Primary corrupts n_vehicles — PreVerify rejects
+        BYZANTINE_SILENT_PRIMARY          = 4,  // Primary suppresses proposeAll() — triggers VC
+        BYZANTINE_BAD_PROPOSAL            = 5,  // Primary corrupts n_vehicles — PreVerify rejects
+        BYZANTINE_FAKE_AMBULANCE          = 6,  // Primary flips is_ambulance 0→1 for non-ambulance car — PreVerify Check 10 rejects
+        BYZANTINE_FAKE_AMBULANCE_FOLLOWER = 7,  // Follower claims isAmbulance=true without cert — cert gate catches this
+        BYZANTINE_TAMPER_LANE             = 8,  // Primary: quiet real S car + reassign E car's lane to S → scheduler batches N+E simultaneously → CRASH
     };
 
     // Consensus phases
@@ -115,6 +119,28 @@ private:
         std::vector<ArrivalEcho> echoes;
     };
 
+    enum CancelReason {
+        CANCEL_CRASH = 0,
+        CANCEL_EMERGENCY = 1,
+    };
+
+    struct CancelEcho {
+        int          echoingReplicaId = -1;
+        uint32_t     cancelledEpoch = 0;
+        CancelReason reason = CANCEL_CRASH;
+        std::string  reasonRef;
+        uint8_t      signerPubKey[CRYPTO_PUBKEY_BYTES] = {};
+        uint8_t      signature[CRYPTO_SIG_MAX_BYTES] = {};
+        uint8_t      signatureLen = 0;
+    };
+
+    struct CancelCert {
+        uint32_t                cancelledEpoch = 0;
+        CancelReason            reason = CANCEL_CRASH;
+        std::string             reasonRef;
+        std::vector<CancelEcho> echoes;
+    };
+
     struct VerificationResult {
         bool        isValid  = false;
         std::string reason;
@@ -163,6 +189,7 @@ private:
     // ── Arrival cert protocol ────────────────────────────────────────────────
     void tryStartCertCollectionTimer(bool rearm = false);
     void broadcastArrivalAnnouncement();
+    void attachAmbulanceCryptoToAnnouncement(ArrivalAnnouncement& ann);
     void handleArrivalAnnouncement(BFTMessage* msg);
     void handleArrivalAnnouncement(BFTMessage* msg, bool viaGossip, int carrierReplicaId);
     void gossipArrivalAnnouncement(const ArrivalAnnouncement& ann,
@@ -187,6 +214,43 @@ private:
     bool applyGossipOrder(const std::vector<uint8_t>& order_bytes, uint32_t epoch);
     bool validateArrivalCert(const ArrivalCert& cert);
 
+    // ── Cancel / rollback protocol (Types 12, 13) ─────────────────────────────
+    bool maybeTriggerEmergencyRollbackFromCert(const ArrivalCert& cert);
+    void maybeTriggerCrashRollback(const std::string& reasonRef);
+    void sendCancelEcho(uint32_t cancelledEpoch, CancelReason reason, const std::string& reasonRef);
+    void handleCancelEcho(BFTMessage* msg);
+    void broadcastCancelCert(const CancelCert& cert);
+    void handleCancelCert(BFTMessage* msg);
+    bool validateCancelCert(const CancelCert& cert) const;
+    std::vector<uint8_t> serializeCancelEcho(const CancelEcho& echo) const;
+    CancelEcho deserializeCancelEcho(BFTMessage* msg) const;
+    std::vector<uint8_t> serializeCancelCert(const CancelCert& cert) const;
+    CancelCert deserializeCancelCert(BFTMessage* msg) const;
+    void scheduleNextCancelCertRetry();
+    void stopCancelCertRetries();
+    void handleValidCancelJustification(uint32_t cancelledEpoch,
+                                        CancelReason reason,
+                                        const std::string& reasonRef,
+                                        const std::vector<uint8_t>& justification);
+    bool isRecallable();
+    void beginRollbackDiscovery(uint32_t cancelledEpoch,
+                                CancelReason reason,
+                                const std::string& reasonRef,
+                                const std::vector<uint8_t>& justification);
+    bool rollbackDiscoveryComplete();
+    void maybeFinishRollbackDiscovery(const char* reason);
+    std::vector<int> rollbackMembershipCandidates();
+    int minRollbackMembershipSize() const;
+    int chooseRollbackProposer();
+    bool shouldIncludeInRollbackMembership(int replicaId);
+    void trySubmitRollbackProposal(const char* reason);
+    void proposeRollback();
+    std::string cancelReasonKey(uint32_t epoch, CancelReason reason,
+                                const std::string& reasonRef) const;
+    std::string cancelSignPayload(uint32_t cancelledEpoch, CancelReason reason,
+                                  const std::string& reasonRef,
+                                  int echoingReplicaId) const;
+
     std::vector<uint8_t> serializeArrivalAnnouncement(const ArrivalAnnouncement& ann);
     ArrivalAnnouncement  deserializeArrivalAnnouncement(BFTMessage* msg);
     std::vector<uint8_t> serializeArrivalEcho(const ArrivalEcho& echo);
@@ -199,6 +263,15 @@ private:
     static void certSnapshotCallback(void* ctx, ResdbCertEntry* out, uint32_t* cnt);
     void proposeAll();
     void processOrders();
+    bool isReplicaConfiguredByzantine(int replicaId) const;
+    void detectConsensusAttackOutcome(const ResdbVehicleDecision* decisions, uint32_t n, uint32_t n_batches);
+    bool detectUnsafeBatch(const ResdbVehicleDecision* decisions, uint32_t n, uint32_t n_batches);
+    bool detectFalsePriorityGrant(const ResdbVehicleDecision* decisions, uint32_t n);
+    void applyByzantineSilentPrimary();
+    void applyByzantineBadProposal(ResdbProposeHdr& hdr, std::vector<uint8_t>& buf);
+    void applyByzantineFakeAmbulance(uint8_t* base, uint32_t n);
+    void applyByzantineTamperLane(uint8_t* base, uint32_t n);
+    int countStaticCollectedCerts() const;
 
     // ── TraCI helpers (ported from V2VTraCI.cc) ───────────────────────────────
     double getDistanceToIntersection();
@@ -229,6 +302,9 @@ private:
     cMessage* stop_sign_timeout_msg_   = nullptr;
     cMessage* consensus_timeout_msg_   = nullptr;
     cMessage* resume_msg_              = nullptr;
+    cMessage* cancel_cert_retry_timer_ = nullptr;
+    cMessage* rollback_discovery_timer_ = nullptr;
+    cMessage* rollback_vc_timer_       = nullptr;
     int       pending_resume_position_ = 0;
     cMessage* vc_trigger_msg_          = nullptr;  // follower VC trigger after primary silence
     cMessage* channel_metrics_timer_   = nullptr;  // 100 ms CSV flush (channel + SINR)
@@ -263,6 +339,9 @@ private:
 
     unsigned int sentMessages_ = 0;
     unsigned int receivedMessages_ = 0;
+    uint64_t sentPayloadBytes_ = 0;
+    uint64_t quietHonestVehicles_ = 0;
+    uint64_t quietHonestOpportunities_ = 0;
 
 
     
@@ -274,6 +353,8 @@ private:
     std::deque<PendingOutboundPacket> outbound_queue_;
 
     EVP_PKEY* ec_private_key_ = nullptr;
+    EVP_PKEY* ambulance_private_key_ = nullptr;
+    std::vector<uint8_t> my_ambulance_cert_bytes_;
     uint8_t   ec_pub_key_[CRYPTO_PUBKEY_BYTES] = {};
 
     std::string config_file_;
@@ -290,6 +371,8 @@ private:
     std::set<std::string>                           physically_observed_cars_;
     std::set<std::string>                           arrival_announcements_received_;
     std::set<std::string>                           echoed_cars_;  // cars we actually sent an echo to (not FALSE_LANE)
+    std::set<std::string>                           uncertified_ambulance_claimers_;
+    std::set<std::string>                           cert_gate_rejected_ambulance_claimers_;
     bool cert_collection_started_ = false;
     simtime_t cert_collection_start_time_ = SIMTIME_ZERO;
     bool deferred_propose_after_cert_timeout_ = false;
@@ -305,6 +388,8 @@ private:
     static constexpr int kDecisionGossipType = 9;
     static constexpr int kArrivalAnnounceGossipType = 10;
     static constexpr int kResdbConsensusRelayType = 11;
+    static constexpr int kCancelEchoType = 12;
+    static constexpr int kCancelCertType = 13;
 
     resdb_gossip::GossipAccumulator  gossip_acc_;
     resdb_gossip::CertRelayTracker   cert_relay_tracker_;
@@ -318,6 +403,9 @@ private:
     uint32_t             last_committed_epoch_      = 0;
     bool                 has_committed_order_       = false;
     std::vector<uint8_t> committed_order_bytes_;
+    std::set<int>        committed_order_vehicle_ids_;
+    std::vector<std::vector<int>> committed_order_batches_;
+    std::set<uint32_t>   tombstoned_epochs_;
     bool                 gossip_enabled_            = false;
     double               gossip_initial_interval_   = 0.5;
     int                  gossip_max_retries_        = 5;
@@ -358,10 +446,39 @@ private:
     int    total_vehicles_        = 4;
     double cruise_speed_mps_      = 14.0;
     bool   is_ambulance_          = false;
-    bool          is_byzantine_   = false;
-    ByzantineType byzantine_type_ = BYZANTINE_HONEST;
+    bool          is_byzantine_          = false;
+    ByzantineType byzantine_type_        = BYZANTINE_HONEST;
+    bool          enableAmbulanceCertGate_ = false;  // when true, rejects ambulance claims with no ambulanceCertBytes
     int           last_known_primary_ = 0;
+    bool          bad_proposal_injected_ = false;
+    int           fake_ambulance_proposal_replica_id_ = -1;
+    int           tamper_lane_proposal_replica_id_ = -1;
     double        pbft_vc_timeout_sec_ = 3.0;
+    bool          enableRollback_ = false;
+    double        cancel_echo_timeout_sec_ = 1.0;
+    double        cancel_cert_retry_interval_sec_ = 0.1;
+    int           cancel_cert_retry_max_ = 10;
+    double        braking_decel_mps2_ = 4.5;
+    double        processing_latency_margin_ = 2.0;
+    double        rollback_discovery_timeout_sec_ = 8.0;
+    double        rollback_vc_timeout_sec_ = 3.0;
+    bool          cancel_pending_ = false;
+    bool          rollback_cancel_initiated_ = false;
+    uint32_t      cancelled_epoch_ = 0;
+    uint32_t      rollback_new_epoch_ = 0;
+    CancelReason  rollback_reason_ = CANCEL_CRASH;
+    std::string   rollback_reason_ref_;
+    std::vector<uint8_t> rollback_justification_;
+    bool          rollback_local_recallable_ = false;
+    bool          rollback_discovery_ready_ = false;
+    bool          rollback_propose_submitted_ = false;
+    int           rollback_rotation_index_ = 0;
+    std::map<std::string, std::vector<CancelEcho>> cancel_echoes_;
+    std::set<std::string> cancel_echo_sent_;
+    std::set<std::string> cancel_cert_seen_;
+    std::set<std::string> cancel_cert_relayed_;
+    CancelCert    cancel_cert_pending_retries_{};
+    int           cancel_cert_retry_count_ = 0;
     double trigger_join_time_     = 0.5;
     double arrival_slot_sec_      = 0.1;
     double stop_sign_timeout_sec_ = 10.0;

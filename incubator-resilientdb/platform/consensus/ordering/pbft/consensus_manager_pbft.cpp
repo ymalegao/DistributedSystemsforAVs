@@ -280,9 +280,27 @@ int ConsensusManagerPBFT::InternalConsensusCommit(
       return checkpoint_manager_->ProcessStatusSync(std::move(context),
                                                     std::move(request));
     case Request::TYPE_VIEWCHANGE:
+      if (forced_view_registry_ && forced_view_registry_->HasAny()) {
+        std::cout << "[ROLLBACK-VC-UNSUPPORTED] self="
+                  << config_.GetSelfInfo().id()
+                  << " sender=" << request->sender_id()
+                  << " view=" << request->current_view()
+                  << " seq=" << request->seq()
+                  << " reason=forced_m_view_change_deferred\n";
+        return -2;
+      }
       return view_change_manager_->ProcessViewChange(std::move(context),
                                                      std::move(request));
     case Request::TYPE_NEWVIEW:
+      if (forced_view_registry_ && forced_view_registry_->HasAny()) {
+        std::cout << "[ROLLBACK-VC-UNSUPPORTED] self="
+                  << config_.GetSelfInfo().id()
+                  << " sender=" << request->sender_id()
+                  << " view=" << request->current_view()
+                  << " seq=" << request->seq()
+                  << " reason=forced_m_new_view_deferred\n";
+        return -2;
+      }
       return view_change_manager_->ProcessNewView(std::move(context),
                                                   std::move(request));
     case Request::TYPE_QUERY:
@@ -309,6 +327,39 @@ void ConsensusManagerPBFT::SetupPerformanceDataFunc(
 void ConsensusManagerPBFT::SetPreVerifyFunc(
     std::function<bool(const Request&)> func) {
   commitment_->SetPreVerifyFunc(func);
+}
+
+void ConsensusManagerPBFT::SetOmnetForcedViewRegistry(
+    std::shared_ptr<OmnetForcedViewRegistry> registry) {
+  forced_view_registry_ = std::move(registry);
+  if (message_manager_) {
+    message_manager_->SetOmnetForcedViewRegistry(forced_view_registry_);
+  }
+}
+
+bool ConsensusManagerPBFT::InstallOmnetForcedViewForRequest(
+    const Request& request, const OmnetForcedView& view) {
+  if (!forced_view_registry_) return false;
+  if (!forced_view_registry_->InstallForRequest(request, view)) return false;
+  if (system_info_ && view.primary_omnet >= 0) {
+    system_info_->SetPrimary(static_cast<uint32_t>(view.primary_omnet + 1));
+  }
+  return true;
+}
+
+void ConsensusManagerPBFT::InstallOmnetPendingForcedView(
+    const OmnetForcedView& view) {
+  if (!forced_view_registry_) return;
+  forced_view_registry_->InstallPending(view);
+  if (system_info_ && view.primary_omnet >= 0) {
+    system_info_->SetPrimary(static_cast<uint32_t>(view.primary_omnet + 1));
+  }
+}
+
+std::optional<OmnetForcedView> ConsensusManagerPBFT::GetLatestOmnetForcedView()
+    const {
+  if (!forced_view_registry_) return std::nullopt;
+  return forced_view_registry_->Latest();
 }
 
 int ConsensusManagerPBFT::ProcessRecoveryData(

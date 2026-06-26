@@ -26,6 +26,7 @@ import re
 import os
 import argparse
 import statistics
+import xml.etree.ElementTree as ET
 from collections import defaultdict
 
 try:
@@ -67,6 +68,16 @@ _parser.add_argument(
     action="store_true",
     help="Write metrics directly under --save-to (do not append no_amb/amb_honest/...). "
          "Use when --save-to already includes the scenario folder (e.g. .../amb_honest/run_0).",
+)
+_parser.add_argument(
+    "--baseline-tripinfo",
+    metavar="XML",
+    help="Load SUMO tripinfo output for SUMO-controlled baseline runs.",
+)
+_parser.add_argument(
+    "--scenario-ini",
+    metavar="INI",
+    help="Optional random_scenario.ini used to identify the priority vehicle.",
 )
 _args = _parser.parse_args()
 
@@ -148,6 +159,10 @@ RE_BATCH_ENTRY = re.compile(r'(veh\d+):BATCH:(\d+)')
 
 RE_MESSAGES_SENT     = re.compile(r'\[METRICS (\d+)\]\s+(?:Messages_Sent|Sent Messages): (\d+)')
 RE_MESSAGES_RECEIVED = re.compile(r'\[METRICS (\d+)\]\s+(?:Messages_Received|Received Messages): (\d+)')
+RE_BYTES_SENT        = re.compile(r'\[METRICS (\d+)\]\s+Bytes_Sent: (\d+)')
+RE_QUIET_HONEST_VEHICLES = re.compile(r'\[METRICS (\d+)\]\s+Quiet_Honest_Vehicles: (\d+)')
+RE_QUIET_HONEST_OPPORTUNITIES = re.compile(r'\[METRICS (\d+)\]\s+Quiet_Honest_Opportunities: (\d+)')
+RE_QUIET_HONEST_RATE = re.compile(r'\[METRICS (\d+)\]\s+Quiet_Honest_Rate: ([-\d.]+)')
 RE_ARRIVAL_TIME      = re.compile(r'\[METRICS (\d+)\] Arrival_Time: ([\d.]+)')
 RE_STOP_TIME         = re.compile(r'\[METRICS (\d+)\] Stop_Time: ([\d.]+)')
 RE_RESUME_TIME       = re.compile(r'\[METRICS (\d+)\] Resume_Time: ([\d.]+)')
@@ -165,6 +180,19 @@ RE_PRIMARY_CHANGED = re.compile(
 RE_GOSSIP_APPLY = re.compile(r'\[GOSSIP-APPLY\]\s+r(\d+)\s+epoch=(\d+)\s+t=(\S+)')
 RE_GOSSIP_SEND = re.compile(r'\[GOSSIP-SEND\]\s+r(\d+)\s+epoch=(\d+)\s+retry=(\d+)\s+t=(\S+)')
 RE_BYZANTINE_CONFIG = re.compile(r'\[BYZANTINE\]\s+r(\d+)\s+([A-Z_]+)')
+RE_PREVERIFY_STATE_MISMATCH = re.compile(
+    r'\[OMNET-PREVERIFY\]\s+reject:\s+state-field mismatch'
+)
+RE_CONSENSUS_ATTACK_OUTCOME = re.compile(
+    r'\[CONSENSUS_ATTACK_OUTCOME\]\s+r(\d+)\s+epoch=(\d+)\s+'
+    r'fault=([A-Z_]+)\s+outcome=([A-Z_]+)(?:\s+(.*))?'
+)
+RE_FALSE_PRIORITY_GRANTED = re.compile(
+    r'\[FALSE_PRIORITY_GRANTED\]\s+r(\d+)\s+epoch=(\d+)\s+veh(\d+)'
+)
+RE_CRASH_DETECTED = re.compile(
+    r'\[CRASH_DETECTED\]\s+r(\d+)\s+epoch=(\d+)\s+batch=(\d+)'
+)
 RE_STOPSIGN_TIMEOUT  = re.compile(r'\[METRICS (\d+)\] StopSign_Timeout: 1')
 RE_AMBULANCE_SCHED   = re.compile(r'\[AMBULANCE_SCHED\] (veh\d+) batch=')
 RE_CAR_METRICS       = re.compile(
@@ -205,6 +233,7 @@ replica_stop_time   = {}                    # replica -> stop_time (float)
 replica_resume_time = {}                    # replica -> resume_time (float)
 epoch_messages_sent = defaultdict(list)     # epoch -> [sent_count, ...]
 epoch_messages_recv = defaultdict(list)     # epoch -> [recv_count, ...]
+epoch_bytes_sent    = defaultdict(list)     # epoch -> [payload_bytes, ...]
 epoch_total_dur     = defaultdict(list)     # epoch -> [duration, ...]
 epoch_total_dur_by_car = defaultdict(dict)  # epoch -> {carId: duration}
 epoch_failures      = defaultdict(int)      # epoch -> count
@@ -220,7 +249,11 @@ byzantine_total      = 0                   # across the whole run
 # Per-replica message counts and fallback tracking
 replica_messages_sent    = {}   # replica -> messages_sent count (last value seen)
 replica_messages_recv    = {}   # replica -> messages_received count (last value seen)
+replica_bytes_sent       = {}   # replica -> payload bytes sent (last value seen)
 replica_stopsign_timeout = set()  # replica IDs that hit StopSign_Timeout (used fallback)
+replica_quiet_honest_vehicles = {}       # replica -> honest vehicles marked quiet
+replica_quiet_honest_opportunities = {}  # replica -> honest vehicle opportunities
+replica_quiet_honest_rate = {}           # replica -> percentage
 
 # Pre-computed summary metrics read back from saved logs
 run_metrics           = {}                 # key -> float  (from [RUN-METRICS] lines)
@@ -240,6 +273,107 @@ vc_trigger_times_by_epoch = defaultdict(list)      # epoch -> [t_s, ...]
 primary_change_times_by_epoch = defaultdict(list)  # epoch -> [t_s, ...]
 order_decided_times_by_epoch = defaultdict(list)   # epoch -> [t_s, ...]
 propose_submit_times_by_epoch = defaultdict(list)  # epoch -> [t_s, ...]
+attack_outcomes = []
+attack_outcome_keys = set()
+attack_outcomes_by_epoch = defaultdict(list)
+attack_failures_by_epoch = defaultdict(int)
+attack_success_outcomes = {
+    "MALICIOUS_INPUT_COMMITTED",
+    "ORDER_COMMITTED_AFTER_MALFORMED_PROPOSAL",
+    "FALSE_PRIORITY_GRANTED",
+    "UNCERTIFIED_PRIORITY_CLAIM_COMMITTED",
+    "UNSAFE_ORDER_COMMITTED",
+}
+
+def record_attack_outcome(
+    replica: int,
+    epoch: int,
+    fault: str,
+    outcome: str,
+    detail: str = "",
+) -> None:
+    row = {
+        "replica": replica,
+        "epoch": epoch,
+        "fault": fault,
+        "outcome": outcome,
+        "detail": detail,
+        "attack_success": outcome in attack_success_outcomes,
+    }
+    attack_outcomes.append(row)
+    key = (epoch, fault, outcome, detail)
+    if key not in attack_outcome_keys:
+        attack_outcome_keys.add(key)
+        attack_outcomes_by_epoch[epoch].append(row)
+        if row["attack_success"]:
+            attack_failures_by_epoch[epoch] += 1
+
+def _safe_float(value, default=None):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+def _read_ambulance_id_from_ini(path):
+    if not path or not os.path.isfile(path):
+        return None
+    pat = re.compile(r'^\s*\*\.node\[\*\]\.appl\.ambulanceReplicaId\s*=\s*(-?\d+)\s*$')
+    with open(path, "r", errors="replace") as f_ini:
+        for line in f_ini:
+            m = pat.search(line)
+            if m:
+                val = int(m.group(1))
+                return val if val >= 0 else None
+    return None
+
+def load_baseline_tripinfo(path, scenario_ini=None):
+    if not path:
+        return
+    if not os.path.isfile(path):
+        print(f"WARNING: baseline tripinfo not found: {path}", file=sys.stderr)
+        return
+
+    amb_id = _read_ambulance_id_from_ini(scenario_ini)
+    if amb_id is None and _args.scenario in (2, 3, 4):
+        amb_id = 0
+    if amb_id is not None:
+        ambulance_ids.add(f"veh{amb_id}")
+
+    root = ET.parse(path).getroot()
+    for elem in root.findall(".//tripinfo"):
+        cid = elem.get("id")
+        if not cid or not cid.startswith("veh"):
+            continue
+        try:
+            rep = int(cid[3:])
+        except ValueError:
+            continue
+
+        depart = _safe_float(elem.get("depart"))
+        arrival = _safe_float(elem.get("arrival"))
+        waiting = _safe_float(elem.get("waitingTime"), 0.0)
+        duration = _safe_float(elem.get("duration"))
+        time_loss = _safe_float(elem.get("timeLoss"))
+        role = "ambulance" if cid == f"veh{amb_id}" else "normal"
+        epoch = min(rep // 4, N_EPOCHS - 1)
+
+        cm = car_metrics[cid]
+        cm["role"] = role
+        cm["epoch"] = epoch
+        cm["arrival_time"] = depart
+        cm["stop_time"] = depart
+        cm["resume_time"] = arrival
+        cm["depart_time"] = arrival
+        cm["wait_intersection"] = waiting
+        cm["stop_to_resume"] = waiting
+        cm["resume_to_depart"] = 0.0
+        cm["arrival_to_depart"] = duration
+        cm["messages_sent"] = 0
+        cm["messages_received"] = 0
+        cm["delivery_ratio"] = None
+        cm["estimated_loss_rate"] = None
+        cm["used_fallback"] = False
+        cm["baseline_time_loss_s"] = time_loss
 
 def percentile(values, q):
     if not values:
@@ -347,8 +481,13 @@ def compute_resdb_submit_to_commit_by_wave(
 print(f"Parsing {LOG_FILE} ...")
 current_gossip_epoch = 0              # rough tracker for gossip events
 
-with open(LOG_FILE, "r", errors="replace") as f:
-    for line in f:
+if not os.path.isfile(LOG_FILE) and _args.baseline_tripinfo:
+    _log_lines = []
+else:
+    with open(LOG_FILE, "r", errors="replace") as f:
+        _log_lines = list(f)
+
+for line in _log_lines:
         # ROUND-METRICS
         m = RE_ROUND_METRIC.search(line)
         if m:
@@ -402,6 +541,29 @@ with open(LOG_FILE, "r", errors="replace") as f:
             ep = replica_epoch.get(rep, current_gossip_epoch)
             epoch_messages_recv[ep].append(val)
             replica_messages_recv[rep] = val
+            continue
+
+        m = RE_BYTES_SENT.search(line)
+        if m:
+            rep, val = int(m.group(1)), int(m.group(2))
+            ep = replica_epoch.get(rep, current_gossip_epoch)
+            epoch_bytes_sent[ep].append(val)
+            replica_bytes_sent[rep] = val
+            continue
+
+        m = RE_QUIET_HONEST_VEHICLES.search(line)
+        if m:
+            replica_quiet_honest_vehicles[int(m.group(1))] = int(m.group(2))
+            continue
+
+        m = RE_QUIET_HONEST_OPPORTUNITIES.search(line)
+        if m:
+            replica_quiet_honest_opportunities[int(m.group(1))] = int(m.group(2))
+            continue
+
+        m = RE_QUIET_HONEST_RATE.search(line)
+        if m:
+            replica_quiet_honest_rate[int(m.group(1))] = float(m.group(2))
             continue
 
         m = RE_ARRIVAL_TIME.search(line)
@@ -511,6 +673,56 @@ with open(LOG_FILE, "r", errors="replace") as f:
             replica_byzantine_types[rep].add(m.group(2))
             continue
 
+        m = RE_PREVERIFY_STATE_MISMATCH.search(line)
+        if m:
+            active_faults = {
+                fault
+                for faults in replica_byzantine_types.values()
+                for fault in faults
+                if fault in ("FAKE_AMBULANCE", "TAMPER_LANE")
+            }
+            for fault in sorted(active_faults):
+                record_attack_outcome(
+                    -1,
+                    current_gossip_epoch,
+                    fault,
+                    "PREVERIFY_BLOCKED_STATE_MISMATCH",
+                    "check=10",
+                )
+            continue
+
+        m = RE_CONSENSUS_ATTACK_OUTCOME.search(line)
+        if m:
+            rep = int(m.group(1))
+            epoch = int(m.group(2))
+            fault = m.group(3)
+            outcome = m.group(4)
+            detail = (m.group(5) or "").strip()
+            record_attack_outcome(rep, epoch, fault, outcome, detail)
+            continue
+
+        m = RE_FALSE_PRIORITY_GRANTED.search(line)
+        if m:
+            rep = int(m.group(1))
+            epoch = int(m.group(2))
+            veh = int(m.group(3))
+            record_attack_outcome(
+                rep, epoch, "FAKE_AMBULANCE", "FALSE_PRIORITY_GRANTED",
+                f"target=veh{veh}",
+            )
+            continue
+
+        m = RE_CRASH_DETECTED.search(line)
+        if m:
+            rep = int(m.group(1))
+            epoch = int(m.group(2))
+            batch = int(m.group(3))
+            record_attack_outcome(
+                rep, epoch, "TAMPER_LANE", "UNSAFE_ORDER_COMMITTED",
+                f"batch={batch}",
+            )
+            continue
+
         m = RE_STOPSIGN_TIMEOUT.search(line)
         if m:
             rep = int(m.group(1))
@@ -617,6 +829,9 @@ with open(LOG_FILE, "r", errors="replace") as f:
             epoch, key, val = int(m.group(1)), m.group(2), float(m.group(3))
             round_metrics[epoch].setdefault(key, val)
             continue
+
+if _args.baseline_tripinfo:
+    load_baseline_tripinfo(_args.baseline_tripinfo, _args.scenario_ini)
 
 print("Done.\n")
 byzantine_total = sum(byzantine_by_epoch.values())
@@ -739,6 +954,8 @@ for rep, sent in replica_messages_sent.items():
     car_metrics[f"veh{rep}"]["messages_sent"] = sent
 for rep, recv in replica_messages_recv.items():
     car_metrics[f"veh{rep}"]["messages_received"] = recv
+for rep, sent_bytes in replica_bytes_sent.items():
+    car_metrics[f"veh{rep}"]["bytes_sent"] = sent_bytes
 for rep in replica_stopsign_timeout:
     car_metrics[f"veh{rep}"]["used_fallback"] = True
 
@@ -906,6 +1123,7 @@ def write_metrics_json(path):
         byz = byzantine_by_epoch.get(ep, 0)
         msgs_sent = epoch_messages_sent.get(ep, [])
         msgs_recv = epoch_messages_recv.get(ep, [])
+        bytes_sent = epoch_bytes_sent.get(ep, [])
         propose_all_sim = rm.get("ProposeAll_Consensus_Sim")
         first_submit_commit = rm.get("ProposeAll_FirstSubmit_To_OrderCommit_Sim")
         epochs_out.append({
@@ -922,6 +1140,9 @@ def write_metrics_json(path):
             "consensus_success": bool(propose_all_sim),
             "avg_messages_sent_per_replica": (sum(msgs_sent) / len(msgs_sent)) if msgs_sent else None,
             "avg_messages_recv_per_replica": (sum(msgs_recv) / len(msgs_recv)) if msgs_recv else None,
+            "avg_bytes_sent_per_replica": (sum(bytes_sent) / len(bytes_sent)) if bytes_sent else None,
+            "total_bytes_sent": sum(bytes_sent) if bytes_sent else None,
+            "total_megabytes_sent": (sum(bytes_sent) / (1024.0 * 1024.0)) if bytes_sent else None,
             "stop_sign_failures": epoch_failures.get(ep, 0),
         })
 
@@ -943,6 +1164,11 @@ def write_metrics_json(path):
             # Message-level metrics (matches RAFT messages_sent/received)
             "messages_sent": m.get("messages_sent"),
             "messages_received": m.get("messages_received"),
+            "bytes_sent": m.get("bytes_sent"),
+            "megabytes_sent": (
+                m.get("bytes_sent") / (1024.0 * 1024.0)
+                if m.get("bytes_sent") is not None else None
+            ),
             # delivery_ratio = received / (sent * (N-1)); heuristic for message loss
             "delivery_ratio": m.get("delivery_ratio"),
             "estimated_loss_rate": m.get("estimated_loss_rate"),
@@ -970,6 +1196,19 @@ def write_metrics_json(path):
     _run_lr = (1.0 - _run_dr) if _run_dr is not None else None
     _fallback_n = sum(1 for m in car_metrics.values() if m.get("used_fallback", False))
     _run_fallback_rate = _fallback_n / CARS if CARS > 0 else None
+    _run_bytes_sent = sum(replica_bytes_sent.values()) if replica_bytes_sent else None
+    _quiet_honest_n = sum(replica_quiet_honest_vehicles.values())
+    _quiet_honest_d = sum(replica_quiet_honest_opportunities.values())
+    _quiet_honest_rate = (
+        100.0 * _quiet_honest_n / _quiet_honest_d
+        if _quiet_honest_d > 0 else None
+    )
+    _attack_outcomes_unique = [
+        row
+        for ep in sorted(attack_outcomes_by_epoch)
+        for row in attack_outcomes_by_epoch[ep]
+    ]
+    _attack_failures_total = sum(attack_failures_by_epoch.values())
 
     overall = {
         "cars": CARS,
@@ -1016,6 +1255,11 @@ def write_metrics_json(path):
         "total_byzantine_injections": byzantine_total,
         "byzantine_by_epoch": dict(byzantine_by_epoch),
         "byzantine_by_replica": dict(byzantine_by_replica),
+        "attack_success": _attack_failures_total > 0,
+        "attack_failures_total": _attack_failures_total,
+        "attack_failures_by_epoch": dict(attack_failures_by_epoch),
+        "attack_outcomes": _attack_outcomes_unique,
+        "attack_outcome_lines_total": len(attack_outcomes),
         "stop_to_resume_s": _stat(stop_to_resume_all),
         "resume_to_depart_s": _stat(resume_to_depart_all),
         # Delivery and fallback metrics (same definitions as RAFT counterpart)
@@ -1025,6 +1269,15 @@ def write_metrics_json(path):
         # fallback_rate = fraction of vehicles that hit StopSign_Timeout this run
         "fallback_rate": _run_fallback_rate,
         "fallback_count": _fallback_n,
+        # Payload bytes emitted onto the radio, post signing/wrapping.
+        "bytes_sent_total": _run_bytes_sent,
+        "megabytes_sent_total": (
+            _run_bytes_sent / (1024.0 * 1024.0)
+            if _run_bytes_sent is not None else None
+        ),
+        "quiet_honest_count": _quiet_honest_n,
+        "quiet_honest_opportunities": _quiet_honest_d,
+        "quiet_honest_rate_percent": _quiet_honest_rate,
     }
 
     if _args.output_format == "legacy":
@@ -1104,6 +1357,11 @@ def write_metrics_json(path):
                 "messages": {
                     "sent": m.get("messages_sent"),
                     "received": m.get("messages_received"),
+                    "bytes_sent": m.get("bytes_sent"),
+                    "megabytes_sent": (
+                        m.get("bytes_sent") / (1024.0 * 1024.0)
+                        if m.get("bytes_sent") is not None else None
+                    ),
                 },
                 "bft_stats": {
                     "cert_collection_duration_ms": (
@@ -1121,6 +1379,16 @@ def write_metrics_json(path):
                     ),
                     "full_decision_latency_ms": full_decision_latency_ms,
                     "winning_propose_to_receive_ms": winning_propose_latency_ms,
+                    "quiet_honest_vehicles": replica_quiet_honest_vehicles.get(rep),
+                    "quiet_honest_opportunities": replica_quiet_honest_opportunities.get(rep),
+                    "quiet_honest_rate_percent": replica_quiet_honest_rate.get(rep),
+                    "attack_outcomes_replica": [
+                        row for row in attack_outcomes if row["replica"] == rep
+                    ] or None,
+                    "attack_success_replica": any(
+                        row["attack_success"] for row in attack_outcomes
+                        if row["replica"] == rep
+                    ),
                 },
             })
 
@@ -1379,11 +1647,40 @@ elif "Ambulance_Priority_Gain" in run_metrics:
     ratio = run_metrics.get("Ambulance_Priority_Ratio", float('nan'))
     print(f"  Ambulance priority gain:          {gain:.4f}s (ratio={ratio:.4f})  {CYN}[from [RUN-METRICS]]{RESET}")
 
+bytes_sent_total = sum(replica_bytes_sent.values()) if replica_bytes_sent else None
+quiet_honest_count = sum(replica_quiet_honest_vehicles.values())
+quiet_honest_opportunities = sum(replica_quiet_honest_opportunities.values())
+quiet_honest_rate = (
+    100.0 * quiet_honest_count / quiet_honest_opportunities
+    if quiet_honest_opportunities > 0 else None
+)
+if bytes_sent_total is not None:
+    print(f"  Payload bytes sent:               {bytes_sent_total} bytes ({bytes_sent_total / (1024.0 * 1024.0):.6f} MB)")
+elif "Bytes_Sent_Total" in run_metrics:
+    bytes_sent_total = int(run_metrics["Bytes_Sent_Total"])
+    print(f"  Payload bytes sent:               {bytes_sent_total} bytes ({bytes_sent_total / (1024.0 * 1024.0):.6f} MB)  {CYN}[from [RUN-METRICS]]{RESET}")
+if quiet_honest_rate is not None:
+    print(f"  Honest vehicles marked QUIET:     {quiet_honest_count}/{quiet_honest_opportunities} ({quiet_honest_rate:.6f}%)")
+elif "Quiet_Honest_Rate" in run_metrics:
+    print(f"  Honest vehicles marked QUIET:     {run_metrics['Quiet_Honest_Rate']:.6f}%  {CYN}[from [RUN-METRICS]]{RESET}")
+
+attack_failures_total = sum(attack_failures_by_epoch.values())
+if attack_outcomes or "Attack_Failures_Total" in run_metrics:
+    if not attack_outcomes:
+        attack_failures_total = int(run_metrics.get("Attack_Failures_Total", 0))
+    attack_col = RED if attack_failures_total > 0 else GRN
+    print(f"  Consensus attack success:         {attack_col}{1 if attack_failures_total > 0 else 0}{RESET} "
+          f"(unique failures={attack_failures_total}, raw outcome lines={len(attack_outcomes)})")
+    for ep in sorted(attack_outcomes_by_epoch):
+        for row in attack_outcomes_by_epoch[ep]:
+            marker = "SUCCESS" if row["attack_success"] else "BLOCKED"
+            print(f"    epoch={row['epoch']} fault={row['fault']} outcome={row['outcome']} {marker}")
+
 # ── Per-epoch breakdown: wait + throughput ────────────────────────────────────
 print(f"\n{'=' * 72}")
 print(f"{BOLD}Per-Epoch Intersection Performance{RESET}")
 print(f"{'─' * 72}")
-print(f"  {'Epoch':>5}  {'N':>4}  {'Throughput':>12}  {'WaitNorm(mean)':>16}  {'WaitAmb(mean)':>15}  {'Byzantine':>10}")
+print(f"  {'Epoch':>5}  {'N':>4}  {'Throughput':>12}  {'WaitNorm(mean)':>16}  {'WaitAmb(mean)':>15}  {'Byzantine':>10}  {'Attack':>8}")
 for ep in range(N_EPOCHS):
     n = EPOCH_N[ep]
     rm_ep = round_metrics.get(ep, {})
@@ -1397,7 +1694,9 @@ for ep in range(N_EPOCHS):
     wa_str = f"{wa_val:.4f}s" if wa_val is not None else "N/A"
     byz = byzantine_by_epoch.get(ep, 0) or int(run_metrics.get(f"Byzantine_Injections_Epoch{ep}", 0))
     byz_col = RED if byz > 0 else GRN
-    print(f"  {ep:>5}  {n:>4}  {tp_str:>12}  {wn_str:>16}  {wa_str:>15}  {byz_col}{byz:>10}{RESET}")
+    atk = attack_failures_by_epoch.get(ep, 0) or int(run_metrics.get(f"Attack_Failures_Epoch{ep}", 0))
+    atk_col = RED if atk > 0 else GRN
+    print(f"  {ep:>5}  {n:>4}  {tp_str:>12}  {wn_str:>16}  {wa_str:>15}  {byz_col}{byz:>10}{RESET}  {atk_col}{atk:>8}{RESET}")
 
 # ── Byzantine Fault Analysis ─────────────────────────────────────────────────
 byz_total_display = byzantine_total or int(run_metrics.get("Byzantine_Injections_Total", 0))
@@ -1487,6 +1786,12 @@ if SAVE_TO:
                     f.write(f"[ROUND-METRICS] Epoch {ep} Avg_Messages_Sent_PerReplica: {avg_sent:.3f}\n")
                 if avg_recv is not None:
                     f.write(f"[ROUND-METRICS] Epoch {ep} Avg_Messages_Received_PerReplica: {avg_recv:.3f}\n")
+            if epoch_bytes_sent[ep]:
+                total_bytes_ep = sum(epoch_bytes_sent[ep])
+                avg_bytes_ep = total_bytes_ep / len(epoch_bytes_sent[ep])
+                f.write(f"[ROUND-METRICS] Epoch {ep} Avg_Bytes_Sent_PerReplica: "
+                        f"{avg_bytes_ep:.3f} (count={len(epoch_bytes_sent[ep])})\n")
+                f.write(f"[ROUND-METRICS] Epoch {ep} Total_Bytes_Sent: {total_bytes_ep}\n")
             if epoch_total_dur[ep]:
                 avg_dur = sum(epoch_total_dur[ep]) / len(epoch_total_dur[ep])
                 f.write(f"[ROUND-METRICS] Epoch {ep} Avg_Arrival_To_Resume_Time: "
@@ -1532,6 +1837,21 @@ if SAVE_TO:
             byz = byzantine_by_epoch.get(ep, 0)
             f.write(f"[RUN-METRICS] Byzantine_Injections_Epoch{ep}: {byz}\n")
 
+        attack_failures_total = sum(attack_failures_by_epoch.values())
+        f.write(f"[RUN-METRICS] Attack_Success: {1 if attack_failures_total > 0 else 0}\n")
+        f.write(f"[RUN-METRICS] Attack_Failures_Total: {attack_failures_total}\n")
+        f.write(f"[RUN-METRICS] Attack_Outcome_Lines_Total: {len(attack_outcomes)}\n")
+        for ep in range(N_EPOCHS):
+            f.write(f"[RUN-METRICS] Attack_Failures_Epoch{ep}: {attack_failures_by_epoch.get(ep, 0)}\n")
+        for ep in sorted(attack_outcomes_by_epoch):
+            for row in attack_outcomes_by_epoch[ep]:
+                detail = f" {row['detail']}" if row.get("detail") else ""
+                f.write(
+                    f"[ATTACK-OUTCOME] epoch={row['epoch']} fault={row['fault']} "
+                    f"outcome={row['outcome']} success={1 if row['attack_success'] else 0}"
+                    f"{detail}\n"
+                )
+
         # Delivery ratio and fallback rate (comparable to RAFT counterparts)
         _all_dr = [m["delivery_ratio"] for m in car_metrics.values()
                    if m.get("delivery_ratio") is not None]
@@ -1543,6 +1863,14 @@ if SAVE_TO:
         f.write(f"[RUN-METRICS] Fallback_Count: {_fallback_n}\n")
         if CARS > 0:
             f.write(f"[RUN-METRICS] Fallback_Rate: {_fallback_n / CARS:.6f}\n")
+
+        if bytes_sent_total is not None:
+            f.write(f"[RUN-METRICS] Bytes_Sent_Total: {bytes_sent_total}\n")
+            f.write(f"[RUN-METRICS] Megabytes_Sent_Total: {bytes_sent_total / (1024.0 * 1024.0):.6f}\n")
+        f.write(f"[RUN-METRICS] Quiet_Honest_Count: {quiet_honest_count}\n")
+        f.write(f"[RUN-METRICS] Quiet_Honest_Opportunities: {quiet_honest_opportunities}\n")
+        if quiet_honest_rate is not None:
+            f.write(f"[RUN-METRICS] Quiet_Honest_Rate: {quiet_honest_rate:.6f}\n")
 
         # Per-epoch throughput and wait
         for ep in range(N_EPOCHS):

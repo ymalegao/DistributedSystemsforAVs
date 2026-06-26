@@ -19,11 +19,46 @@
 
 #include "platform/consensus/ordering/pbft/viewchange_manager.h"
 
+#include <errno.h>
 #include <glog/logging.h>
+#include <time.h>
 
 #include "common/utils/utils.h"
 #include "platform/consensus/ordering/pbft/transaction_utils.h"
 #include "platform/proto/viewchange_message.pb.h"
+
+namespace {
+
+// sem_timedwait is GNU/Linux; Darwin only exposes sem_trywait/sem_wait.
+int SemTimedWaitAbs(sem_t* sem, const struct timespec* abs_timeout) {
+#if defined(__APPLE__)
+  for (;;) {
+    if (sem_trywait(sem) == 0) {
+      return 0;
+    }
+    if (errno != EAGAIN && errno != EINTR) {
+      return -1;
+    }
+    struct timespec now {};
+    if (clock_gettime(CLOCK_REALTIME, &now) != 0) {
+      return -1;
+    }
+    if (now.tv_sec > abs_timeout->tv_sec ||
+        (now.tv_sec == abs_timeout->tv_sec &&
+         now.tv_nsec >= abs_timeout->tv_nsec)) {
+      errno = ETIMEDOUT;
+      return -1;
+    }
+    struct timespec sleep_ts {};
+    sleep_ts.tv_nsec = 1000000L;  // 1 ms
+    nanosleep(&sleep_ts, nullptr);
+  }
+#else
+  return sem_timedwait(sem, const_cast<struct timespec*>(abs_timeout));
+#endif
+}
+
+}  // namespace
 
 namespace resdb {
 
@@ -97,7 +132,7 @@ ViewChangeManager::ViewChangeManager(const ResDBConfig& config,
 ViewChangeManager::~ViewChangeManager() {
   std::cerr << "[VC-STOP] stop_=true\n" << std::flush;
   stop_ = true;
-  // MonitoringCheckpointState uses sem_timedwait (100ms); it will wake and
+  // MonitoringCheckpointState uses a ~100ms timed wait; it will wake and
   // see stop_=true within one timeout interval — no manual sem_post needed.
   std::cerr << "[VC-STOP] calling checkpoint_manager_->Stop()\n" << std::flush;
   checkpoint_manager_->Stop();
@@ -591,7 +626,8 @@ void ViewChangeManager::MonitoringCheckpointState() {
       ts.tv_sec += 1;
       ts.tv_nsec -= 1000000000LL;
     }
-    int ret = sem_timedwait(checkpoint_manager_->CommitableSeqSignal(), &ts);
+    int ret =
+        SemTimedWaitAbs(checkpoint_manager_->CommitableSeqSignal(), &ts);
     if (ret != 0) continue;  // timeout or EINTR — just re-check stop_
     auto value = checkpoint_manager_->GetCommittableSeq();
     if (last_seq_value != value) {
