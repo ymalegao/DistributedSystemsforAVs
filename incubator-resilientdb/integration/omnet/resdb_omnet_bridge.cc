@@ -687,6 +687,45 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
                  << " leader_id=" << hdr.leader_id << " expected=" << expected;
       return false;
     }
+    if (!view.is_rollback) {
+      int32_t proposal_cert_primary = std::numeric_limits<int32_t>::max();
+      bool leader_is_signed = false;
+      const uint8_t* ep = view.data + sizeof(ResdbProposeHdr);
+      for (uint32_t i = 0; i < hdr.n_vehicles; ++i) {
+        ResdbVehicleEntry e;
+        std::memcpy(&e, ep, sizeof(e));
+        if (e.replica_id >= 0 && e.replica_id < static_cast<int32_t>(expected) &&
+            e.cyber_status == 1 && e.sim_time_us != UINT64_MAX) {
+          proposal_cert_primary = std::min(proposal_cert_primary, e.replica_id);
+          if (e.replica_id == hdr.leader_id) leader_is_signed = true;
+        }
+        ep += sizeof(e);
+      }
+      if (proposal_cert_primary == std::numeric_limits<int32_t>::max()) {
+        LOG(ERROR) << "[OMNET-PREVERIFY] reject: normal proposal has no signed static cert"
+                   << " leader_id=" << hdr.leader_id
+                   << " epoch=" << hdr.epoch;
+        return false;
+      }
+      if (hdr.leader_id != proposal_cert_primary || !leader_is_signed) {
+        LOG(ERROR) << "[OMNET-PREVERIFY] reject: leader is not cert-primary"
+                   << " leader_id=" << hdr.leader_id
+                   << " proposal_cert_primary=" << proposal_cert_primary
+                   << " leader_signed=" << (leader_is_signed ? 1 : 0)
+                   << " epoch=" << hdr.epoch;
+        return false;
+      }
+      if (req.type() == resdb::Request::TYPE_PRE_PREPARE) {
+        const uint64_t incoming_view = req.current_view();
+        service_ptr->SetPrimary(static_cast<uint32_t>(hdr.leader_id + 1),
+                                incoming_view);
+        LOG(INFO) << "[OMNET-PREVERIFY] installed cert-primary"
+                  << " leader_id=" << hdr.leader_id
+                  << " resdb_primary=" << (hdr.leader_id + 1)
+                  << " view=" << incoming_view
+                  << " epoch=" << hdr.epoch;
+      }
+    }
     // Check 8: deterministic sort always has a unique tiebreaker because
     // checks 3+4 guarantee unique valid replica IDs. Log that we verified.
 
@@ -730,6 +769,21 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
         std::unordered_set<int32_t> cert_backed_ids;
         for (uint32_t i = 0; i < cert_count; ++i) {
           cert_backed_ids.insert(cert_entries[i].replica_id);
+        }
+
+        if (!view.is_rollback) {
+          for (uint32_t i = 0; i < cert_count; ++i) {
+            const ResdbCertEntry& ce = cert_entries[i];
+            if (ce.replica_id >= 0 &&
+                ce.replica_id < static_cast<int32_t>(expected) &&
+                ce.replica_id < hdr.leader_id) {
+              LOG(ERROR) << "[OMNET-PREVERIFY] reject: local lower cert-primary"
+                         << " local_cert=" << ce.replica_id
+                         << " leader_id=" << hdr.leader_id
+                         << " epoch=" << hdr.epoch;
+              return false;
+            }
+          }
         }
 
         for (const auto& kv : proposal_map) {
@@ -1026,6 +1080,26 @@ extern "C" int ResdbOmnetGetPrimary(void* server_handle) {
   int id = ResdbIdToOmnetReplica(
       static_cast<int64_t>(h->consensus->GetPrimary()));
   return id < 0 ? 0 : id;
+}
+
+extern "C" int ResdbOmnetSetPrimaryFromCert(void* server_handle,
+                                            int primary_omnet) {
+  if (!server_handle || primary_omnet < 0) return -1;
+  auto* h = static_cast<ResdbOmnetServerHandle*>(server_handle);
+  if (!h->consensus) return -1;
+  const auto replicas = h->consensus->GetReplicas();
+  if (primary_omnet >= static_cast<int>(replicas.size())) return -1;
+  const int current = ResdbIdToOmnetReplica(
+      static_cast<int64_t>(h->consensus->GetPrimary()));
+  if (current == primary_omnet) return 0;
+  const uint64_t next_view = h->consensus->GetVersion() + 1;
+  h->consensus->SetPrimary(static_cast<uint32_t>(primary_omnet + 1),
+                           next_view);
+  std::cout << "[CERT-PRIMARY] installed PBFT primary"
+            << " omnet=" << primary_omnet
+            << " resdb=" << (primary_omnet + 1)
+            << " view=" << next_view << "\n";
+  return 0;
 }
 
 extern "C" int ResdbOmnetGetPacketRequestType(const uint8_t* data, uint32_t len) {

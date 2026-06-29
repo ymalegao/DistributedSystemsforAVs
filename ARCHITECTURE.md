@@ -27,7 +27,7 @@ There is no Java or JNI consensus path on the current hot path. Archived migrati
 
 4. **OMNeT++ simulation APIs are used only on the simulation thread.** ResDB worker threads enqueue outbound packets and committed orders. `ResDBIntersectionApp` drains those queues from self-messages.
 
-5. **Witness certificates happen before consensus.** Physical arrival, lane verification, echo collection, and `ARRIVAL_CERT` validation happen in Veins C++ before the primary submits `ResdbProposeHdr + ResdbVehicleEntry[]` to PBFT.
+5. **Witness certificates happen before consensus.** Physical arrival, lane verification, echo collection, and `ARRIVAL_CERT` validation happen in Veins C++ before the cert-primary submits `ResdbProposeHdr + ResdbVehicleEntry[]` to PBFT.
 
 6. **Consensus decides an order, not movement directly.** ResDB commits binary order bytes. `ResDBIntersectionApp::processOrders()` applies the order, waits for preceding batches to clear through TraCI, and then resumes the vehicle.
 
@@ -93,7 +93,7 @@ The ResDB library still runs internal worker threads, but all interaction with V
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBRollbackProtocol.cc` | Cancel/rollback protocol module. Owns type 12 cancel echoes, type 13 cancel certs, fast local halt, rollback re-discovery, rollback proposal construction, epoch tombstones, and retry/relay state. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBTraCI.cc` | TraCI helpers extracted from the legacy V2V module: distance-to-lane-end, lane queue discovery, vehicle stop/resume helpers, and clearance detection. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/crypto/CryptoAuth.h/.cc` | OpenSSL ECDSA P-256 helper. Generates per-vehicle EC keys, signs arbitrary byte buffers, verifies signatures, and contains CA certificate helpers. |
-| `incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h` | C ABI between Veins and ResDB. Defines lifecycle, transport callback registration, sim-time update, consensus trigger, order callback, primary lookup, view-change hooks, and shared packed structs. |
+| `incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h` | C ABI between Veins and ResDB. Defines lifecycle, transport callback registration, sim-time update, consensus trigger, order callback, cert-primary/PBFT primary alignment, view-change hooks, and shared packed structs. |
 | `incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc` | ResDB-side integration. Builds socketless PBFT service, installs OMNeT communicator, registers pre-verify function, hosts `IntersectionExecutor`, injects inbound packets, and exposes the C API. |
 | `incubator-resilientdb/platform/consensus/ordering/pbft/omnet_forced_view.h` | Header-only rollback active-view registry. Stores request-scoped, proposal-defined rollback membership `M`, quorum `2f+1`, forced primary, and sender-admission helpers for PBFT. |
 | `incubator-resilientdb/common/utils/sim_time_provider.h/.cpp` | Global simulated-time provider used by ResDB worker threads. Updated by the OMNeT simulation thread. |
@@ -118,7 +118,7 @@ sequenceDiagram
     App->>App: validateArrivalCert_and_store
 
     App->>TraCI: stopVehicle_at_stop_zone
-    App->>App: primary_checks_certs_or_timeout
+    App->>App: cert_primary_checks_certs_or_timeout
     App->>Bridge: ResdbOmnetTriggerConsensus
     Bridge->>PBFT: inject_TYPE_NEW_TXNS
 
@@ -319,7 +319,7 @@ The original announce bytes are copied unchanged from the type `1` payload. `Res
 
 ## 8. Arrival Certificate Protocol
 
-The arrival-cert protocol is the physical-world firewall before PBFT. It proves that a vehicle was observed by enough independent replicas before the consensus primary can schedule it as SIGNED.
+The arrival-cert protocol is the physical-world firewall before PBFT. It proves that a vehicle was observed by enough independent replicas before the cert-primary can schedule it as SIGNED.
 
 ### Phase A: Arrival announcement
 
@@ -444,7 +444,7 @@ Source retries (`enableArrivalCertRetries`) are kept. Relay is additive: it cove
 
 ### QUIET entries
 
-If the primary reaches proposal time without a valid cert for every replica id, it pads missing vehicles as QUIET:
+If the cert-primary reaches proposal time without a valid cert for every replica id, it pads missing vehicles as QUIET:
 
 ```text
 sim_time_us = UINT64_MAX
@@ -453,7 +453,19 @@ is_ambulance = 0
 direction = 0
 ```
 
-If the primary has local physical state for that vehicle, it still fills lane and position from that state. QUIET vehicles are isolated by the executor into singleton batches.
+If the cert-primary has local physical state for that vehicle, it still fills lane and position from that state. QUIET vehicles are isolated by the executor into singleton batches.
+
+### Cert-primary selection
+
+Normal proposal leadership is derived from the current arrival-cert set, not from the static `leaderReplicaId` ini default. `ResDBIntersectionApp::CertPrimary()` returns the smallest static replica id in `collected_certs_`:
+
+```text
+CertPrimary = min { rid | collected_certs_ contains veh<rid>, 0 <= rid < totalVehicles }
+```
+
+If no static cert exists, no node proposes. Nodes continue arrival announcement gossip, cert retries, and timer rechecks until at least one static cert is known.
+
+This means a Byzantine replica 0 that never forms a cert is not selected as the initial proposer. A node that knows a lower certified id than itself behaves as a follower for that local run. If cert visibility is temporarily split, bridge pre-verify prevents a proposal from a higher id from committing at any follower that already holds a lower cert.
 
 ---
 
@@ -551,12 +563,20 @@ These verify the binary proposal is well-formed for this cluster:
 2. PRE_PREPARE data parses as `BatchUserRequest`.
 3. Batch contains at least one user request.
 4. Payload is large enough to hold `ResdbProposeHdr`.
-5. For normal proposals, `hdr.n_vehicles` equals the replica count from ResDB config. For rollback proposals, `hdr.n_vehicles` is the proposal-defined forced membership size `|M|` and must be in `(0, static_config_N]`.
+5. For normal proposals, `hdr.n_vehicles` is in `(0, static_config_N]` so physically absent or late replicas can be omitted from the payload. For rollback proposals, `hdr.n_vehicles` is the proposal-defined forced membership size `|M|` and must also be in `(0, static_config_N]`.
 6. Payload is large enough for all `ResdbVehicleEntry` records.
 7. All `replica_id` values are unique.
 8. All `replica_id` values are in `[0, expected)`.
 
 Per-entry field sanity (part of the above gate): `sim_time_us ≠ 0` (UINT64_MAX is the QUIET sentinel), `is_ambulance ∈ {0,1}`, `cyber_status ∈ {0,1}`, `leader_id ∈ [0, expected)`. For rollback proposals, `leader_id` must also be a member of `M`.
+
+For normal proposals, the bridge also enforces cert-primary leadership before PBFT accepts the PRE_PREPARE:
+
+1. `leader_id` must equal the smallest SIGNED static replica id in the proposal.
+2. The leader's own entry must be SIGNED, not QUIET.
+3. If the follower's local cert snapshot contains a lower static cert than `leader_id`, reject the proposal.
+
+When those checks pass for an incoming normal PRE_PREPARE, the follower installs `leader_id + 1` into PBFT `SystemInfo` for that request's view before ResDB's primary-sender check runs. This keeps the app-level cert-primary, `ResdbProposeHdr.leader_id`, `ResdbOmnetGetPrimary()`, and ResDB's 1-based PBFT primary aligned on every replica.
 
 ### Semantic checks (9–10) — cert-based
 
@@ -604,11 +624,13 @@ ResDB does not infer `M` from traffic, responsive senders, or local observations
 
 ## 11. `proposeAll()` and Proposal Construction
 
-Only the current ResDB PBFT primary should submit a proposal under normal operation:
+Only the current cert-primary should submit a normal proposal:
 
 ```text
-replicaId_ == ResdbOmnetGetPrimary(resdb_server_handle_)
+replicaId_ == CertPrimary()
 ```
+
+`CertPrimary()` returns `-1` when no static cert exists; in that case `proposeAll()` returns without submitting and the app keeps discovery/gossip timers alive. Before submitting a normal proposal, the app calls `ResdbOmnetSetPrimaryFromCert(handle, CertPrimary())` so the local PBFT primary matches the cert-primary.
 
 `proposeAll()`:
 
@@ -1069,12 +1091,15 @@ During teardown, the app updates sim time to `INT64_MAX` / max uint time to unbl
 
 ResDB's built-in PBFT view-change is the intended replacement for the old BFT-SMaRt `RequestsTimer` / STOP / STOP_NACK stack.
 
+Normal cert-primary selection is separate from rollback forced-M and from PBFT view-change. At proposal time, the app installs the cert-primary into local PBFT state with `ResdbOmnetSetPrimaryFromCert()`. On followers, bridge pre-verify repeats the same cert-primary check and installs the incoming proposal's `leader_id` into PBFT `SystemInfo` for that PRE_PREPARE view before ResDB verifies that the PRE_PREPARE came from the current primary.
+
 The bridge exposes:
 
 ```c
 int ResdbOmnetSetVcTimeoutUs(void* handle, int64_t timeout_us);
 int ResdbOmnetForceViewChange(void* handle);
 int ResdbOmnetGetPrimary(void* handle);
+int ResdbOmnetSetPrimaryFromCert(void* handle, int primary_omnet);
 int ResdbOmnetSetPbftSilent(void* handle, int silent);
 ```
 
@@ -1115,7 +1140,7 @@ Every transport poll, the app checks:
 current_primary = ResdbOmnetGetPrimary(handle)
 ```
 
-If the primary changed and the new primary is this replica, and no order has been applied/submitted for this replica, it calls `proposeAll()` again. This allows a newly elected primary to propose after view change.
+If the primary changed and the new primary is this replica, and no order has been applied/submitted for this replica, it calls `proposeAll()` again. `proposeAll()` still enforces `replicaId_ == CertPrimary()`, so PBFT primary polling cannot make a non-cert-primary submit a normal proposal. This keeps view-change recovery aligned with the certified-set leader rule.
 
 ### Silent primary mode
 
@@ -1159,7 +1184,7 @@ Examples:
 | `1` | `FALSE_LANE` | Vehicle claims a fake lane in `ARRIVAL_ANNOUNCE`. | Honest witnesses fail TraCI verification and refuse to echo. Vehicle becomes QUIET if it cannot assemble f+1 echoes. |
 | `2` | `INVALID_SIG` | Vehicle corrupts echo signatures with garbage bytes. | `validateArrivalCert()` rejects those echoes. With enough honest witnesses, other cars still collect f+1 valid echoes. |
 | `3` | `EQUIVOCATOR` | Vehicle sends different directions to different peers. | Echo signatures diverge by direction; cert validity depends on f+1 echoes agreeing on the cert fields. |
-| `4` | `SILENT_PRIMARY` | Primary suppresses app proposal and drops outbound PBFT messages. | Followers' VC triggers force ResDB view-change; new primary should propose. |
+| `4` | `SILENT_PRIMARY` | Primary suppresses app proposal and drops outbound PBFT messages. | Followers' VC triggers force ResDB view-change; normal reproposal still must pass the cert-primary rule. |
 | `5` | `BAD_PROPOSAL` | Primary corrupts proposal shape. | Bridge pre-verify rejects PRE_PREPARE; view-change path should recover. |
 | `6` | `FAKE_AMBULANCE` | Primary flips `is_ambulance` 0→1 for the first non-ambulance entry in the proposal. | Pre-verify Check 10 catches the `is_ambulance` mismatch vs cert. Without the firewall (`RESDB_NO_FIREWALL=1`), the fake car receives ambulance crossing priority. |
 | `7` | `FAKE_AMBULANCE_FOLLOWER` | Follower injects `isAmbulance=true` with empty cert bytes into its own `ARRIVAL_ANNOUNCE`. | When `enableAmbulanceCertGate=true`, the echo path rejects uncertified ambulance claims. With the cert gate off, honest echoes accept the claim and the wrong car gets priority. |
@@ -1236,7 +1261,7 @@ Defined in `ResDBIntersectionApp.ned`.
 | `triggerJoinTimeSec` | Initial arrival announcement start time. |
 | `arrivalSlotSec` | Per-replica stagger for announcements and some cert sends. |
 | `broadcastArrivalAnnouncementIntervalSec` | Periodic re-announcement interval. |
-| `certCollectionTimeoutSec` | Primary's wait for certs before proposing with QUIET padding. |
+| `certCollectionTimeoutSec` | Cert-primary's wait for certs before proposing with QUIET padding. If no static cert exists, no proposal is submitted and discovery timers keep rechecking. |
 | `enableArrivalCertRetries` | Enables repeated type 5 cert broadcasts. |
 | `arrivalCertRetryIntervalSec` | Cert retry interval. |
 | `arrivalCertRetryMax` | Number of extra cert retries; `0` means unlimited until stopped by another condition. |
@@ -1289,7 +1314,8 @@ Common log markers used by benchmark scripts and debugging:
 | Marker | Meaning |
 |--------|---------|
 | `[METRICS r] Stop_Time` | Vehicle entered stop zone. |
-| `[METRICS r] ProposeAll_Submit_Time` | Primary submitted binary proposal to ResDB. |
+| `[CERT-PRIMARY]` | Cert-primary election or PBFT primary alignment. Includes no-cert waits, follower skips, and bridge/app primary installs. |
+| `[METRICS r] ProposeAll_Submit_Time` | Cert-primary submitted binary proposal to ResDB. |
 | `[METRICS r] Order_Decided_Time` | App processed a committed/gossiped order. |
 | `[METRICS r] Batch_Assignment` | Local vehicle's decided batch index. |
 | `[METRICS r] Resume_Time` | Vehicle resumed movement. |

@@ -272,6 +272,7 @@ private:
     void applyByzantineFakeAmbulance(uint8_t* base, uint32_t n);
     void applyByzantineTamperLane(uint8_t* base, uint32_t n);
     int countStaticCollectedCerts() const;
+    int CertPrimary() const;
 
     // ── TraCI helpers (ported from V2VTraCI.cc) ───────────────────────────────
     double getDistanceToIntersection();

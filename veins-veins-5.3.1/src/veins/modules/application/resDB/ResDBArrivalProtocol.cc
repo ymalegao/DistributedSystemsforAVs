@@ -222,10 +222,29 @@ int ResDBIntersectionApp::countStaticCollectedCerts() const
     return count;
 }
 
+int ResDBIntersectionApp::CertPrimary() const
+{
+    int primary = -1;
+    for (const auto& kv : collected_certs_) {
+        const int rid = extractReplicaId(kv.first);
+        if (rid >= 0 && rid < total_vehicles_ &&
+                (primary < 0 || rid < primary)) {
+            primary = rid;
+        }
+    }
+    return primary;
+}
+
 void ResDBIntersectionApp::tryStartCertCollectionTimer(bool rearm)
 {
     if (!resdb_server_handle_ || propose_submitted_) return;
-    if (replicaId_ != ResdbOmnetGetPrimary(resdb_server_handle_)) return;
+    int certPrimary = CertPrimary();
+    if (certPrimary < 0) {
+        std::cout << "[CERT-PRIMARY] r" << replicaId_
+                  << " no static cert primary yet; keep gossiping\n";
+        return;
+    }
+    if (replicaId_ != certPrimary) return;
     {
         std::lock_guard<std::mutex> lk(certs_mutex_);
         if (countStaticCollectedCerts() >= total_vehicles_) return;
@@ -244,7 +263,9 @@ void ResDBIntersectionApp::tryStartCertCollectionTimer(bool rearm)
     cert_collection_start_time_ = simTime();
     std::cout << "[METRICS " << replicaId_ << "] Cert_Collection_Start: " << cert_collection_start_time_ << "\n";
     std::cout << "[ResDB r" << replicaId_
-              << "] Leader: cert-collection deadline at stop line (timeout="
+              << "] CertPrimary: cert-collection deadline at stop line"
+              << " cert_primary=" << certPrimary
+              << " (timeout="
               << cert_collection_timeout_ << "s rearm=" << (rearm ? 1 : 0) << ")\n";
 }
 
@@ -767,16 +788,19 @@ void ResDBIntersectionApp::broadcastArrivalCert(const ArrivalCert& cert)
     if (!collected_certs_.count(cert.carId)) {
         int staticCerts = 0;
         int allCerts = 0;
+        int certPrimary = -1;
         std::lock_guard<std::mutex> lk(certs_mutex_);
         collected_certs_[cert.carId] = cert;
         staticCerts = countStaticCollectedCerts();
         allCerts = (int)collected_certs_.size();
+        certPrimary = CertPrimary();
         std::cout << "[CERT-STORED-SELF] Replica " << replicaId_ << " self-stored cert for "
                   << cert.carId << " static=(" << staticCerts << "/" << total_vehicles_
-                  << ") all=" << allCerts << "\n";
+                  << ") all=" << allCerts
+                  << " cert_primary=" << certPrimary << "\n";
         const bool emergencyCancelStarted = maybeTriggerEmergencyRollbackFromCert(cert);
-        // If primary and in stop zone and all static certs now collected → propose immediately.
-        if (replicaId_ == ResdbOmnetGetPrimary(resdb_server_handle_)
+        // If cert-primary and in stop zone and all static certs now collected, propose immediately.
+        if (replicaId_ == certPrimary
                 && entered_stop_zone_ && !propose_submitted_) {
             shouldPropose = !emergencyCancelStarted && (staticCerts >= total_vehicles_);
         }
@@ -812,14 +836,17 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
     }
     int staticCerts = 0;
     int allCerts = 0;
+    int certPrimary = -1;
     {
         std::lock_guard<std::mutex> lk(certs_mutex_);
         staticCerts = countStaticCollectedCerts();
         allCerts = (int)collected_certs_.size();
+        certPrimary = CertPrimary();
     }
     std::cout << "[CERT-STORED] Replica " << replicaId_ << " stored ARRIVAL_CERT for "
               << cert.carId << " static=(" << staticCerts << "/" << total_vehicles_
-              << ") all=" << allCerts << "\n";
+              << ") all=" << allCerts
+              << " cert_primary=" << certPrimary << "\n";
 
     // Reconstruct VehicleState if the announce was lost.
     if (!local_vehicle_states_.count(cert.carId)) {
@@ -843,12 +870,11 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
     }
 
     const bool emergencyCancelStarted = maybeTriggerEmergencyRollbackFromCert(cert);
-    int cur_primary = ResdbOmnetGetPrimary(resdb_server_handle_);
 
-    // Primary: if in stop zone and all static certs collected → propose.
+    // Cert-primary: if in stop zone and all static certs collected, propose.
     // Emergency late certs take the cancel path first; the old normal order
     // should not race the rollback trigger.
-    if (replicaId_ == cur_primary && entered_stop_zone_ && !propose_submitted_) {
+    if (replicaId_ == certPrimary && entered_stop_zone_ && !propose_submitted_) {
         if (!emergencyCancelStarted && staticCerts >= total_vehicles_) {
             if (propose_timeout_msg_) {
                 cancelEvent(propose_timeout_msg_);

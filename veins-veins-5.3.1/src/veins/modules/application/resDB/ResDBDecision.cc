@@ -48,6 +48,23 @@ void ResDBIntersectionApp::proposeAll()
                   << " proposeAll skipped: already submitted at " << propose_time_ << "\n";
         return;
     }
+    int certPrimary = CertPrimary();
+    if (certPrimary < 0) {
+        std::cout << "[CERT-PRIMARY] r" << replicaId_
+                  << " proposeAll skipped: no static cert primary yet\n";
+        return;
+    }
+    if (certPrimary != replicaId_) {
+        std::cout << "[CERT-PRIMARY] r" << replicaId_
+                  << " proposeAll skipped: cert_primary=" << certPrimary << "\n";
+        return;
+    }
+    if (ResdbOmnetSetPrimaryFromCert(resdb_server_handle_, certPrimary) != 0) {
+        std::cout << "[CERT-PRIMARY] r" << replicaId_
+                  << " proposeAll skipped: failed to install PBFT primary"
+                  << " cert_primary=" << certPrimary << "\n";
+        return;
+    }
     deferred_propose_after_cert_timeout_ = false;
     stopCertBroadcastRetries();
     propose_submitted_ = true;
@@ -63,7 +80,8 @@ void ResDBIntersectionApp::proposeAll()
               << " static_certs=" << countStaticCollectedCerts() << "/" << total_vehicles_
               << " all_certs=" << collected_certs_.size()
               << " observed=" << physically_observed_cars_.size()
-              << " primary=" << ResdbOmnetGetPrimary(resdb_server_handle_);
+              << " cert_primary=" << certPrimary
+              << " pbft_primary=" << ResdbOmnetGetPrimary(resdb_server_handle_);
     if (stop_time_ >= SIMTIME_ZERO)
         std::cout << " stop_to_propose_sec=" << (simTime() - stop_time_).dbl();
     std::cout << "\n";

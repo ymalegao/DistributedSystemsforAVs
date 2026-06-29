@@ -258,10 +258,6 @@ def run_key_generation(*, dry_run: bool, scale: int) -> None:
     else:
         print(f"[dry-run] would reset_resdb_keys({scale}) (delete cert_1..cert_{scale}, node1..node{scale} key files)")
     run_in_bash_with_omnet(f"cd {shlex.quote(str(CONFIG_DIR))} && ./gen_resdb_keys.sh {scale}", dry_run=dry_run)
-# def apply_scale(n: int) -> None:
-#     patch_hosts_config(CONFIG_DIR / "hosts.config", n)
-#     patch_system_config(CONFIG_DIR / "system.config", n, clear_malicious=True)
-#     patch_batch_sizes(n)
 
 
 def randomize_args_for_scenario(n: int, scenario_name: str) -> List[str]:

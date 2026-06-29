@@ -480,10 +480,30 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
                           << " collected_certs=" << collected_certs_.size()
                           << "/" << total_vehicles_ << "\n";
             }
-            // Only primary proposes; follower vc_trigger_msg_ is scheduled at stop-zone entry.
-            int primary = ResdbOmnetGetPrimary(resdb_server_handle_);
+            // Only the current cert-primary proposes; no static cert means keep discovery alive.
+            int primary = CertPrimary();
+            if (primary < 0) {
+                std::cout << "[CERT-PRIMARY] r" << replicaId_
+                          << " cert-timeout: no static cert primary; rearming discovery timer\n";
+                propose_timeout_msg_ = new cMessage("resdbProposeTimeout");
+                scheduleAt(simTime() + cert_collection_timeout_, propose_timeout_msg_);
+                delete msg; return;
+            }
             if (primary == replicaId_) {
                 proposeAll();
+            } else {
+                if (!vc_trigger_msg_ && !order_applied_) {
+                    vc_trigger_msg_ = new cMessage("vc_trigger");
+                    scheduleAt(simTime() + pbft_vc_timeout_sec_, vc_trigger_msg_);
+                    std::cout << "[VC-DEBUG] r" << replicaId_
+                              << " cert-timeout follower: vc_trigger scheduled at "
+                              << simTime() + pbft_vc_timeout_sec_
+                              << " (cert_primary=" << primary
+                              << ", vc_delay_sec=" << pbft_vc_timeout_sec_ << ")\n";
+                }
+                std::cout << "[CERT-PRIMARY] r" << replicaId_
+                          << " cert-timeout: follower of cert_primary=" << primary
+                          << "\n";
             }
         }
         delete msg; return;
@@ -707,9 +727,17 @@ void ResDBIntersectionApp::handlePositionUpdate(cObject* obj)
                   << simTime() + stop_sign_timeout_sec_
                   << " consensus_deadline=" << simTime() + consensus_timeout_sec_ << "\n";
 
-        int primary = ResdbOmnetGetPrimary(resdb_server_handle_);
+        int primary = CertPrimary();
+        if (primary < 0 && !propose_timeout_msg_ && !order_applied_ && !propose_submitted_) {
+            propose_timeout_msg_ = new cMessage("resdbProposeTimeout");
+            scheduleAt(simTime() + cert_collection_timeout_, propose_timeout_msg_);
+            std::cout << "[CERT-PRIMARY] r" << replicaId_
+                      << " stop zone: no static cert primary; recheck scheduled at "
+                      << simTime() + cert_collection_timeout_ << "\n";
+            return;
+        }
         if (replicaId_ == primary && !propose_submitted_) {
-            if ((int)collected_certs_.size() >= total_vehicles_) {
+            if (countStaticCollectedCerts() >= total_vehicles_) {
                 proposeAll();
             } else if (deferred_propose_after_cert_timeout_) {
                 deferred_propose_after_cert_timeout_ = false;

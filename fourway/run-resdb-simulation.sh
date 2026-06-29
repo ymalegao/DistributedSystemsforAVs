@@ -8,8 +8,8 @@
 # --randomize <N> <F>
 #   Picks one ambulance and F Byzantine nodes (all FALSE_LANE) from N vehicles
 #   at random per run, writes fourway/random_scenario.ini, and injects it.
-#   Without --byzleader, replica 0 is never chosen as a FALSE_LANE follower (it is
-#   usually the consensus leader); use --allow-replica0-byz-follower to allow replica 0.
+#   Replica 0 is eligible as a FALSE_LANE follower unless it is reserved with
+#   --byzleader or selected as the ambulance.
 #
 # --byzleader <ID>
 #   Reserve replica <ID> as the Byzantine silent leader.
@@ -137,7 +137,7 @@ has_ned_path_arg() {
 # to stderr so callers can safely capture the path with $(...).
 # Usage: generate_random_scenario <N> <F> <sim_dir> <byz_leader|-1> <allow_r0_follower> <no_ambulance> <leader_byz_type> <follower_byz_type>
 #   byz_leader:        replica ID reserved as silent leader (-1 = none)
-#   allow_r0_follower: "1" = allow replica 0 in FALSE_LANE pool when byz_leader=-1; else exclude 0
+#   allow_r0_follower: legacy compatibility flag; replica 0 is allowed by default
 #   no_ambulance:      "1" = force no ambulance (ambulanceReplicaId=-1)
 #   leader_byz_type:   byzantineType for the byz leader (default 5=bad_proposal; 6=fake_ambulance)
 #   follower_byz_type: byzantineType for Byzantine followers (default 1=false_lane; 7=fake_ambulance_follower)
@@ -191,17 +191,14 @@ generate_random_scenario() {
     fi
 
     # 2. Build FALSE_LANE candidate pool (replica IDs): exclude ambulance and byz leader.
-    #    When there is no --byzleader, also exclude replica 0 so follower faults never
-    #    overlap default leader semantics (unless allow_r0_follower=1).
+    #    Replica 0 is now a valid follower fault candidate; cert-primary leadership
+    #    no longer assumes replica 0 is the normal proposer.
     #    Fisher-Yates shuffle, take first F.
     local available=()
     local i
     for (( i=0; i<n; i++ )); do
         [[ $i -eq $byz_leader ]] && continue
         if [[ "${AMB_ID}" -ge 0 && $i -eq $AMB_ID ]]; then
-            continue
-        fi
-        if [[ "${byz_leader}" -lt 0 && "${allow_r0_follower}" != "1" && $i -eq 0 ]]; then
             continue
         fi
         available+=("$i")
@@ -237,9 +234,7 @@ generate_random_scenario() {
         echo "  Byzantine leader: replica ${byz_leader} (C++ FALSE_LANE)" >&2
     else
         echo "  Byzantine leader: none" >&2
-        if [[ "${allow_r0_follower}" != "1" ]]; then
-            echo "  FALSE_LANE pool: replica 0 excluded (Byz follower vs leader disambiguation)" >&2
-        fi
+        echo "  FALSE_LANE pool: replica 0 eligible as follower" >&2
     fi
     echo "  Byzantine nodes : ${BYZ_IDS:-none} (C++ FALSE_LANE, replica IDs)" >&2
     echo "  Output ini      : ${out_ini}" >&2
@@ -291,7 +286,7 @@ BYZ_LEADER=-1       # -1 = no designated byz leader
 BYZ_LEADER_TYPE=5    # byzantineType for the byz leader (5=bad_proposal, 6=fake_ambulance)
 BYZ_FOLLOWER_TYPE=1  # byzantineType for Byzantine followers (1=false_lane, 7=fake_ambulance_follower)
 CERT_GATE_LINE=""   # set by --cert-gate: adds enableAmbulanceCertGate=true to scenario ini
-ALLOW_REPLICA0_BYZ_FOLLOWER=0
+ALLOW_REPLICA0_BYZ_FOLLOWER=1
 NO_AMBULANCE=0
 INITIAL_LEADER=""   # "" = use default (replica 0)
 CHANNEL_METRICS_DIR=""  # "" = do not override (use omnetpp.ini / NED default)

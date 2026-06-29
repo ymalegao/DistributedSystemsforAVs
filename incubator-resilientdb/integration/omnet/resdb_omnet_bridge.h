@@ -170,6 +170,10 @@ int ResdbOmnetSetOrderCallback(void* server_handle,
  * Returns 0 if the handle is null or the consensus is not yet started. */
 int ResdbOmnetGetPrimary(void* server_handle);
 
+/* Set PBFT's primary from the application-level cert-primary election.
+ * primary_omnet is a 0-based replica ID. Returns 0 on success, -1 on error. */
+int ResdbOmnetSetPrimaryFromCert(void* server_handle, int primary_omnet);
+
 /* Diagnostic metadata decoded from a serialized ResDBMessage/Request packet. */
 typedef struct ResdbPacketRequestInfo {
     int      parse_ok;
