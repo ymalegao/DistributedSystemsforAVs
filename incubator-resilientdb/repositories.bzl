@@ -84,12 +84,9 @@ def nexres_repositories():
         http_archive,
         name = "net_zlib_zlib",
         build_file = "@com_resdb_nexres//third_party:z.BUILD",
-        sha256 = "91844808532e5ce316b3c010929493c0244f3d37593afd6de04f71821d5136d9",
-        strip_prefix = "zlib-1.2.12",
-        urls = [
-            "https://zlib.net/zlib-1.2.12.tar.gz",
-            "https://storage.googleapis.com/bazel-mirror/zlib.net/zlib-1.2.12.tar.gz",
-        ],
+        sha256 = "17e88863f3600672ab49182f217281b6fc4d3c762bde361935e436a95214d05c",
+        strip_prefix = "zlib-1.3.1",
+        urls = ["https://github.com/madler/zlib/archive/refs/tags/v1.3.1.tar.gz"],
     )
     maybe(
         http_archive,

@@ -20,6 +20,8 @@
 
 package(default_visibility = ["//visibility:public"])
 
+exports_files(["protobuf_zlib.BUILD"])
+
 load("@rules_foreign_cc//foreign_cc:defs.bzl", "configure_make", "make")
 
 cc_library(

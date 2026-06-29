@@ -16,6 +16,10 @@
 # under the License.
 
 build --cxxopt='-std=c++17' --copt=-O3 --jobs=8
+build --copt=-Dfdopen=fdopen
+build --host_copt=-Dfdopen=fdopen
+build --cxxopt=-Wno-enum-constexpr-conversion
+build --host_cxxopt=-Wno-enum-constexpr-conversion
 build:profile --cxxopt='-std=c++17' --copt="-g" --copt="-fno-omit-frame-pointer" --cxxopt="-fno-omit-frame-pointer" --linkopt="-g" --strip=never --jobs=2
 
 #build --action_env=PYTHON_BIN_PATH="/usr/bin/python3.10"

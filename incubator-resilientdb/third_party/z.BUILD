@@ -29,6 +29,9 @@ cc_library(
     copts = [
         "-w",
         "-Dverbose=-1",
+        "-Wno-implicit-function-declaration",
+        "-Wno-deprecated-non-prototype",
+        "-Dfdopen=fdopen",
     ],
     includes = ["."],
 )

@@ -72,17 +72,17 @@ CFLAGS += -std=c++17
 CXXFLAGS += -std=c++17
 
 # ── ResilientDB bridge ─────────────────────────────────────────────────────────
-# Header-only include: lets ResDBIntersectionApp.h find resdb_omnet_bridge.h
-# without pulling in any internal ResDB C++ headers.
-RESDB_ROOT ?= $(dir $(abspath $(lastword $(MAKEFILE_LIST))))../../incubator-resilientdb
-CXXFLAGS += -I$(RESDB_ROOT)/integration/omnet
+# ResDBIntersectionApp.h includes "integration/omnet/resdb_omnet_bridge.h", so the
+# include root must be RESDB_ROOT (not RESDB_ROOT/integration/omnet).
+RESDB_ROOT ?= $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../../incubator-resilientdb)
+CXXFLAGS += -I$(RESDB_ROOT)
 
 # Linker: link against the shared library produced by Bazel.
 #   cd incubator-resilientdb && bazel build //integration/omnet:resdb_omnet_bridge
-# Set RESDB_LIB_DIR to the Bazel output path, e.g.:
-#   export RESDB_LIB_DIR=/home/yash/DistributedSystemsforAVs/incubator-resilientdb/bazel-bin/integration/omnet
 RESDB_LIB_DIR ?= $(RESDB_ROOT)/bazel-bin/integration/omnet
-ifneq ($(wildcard $(RESDB_LIB_DIR)/libresdb_omnet_bridge.so),)
+ifneq ($(wildcard $(RESDB_LIB_DIR)/libresdb_omnet_bridge.dylib),)
+  LDFLAGS += -L$(RESDB_LIB_DIR) -lresdb_omnet_bridge -Wl,-rpath,$(RESDB_LIB_DIR)
+else ifneq ($(wildcard $(RESDB_LIB_DIR)/libresdb_omnet_bridge.so),)
   LDFLAGS += -L$(RESDB_LIB_DIR) -lresdb_omnet_bridge -Wl,-rpath,$(RESDB_LIB_DIR)
 endif
 # ──────────────────────────────────────────────────────────────────────────────

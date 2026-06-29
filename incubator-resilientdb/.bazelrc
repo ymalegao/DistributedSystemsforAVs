@@ -1,4 +1,24 @@
+# Apply build:macos / build:linux / … automatically on the host OS (see blocks below).
+common --enable_platform_specific_config
+
 build --cxxopt='-std=c++17' --copt=-O3 --jobs=40
+# zlib zutil.h may #define fdopen to NULL on Darwin; that breaks SDK stdio.h. Toolchain
+# builds (e.g. protoc deps, "[for tool]") need host flags too — Nix CC inside opp_env
+# often hits that path even when normal shells do not.
+build --copt=-Dfdopen=fdopen
+build --host_copt=-Dfdopen=fdopen
+# Clang 16+ (e.g. Nix clang in opp_env): Boost.MPL integral_wrapper + enum is ill-formed as constexpr;
+# default -Wenum-constexpr-conversion breaks rules_boost’s pinned Boost with Crow/Asio.
+build --cxxopt=-Wno-enum-constexpr-conversion
+build --host_cxxopt=-Wno-enum-constexpr-conversion
 #build --action_env=PYTHON_BIN_PATH="/usr/bin/python3.10"
 #build --action_env=PYTHON_LIB_PATH="/usr/include/python3.10"
+
+# macOS + opp_env/Nix: use local spawns and explicit -xc++ like README `buildresdbomnet`.
+# Do not set --action_env=SDKROOT= here — Bazel's XcodeLocalEnvProvider also sets SDKROOT
+# and duplicate keys crash the build. From opp_env, still `unset SDKROOT CPATH ...` before
+# `bazel build`, or use `buildresdbtools` / `buildresdbomnet` in README.
+build:macos --spawn_strategy=local
+build:macos --cxxopt=-xc++
+build:macos --host_cxxopt=-xc++
 

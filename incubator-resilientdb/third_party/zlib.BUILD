@@ -57,5 +57,7 @@ cc_library(
     copts = [
         "-D_LARGEFILE64_SOURCE=1",
         "-UNO_FDOPEN",
+        "-Wno-deprecated-non-prototype",
+        "-Dfdopen=fdopen",
     ],
 )
