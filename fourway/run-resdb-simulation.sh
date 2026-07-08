@@ -29,15 +29,21 @@
 #   points at PATH (absolute path recommended). Used by experiment_orchestrator.py
 #   to place channel_*.csv / sinr_*.csv under benchmarks/.../run_<rep>/.
 #
+# --tolerated-f <F>
+#   Configure the intended consensus fault-tolerance point for fixed-physical-N
+#   latency-curve experiments. When used with --randomize, writes
+#   *.node[*].appl.toleratedFaults = F into random_scenario.ini.
+#
 # --baseline
 #   SUMO-controlled baseline mode. Reuses ambulance randomization, but disables
 #   Byzantine and leader mutations.
 #
 # --rollback-late-emergency
-#   Fixed 18-replica rollback scenario: veh0..veh15 commit epoch 0, two clear the
-#   intersection, then veh16 (late ambulance) and veh17 (late normal car) arrive
-#   and force a rollback to M=16. Rollback and ambulance cert gate are enabled,
-#   and the 18-vehicle rollback late-arrival SUMO launch config is used.
+#   Fixed 18-replica rollback scenario: veh0..veh15 commit epoch 0, two cars
+#   clear the intersection, then the manager injects veh16 (late normal car)
+#   and veh17 (late ambulance), forcing rollback to M=16. Rollback and
+#   ambulance cert gate are enabled, and the 18-vehicle rollback launch config
+#   is used.
 #
 # Examples:
 #   ./run-resdb-simulation.sh -u Cmdenv -c FourVehiclesResDB
@@ -47,6 +53,7 @@
 #   ./run-resdb-simulation.sh --leader 7 --randomize 8 2 -u Cmdenv -c EightVehiclesResDB
 #   ./run-resdb-simulation.sh --randomize 16 4 --no-firewall -u Cmdenv -c SixteenVehiclesResDB
 #   ./run-resdb-simulation.sh --randomize 16 0 --byzleader 0 --leader-byz-type 6 --no-firewall -u Cmdenv -c SixteenVehiclesResDB
+#   ./run-resdb-simulation.sh --randomize 20 0 --tolerated-f 1 -u Cmdenv -c TwentyVehiclesResDB
 
 set -euo pipefail
 
@@ -250,6 +257,9 @@ generate_random_scenario() {
         echo "# Do not edit by hand — regenerated each run."
         echo "[General]"
         echo "*.node[*].appl.ambulanceReplicaId = ${AMB_ID}"
+        if [[ -n "${TOLERATED_F:-}" ]]; then
+            echo "*.node[*].appl.toleratedFaults = ${TOLERATED_F}"
+        fi
         # Byz leader: Byzantine at C++ layer
         if [[ "${byz_leader}" -ge 0 ]]; then
             local leader_node
@@ -264,6 +274,7 @@ generate_random_scenario() {
                 node_idx="$(replica_to_node_idx "${n}" "${replica_id}")"
                 echo "*.node[${node_idx}].appl.isByzantine = true"
                 echo "*.node[${node_idx}].appl.byzantineType = ${follower_byz_type}   # follower byz type (replica ${replica_id})"
+                echo "*.node[${node_idx}].appl.byzantinePbftSilent = true   # PBFT omission fault (replica ${replica_id})"
             done
         fi
         # Cert gate override (written when --cert-gate is passed)
@@ -292,6 +303,7 @@ INITIAL_LEADER=""   # "" = use default (replica 0)
 CHANNEL_METRICS_DIR=""  # "" = do not override (use omnetpp.ini / NED default)
 BASELINE=0
 ROLLBACK_LATE_EMERGENCY=0
+TOLERATED_F=""
 EXTRA_INI_ARG=()
 
 args=("$@")
@@ -337,6 +349,10 @@ while [[ $i -lt ${#args[@]} ]]; do
         --channel-metrics-dir)
             i=$(( i + 1 ))
             CHANNEL_METRICS_DIR="${args[$i]}"
+            ;;
+        --tolerated-f)
+            i=$(( i + 1 ))
+            TOLERATED_F="${args[$i]}"
             ;;
         --baseline)
             BASELINE=1
@@ -419,10 +435,29 @@ if [[ "${RANDOMIZE}" -eq 1 ]]; then
         echo "ERROR: --randomize requires <N> <F> arguments" >&2
         exit 1
     fi
+    if [[ -n "${TOLERATED_F}" ]]; then
+        if ! [[ "${TOLERATED_F}" =~ ^[0-9]+$ ]]; then
+            echo "ERROR: --tolerated-f requires a non-negative integer." >&2
+            exit 1
+        fi
+        MAX_VALID_F=$(( (RANDOMIZE_N - 1) / 3 ))
+        if (( TOLERATED_F > MAX_VALID_F )); then
+            echo "ERROR: --tolerated-f ${TOLERATED_F} invalid for N=${RANDOMIZE_N}; require f <= floor((N-1)/3)=${MAX_VALID_F}." >&2
+            exit 1
+        fi
+        TOLERATED_Q=$(( (RANDOMIZE_N + TOLERATED_F + 2) / 2 ))
+        if (( TOLERATED_Q > RANDOMIZE_N )); then
+            echo "ERROR: --tolerated-f ${TOLERATED_F} yields quorum q(N,f)=${TOLERATED_Q} > N=${RANDOMIZE_N}." >&2
+            exit 1
+        fi
+    fi
     RANDOM_INI="$(generate_random_scenario "${RANDOMIZE_N}" "${RANDOMIZE_F}" "${SIM_DIR}" "${BYZ_LEADER}" "${ALLOW_REPLICA0_BYZ_FOLLOWER}" "${NO_AMBULANCE}" "${BYZ_LEADER_TYPE}" "${BYZ_FOLLOWER_TYPE}")"
     # When any -f flag is given, OMNeT++ stops auto-loading omnetpp.ini.
     # Explicitly load omnetpp.ini first, then the override file so it wins.
     EXTRA_INI_ARG=(-f "omnetpp.ini" -f "${RANDOM_INI}")
+elif [[ -n "${TOLERATED_F}" ]]; then
+    echo "ERROR: --tolerated-f currently requires --randomize so toleratedFaults can be written into random_scenario.ini." >&2
+    exit 1
 fi
 
 if [[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 ]]; then
@@ -433,12 +468,26 @@ if [[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 ]]; then
         echo "[General]"
         echo "*.manager.launchConfig = xmldoc(\"resdb_bft_18veh_rollback_late.launchd.xml\")"
         echo "*.manager.intersectionBatchSize = 16"
+        echo "*.manager.enableR0Supervisor = true"
+        echo "*.manager.r0SpawnAfterCleared = 1"
+        echo "*.manager.lateEmergencyDeltaSec = 0s"
+        echo "*.manager.r0LateSpawnDepartPos = 200m"
+        echo "*.manager.r0LateSpawnRetrySec = 0.2s"
+        echo "*.manager.r0LateSpawnMaxRetries = 25"
+        echo "*.manager.r0LateNormalVehicleId = \"veh16\""
+        echo "*.manager.r0LateNormalType = \"car\""
+        echo "*.manager.r0LateNormalRoute = \"rN\""
+        echo "*.manager.r0LateEmergencyVehicleId = \"veh17\""
+        echo "*.manager.r0LateEmergencyType = \"ambulance\""
+        echo "*.manager.r0LateEmergencyRoute = \"rE\""
         # totalVehicles=16 (NOT 18) so epoch 0's proposeAll does not QUIET-pad the
-        # ambulance slot (replica 16): the padding loop runs rid in [0, totalVehicles).
+        # late vehicle slots: the padding loop runs rid in [0, totalVehicles).
         # Late replicas 16/17 still get correct ids from NED node[16]/node[17].replicaId
         # because they spawn last (node index == veh number).
         echo "*.node[*].appl.totalVehicles = 16"
-        echo "*.node[*].appl.ambulanceReplicaId = 16"
+        echo "*.node[*].appl.toleratedFaults = 5"
+        echo "*.node[*].appl.rollbackFaultMode = \"per_epoch\""
+        echo "*.node[*].appl.ambulanceReplicaId = 17"
         echo "*.node[*].appl.enableRollback = true"
         echo "*.node[*].appl.enableAmbulanceCertGate = true"
         echo "*.node[*].appl.cancelEchoTimeoutSec = 1s"
@@ -449,7 +498,7 @@ if [[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 ]]; then
         echo "*.node[*].appl.brakingDecelMps2 = 4.5"
         echo "*.node[*].appl.processingLatencyMargin = 2.0"
     } > "${ROLLBACK_INI}"
-    echo "  Rollback late-emergency scenario: 16 commit, veh16 ambulance + veh17 normal arrive late (rollback_late_emergency.ini)" >&2
+    echo "  Rollback late-emergency scenario: 16 commit, inject veh16 normal + veh17 ambulance after 2 vehicles clear (rollback_late_emergency.ini)" >&2
     if [[ ${#EXTRA_INI_ARG[@]} -gt 0 ]]; then
         EXTRA_INI_ARG+=(-f "${ROLLBACK_INI}")
     else

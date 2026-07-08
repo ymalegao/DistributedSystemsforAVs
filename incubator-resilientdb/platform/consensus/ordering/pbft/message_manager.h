@@ -79,6 +79,12 @@ class MessageManager {
   std::vector<RequestInfo> GetPreparedProof(uint64_t seq);
 
   void SetNextCommitSeq(int seq);
+  // Advance next_seq to at least max_executed+1 (needed when cert-primary handoff
+  // promotes a follower that never called AssignNextSeq as the old primary).
+  void EnsureNextSeqAheadOfExecuted();
+  // Newcomers gossip-adopt CANCEL(e) without executing ORDER(e)/CANCEL(e) on the
+  // PBFT executor; advance past that ledger prefix so ORDER(e+1) can run.
+  void AdvanceExecutorAfterGossipCancel(uint32_t cancelled_epoch);
 
   // =============  System information ========
   // Obtain the current replica list.

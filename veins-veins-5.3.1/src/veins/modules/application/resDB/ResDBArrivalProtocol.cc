@@ -216,8 +216,12 @@ int ResDBIntersectionApp::countStaticCollectedCerts() const
     int count = 0;
     for (const auto& kv : collected_certs_) {
         const int rid = extractReplicaId(kv.first);
-        if (rid >= 0 && rid < total_vehicles_)
+        if (cancel_pending_) {
+            if (shouldIncludeInRollbackMembership(rid))
+                ++count;
+        } else if (rid >= 0 && rid < total_vehicles_) {
             ++count;
+        }
     }
     return count;
 }
@@ -227,8 +231,10 @@ int ResDBIntersectionApp::CertPrimary() const
     int primary = -1;
     for (const auto& kv : collected_certs_) {
         const int rid = extractReplicaId(kv.first);
-        if (rid >= 0 && rid < total_vehicles_ &&
-                (primary < 0 || rid < primary)) {
+        const bool eligible = cancel_pending_
+            ? shouldIncludeInRollbackMembership(rid)
+            : (rid >= 0 && rid < total_vehicles_);
+        if (eligible && (primary < 0 || rid < primary)) {
             primary = rid;
         }
     }
@@ -247,7 +253,9 @@ void ResDBIntersectionApp::tryStartCertCollectionTimer(bool rearm)
     if (replicaId_ != certPrimary) return;
     {
         std::lock_guard<std::mutex> lk(certs_mutex_);
-        if (countStaticCollectedCerts() >= total_vehicles_) return;
+        const int need = cancel_pending_ ? minRollbackMembershipSize()
+                                         : total_vehicles_;
+        if (countStaticCollectedCerts() >= need) return;
     }
     if (!entered_stop_zone_) return;
     if (!rearm && cert_collection_started_) return;
@@ -609,6 +617,7 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
     pending_relays_[std::make_pair((uint32_t)ann.epoch, ann.carId)] = {
         ann.carId, (uint32_t)ann.epoch, announceBytes, simTime().dbl(), 0};
 
+    maybeTriggerEmergencyRollbackFromAnnouncement(ann);
     sendArrivalEcho(ann);
     gossipArrivalAnnouncement(ann, announceBytes);
 
@@ -713,7 +722,7 @@ void ResDBIntersectionApp::handleArrivalEcho(BFTMessage* msg)
     std::cout << "[ECHO-RECV] Replica " << replicaId_ << " received echo from "
               << echo.echoingReplicaId << " (" << echoes.size() << " so far)\n";
 
-    int f        = (total_vehicles_ - 1) / 3;
+    int f        = tolerated_faults_ >= 0 ? tolerated_faults_ : (total_vehicles_ - 1) / 3;
     int required = f + 1;
     if (debug_cert_protocol_)
         std::cout << "[CERT-DEBUG] handleArrivalEcho r" << replicaId_
@@ -732,6 +741,20 @@ void ResDBIntersectionApp::handleArrivalEcho(BFTMessage* msg)
         }
         cert.epoch  = (int)current_epoch_;
         cert.echoes = echoes;
+        auto selfStateIt = local_vehicle_states_.find(myCarId);
+        if (selfStateIt != local_vehicle_states_.end()
+                && selfStateIt->second.arrival_time_us > 0) {
+            const double announceTimeSec =
+                static_cast<double>(selfStateIt->second.arrival_time_us) / 1000000.0;
+            const double latencySec = simTime().dbl() - announceTimeSec;
+            std::cout << "[METRICS " << replicaId_
+                      << "] Cert_Created_Time: " << simTime()
+                      << " car=" << myCarId
+                      << " announce_time=" << announceTimeSec
+                      << " latency=" << latencySec << "s\n";
+            std::cout << "[METRICS " << replicaId_
+                      << "] Cert_Creation_Latency: " << latencySec << "s\n";
+        }
         std::cout << "[CERT-ASSEMBLE] Replica " << replicaId_ << " assembled ARRIVAL_CERT with "
                   << cert.echoes.size() << " echoes — broadcasting\n";
         broadcastArrivalCert(cert);
@@ -765,6 +788,77 @@ void ResDBIntersectionApp::stopCertBroadcastRetries()
     cert_retry_count_ = 0;
 }
 
+void ResDBIntersectionApp::broadcastCollectedCerts(const char* reason)
+{
+    std::vector<ArrivalCert> certs;
+    {
+        std::lock_guard<std::mutex> lk(certs_mutex_);
+        certs.reserve(collected_certs_.size());
+        for (const auto& kv : collected_certs_) {
+            certs.push_back(kv.second);
+        }
+    }
+    if (certs.empty()) return;
+
+    for (const auto& cert : certs) {
+        sendBFTMessage(-1, serializeArrivalCert(cert), kArrivalCertType);
+    }
+    std::cout << "[CERT-GOSSIP] r" << replicaId_
+              << " broadcast collected certs count=" << certs.size()
+              << " reason=" << (reason ? reason : "stop-zone")
+              << " t=" << simTime() << "\n";
+}
+
+void ResDBIntersectionApp::startStopZoneCertGossip(const char* reason, bool immediate)
+{
+    if (order_applied_ || propose_submitted_ || pbft_observed_
+            || current_phase_ == ConsensusPhase::DEPARTED)
+        return;
+
+    const simtime_t newDeadline = simTime() + cert_collection_timeout_;
+    if (cert_gossip_deadline_ < newDeadline)
+        cert_gossip_deadline_ = newDeadline;
+
+    if (immediate)
+        broadcastCollectedCerts(reason);
+    scheduleNextStopZoneCertGossip();
+}
+
+void ResDBIntersectionApp::scheduleNextStopZoneCertGossip()
+{
+    if (order_applied_ || propose_submitted_ || pbft_observed_
+            || current_phase_ == ConsensusPhase::DEPARTED)
+        return;
+    if (CertPrimary() != replicaId_)
+        return;
+    if (cert_gossip_deadline_ >= SIMTIME_ZERO && simTime() >= cert_gossip_deadline_)
+        return;
+
+    if (!cert_gossip_timer_)
+        cert_gossip_timer_ = new cMessage("resdbCertGossip");
+    if (cert_gossip_timer_->isScheduled())
+        return;
+
+    simtime_t interval = cert_retry_interval_;
+    if (interval < 0.5)
+        interval = 0.5;
+    simtime_t next = simTime() + interval;
+    if (cert_gossip_deadline_ >= SIMTIME_ZERO && next > cert_gossip_deadline_)
+        next = cert_gossip_deadline_;
+    scheduleAt(next, cert_gossip_timer_);
+}
+
+void ResDBIntersectionApp::stopStopZoneCertGossip()
+{
+    if (cert_gossip_timer_) {
+        if (cert_gossip_timer_->isScheduled())
+            cancelEvent(cert_gossip_timer_);
+        delete cert_gossip_timer_;
+        cert_gossip_timer_ = nullptr;
+    }
+    cert_gossip_deadline_ = -1;
+}
+
 void ResDBIntersectionApp::broadcastArrivalCert(const ArrivalCert& cert)
 {
     sendBFTMessage(-1, serializeArrivalCert(cert), kArrivalCertType);
@@ -785,10 +879,11 @@ void ResDBIntersectionApp::broadcastArrivalCert(const ArrivalCert& cert)
 
     // OMNeT++ modules don't receive their own channel broadcasts — self-store.
     bool shouldPropose = false;
+    bool shouldStartCollectionTimer = false;
+    int certPrimary = -1;
     if (!collected_certs_.count(cert.carId)) {
         int staticCerts = 0;
         int allCerts = 0;
-        int certPrimary = -1;
         std::lock_guard<std::mutex> lk(certs_mutex_);
         collected_certs_[cert.carId] = cert;
         staticCerts = countStaticCollectedCerts();
@@ -799,10 +894,15 @@ void ResDBIntersectionApp::broadcastArrivalCert(const ArrivalCert& cert)
                   << ") all=" << allCerts
                   << " cert_primary=" << certPrimary << "\n";
         const bool emergencyCancelStarted = maybeTriggerEmergencyRollbackFromCert(cert);
-        // If cert-primary and in stop zone and all static certs now collected, propose immediately.
+        // If cert-primary and in stop zone, either propose immediately when all
+        // static certs are present or start the bounded collection window.
         if (replicaId_ == certPrimary
                 && entered_stop_zone_ && !propose_submitted_) {
-            shouldPropose = !emergencyCancelStarted && (staticCerts >= total_vehicles_);
+            const int neededCerts = cancel_pending_
+                ? minRollbackMembershipSize()
+                : total_vehicles_;
+            shouldPropose = !emergencyCancelStarted && (staticCerts >= neededCerts);
+            shouldStartCollectionTimer = !emergencyCancelStarted && !shouldPropose;
         }
     }
     if (shouldPropose) {
@@ -812,6 +912,11 @@ void ResDBIntersectionApp::broadcastArrivalCert(const ArrivalCert& cert)
             propose_timeout_msg_ = nullptr;
         }
         proposeAll();
+    } else if (shouldStartCollectionTimer) {
+        tryStartCertCollectionTimer(false);
+    }
+    if (entered_stop_zone_ && !order_applied_ && !propose_submitted_ && !pbft_observed_) {
+        startStopZoneCertGossip("self-cert-stored", replicaId_ == certPrimary);
     }
     trySubmitRollbackProposal("self-cert");
     maybeFinishRollbackDiscovery("self-cert");
@@ -868,20 +973,29 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
         std::cout << "[CERT-RELAY] r" << replicaId_ << " relayed cert for "
                   << cert.carId << " t=" << simTime() << "\n";
     }
+    if (entered_stop_zone_ && !order_applied_ && !propose_submitted_ && !pbft_observed_) {
+        startStopZoneCertGossip("cert-stored", replicaId_ == certPrimary);
+    }
 
     const bool emergencyCancelStarted = maybeTriggerEmergencyRollbackFromCert(cert);
 
-    // Cert-primary: if in stop zone and all static certs collected, propose.
+    // Cert-primary: if in stop zone, either propose when all static certs are
+    // collected or start the bounded window for omission-fault runs.
     // Emergency late certs take the cancel path first; the old normal order
     // should not race the rollback trigger.
     if (replicaId_ == certPrimary && entered_stop_zone_ && !propose_submitted_) {
-        if (!emergencyCancelStarted && staticCerts >= total_vehicles_) {
+        const int neededCerts = cancel_pending_
+            ? minRollbackMembershipSize()
+            : total_vehicles_;
+        if (!emergencyCancelStarted && staticCerts >= neededCerts) {
             if (propose_timeout_msg_) {
                 cancelEvent(propose_timeout_msg_);
                 delete propose_timeout_msg_;
                 propose_timeout_msg_ = nullptr;
             }
             proposeAll();
+        } else if (!emergencyCancelStarted) {
+            tryStartCertCollectionTimer(false);
         }
     }
     trySubmitRollbackProposal("cert-stored");
@@ -892,7 +1006,7 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
 
 bool ResDBIntersectionApp::validateArrivalCert(const ArrivalCert& cert)
 {
-    int f = (total_vehicles_ - 1) / 3;
+    int f = tolerated_faults_ >= 0 ? tolerated_faults_ : (total_vehicles_ - 1) / 3;
     int required = f + 1;
     if ((int)cert.echoes.size() < required) {
         if (debug_cert_protocol_)

@@ -65,6 +65,7 @@ TraCIScenarioManager::TraCIScenarioManager()
     , commandIfc(nullptr)
     , connectAndStartTrigger(nullptr)
     , executeOneTimestepTrigger(nullptr)
+    , r0LateEmergencySpawnTrigger(nullptr)
     , world(nullptr)
 {
 }
@@ -81,6 +82,10 @@ TraCIScenarioManager::~TraCIScenarioManager()
     if (executeOneTimestepTrigger) {
         cancelAndDelete(executeOneTimestepTrigger);
         executeOneTimestepTrigger = nullptr;
+    }
+    if (r0LateEmergencySpawnTrigger) {
+        cancelAndDelete(r0LateEmergencySpawnTrigger);
+        r0LateEmergencySpawnTrigger = nullptr;
     }
 }
 
@@ -279,6 +284,21 @@ void TraCIScenarioManager::initialize(int stage)
         throw cRuntimeError("TraCIScenarioManager: intersectionBatchSize must be >= 1");
     }
     intersectionDepartureMinMeters = par("intersectionDepartureMinMeters").doubleValue();
+    enableR0Supervisor = par("enableR0Supervisor").boolValue();
+    r0SpawnAfterCleared = par("r0SpawnAfterCleared").intValue();
+    if (r0SpawnAfterCleared < 1) {
+        throw cRuntimeError("TraCIScenarioManager: r0SpawnAfterCleared must be >= 1");
+    }
+    lateEmergencyDeltaSec = par("lateEmergencyDeltaSec");
+    r0LateSpawnDepartPos = par("r0LateSpawnDepartPos").doubleValue();
+    r0LateSpawnRetrySec = par("r0LateSpawnRetrySec");
+    r0LateSpawnMaxRetries = par("r0LateSpawnMaxRetries").intValue();
+    r0LateNormalVehicleId = par("r0LateNormalVehicleId").stdstringValue();
+    r0LateNormalType = par("r0LateNormalType").stdstringValue();
+    r0LateNormalRoute = par("r0LateNormalRoute").stdstringValue();
+    r0LateEmergencyVehicleId = par("r0LateEmergencyVehicleId").stdstringValue();
+    r0LateEmergencyType = par("r0LateEmergencyType").stdstringValue();
+    r0LateEmergencyRoute = par("r0LateEmergencyRoute").stdstringValue();
 
     annotations = AnnotationManagerAccess().getIfExists();
 
@@ -296,6 +316,9 @@ void TraCIScenarioManager::initialize(int stage)
     drivingVehicleCount = 0;
     hadActiveVehicles = false;
     vehiclesClearedIntersection.clear();
+    r0LateSpawnScheduled = false;
+    r0LateSpawnDone = false;
+    r0LateSpawnRetryCount = 0;
     autoShutdownTriggered = false;
 
     world = FindModule<BaseWorldUtility*>::findGlobalModule();
@@ -307,6 +330,7 @@ void TraCIScenarioManager::initialize(int stage)
     scheduleAt(connectAt, connectAndStartTrigger);
     executeOneTimestepTrigger = new cMessage("step");
     scheduleAt(firstStepAt, executeOneTimestepTrigger);
+    r0LateEmergencySpawnTrigger = new cMessage("r0LateEmergencySpawn");
 
     EV_DEBUG << "initialized TraCIScenarioManager" << endl;
 }
@@ -516,6 +540,10 @@ void TraCIScenarioManager::handleSelfMsg(cMessage* msg)
     }
     if (msg == executeOneTimestepTrigger) {
         executeOneTimestep();
+        return;
+    }
+    if (msg == r0LateEmergencySpawnTrigger) {
+        tryR0LateEmergencySpawn();
         return;
     }
     throw cRuntimeError("TraCIScenarioManager received unknown self-message");
@@ -1023,10 +1051,13 @@ void TraCIScenarioManager::tryShutdownOnIntersectionBatchCleared(const std::stri
     if (!vehiclePastIntersectionDepartureLeg(vehicleId)) {
         return;
     }
+    auto inserted = vehiclesClearedIntersection.insert(vehicleId);
+    if (enableR0Supervisor) {
+        maybeScheduleR0LateEmergencySpawn(vehicleId);
+    }
     if (!shutdownOnIntersectionBatchCleared || autoShutdownTriggered) {
         return;
     }
-    auto inserted = vehiclesClearedIntersection.insert(vehicleId);
     if (inserted.second) {
         EV_INFO << "Intersection batch: " << vehiclesClearedIntersection.size() << "/" << intersectionBatchSize << " cleared (" << vehicleId << ")" << endl;
     }
@@ -1034,6 +1065,111 @@ void TraCIScenarioManager::tryShutdownOnIntersectionBatchCleared(const std::stri
         autoShutdownTriggered = true;
         EV_INFO << "Auto-shutdown: " << intersectionBatchSize << " vehicles cleared intersection (global TraCI predicate)." << endl;
         endSimulation();
+    }
+}
+
+void TraCIScenarioManager::notifyR0BatchStarted(const std::string& vehicleId, int batchIndex)
+{
+    if (!enableR0Supervisor || batchIndex != 0) {
+        return;
+    }
+    if (r0LateSpawnScheduled || r0LateSpawnDone || autoShutdownTriggered) {
+        return;
+    }
+    r0LateSpawnScheduled = true;
+    simtime_t when = simTime() + lateEmergencyDeltaSec;
+    if (r0LateEmergencySpawnTrigger->isScheduled()) {
+        cancelEvent(r0LateEmergencySpawnTrigger);
+    }
+    scheduleAt(when, r0LateEmergencySpawnTrigger);
+    std::cout << "[R0-SUPERVISOR] scheduled late vehicle injection"
+              << " trigger=batch-start"
+              << " trigger_vehicle=" << vehicleId
+              << " batch=" << batchIndex
+              << " at=" << when
+              << " delta=" << lateEmergencyDeltaSec
+              << "\n";
+}
+
+void TraCIScenarioManager::maybeScheduleR0LateEmergencySpawn(const std::string& vehicleId)
+{
+    if (r0LateSpawnScheduled || r0LateSpawnDone || autoShutdownTriggered) {
+        return;
+    }
+    if ((int) vehiclesClearedIntersection.size() < r0SpawnAfterCleared) {
+        return;
+    }
+    r0LateSpawnScheduled = true;
+    simtime_t when = simTime() + lateEmergencyDeltaSec;
+    if (r0LateEmergencySpawnTrigger->isScheduled()) {
+        cancelEvent(r0LateEmergencySpawnTrigger);
+    }
+    scheduleAt(when, r0LateEmergencySpawnTrigger);
+    std::cout << "[R0-SUPERVISOR] scheduled late vehicle injection"
+              << " trigger=clearance"
+              << " trigger_vehicle=" << vehicleId
+              << " cleared=" << vehiclesClearedIntersection.size()
+              << " threshold=" << r0SpawnAfterCleared
+              << " at=" << when
+              << " delta=" << lateEmergencyDeltaSec
+              << "\n";
+}
+
+void TraCIScenarioManager::tryR0LateEmergencySpawn()
+{
+    if (!enableR0Supervisor || r0LateSpawnDone || !commandIfc) {
+        return;
+    }
+
+    bool normalOk = true;
+    bool emergencyOk = true;
+    auto vehicleExists = [this](const std::string& vehicleId) {
+        std::list<std::string> ids = commandIfc->getVehicleIds();
+        return std::find(ids.begin(), ids.end(), vehicleId) != ids.end();
+    };
+    try {
+        normalOk = vehicleExists(r0LateNormalVehicleId) ||
+            commandIfc->addVehicle(
+                r0LateNormalVehicleId, r0LateNormalType, r0LateNormalRoute,
+                simTime(), r0LateSpawnDepartPos, TraCICommandInterface::DEPART_SPEED_MAX,
+                TraCICommandInterface::DEPART_LANE_BEST);
+        emergencyOk = vehicleExists(r0LateEmergencyVehicleId) ||
+            commandIfc->addVehicle(
+                r0LateEmergencyVehicleId, r0LateEmergencyType, r0LateEmergencyRoute,
+                simTime(), r0LateSpawnDepartPos, TraCICommandInterface::DEPART_SPEED_MAX,
+                TraCICommandInterface::DEPART_LANE_BEST);
+    } catch (const std::exception& e) {
+        normalOk = false;
+        emergencyOk = false;
+        std::cout << "[R0-SUPERVISOR] late vehicle injection threw: " << e.what() << "\n";
+    } catch (...) {
+        normalOk = false;
+        emergencyOk = false;
+        std::cout << "[R0-SUPERVISOR] late vehicle injection threw unknown exception\n";
+    }
+
+    if (normalOk && emergencyOk) {
+        r0LateSpawnDone = true;
+        std::cout << "[R0-SUPERVISOR] injected late vehicles"
+                  << " normal=" << r0LateNormalVehicleId
+                  << " route=" << r0LateNormalRoute
+                  << " emergency=" << r0LateEmergencyVehicleId
+                  << " route=" << r0LateEmergencyRoute
+                  << " depart_pos=" << r0LateSpawnDepartPos
+                  << " t=" << simTime()
+                  << "\n";
+        return;
+    }
+
+    r0LateSpawnRetryCount++;
+    std::cout << "[R0-SUPERVISOR] late vehicle injection failed"
+              << " normal_ok=" << normalOk
+              << " emergency_ok=" << emergencyOk
+              << " retry=" << r0LateSpawnRetryCount
+              << "/" << r0LateSpawnMaxRetries
+              << "\n";
+    if (r0LateSpawnMaxRetries <= 0 || r0LateSpawnRetryCount < r0LateSpawnMaxRetries) {
+        scheduleAt(simTime() + r0LateSpawnRetrySec, r0LateEmergencySpawnTrigger);
     }
 }
 

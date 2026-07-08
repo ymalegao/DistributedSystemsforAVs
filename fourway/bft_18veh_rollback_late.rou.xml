@@ -31,10 +31,8 @@
     <vehicle id="veh10" type="car" route="rE" depart="0" departSpeed="max" departPos="20"/>
     <vehicle id="veh14" type="car" route="rE" depart="0" departSpeed="max" departPos="0"/>
 
-    <!-- Late arrivals: pre-keyed replicas 16 (emergency) and 17 (normal) that were
-         physically absent during epoch 0 and force an emergency rollback to M=16.
-         depart=40 is tuned so they arrive AFTER epoch 0 commits (~t=18–23s with
-         16 cars) and before the batch fully clears. Retune if timing shifts. -->
-    <vehicle id="veh16" type="ambulance" route="rE" depart="4" departSpeed="max" departPos="0"/>
-    <vehicle id="veh17" type="car"       route="rN" depart="4" departSpeed="max" departPos="0"/>
+    <!-- Late arrivals are intentionally NOT scheduled here. The R0 manager-side
+         supervisor injects veh16 (normal) and veh17 (ambulance) via TraCI after
+         epoch-0 traffic has begun clearing, so rollback timing is not coupled to
+         SUMO route depart-time tuning. -->
 </routes>

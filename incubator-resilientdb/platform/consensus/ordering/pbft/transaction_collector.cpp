@@ -21,6 +21,8 @@
 
 #include <glog/logging.h>
 
+#include <iostream>
+
 #include "common/crypto/signature_verifier.h"
 
 namespace resdb {
@@ -216,6 +218,10 @@ int TransactionCollector::Commit() {
 
   is_committed_ = true;
   if (executor_ && main_request->request) {
+    std::cout << "[COLLECTOR-COMMIT] seq=" << seq_
+              << " hash=" << main_request->request->hash()
+              << " data_bytes=" << main_request->request->data().size()
+              << " certs=" << commit_certs_.size() << "\n";
     if (!commit_certs_.empty()) {
       for (const auto& sig : commit_certs_) {
         *main_request->request->mutable_committed_certs()

@@ -225,6 +225,7 @@ int ConsensusManagerPBFT::InternalConsensusCommit(
             << " type=" << request->type()
             << " sender=" << request->sender_id()
             << " seq=" << request->seq()
+            << " hash=" << request->hash()
             << " view=" << request->current_view()
             << " primary=" << system_info_->GetPrimaryId() << "\n";
 

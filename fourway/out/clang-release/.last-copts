@@ -1,1 +1,0 @@
--O3 -DNDEBUG=1 -g1 -ffp-contract=off -Wno-string-plus-int   -MMD -MP -MF .d  -fPIC  -Wno-deprecated-register -Wno-unused-function -fno-omit-frame-pointer  -DOMNETPPLIBS_IMPORT -DVEINS_IMPORT -I. -I/home/yash/DistributedSystemsforAVs/veins-veins-5.3.1/src -Isrc -I/home/yash/omnetpp/omnetpp-6.2.0/include

@@ -54,6 +54,8 @@ class TransactionExecutor {
   // The max seq S that can be executed (have received all the seq before S).
   uint64_t GetMaxPendingExecutedSeq();
   void SetPendingExecutedSeq(int seq);
+  // Skip past ORDER(e)+CANCEL(e) ledger prefix after gossip-adopted cancel.
+  void AdvanceExecuteSeq(uint64_t seq);
 
   // When a transaction is ready to be executed (have received all the seq
   // before Txn) PreExecute func will be called.

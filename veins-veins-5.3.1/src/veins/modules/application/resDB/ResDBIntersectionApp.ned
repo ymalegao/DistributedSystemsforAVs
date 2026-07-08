@@ -53,6 +53,9 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         double stopDistance  @unit(m) = default(5m);   // distance-to-lane-end threshold (TraCI-based)
         int    totalVehicles          = default(4);
 
+        // ── Fault-tolerance experiment knob ─────────────────────────────────
+        int    toleratedFaults         = default(-1);  // intended f; -1 = derive from static ResDB replica count
+
         // ── Step-5 cert collection / proposal ────────────────────────────────
         bool debugCertProtocol = default(false); // verbose ARRIVAL_ECHO / ARRIVAL_CERT tracing
         // Trace ResDB order callback → processOrders (enqueue/dequeue, skips, tail drops).
@@ -81,6 +84,7 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         int    ambulanceReplicaId  = default(-1);     // if >=0, marks veh<id> as ambulance after SUMO identity binding
         bool   isByzantine         = default(false);  // enables Byzantine fault injection
         int    byzantineType       = default(0);      // 0=honest 1=false_lane 2=invalid_sig 3=equivocator 4=silent_primary 5=bad_proposal 6=fake_ambulance 7=fake_ambulance_follower 8=tamper_lane
+        bool   byzantinePbftSilent = default(false);  // when true, Byzantine replica drops PBFT outbound messages
         bool   enableAmbulanceCertGate = default(false); // when true, rejects ambulance claims with empty ambulanceCertBytes (ablation toggle)
 
         // ── Post-consensus order gossip (Type 9) ──────────────────────────────
@@ -97,6 +101,7 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         double processingLatencyMargin                     = default(2.0);
         double rollbackDiscoveryTimeoutSec @unit(s)         = default(8s);
         double rollbackVcTimeoutSec @unit(s)               = default(3s);
+        string rollbackFaultMode                           = default("per_epoch"); // per_epoch | anchored
 
         // ── Milestone 4: view-change (VC) support ─────────────────────────────
         // PBFT complaint-timer duration in sim-seconds.  After certCollectionTimeoutSec

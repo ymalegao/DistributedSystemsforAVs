@@ -4,6 +4,7 @@
 //
 
 #include "veins/modules/application/resDB/ResDBIntersectionApp.h"
+#include "veins/modules/mobility/traci/TraCIScenarioManager.h"
 #include <algorithm>
 #include <cctype>
 #include <limits>
@@ -44,6 +45,54 @@ double ResDBIntersectionApp::getDistanceToIntersection()
     } catch (...) {
         // Fallback or if vehicle is not yet placed on a valid edge
         return 1e10;
+    }
+}
+
+bool ResDBIntersectionApp::isInOrPastConflictBox()
+{
+    if (is_departed_ || current_phase_ == ConsensusPhase::DEPARTED) return true;
+    if (!mobility || !mobility->getCommandInterface()) return true;
+
+    try {
+        std::string myId = "veh" + std::to_string(replicaId_);
+        TraCICommandInterface::Vehicle v =
+            mobility->getCommandInterface()->vehicle(myId);
+        std::string laneId = v.getLaneId();
+        if (laneId.empty()) return true;
+        if (laneId.front() == ':') return true;
+
+        std::string roadId = v.getRoadId();
+        return roadId.size() >= 2
+            && std::toupper(static_cast<unsigned char>(roadId[0])) == 'C'
+            && std::toupper(static_cast<unsigned char>(roadId[1])) == '2';
+    } catch (...) {
+        return true;
+    }
+}
+
+int ResDBIntersectionApp::countRollbackPerceivedVehicles() const
+{
+    if (!mobility || !mobility->getCommandInterface()) return total_vehicles_;
+    TraCICommandInterface* traci = mobility->getCommandInterface();
+    try {
+        int count = 0;
+        for (const auto& vid : traci->getVehicleIds()) {
+            TraCICommandInterface::Vehicle v = traci->vehicle(vid);
+            const std::string laneId = v.getLaneId();
+            if (laneId.empty()) continue;
+            if (laneId.front() == ':') continue;
+
+            const std::string roadId = v.getRoadId();
+            const bool onDepartureLeg = roadId.size() >= 2
+                && std::toupper(static_cast<unsigned char>(roadId[0])) == 'C'
+                && std::toupper(static_cast<unsigned char>(roadId[1])) == '2';
+            if (onDepartureLeg) continue;
+
+            ++count;
+        }
+        return count > 0 ? count : total_vehicles_;
+    } catch (...) {
+        return total_vehicles_;
     }
 }
 
@@ -207,11 +256,17 @@ void ResDBIntersectionApp::resumeVehicle(int position_in_order)
 {
     TraCICommandInterface::Vehicle* vc = mobility ? mobility->getVehicleCommandInterface() : nullptr;
     if (!vc) return;
+    is_stopped_ = false;
     std::cout << "[V2VResDB r" << replicaId_ << "] resumeVehicle position=" << position_in_order
               << " speed=" << cruise_speed_mps_ << " t=" << simTime() << "\n";
     vc->setSpeedMode(0);        // re-enable SUMO safety checks (mirrors stopVehicle)
 
     vc->setSpeed(cruise_speed_mps_);
+    if (position_in_order == 0) {
+        if (auto* manager = TraCIScenarioManagerAccess().get()) {
+            manager->notifyR0BatchStarted("veh" + std::to_string(replicaId_), 0);
+        }
+    }
 }
 
 // ── verifyCarPosition (port of V2VArrivalProtocol::verifyCarPosition) ─────────

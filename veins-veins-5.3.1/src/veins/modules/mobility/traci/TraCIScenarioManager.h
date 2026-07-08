@@ -117,6 +117,8 @@ public:
         return hosts;
     }
 
+    void notifyR0BatchStarted(const std::string& vehicleId, int batchIndex);
+
     /**
      * Predicate indicating a successful connection to the TraCI server.
      *
@@ -149,6 +151,18 @@ protected:
     bool shutdownOnIntersectionBatchCleared; /**< if true, end simulation when N vehicles satisfy departure-leg clearance (see intersectionBatchSize) */
     int intersectionBatchSize; /**< number of distinct vehicles that must clear intersection before endSimulation */
     double intersectionDepartureMinMeters; /**< min meters on C2* departure edge (same idea as V2VTraCI clearance) */
+    bool enableR0Supervisor; /**< R0-only manager-side late emergency injector */
+    int r0SpawnAfterCleared; /**< schedule late injection after this many vehicles clear the departure predicate */
+    simtime_t lateEmergencyDeltaSec; /**< delay between trigger and late insertion */
+    double r0LateSpawnDepartPos; /**< position on route's first incoming edge for injected vehicles */
+    simtime_t r0LateSpawnRetrySec; /**< retry delay if SUMO rejects a blocked insertion */
+    int r0LateSpawnMaxRetries;
+    std::string r0LateNormalVehicleId;
+    std::string r0LateNormalType;
+    std::string r0LateNormalRoute;
+    std::string r0LateEmergencyVehicleId;
+    std::string r0LateEmergencyType;
+    std::string r0LateEmergencyRoute;
     double penetrationRate;
     bool ignoreGuiCommands; /**< whether to ignore all TraCI commands that only make sense when the server has a graphical user interface */
     int order; // specific position in the multi-client execution order of the TraCI server to request upon connecting (-1: do not request a position)
@@ -170,9 +184,13 @@ protected:
     uint32_t drivingVehicleCount; /**< number of driving, as reported by sumo */
     bool hadActiveVehicles; /**< guard against ending simulation before first vehicle departs */
     std::set<std::string> vehiclesClearedIntersection; /**< vehicle ids that have satisfied departure-leg clearance */
+    bool r0LateSpawnScheduled;
+    bool r0LateSpawnDone;
+    int r0LateSpawnRetryCount;
     bool autoShutdownTriggered;
     cMessage* connectAndStartTrigger; /**< self-message scheduled for when to connect to TraCI server and start running */
     cMessage* executeOneTimestepTrigger; /**< self-message scheduled for when to next call executeOneTimestep */
+    cMessage* r0LateEmergencySpawnTrigger; /**< R0 supervisor self-message for controlled late insertion */
 
     BaseWorldUtility* world;
     std::map<const BaseMobility*, const MobileHostObstacle*> vehicleObstacles;
@@ -184,6 +202,8 @@ protected:
     bool vehiclePastIntersectionDepartureLeg(const std::string& vehicleId);
     void notifyIntersectionDeparture(const std::string& vehicleId);
     void tryShutdownOnIntersectionBatchCleared(const std::string& vehicleId);
+    void maybeScheduleR0LateEmergencySpawn(const std::string& vehicleId);
+    void tryR0LateEmergencySpawn();
 
     virtual void init_traci();
 

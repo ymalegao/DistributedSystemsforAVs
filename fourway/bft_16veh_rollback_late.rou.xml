@@ -28,6 +28,6 @@
     <vehicle id="veh10" type="car" route="rE" depart="0" departSpeed="max" departPos="20"/>
 
     <!-- Late arrivals: one emergency vehicle plus one normal vehicle. -->
-    <vehicle id="veh14" type="ambulance" route="rE" depart="12" departSpeed="max" departPos="0"/>
-    <vehicle id="veh15" type="car" route="rN" depart="12" departSpeed="max" departPos="0"/>
+    <vehicle id="veh14" type="ambulance" route="rE" depart="7" departSpeed="max" departPos="0"/>
+    <vehicle id="veh15" type="car" route="rN" depart="7" departSpeed="max" departPos="0"/>
 </routes>

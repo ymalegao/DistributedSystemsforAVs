@@ -16,8 +16,8 @@ Batch / plotting workflow (same base --save-to, e.g. benchmarks/Priority4cars):
   python analyze_log.py combined.log --save-to benchmarks/Priority4cars --scenario 1 --cars 4
   # writes benchmarks/Priority4cars/no_amb/4veh_0.json (then 4veh_1.json, ...)
   # --scenario: 1=no ambulance, 2=honest ambulance, 3=Byz followers (legacy),
-  #             4=Byz leader with ambulance, 5=Byz leader no ambulance,
-  #             6=Byz followers with no ambulance
+#             4=Byz leader with ambulance, 5=Byz leader no ambulance,
+#             6=Byz followers with no ambulance, 15=R0 late-emergency rollback
   # plot_wait_time_cdf.py pools all matching Nveh_*.json per folder.
 """
 
@@ -40,12 +40,13 @@ _parser.add_argument("log_file", nargs="?", default="/tmp/bft-all-replicas.log",
 _parser.add_argument("--save-to", metavar="DIR",
                      help="Copy metrics into DIR as <N>veh_<i>.log for later batch analysis")
 _parser.add_argument(
-    "--scenario", type=int, choices=[1, 2, 3, 4, 5, 6], default=None,
+    "--scenario", type=int, choices=[1, 2, 3, 4, 5, 6, 15], default=None,
     metavar="N",
     help="Save under a scenario subfolder (requires --save-to): "
          "1=no ambulance, 2=honest ambulance, 3=ambulance+Byzantine followers, "
          "4=ambulance+Byzantine leader, 5=no ambulance+Byzantine leader, "
-         "6=no ambulance+Byzantine followers. Use same base DIR and --cars for each run; "
+         "6=no ambulance+Byzantine followers, 15=R0 late-emergency rollback. "
+         "Use same base DIR and --cars for each run; "
          "plot_wait_time_cdf.py pools all matching <N>veh_*.json in that folder.")
 _parser.add_argument("--cars", type=int, default=None,
                      help="Total cars/replicas in the scenario (e.g. 12 or 16). "
@@ -89,6 +90,7 @@ SCENARIO_SUBDIR = {
     4: "amb_byz_leader",
     5: "no_amb_byz_leader",
     6: "no_amb_byz_follower",
+    15: "rollback_emergency_dynamic_n",
 }
 SCENARIO_LABEL = {
     1: "no ambulance",
@@ -97,6 +99,7 @@ SCENARIO_LABEL = {
     4: "ambulance + Byzantine leader",
     5: "no ambulance + Byzantine leader",
     6: "no ambulance + Byzantine followers",
+    15: "R0 late-emergency rollback",
 }
 
 LOG_FILE = _args.log_file
@@ -142,6 +145,13 @@ N_EPOCHS = max(1, CARS // 4)
 
 # Epoch → group size mapping (4 cars depart each round)
 EPOCH_N = {epoch: max(CARS - 4 * epoch, 0) for epoch in range(N_EPOCHS)}
+
+def bft_quorum(n_active: int, f: int) -> int:
+    if n_active <= 0:
+        raise ValueError("n_active must be positive")
+    if f < 0 or f > (n_active - 1) // 3:
+        raise ValueError("invalid f for active membership")
+    return (n_active + f + 2) // 2
 
 # ── Patterns ────────────────────────────────────────────────────────────────
 RE_ROUND_METRIC = re.compile(
@@ -208,8 +218,78 @@ RE_PHASE_SUMMARY = re.compile(
 )
 RE_CONSENSUS_HEADER = re.compile(r'CONSENSUS METRICS \(Replica (\d+)\) epoch=(\d+)')
 RE_CERT_DUR = re.compile(r'\[METRICS (\d+)\] Cert_Collection_Duration: ([\d.]+)s')
+RE_CERT_CREATION_LATENCY = re.compile(r'\[METRICS (\d+)\] Cert_Creation_Latency: ([-\d.]+)s')
 # ResDB batch assignment (from IntersectionExecutor batch packer)
 RE_BATCH_ASSIGN = re.compile(r'\[METRICS (\d+)\] Batch_Assignment: batch=(\d+)')
+RE_TOLERATED_F_CONFIG = re.compile(
+    r'\[TOLERATED-F-(?:APP|CONFIG)\].*tolerated_f=(-?\d+)'
+    r'.*static_n=(\d+).*quorum=(-?\d+).*cert_threshold=(-?\d+)'
+)
+RE_R0_CANCEL_WITNESS = re.compile(
+    r'\[CANCEL-WITNESS\]\s+r(\d+).*cancelled_epoch=(\d+).*ref=([^\s]+)'
+)
+RE_R0_CANCEL_ECHO = re.compile(
+    r'\[CANCEL-ECHO\]\s+r(\d+)\s+epoch=(\d+)\s+reason=(\d+)\s+ref=([^\s]+)'
+)
+RE_R0_CANCEL_CERT = re.compile(
+    r'\[CANCEL-CERT\]\s+r(\d+)\s+broadcast\s+key=([^\s]+)\s+echoes=(\d+)'
+)
+RE_R0_ROLLBACK_QUORUM = re.compile(
+    r'\[ROLLBACK-QUORUM\]\s+r(\d+)\s+\|M\|=(\d+)\s+f_anchored=(\d+)'
+    r'\s+quorum=(\d+)\s+proposer=r(\d+).*new_epoch=(\d+)'
+)
+RE_R0_ROLLBACK_QUORUM_V3 = re.compile(
+    r'\[ROLLBACK-QUORUM\]\s+r(\d+)\s+mode=(per_epoch|anchored)'
+    r'\s+voteN=(\d+)\s+sceneN=(\d+)\s+f=(\d+)\s+quorum=(\d+)'
+    r'\s+proposer=r(\d+).*new_epoch=(\d+)'
+)
+RE_R0_ROLLBACK_RECONFIG = re.compile(
+    r'\[ROLLBACK-RECONFIG\]\s+r(\d+)\s+mode=(per_epoch|anchored)'
+    r'\s+oldEpoch=(\d+)\s+newEpoch=(\d+)\s+voteN=(\d+)\s+sceneN=(\d+)'
+    r'\s+newF=(\d+)\s+quorum=(\d+)'
+)
+RE_R0_ROLLBACK_UNAVAILABLE = re.compile(
+    r'\[ROLLBACK-UNAVAILABLE\].*\|M\|=(\d+).*f_anchored=(\d+)'
+    r'(?:\s+f_dynamic=(-?\d+))?.*need>=(\d+)'
+)
+RE_R0_ROLLBACK_UNAVAILABLE_V3 = re.compile(
+    r'\[ROLLBACK-UNAVAILABLE\].*mode=(per_epoch|anchored)'
+    r'(?:\s+reason=[^\s]+)?\s+voteN=(\d+)(?:\s+f_anchored=(\d+))?'
+    r'(?:\s+f=(\d+))?\s+need>=(\d+)'
+)
+RE_R0_ROLLBACK_PROPOSE_SKIP_MINUS_ONE = re.compile(
+    r'\[ROLLBACK-PROPOSE\].*proposer=r-1'
+)
+RE_R0_ROLLBACK_BEGIN = re.compile(
+    r'\[ROLLBACK-BEGIN\]\s+r(\d+)\s+cancelled_epoch=(\d+)\s+new_epoch=(\d+)'
+)
+RE_R0_CANCEL_COMMIT = re.compile(
+    r'\[CANCEL-COMMIT\]\s+r(\d+)\s+cancelled_epoch=(\d+)\s+seq=(\d+)\s+'
+    r'(?:quorum=(\d+)\s+)?source=([^\s]+)'
+)
+RE_R0_ROLLBACK_COMMIT = re.compile(
+    r'\[ROLLBACK-COMMIT\]\s+r(\d+)\s+cancelled_epoch=(\d+)\s+new_epoch=(\d+)'
+)
+RE_R0_ROLLBACK_PROPOSE_RC = re.compile(
+    r'\[ROLLBACK-PROPOSE\]\s+r(\d+)\s+rc=(-?\d+)'
+)
+RE_R0_ROLLBACK_DISCOVERY_SNAPSHOT = re.compile(
+    r'\[ROLLBACK-DISCOVERY\]\s+r(\d+)\s+snapshot\s+reason=([^\s]+)\s+'
+    r'mode=(per_epoch|anchored)\s+signed=(\d+)\s+quiet=(\d+)\s+'
+    r'voteN=(\d+)\s+sceneN=(\d+)\s+expectedN=(\d+)'
+)
+RE_R0_ACTIVE_VIEW_EPOCH1 = re.compile(
+    r'\[ACTIVE-VIEW\]\s+mode=(?:pending|promoted|request)\s+epoch=1\s+'
+    r'seq=(\d+)\s+hash=([^\s]+)\s+N=(\d+)\s+f=(\d+)\s+'
+    r'quorum=(\d+)\s+primary=r(\d+)'
+)
+RE_R0_EXECUTOR_ORDER_EPOCH = re.compile(
+    r'\[EXECUTOR\]\s+OrderDecision:\s+epoch=(\d+).*?'
+    r'n_vehicles=(\d+)\s+n_batches=(\d+)(?:\s+decisions=\[(.*)\])?'
+)
+RE_PBFT_NEW_REQ = re.compile(
+    r'\[PBFT-NEW-REQ\]\s+primary=(\d+)\s+broadcasting PRE_PREPARE seq=(\d+)'
+)
 
 # Pre-computed summary metrics (written by --save-to or the C++ side)
 RE_RUN_METRIC       = re.compile(r'\[RUN-METRICS\] ([\w_]+):\s*([-\d.]+)')
@@ -237,9 +317,39 @@ epoch_bytes_sent    = defaultdict(list)     # epoch -> [payload_bytes, ...]
 epoch_total_dur     = defaultdict(list)     # epoch -> [duration, ...]
 epoch_total_dur_by_car = defaultdict(dict)  # epoch -> {carId: duration}
 epoch_failures      = defaultdict(int)      # epoch -> count
+epoch_cert_creation_latency = defaultdict(list)  # epoch -> [cert f+1 assembly latency seconds]
 ambulance_ids       = set()
 car_metrics         = defaultdict(dict)     # carId -> {metric_name: value}
 replica_batch_index = {}                    # replica_id (int) -> batch_index (int)
+r0_metrics = {
+    "enabled": False,
+    "failure_stage": None,
+    "cancel_witness_count": 0,
+    "cancel_echo_count": 0,
+    "cancel_cert_count": 0,
+    "bad_quorum_count": 0,
+    "rollback_unavailable_count": 0,
+    "rollback_unavailable_max_m": 0,
+    "rollback_unavailable_f": None,
+    "rollback_unavailable_need": None,
+    "rollback_quorums": [],
+    "rollback_reconfigs": [],
+    "rollback_discovery_snapshots": [],
+    "rollback_active_views": [],
+    "cancel_commit_count": 0,
+    "rollback_commit_count": 0,
+    "rollback_commit_replica_ids": [],
+    "epoch1_order_decision_count": 0,
+    "epoch1_order_n_vehicles": None,
+    "epoch1_order_n_batches": None,
+    "epoch1_order_vehicle_ids": [],
+    "rollback_begin_seen": False,
+    "rollback_epoch1_committed": False,
+    "rollback_propose_rc0": False,
+    "rollback_pbft_new_req_after_propose": False,
+    "proposer_minus_one_skip_count": 0,
+    "rollback_mode": None,
+}
 
 # Byzantine injection tracking
 byzantine_by_epoch   = defaultdict(int)    # epoch -> count of [BYZANTINE INJECTION] events
@@ -277,6 +387,12 @@ attack_outcomes = []
 attack_outcome_keys = set()
 attack_outcomes_by_epoch = defaultdict(list)
 attack_failures_by_epoch = defaultdict(int)
+experiment_fault_tolerance = {
+    "tolerated_f": None,
+    "static_replicas": None,
+    "consensus_quorum": None,
+    "cert_threshold": None,
+}
 attack_success_outcomes = {
     "MALICIOUS_INPUT_COMMITTED",
     "ORDER_COMMITTED_AFTER_MALFORMED_PROPOSAL",
@@ -501,6 +617,8 @@ for line in _log_lines:
             rep, epoch = int(m.group(1)), int(m.group(2))
             replica_epoch[rep] = epoch
             current_gossip_epoch = epoch
+            if r0_metrics["rollback_begin_seen"] and epoch == 1:
+                r0_metrics["rollback_epoch1_committed"] = True
             continue
 
         m = RE_ORDER_COMMITTED.search(line)
@@ -801,11 +919,239 @@ for line in _log_lines:
             round_metrics[ep].setdefault("Cert_Collection_Duration", val)
             continue
 
+        m = RE_CERT_CREATION_LATENCY.search(line)
+        if m:
+            rep, val = int(m.group(1)), float(m.group(2))
+            ep = replica_epoch.get(rep, current_gossip_epoch)
+            car_id = f"veh{rep}"
+            car_metrics[car_id]["cert_creation_s"] = val
+            epoch_cert_creation_latency[ep].append(val)
+            round_metrics[ep].setdefault("Cert_Creation_Latency", val)
+            continue
+
         m = RE_BATCH_ASSIGN.search(line)
         if m:
             rep, batch = int(m.group(1)), int(m.group(2))
             replica_batch_index[rep] = batch
             car_metrics[f"veh{rep}"]["batch_index"] = batch
+            continue
+
+        m = RE_TOLERATED_F_CONFIG.search(line)
+        if m:
+            experiment_fault_tolerance["tolerated_f"] = int(m.group(1))
+            experiment_fault_tolerance["static_replicas"] = int(m.group(2))
+            experiment_fault_tolerance["consensus_quorum"] = int(m.group(3))
+            experiment_fault_tolerance["cert_threshold"] = int(m.group(4))
+            try:
+                expected_q = bft_quorum(
+                    experiment_fault_tolerance["static_replicas"],
+                    experiment_fault_tolerance["tolerated_f"],
+                )
+                if expected_q != experiment_fault_tolerance["consensus_quorum"]:
+                    r0_metrics["bad_quorum_count"] += 1
+            except ValueError:
+                r0_metrics["bad_quorum_count"] += 1
+            continue
+
+        m = RE_R0_CANCEL_WITNESS.search(line)
+        if m:
+            r0_metrics["enabled"] = True
+            r0_metrics["cancel_witness_count"] += 1
+            continue
+
+        m = RE_R0_CANCEL_ECHO.search(line)
+        if m:
+            r0_metrics["enabled"] = True
+            r0_metrics["cancel_echo_count"] += 1
+            continue
+
+        m = RE_R0_CANCEL_CERT.search(line)
+        if m:
+            r0_metrics["enabled"] = True
+            r0_metrics["cancel_cert_count"] += 1
+            continue
+
+        m = RE_R0_ROLLBACK_BEGIN.search(line)
+        if m:
+            r0_metrics["enabled"] = True
+            r0_metrics["rollback_begin_seen"] = True
+            continue
+
+        m = RE_R0_CANCEL_COMMIT.search(line)
+        if m:
+            r0_metrics["enabled"] = True
+            r0_metrics["cancel_commit_count"] += 1
+            continue
+
+        m = RE_R0_ROLLBACK_COMMIT.search(line)
+        if m:
+            r0_metrics["enabled"] = True
+            r0_metrics["rollback_commit_count"] += 1
+            r0_metrics["rollback_commit_replica_ids"].append(int(m.group(1)))
+            if int(m.group(3)) == 1:
+                r0_metrics["rollback_epoch1_committed"] = True
+            continue
+
+        m = RE_R0_ROLLBACK_PROPOSE_RC.search(line)
+        if m:
+            r0_metrics["enabled"] = True
+            if int(m.group(2)) == 0:
+                r0_metrics["rollback_propose_rc0"] = True
+            continue
+
+        m = RE_R0_ROLLBACK_DISCOVERY_SNAPSHOT.search(line)
+        if m:
+            r0_metrics["enabled"] = True
+            r0_metrics["rollback_mode"] = m.group(3)
+            r0_metrics["rollback_discovery_snapshots"].append({
+                "replica": int(m.group(1)),
+                "reason": m.group(2),
+                "mode": m.group(3),
+                "signed": int(m.group(4)),
+                "quiet": int(m.group(5)),
+                "vote_n": int(m.group(6)),
+                "scene_n": int(m.group(7)),
+                "expected_n": int(m.group(8)),
+            })
+            continue
+
+        m = RE_R0_ACTIVE_VIEW_EPOCH1.search(line)
+        if m:
+            r0_metrics["enabled"] = True
+            view = {
+                "seq": int(m.group(1)),
+                "hash": m.group(2),
+                "vote_n": int(m.group(3)),
+                "f": int(m.group(4)),
+                "quorum_used": int(m.group(5)),
+                "proposer": int(m.group(6)),
+                "new_epoch": 1,
+            }
+            try:
+                view["expected_quorum"] = bft_quorum(view["vote_n"], view["f"])
+            except ValueError:
+                view["expected_quorum"] = None
+            if view["seq"] in (0, 3) and view["expected_quorum"] != view["quorum_used"]:
+                r0_metrics["bad_quorum_count"] += 1
+            r0_metrics["rollback_active_views"].append(view)
+            continue
+
+        m = RE_R0_EXECUTOR_ORDER_EPOCH.search(line)
+        if m:
+            epoch = int(m.group(1))
+            n_vehicles = int(m.group(2))
+            n_batches = int(m.group(3))
+            if epoch == 1 and n_vehicles > 0:
+                r0_metrics["enabled"] = True
+                r0_metrics["epoch1_order_decision_count"] += 1
+                r0_metrics["epoch1_order_n_vehicles"] = n_vehicles
+                r0_metrics["epoch1_order_n_batches"] = n_batches
+                decision_blob = m.group(4) or ""
+                order_vehicle_ids = [
+                    int(v) for v in re.findall(r'\bveh=(\d+)\b', decision_blob)
+                ]
+                if order_vehicle_ids:
+                    r0_metrics["epoch1_order_vehicle_ids"] = order_vehicle_ids
+                r0_metrics["rollback_epoch1_committed"] = True
+            continue
+
+        m = RE_PBFT_NEW_REQ.search(line)
+        if m:
+            if r0_metrics["rollback_propose_rc0"]:
+                r0_metrics["rollback_pbft_new_req_after_propose"] = True
+            continue
+
+        m = RE_R0_ROLLBACK_QUORUM_V3.search(line)
+        if m:
+            r0_metrics["enabled"] = True
+            vote_n = int(m.group(3))
+            f_used = int(m.group(5))
+            quorum_used = int(m.group(6))
+            mode = m.group(2)
+            r0_metrics["rollback_mode"] = mode
+            try:
+                expected_q = bft_quorum(vote_n, f_used)
+            except ValueError:
+                expected_q = None
+            if expected_q != quorum_used:
+                r0_metrics["bad_quorum_count"] += 1
+            r0_metrics["rollback_quorums"].append({
+                "mode": mode,
+                "vote_n": vote_n,
+                "scene_n": int(m.group(4)),
+                "f": f_used,
+                "quorum_used": quorum_used,
+                "expected_quorum": expected_q,
+                "proposer": int(m.group(7)),
+                "new_epoch": int(m.group(8)),
+            })
+            continue
+
+        m = RE_R0_ROLLBACK_RECONFIG.search(line)
+        if m:
+            r0_metrics["enabled"] = True
+            r0_metrics["rollback_mode"] = m.group(2)
+            r0_metrics["rollback_reconfigs"].append({
+                "mode": m.group(2),
+                "old_epoch": int(m.group(3)),
+                "new_epoch": int(m.group(4)),
+                "vote_n": int(m.group(5)),
+                "scene_n": int(m.group(6)),
+                "new_f": int(m.group(7)),
+                "quorum": int(m.group(8)),
+            })
+            continue
+
+        m = RE_R0_ROLLBACK_QUORUM.search(line)
+        if m:
+            r0_metrics["enabled"] = True
+            member_count = int(m.group(2))
+            f_anchored = int(m.group(3))
+            quorum_used = int(m.group(4))
+            try:
+                expected_q = bft_quorum(member_count, f_anchored)
+            except ValueError:
+                expected_q = None
+            if expected_q != quorum_used:
+                r0_metrics["bad_quorum_count"] += 1
+            r0_metrics["rollback_quorums"].append({
+                "member_count": member_count,
+                "f_anchored": f_anchored,
+                "quorum_used": quorum_used,
+                "expected_quorum": expected_q,
+                "proposer": int(m.group(5)),
+                "new_epoch": int(m.group(6)),
+            })
+            continue
+
+        m = RE_R0_ROLLBACK_UNAVAILABLE_V3.search(line)
+        if m:
+            r0_metrics["enabled"] = True
+            r0_metrics["rollback_unavailable_count"] += 1
+            vote_n = int(m.group(2))
+            need = int(m.group(5))
+            r0_metrics["rollback_mode"] = m.group(1)
+            if vote_n > r0_metrics["rollback_unavailable_max_m"]:
+                r0_metrics["rollback_unavailable_max_m"] = vote_n
+                f_val = m.group(3) or m.group(4)
+                r0_metrics["rollback_unavailable_f"] = int(f_val) if f_val else None
+                r0_metrics["rollback_unavailable_need"] = need
+            continue
+
+        m = RE_R0_ROLLBACK_UNAVAILABLE.search(line)
+        if m:
+            r0_metrics["enabled"] = True
+            r0_metrics["rollback_unavailable_count"] += 1
+            member_count = int(m.group(1))
+            if member_count > r0_metrics["rollback_unavailable_max_m"]:
+                r0_metrics["rollback_unavailable_max_m"] = member_count
+                r0_metrics["rollback_unavailable_f"] = int(m.group(2))
+                r0_metrics["rollback_unavailable_need"] = int(m.group(4))
+            continue
+
+        if RE_R0_ROLLBACK_PROPOSE_SKIP_MINUS_ONE.search(line):
+            r0_metrics["enabled"] = True
+            r0_metrics["proposer_minus_one_skip_count"] += 1
             continue
 
         # [RUN-METRICS] summary lines (read back from saved log files)
@@ -835,6 +1181,81 @@ if _args.baseline_tripinfo:
 
 print("Done.\n")
 byzantine_total = sum(byzantine_by_epoch.values())
+
+if experiment_fault_tolerance["tolerated_f"] is None and "Tolerated_F" in run_metrics:
+    experiment_fault_tolerance["tolerated_f"] = int(run_metrics["Tolerated_F"])
+    experiment_fault_tolerance["static_replicas"] = int(
+        run_metrics.get("Static_Replicas", -1)
+    )
+    experiment_fault_tolerance["consensus_quorum"] = int(
+        run_metrics.get("Consensus_Quorum", -1)
+    )
+    experiment_fault_tolerance["cert_threshold"] = int(
+        run_metrics.get("Cert_Threshold", -1)
+    )
+
+if _args.scenario == 15:
+    r0_metrics["enabled"] = True
+if r0_metrics["enabled"]:
+    if r0_metrics["bad_quorum_count"] > 0:
+        r0_metrics["failure_stage"] = "bad_quorum"
+    elif (r0_metrics["proposer_minus_one_skip_count"] > 0
+          and not r0_metrics["rollback_quorums"]
+          and r0_metrics["rollback_unavailable_count"] == 0):
+        r0_metrics["failure_stage"] = "silent_proposer_minus_one"
+    elif (r0_metrics["rollback_unavailable_count"] > 0
+          and not r0_metrics["rollback_quorums"]):
+        r0_metrics["failure_stage"] = "rollback_unavailable"
+    elif r0_metrics["cancel_echo_count"] == 0:
+        r0_metrics["failure_stage"] = "no_echo"
+    elif r0_metrics["cancel_cert_count"] == 0:
+        r0_metrics["failure_stage"] = "no_cert"
+    elif r0_metrics["rollback_epoch1_committed"]:
+        latest_view = (
+            r0_metrics["rollback_active_views"][-1]
+            if r0_metrics["rollback_active_views"]
+            else None
+        )
+        if latest_view and latest_view.get("expected_quorum") != latest_view.get("quorum_used"):
+            r0_metrics["failure_stage"] = "unexpected_epoch1_quorum"
+        elif latest_view:
+            r0_metrics["failure_stage"] = "ok_epoch1_commit"
+        else:
+            r0_metrics["failure_stage"] = "ok_epoch1_commit_no_view_log"
+    elif _args.scenario == 15 and r0_metrics["rollback_quorums"]:
+        last = r0_metrics["rollback_quorums"][-1]
+        committed = (
+            r0_metrics["rollback_epoch1_committed"]
+            or r0_metrics["rollback_pbft_new_req_after_propose"]
+        )
+        if not committed:
+            r0_metrics["failure_stage"] = "rollback_propose_no_commit"
+        elif last.get("mode") == "per_epoch":
+            if last.get("vote_n", 0) >= 12 and last.get("f") == 4 and last.get("quorum_used") == 10:
+                r0_metrics["failure_stage"] = "ok_per_epoch_reconfig"
+            else:
+                r0_metrics["failure_stage"] = "unexpected_per_epoch_quorum"
+        else:
+            r0_metrics["failure_stage"] = "ok_rollback_quorum"
+    elif r0_metrics["rollback_quorums"]:
+        committed = (
+            r0_metrics["rollback_epoch1_committed"]
+            or r0_metrics["rollback_pbft_new_req_after_propose"]
+        )
+        if committed:
+            r0_metrics["failure_stage"] = "ok_rollback_quorum"
+        else:
+            r0_metrics["failure_stage"] = "rollback_propose_no_commit"
+    else:
+        r0_metrics["failure_stage"] = "unknown_pending_full_predicates"
+    order_members = set(r0_metrics["epoch1_order_vehicle_ids"])
+    commit_members = set(r0_metrics["rollback_commit_replica_ids"])
+    r0_metrics["rollback_commit_extra_replica_ids"] = sorted(
+        commit_members - order_members
+    )
+    r0_metrics["rollback_commit_missing_replica_ids"] = sorted(
+        order_members - commit_members
+    )
 
 def normalize_java_epoch(raw_epoch):
     if raw_epoch in round_metrics and (raw_epoch - 1) not in round_metrics:
@@ -1124,14 +1545,22 @@ def write_metrics_json(path):
         msgs_sent = epoch_messages_sent.get(ep, [])
         msgs_recv = epoch_messages_recv.get(ep, [])
         bytes_sent = epoch_bytes_sent.get(ep, [])
+        cert_creation = epoch_cert_creation_latency.get(ep, [])
         propose_all_sim = rm.get("ProposeAll_Consensus_Sim")
         first_submit_commit = rm.get("ProposeAll_FirstSubmit_To_OrderCommit_Sim")
         epochs_out.append({
             "epoch": ep,
             "n_replicas": n,
+            "tolerated_f": experiment_fault_tolerance["tolerated_f"],
+            "static_replicas": experiment_fault_tolerance["static_replicas"],
+            "consensus_quorum": experiment_fault_tolerance["consensus_quorum"],
+            "cert_threshold": experiment_fault_tolerance["cert_threshold"],
             "propose_all_consensus_latency_sim_s": propose_all_sim,
             "propose_all_first_submit_to_commit_sim_s": first_submit_commit,
             "stop_to_decision_sim_s": rm.get("Stop_To_Decision_Sim"),
+            "cert_creation_latency_ms": (
+                statistics.mean(cert_creation) * 1000.0 if cert_creation else None
+            ),
             "throughput_s_per_veh": tp,
             "throughput_veh_per_s": (1.0 / tp) if tp not in (None, 0) else None,
             "wait_normal_s": _stat(wn),
@@ -1213,6 +1642,7 @@ def write_metrics_json(path):
     overall = {
         "cars": CARS,
         "epochs": N_EPOCHS,
+        "fault_tolerance_experiment": experiment_fault_tolerance,
         "throughput_s_per_veh": throughput,
         "throughput_veh_per_s": throughput_vps,
         "throughput_formula": "n_cars / mean(depart_time - stop_time)  (s/veh stored as inverse)",
@@ -1247,6 +1677,12 @@ def write_metrics_json(path):
             for ep in range(N_EPOCHS)
             if round_metrics.get(ep, {}).get("ProposeAll_FirstSubmit_To_OrderCommit_Sim", 0) > 0
         ]),
+        "cert_creation_latency_ms": _stat([
+            value * 1000.0
+            for ep in range(N_EPOCHS)
+            for value in epoch_cert_creation_latency.get(ep, [])
+            if value > 0
+        ]),
         "stop_to_decision_sim_s": _stat([
             round_metrics[ep]["Stop_To_Decision_Sim"]
             for ep in range(N_EPOCHS)
@@ -1278,6 +1714,7 @@ def write_metrics_json(path):
         "quiet_honest_count": _quiet_honest_n,
         "quiet_honest_opportunities": _quiet_honest_d,
         "quiet_honest_rate_percent": _quiet_honest_rate,
+        "r0_late_emergency": r0_metrics if r0_metrics["enabled"] else None,
     }
 
     if _args.output_format == "legacy":
@@ -1364,8 +1801,16 @@ def write_metrics_json(path):
                     ),
                 },
                 "bft_stats": {
+                    "tolerated_f": experiment_fault_tolerance["tolerated_f"],
+                    "static_replicas": experiment_fault_tolerance["static_replicas"],
+                    "consensus_quorum": experiment_fault_tolerance["consensus_quorum"],
+                    "cert_threshold": experiment_fault_tolerance["cert_threshold"],
                     "cert_collection_duration_ms": (
                         _epoch_cert_collection_duration_ms(ep) if isinstance(ep, int) else None
+                    ),
+                    "cert_creation_latency_ms": (
+                        m.get("cert_creation_s") * 1000.0
+                        if m.get("cert_creation_s") is not None else None
                     ),
                     "view_change_triggered": rep in replica_vc_trigger_time,
                     # Global epoch-level VC duration (earliest trigger -> earliest primary installed).
@@ -1588,6 +2033,34 @@ missing_departure = [
 print(f"\n{'=' * 72}")
 print(f"{BOLD}Paper-Friendly Summary Metrics{RESET}")
 print(f"{'─' * 72}")
+if experiment_fault_tolerance["tolerated_f"] is not None:
+    print(
+        "  Fault tolerance experiment:      "
+        f"f={experiment_fault_tolerance['tolerated_f']} "
+        f"static_n={experiment_fault_tolerance['static_replicas']} "
+        f"quorum={experiment_fault_tolerance['consensus_quorum']} "
+        f"cert={experiment_fault_tolerance['cert_threshold']}"
+    )
+if r0_metrics["enabled"]:
+    stage = r0_metrics["failure_stage"] or "unknown"
+    print(
+        "  R0 late-emergency rollback:      "
+        f"failure_stage={stage} "
+        f"witnesses={r0_metrics['cancel_witness_count']} "
+        f"echoes={r0_metrics['cancel_echo_count']} "
+        f"certs={r0_metrics['cancel_cert_count']} "
+        f"bad_quorum={r0_metrics['bad_quorum_count']} "
+        f"cancel_commit={r0_metrics['cancel_commit_count']} "
+        f"rollback_unavailable={r0_metrics['rollback_unavailable_count']} "
+        f"max_M={r0_metrics['rollback_unavailable_max_m']} "
+        f"need={r0_metrics['rollback_unavailable_need']} "
+        f"rollback_commit={r0_metrics['rollback_commit_count']} "
+        f"rollback_commit_extra={r0_metrics.get('rollback_commit_extra_replica_ids', [])} "
+        f"epoch1_commit={int(r0_metrics['rollback_epoch1_committed'])} "
+        f"epoch1_order_n={r0_metrics['epoch1_order_n_vehicles']} "
+        f"epoch1_order_vehicles={r0_metrics['epoch1_order_vehicle_ids']} "
+        f"pbft_new_req={int(r0_metrics['rollback_pbft_new_req_after_propose'])}"
+    )
 if throughput is not None:
     print(f"  Throughput (user definition): {throughput:.6f}s per vehicle")
     if throughput_vps is not None:
@@ -1804,6 +2277,17 @@ if SAVE_TO:
             f.write(f"[ROUND-METRICS] Epoch {ep} Avg_StopSign_Failures: "
                     f"{float(fail_val):.3f} (count)\n")
 
+        cert_creation_all = [
+            value
+            for values in epoch_cert_creation_latency.values()
+            for value in values
+            if value > 0
+        ]
+        if cert_creation_all:
+            f.write("[RUN-METRICS] Cert_Creation_Latency_Mean: "
+                    f"{statistics.mean(cert_creation_all):.6f} seconds\n")
+            f.write("[RUN-METRICS] Cert_Creation_Latency_P95: "
+                    f"{percentile(cert_creation_all, 0.95):.6f} seconds\n")
         if throughput is not None:
             f.write(f"[RUN-METRICS] Throughput_User_Definition: {throughput:.6f} seconds_per_vehicle\n")
         if throughput_vps is not None:
@@ -1819,6 +2303,48 @@ if SAVE_TO:
             f.write(f"[RUN-METRICS] Stop_To_Resume_Mean: {statistics.mean(stop_to_resume_all):.6f} seconds\n")
         if resume_to_depart_all:
             f.write(f"[RUN-METRICS] Resume_To_Depart_Mean: {statistics.mean(resume_to_depart_all):.6f} seconds\n")
+
+        if experiment_fault_tolerance["tolerated_f"] is not None:
+            f.write(f"[RUN-METRICS] Tolerated_F: {experiment_fault_tolerance['tolerated_f']}\n")
+            f.write(f"[RUN-METRICS] Static_Replicas: {experiment_fault_tolerance['static_replicas']}\n")
+            f.write(f"[RUN-METRICS] Consensus_Quorum: {experiment_fault_tolerance['consensus_quorum']}\n")
+            f.write(f"[RUN-METRICS] Cert_Threshold: {experiment_fault_tolerance['cert_threshold']}\n")
+        if r0_metrics["enabled"]:
+            f.write(f"[RUN-METRICS] R0_Enabled: 1\n")
+            f.write(f"[RUN-METRICS] R0_Cancel_Witness_Count: {r0_metrics['cancel_witness_count']}\n")
+            f.write(f"[RUN-METRICS] R0_Cancel_Echo_Count: {r0_metrics['cancel_echo_count']}\n")
+            f.write(f"[RUN-METRICS] R0_Cancel_Cert_Count: {r0_metrics['cancel_cert_count']}\n")
+            f.write(f"[RUN-METRICS] R0_Cancel_Commit_Count: {r0_metrics['cancel_commit_count']}\n")
+            f.write(f"[RUN-METRICS] R0_Bad_Quorum_Count: {r0_metrics['bad_quorum_count']}\n")
+            f.write(f"[RUN-METRICS] R0_Rollback_Unavailable_Count: {r0_metrics['rollback_unavailable_count']}\n")
+            f.write(f"[RUN-METRICS] R0_Rollback_Unavailable_Max_M: {r0_metrics['rollback_unavailable_max_m']}\n")
+            if r0_metrics["rollback_unavailable_f"] is not None:
+                f.write(f"[RUN-METRICS] R0_Rollback_Unavailable_F: {r0_metrics['rollback_unavailable_f']}\n")
+            if r0_metrics["rollback_unavailable_need"] is not None:
+                f.write(f"[RUN-METRICS] R0_Rollback_Unavailable_Need: {r0_metrics['rollback_unavailable_need']}\n")
+            f.write(f"[RUN-METRICS] R0_Rollback_Commit_Count: {r0_metrics['rollback_commit_count']}\n")
+            if r0_metrics["rollback_commit_replica_ids"]:
+                committers = ",".join(
+                    str(v) for v in sorted(set(r0_metrics["rollback_commit_replica_ids"]))
+                )
+                f.write(f"[RUN-METRICS] R0_Rollback_Commit_Replicas: {committers}\n")
+            extra_committers = r0_metrics.get("rollback_commit_extra_replica_ids", [])
+            if extra_committers:
+                extra = ",".join(str(v) for v in extra_committers)
+                f.write(f"[RUN-METRICS] R0_Rollback_Commit_Extra_Replicas: {extra}\n")
+            missing_committers = r0_metrics.get("rollback_commit_missing_replica_ids", [])
+            if missing_committers:
+                missing = ",".join(str(v) for v in missing_committers)
+                f.write(f"[RUN-METRICS] R0_Rollback_Commit_Missing_Replicas: {missing}\n")
+            f.write(f"[RUN-METRICS] R0_Epoch1_OrderDecision_Count: {r0_metrics['epoch1_order_decision_count']}\n")
+            if r0_metrics["epoch1_order_n_vehicles"] is not None:
+                f.write(f"[RUN-METRICS] R0_Epoch1_Order_N_Vehicles: {r0_metrics['epoch1_order_n_vehicles']}\n")
+            if r0_metrics["epoch1_order_n_batches"] is not None:
+                f.write(f"[RUN-METRICS] R0_Epoch1_Order_N_Batches: {r0_metrics['epoch1_order_n_batches']}\n")
+            if r0_metrics["epoch1_order_vehicle_ids"]:
+                vehicles = ",".join(str(v) for v in r0_metrics["epoch1_order_vehicle_ids"])
+                f.write(f"[RUN-METRICS] R0_Epoch1_Order_Vehicles: {vehicles}\n")
+            f.write(f"[RUN-METRICS] R0_Failure_Stage: {r0_metrics['failure_stage']}\n")
 
         # Jain's fairness
         if jains_fairness(all_waits) is not None:

@@ -32,15 +32,24 @@ bool ResDBIntersectionApp::isReplicaConfiguredByzantine(int replicaId) const
 
 void ResDBIntersectionApp::proposeAll()
 {
-    if (cancel_pending_) {
+    const bool rollbackOrderEpoch =
+        cancel_pending_ && rollback_discovery_ready_ &&
+        current_epoch_ == rollback_new_epoch_;
+    if (cancel_consensus_pending_) {
+        std::cout << "[CANCEL-PROPOSE] r" << replicaId_
+                  << " proposeAll redirected while cancel_consensus_pending\n";
+        trySubmitCancelProposal("proposeAll-redirect");
+        return;
+    }
+    if (cancel_pending_ && !rollbackOrderEpoch) {
         std::cout << "[ROLLBACK-PROPOSE] r" << replicaId_
                   << " proposeAll redirected while cancel_pending\n";
         trySubmitRollbackProposal("proposeAll-redirect");
         return;
     }
-    if (rollback_cancel_initiated_) {
-        std::cout << "[ROLLBACK-PROPOSE] r" << replicaId_
-                  << " normal propose suppressed while waiting for CANCEL_CERT\n";
+    if (rollback_cancel_initiated_ && !rollbackOrderEpoch) {
+        std::cout << "[CANCEL-PROPOSE] r" << replicaId_
+                  << " normal propose suppressed while cancel in progress\n";
         return;
     }
     if (propose_submitted_) {
@@ -67,6 +76,8 @@ void ResDBIntersectionApp::proposeAll()
     }
     deferred_propose_after_cert_timeout_ = false;
     stopCertBroadcastRetries();
+    stopStopZoneCertGossip();
+    pbft_observed_ = true;
     propose_submitted_ = true;
     propose_time_ = simTime();
     current_phase_ = ConsensusPhase::WAITING_FOR_CLEARANCE;
@@ -77,7 +88,8 @@ void ResDBIntersectionApp::proposeAll()
     }
     std::cout << "[VC-TRACE] r" << replicaId_
               << " proposeAll context phase=" << phaseToStr(current_phase_)
-              << " static_certs=" << countStaticCollectedCerts() << "/" << total_vehicles_
+              << " static_certs=" << countStaticCollectedCerts() << "/"
+              << (rollbackOrderEpoch ? minRollbackMembershipSize() : total_vehicles_)
               << " all_certs=" << collected_certs_.size()
               << " observed=" << physically_observed_cars_.size()
               << " cert_primary=" << certPrimary
@@ -116,11 +128,12 @@ void ResDBIntersectionApp::proposeAll()
     // Missing vehicles → QUIET (cyber_status=0, sim_time_us=UINT64_MAX).
     std::set<int> present_ids;
     std::vector<ResdbVehicleEntry> entries;
-    int f_val = (total_vehicles_ - 1) / 3;
-    (void)f_val;  // f threshold already enforced at cert-collection time
     for (const auto& kv : collected_certs_) {
         const int rid = extractReplicaId(kv.first);
-        if (rid < 0 || (rid >= total_vehicles_ && !kv.second.isAmbulance)) {
+        const bool eligible = rollbackOrderEpoch
+            ? shouldIncludeInRollbackMembership(rid)
+            : (rid >= 0 && (rid < total_vehicles_ || kv.second.isAmbulance));
+        if (!eligible) {
             std::cout << "[PROPOSE-PACK] r" << replicaId_
                       << " skip regular late/static-external cert rid=" << rid
                       << " car=" << kv.first
@@ -164,7 +177,7 @@ void ResDBIntersectionApp::proposeAll()
     // direction is intentional cyber-state and requires f+1 cert signatures —
     // it stays 0 (unknown) for QUIET entries.
     uint64_t proposal_honest_opportunities = 0;
-    for (int rid = 0; rid < total_vehicles_; ++rid) {
+    auto appendQuiet = [&](int rid, const VehicleState* vs) {
         const bool target_is_byzantine = isReplicaConfiguredByzantine(rid);
         if (!target_is_byzantine)
             proposal_honest_opportunities++;
@@ -175,12 +188,10 @@ void ResDBIntersectionApp::proposeAll()
             quiet.is_ambulance = 0;
             quiet.direction    = 0;  // cert-only — unknown without f+1 echoes
             quiet.cyber_status = 0;  // QUIET — no f+1 echoes by timeout
-            std::string quietCarId = "veh" + std::to_string(rid);
-            if (local_vehicle_states_.count(quietCarId)) {
-                const VehicleState& vs = local_vehicle_states_.at(quietCarId);
-                quiet.lane             = laneCode(vs.lane);
+            if (vs) {
+                quiet.lane             = laneCode(vs->lane);
                 quiet.position_in_lane = static_cast<uint8_t>(
-                    std::min(vs.positionInLane, 255));
+                    std::min(vs->positionInLane, 255));
             } else {
                 quiet.lane             = 0;
                 quiet.position_in_lane = 0;
@@ -195,6 +206,19 @@ void ResDBIntersectionApp::proposeAll()
                       << " pos=" << (int)quiet.position_in_lane
                       << " target_is_byzantine=" << (target_is_byzantine ? 1 : 0)
                       << "\n";
+        }
+    };
+    if (rollbackOrderEpoch) {
+        for (const auto& kv : local_vehicle_states_) {
+            const int rid = extractReplicaId(kv.first);
+            if (shouldIncludeInRollbackMembership(rid))
+                appendQuiet(rid, &kv.second);
+        }
+    } else {
+        for (int rid = 0; rid < total_vehicles_; ++rid) {
+            std::string quietCarId = "veh" + std::to_string(rid);
+            auto it = local_vehicle_states_.find(quietCarId);
+            appendQuiet(rid, it == local_vehicle_states_.end() ? nullptr : &it->second);
         }
     }
     quietHonestOpportunities_ += proposal_honest_opportunities;
@@ -237,6 +261,14 @@ void ResDBIntersectionApp::proposeAll()
     if (is_byzantine_ && byzantine_type_ == BYZANTINE_TAMPER_LANE)     applyByzantineTamperLane(buf.data() + sizeof(ResdbProposeHdr), n);
 
     int rc = ResdbOmnetTriggerConsensus(resdb_server_handle_, buf.data(), (uint32_t)buf.size());
+    if (rollbackOrderEpoch) {
+        rollback_propose_submitted_ = true;
+        std::cout << "[ROLLBACK-PROPOSE] r" << replicaId_
+                  << " rc=" << rc
+                  << " cancelled_epoch=" << cancelled_epoch_
+                  << " new_epoch=" << rollback_new_epoch_
+                  << " normal_proposeAll=1 vehicles=" << n << "\n";
+    }
     std::cout << "[ResDB r" << replicaId_ << "] TriggerConsensus rc=" << rc
               << " vehicles=" << n << "\n";
 }
@@ -585,6 +617,14 @@ void ResDBIntersectionApp::processOrders()
     size_t ord_idx = 0;
     for (const auto& dec : local) {
         ++ord_idx;
+        if (dec.size() >= sizeof(ResdbCancelDecisionHdr)) {
+            ResdbCancelDecisionHdr dh{};
+            std::memcpy(&dh, dec.data(), sizeof(dh));
+            if (dh.magic == RESDB_CANCEL_DECISION_MAGIC) {
+                handleCancelCommitDecision(dec);
+                continue;
+            }
+        }
         if (dec.size() < sizeof(ResdbOrderHdr)) {
             if (debug_order_delivery_) {
                 std::cout << "[ORDER-SKIP] r" << replicaId_
@@ -595,7 +635,13 @@ void ResDBIntersectionApp::processOrders()
 
         ResdbOrderHdr ohdr;
         std::memcpy(&ohdr, dec.data(), sizeof(ohdr));
-        if (tombstoned_epochs_.count(ohdr.epoch)) {
+        if (hasCompletedReplicaEpoch(replicaId_, ohdr.epoch)) {
+            std::cout << "[ORDER-TAIL-DROP] r" << replicaId_
+                      << " skipping epoch=" << ohdr.epoch
+                      << " reason=replica-already-departed\n";
+            continue;
+        }
+        if (tombstoned_epochs_.count(ohdr.epoch) || isEpochTombstoned(ohdr.epoch)) {
             std::cout << "[ORDER-SKIP] r" << replicaId_
                       << " reason=tombstoned epoch=" << ohdr.epoch << "\n";
             continue;
@@ -631,7 +677,6 @@ void ResDBIntersectionApp::processOrders()
         }
 
         if (cancel_pending_ && ohdr.epoch == rollback_new_epoch_) {
-            tombstoned_epochs_.insert(cancelled_epoch_);
             cancel_pending_ = false;
             rollback_cancel_initiated_ = false;
             rollback_propose_submitted_ = false;
@@ -648,8 +693,7 @@ void ResDBIntersectionApp::processOrders()
             }
             std::cout << "[ROLLBACK-COMMIT] r" << replicaId_
                       << " cancelled_epoch=" << cancelled_epoch_
-                      << " new_epoch=" << ohdr.epoch
-                      << " tombstoned=1\n";
+                      << " new_epoch=" << ohdr.epoch << "\n";
         }
 
         if (cancel_pending_ && ohdr.epoch == cancelled_epoch_) {

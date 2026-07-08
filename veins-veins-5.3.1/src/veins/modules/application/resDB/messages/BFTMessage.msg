@@ -22,6 +22,7 @@ namespace veins;
 // 11 = RESDB_CONSENSUS_RELAY - Signed relay of raw ResDB PBFT bytes
 // 12 = CANCEL_ECHO        - Rollback cancel echo
 // 13 = CANCEL_CERT        - Rollback cancel certificate
+// 14 = CANCEL_COMMIT_GOSSIP - Signed post-consensus cancel-commit gossip
 
 packet BFTMessage extends BaseFrame1609_4 {
     int fromReplicaId;        // Source replica ID

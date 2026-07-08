@@ -13,8 +13,11 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <mutex>
+#include <set>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 
 #include "veins/modules/application/resDB/ResdbV2VWire.h"
 #include "veins/modules/application/resDB/ResDBDecisionGossip.h"
@@ -22,7 +25,31 @@
 using namespace veins;
 using namespace veins::resdb_app_util;
 
+namespace {
+int bftQuorumSize(int n, int f)
+{
+    if (n <= 0 || f < 0 || f > (n - 1) / 3) return -1;
+    return std::max((n + f + 2) / 2, 1);
+}
+
+std::mutex g_completed_replica_epochs_mu;
+std::set<std::pair<int, uint32_t>> g_completed_replica_epochs;
+
+}  // namespace
+
 Define_Module(veins::ResDBIntersectionApp);
+
+bool ResDBIntersectionApp::hasCompletedReplicaEpoch(int replicaId, uint32_t epoch)
+{
+    std::lock_guard<std::mutex> lk(g_completed_replica_epochs_mu);
+    return g_completed_replica_epochs.count({replicaId, epoch}) > 0;
+}
+
+void ResDBIntersectionApp::markCompletedReplicaEpoch(int replicaId, uint32_t epoch)
+{
+    std::lock_guard<std::mutex> lk(g_completed_replica_epochs_mu);
+    g_completed_replica_epochs.insert({replicaId, epoch});
+}
 
 // ── Destructor ────────────────────────────────────────────────────────────────
 
@@ -33,6 +60,7 @@ ResDBIntersectionApp::~ResDBIntersectionApp()
     if (time_tick_msg_)           { cancelAndDelete(time_tick_msg_);           time_tick_msg_           = nullptr; }
     if (propose_timeout_msg_)     { cancelAndDelete(propose_timeout_msg_);     propose_timeout_msg_     = nullptr; }
     if (cert_retry_timer_)        { cancelAndDelete(cert_retry_timer_);        cert_retry_timer_        = nullptr; }
+    if (cert_gossip_timer_)       { cancelAndDelete(cert_gossip_timer_);       cert_gossip_timer_       = nullptr; }
     if (gossip_timer_)            { cancelAndDelete(gossip_timer_);            gossip_timer_            = nullptr; }
     if (initial_announce_msg_)    { cancelAndDelete(initial_announce_msg_);    initial_announce_msg_    = nullptr; }
     if (stop_sign_timeout_msg_)   { cancelAndDelete(stop_sign_timeout_msg_);   stop_sign_timeout_msg_   = nullptr; }
@@ -41,6 +69,8 @@ ResDBIntersectionApp::~ResDBIntersectionApp()
     if (cancel_cert_retry_timer_) { cancelAndDelete(cancel_cert_retry_timer_); cancel_cert_retry_timer_ = nullptr; }
     if (rollback_discovery_timer_) { cancelAndDelete(rollback_discovery_timer_); rollback_discovery_timer_ = nullptr; }
     if (rollback_vc_timer_)       { cancelAndDelete(rollback_vc_timer_);       rollback_vc_timer_       = nullptr; }
+    if (cancel_vc_timer_)         { cancelAndDelete(cancel_vc_timer_);         cancel_vc_timer_         = nullptr; }
+    if (cancel_gossip_timer_)     { cancelAndDelete(cancel_gossip_timer_);     cancel_gossip_timer_     = nullptr; }
     if (clearance_poll_msg_)      { cancelAndDelete(clearance_poll_msg_);      clearance_poll_msg_      = nullptr; }
     if (broadcastArrivalAnnouncement_timer_) { cancelAndDelete(broadcastArrivalAnnouncement_timer_); broadcastArrivalAnnouncement_timer_ = nullptr; }
     if (channel_metrics_timer_) {
@@ -128,6 +158,21 @@ void ResDBIntersectionApp::initialize(int stage)
         enable_cert_retries_    = par("enableArrivalCertRetries").boolValue();
         cert_retry_interval_    = par("arrivalCertRetryIntervalSec").doubleValue();
         cert_retry_max_         = par("arrivalCertRetryMax").intValue();
+        tolerated_faults_       = par("toleratedFaults").intValue();
+        configured_consensus_quorum_ = tolerated_faults_ >= 0
+            ? bftQuorumSize(total_vehicles_, tolerated_faults_)
+            : -1;
+        configured_cert_threshold_ = tolerated_faults_ >= 0
+            ? (tolerated_faults_ + 1)
+            : -1;
+        if (tolerated_faults_ >= 0) {
+            std::cout << "[TOLERATED-F-APP] r" << replicaId_
+                      << " tolerated_f=" << tolerated_faults_
+                      << " static_n=" << total_vehicles_
+                      << " quorum=" << configured_consensus_quorum_
+                      << " cert_threshold=" << configured_cert_threshold_;
+            std::cout << "\n";
+        }
 
         gossip_enabled_          = par("enableDecisionGossip").boolValue();
         gossip_initial_interval_ = par("decisionGossipInitialIntervalSec").doubleValue();
@@ -145,6 +190,7 @@ void ResDBIntersectionApp::initialize(int stage)
         intended_lane_         = par("intendedLane").stdstringValue();
         is_byzantine_            = par("isByzantine").boolValue();
         byzantine_type_          = static_cast<ByzantineType>(par("byzantineType").intValue());
+        byzantine_pbft_silent_   = par("byzantinePbftSilent").boolValue();
         enableAmbulanceCertGate_ = par("enableAmbulanceCertGate").boolValue();
         enableRollback_ = par("enableRollback").boolValue();
         cancel_echo_timeout_sec_ = par("cancelEchoTimeoutSec").doubleValue();
@@ -154,6 +200,17 @@ void ResDBIntersectionApp::initialize(int stage)
         processing_latency_margin_ = par("processingLatencyMargin").doubleValue();
         rollback_discovery_timeout_sec_ = par("rollbackDiscoveryTimeoutSec").doubleValue();
         rollback_vc_timeout_sec_ = par("rollbackVcTimeoutSec").doubleValue();
+        {
+            std::string rollbackMode = par("rollbackFaultMode").stdstringValue();
+            std::transform(rollbackMode.begin(), rollbackMode.end(),
+                           rollbackMode.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            rollback_fault_mode_per_epoch_ = (rollbackMode != "anchored");
+            std::cout << "[ROLLBACK-MODE] r" << replicaId_
+                      << " mode="
+                      << (rollback_fault_mode_per_epoch_ ? "per_epoch" : "anchored")
+                      << "\n";
+        }
 
         const int ambulance_replica_id = par("ambulanceReplicaId").intValue();
         if (ambulance_replica_id >= 0) {
@@ -219,6 +276,21 @@ void ResDBIntersectionApp::initialize(int stage)
                 resdb_server_handle_ = ResdbOmnetCreateNullHandle();
         }
 
+        if (tolerated_faults_ >= 0) {
+            int rc = ResdbOmnetSetToleratedFaults(
+                resdb_server_handle_, tolerated_faults_);
+            std::cout << "[TOLERATED-F-APP] r" << replicaId_
+                      << " bridge_set_rc=" << rc << "\n";
+        }
+        {
+            int rc = ResdbOmnetSetRollbackFaultMode(
+                resdb_server_handle_, rollback_fault_mode_per_epoch_ ? 1 : 0);
+            if (rc != 0) {
+                std::cout << "[ROLLBACK-MODE] r" << replicaId_
+                          << " bridge_set_rc=" << rc << "\n";
+            }
+        }
+
         registerTransport();
         ResdbOmnetSetOrderCallback(resdb_server_handle_,
                                    &ResDBIntersectionApp::onOrderDecided, this);
@@ -241,13 +313,17 @@ void ResDBIntersectionApp::initialize(int stage)
 
         ResdbOmnetRunServer(resdb_server_handle_);
 
-        // For SILENT_PRIMARY: silence the PBFT communicator so the primary's PBFT
-        // replica also drops all outbound messages.  Followers' complaint timers then
-        // fire and ResDB's built-in VIEW_CHANGE / NEW_VIEW exchange runs naturally.
-        if (is_byzantine_ && byzantine_type_ == BYZANTINE_SILENT_PRIMARY) {
+        // For PBFT omission faults: silence the communicator so this replica drops
+        // outbound PRE_PREPARE/PREPARE/COMMIT traffic. SILENT_PRIMARY keeps its
+        // legacy behavior; byzantinePbftSilent lets randomized followers be quiet too.
+        if (is_byzantine_ &&
+                (byzantine_type_ == BYZANTINE_SILENT_PRIMARY || byzantine_pbft_silent_)) {
             ResdbOmnetSetPbftSilent(resdb_server_handle_, 1);
             std::cout << "[BYZANTINE] r" << replicaId_
-                      << " SILENT_PRIMARY: PBFT communicator silenced\n";
+                      << " PBFT_SILENT: communicator silenced"
+                      << " type=" << static_cast<int>(byzantine_type_)
+                      << " explicit=" << (byzantine_pbft_silent_ ? 1 : 0)
+                      << "\n";
         }
     }
 
@@ -403,8 +479,30 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
         return;
     }
 
+    if (msg == cert_gossip_timer_) {
+        if (order_applied_ || propose_submitted_ || pbft_observed_
+                || current_phase_ == ConsensusPhase::DEPARTED || CertPrimary() != replicaId_ ||
+                (cert_gossip_deadline_ >= SIMTIME_ZERO && simTime() >= cert_gossip_deadline_)) {
+            cert_gossip_timer_ = nullptr;
+            cert_gossip_deadline_ = -1;
+            delete msg;
+            return;
+        }
+        broadcastCollectedCerts("stop-zone-periodic");
+        scheduleNextStopZoneCertGossip();
+        return;
+    }
+
     if (msg == gossip_timer_) {
         if (gossip_order_bytes_.empty()) return;
+        if (isEpochTombstoned(gossip_epoch_) ||
+                (cancel_consensus_pending_ && gossip_epoch_ == cancelled_epoch_)) {
+            std::cout << "[GOSSIP-STOP] r" << replicaId_
+                      << " epoch=" << gossip_epoch_
+                      << " reason=cancel-active t=" << simTime() << "\n";
+            stopGossip();
+            return;
+        }
         auto inner  = resdb_gossip::serialize(gossip_epoch_, gossip_order_bytes_);
         auto signed_payload = resdbwire::packSignedPacket(
             ec_private_key_, ec_pub_key_, inner.data(), (uint32_t)inner.size());
@@ -418,8 +516,38 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
         return;
     }
 
+    if (msg == cancel_gossip_timer_) {
+        if (cancel_gossip_bytes_.empty()) {
+            cancel_gossip_timer_ = nullptr;
+            delete msg;
+            return;
+        }
+        auto inner = resdb_gossip::serialize(cancel_gossip_epoch_,
+                                             cancel_gossip_bytes_);
+        auto signed_payload = resdbwire::packSignedPacket(
+            ec_private_key_, ec_pub_key_, inner.data(), (uint32_t)inner.size());
+        if (!signed_payload.empty()) {
+            sendBFTMessage(-1, signed_payload, kCancelCommitGossipType);
+            std::cout << "[CANCEL-GOSSIP-SEND] r" << replicaId_
+                      << " cancelled_epoch=" << cancel_gossip_epoch_
+                      << " retry=" << cancel_gossip_retry_count_ << "\n";
+        }
+        cancel_gossip_retry_count_++;
+        if (cancel_cert_retry_max_ > 0 &&
+                cancel_gossip_retry_count_ >= cancel_cert_retry_max_) {
+            cancel_gossip_timer_ = nullptr;
+            cancel_gossip_bytes_.clear();
+            delete msg;
+            return;
+        }
+        scheduleAt(simTime() + cancel_cert_retry_interval_sec_,
+                   cancel_gossip_timer_);
+        return;
+    }
+
     if (msg == cancel_cert_retry_timer_) {
-        if (cancel_cert_pending_retries_.echoes.empty() || !cancel_pending_) {
+        if (cancel_cert_pending_retries_.echoes.empty() ||
+                (!cancel_consensus_pending_ && !cancel_pending_)) {
             stopCancelCertRetries();
             return;
         }
@@ -442,20 +570,15 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
     if (msg == rollback_discovery_timer_) {
         rollback_discovery_timer_ = nullptr;
         rollback_discovery_ready_ = true;
-        std::cout << "[ROLLBACK-DISCOVERY] r" << replicaId_
-                  << " timeout; trying rollback proposal"
-                  << " |M_candidate|=" << rollbackMembershipCandidates().size()
-                  << " cancelled_epoch=" << cancelled_epoch_
-                  << " new_epoch=" << rollback_new_epoch_ << "\n";
         trySubmitRollbackProposal("discovery-timeout");
         delete msg; return;
     }
 
     if (msg == propose_timeout_msg_) {
         propose_timeout_msg_ = nullptr;
-        if (cancel_pending_) {
+        if (cancel_pending_ || cancel_consensus_pending_) {
             std::cout << "[ROLLBACK-PROPOSE] r" << replicaId_
-                      << " ignore normal cert timeout during rollback discovery\n";
+                      << " ignore normal cert timeout during cancel/rollback\n";
             delete msg; return;
         }
         if (!propose_submitted_) {
@@ -469,7 +592,7 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
             std::cout << "[ResDB r" << replicaId_
                       << "] cert-collection timeout — proposing with available certs\n";
             if (debug_cert_protocol_) {
-                int f = (total_vehicles_ - 1) / 3;
+                int f = tolerated_faults_ >= 0 ? tolerated_faults_ : (total_vehicles_ - 1) / 3;
                 int need = f + 1;
                 std::string myCarId = "veh" + std::to_string(replicaId_);
                 size_t myEchoes = my_received_echoes_.count(myCarId)
@@ -513,9 +636,9 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
         vc_trigger_msg_ = nullptr;
         processOrders();
         if (!order_applied_) {
-            if (cancel_pending_) {
+            if (cancel_pending_ || cancel_consensus_pending_) {
                 std::cout << "[ROLLBACK-VC-UNSUPPORTED] r" << replicaId_
-                          << " suppressed app forced view-change while cancel_pending"
+                          << " suppressed app forced view-change while cancel active"
                           << " cancelled_epoch=" << cancelled_epoch_
                           << " new_epoch=" << rollback_new_epoch_
                           << " phase=" << phaseToStr(current_phase_)
@@ -554,6 +677,35 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
         delete msg; return;
     }
 
+    if (msg == cancel_vc_timer_) {
+        cancel_vc_timer_ = nullptr;
+        const int oldProposer = chooseCancelProposer();
+        const int oldIndex = rollback_rotation_index_;
+        const std::vector<int> oldElectors = cancelElectorateCandidates();
+        rollback_rotation_index_++;
+        cancel_propose_submitted_ = false;
+        propose_submitted_ = false;
+        const int newProposer = chooseCancelProposer();
+        const std::vector<int> newElectors = cancelElectorateCandidates();
+        std::cout << "[CANCEL-VC-STATE] r" << replicaId_
+                  << " old_index=" << oldIndex
+                  << " new_index=" << rollback_rotation_index_
+                  << " old_proposer=r" << oldProposer
+                  << " new_proposer=r" << newProposer
+                  << " pending=" << (cancel_consensus_pending_ ? 1 : 0)
+                  << " cancel_pending=" << (cancel_pending_ ? 1 : 0)
+                  << " submitted_reset=1"
+                  << " |E_old|=" << oldElectors.size()
+                  << " |E_new|=" << newElectors.size()
+                  << " cert_bytes=" << cancel_cert_bytes_.size()
+                  << " t=" << simTime() << "\n";
+        std::cout << "[CANCEL-VC] r" << replicaId_
+                  << " rotating cancel proposer index=" << rollback_rotation_index_
+                  << " cancelled_epoch=" << cancelled_epoch_ << "\n";
+        trySubmitCancelProposal("cancel-vc-timeout");
+        delete msg; return;
+    }
+
     if (msg == stop_sign_timeout_msg_) {
         stop_sign_timeout_msg_ = nullptr;
         // Apply any consensus orders already queued before declaring timeout.
@@ -569,9 +721,9 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
                   << " stop_sign after processOrders order_applied=" << order_applied_
                   << " t=" << simTime() << "\n";
         if (!order_applied_) {
-            if (cancel_pending_) {
+            if (cancel_pending_ || cancel_consensus_pending_) {
                 std::cout << "[HALT-LOCAL] r" << replicaId_
-                          << " stop_sign_timeout suppressed while cancel_pending epoch="
+                          << " stop_sign_timeout suppressed while cancel active epoch="
                           << cancelled_epoch_ << "\n";
                 delete msg; return;
             }
@@ -603,9 +755,9 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
                   << " consensus after processOrders order_applied=" << order_applied_
                   << " t=" << simTime() << "\n";
         if (!order_applied_) {
-            if (cancel_pending_) {
+            if (cancel_pending_ || cancel_consensus_pending_) {
                 std::cout << "[HALT-LOCAL] r" << replicaId_
-                          << " consensus_timeout suppressed while cancel_pending epoch="
+                          << " consensus_timeout suppressed while cancel active epoch="
                           << cancelled_epoch_ << "\n";
                 delete msg; return;
             }
@@ -623,9 +775,9 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
 
     if (msg == resume_msg_) {
         resume_msg_ = nullptr;
-        if (cancel_pending_) {
+        if (cancel_pending_ || cancel_consensus_pending_) {
             std::cout << "[HALT-LOCAL] r" << replicaId_
-                      << " pending resume suppressed while cancel_pending epoch="
+                      << " pending resume suppressed while cancel active epoch="
                       << cancelled_epoch_ << "\n";
             delete msg; return;
         }
@@ -650,10 +802,10 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
                         ((simTime() - clearance_started_).dbl() >= clearance_timeout_sec_);
 
         if (all_cleared || timedOut) {
-            if (cancel_pending_) {
+            if (cancel_pending_ || cancel_consensus_pending_) {
                 if (timedOut && !all_cleared) {
                     std::cout << "[HALT-LOCAL] r" << replicaId_
-                              << " clearance timeout suppressed while cancel_pending epoch="
+                              << " clearance timeout suppressed while cancel active epoch="
                               << cancelled_epoch_ << "\n";
                 }
                 scheduleAt(simTime() + clearance_poll_period_sec_, clearance_poll_msg_);
@@ -715,6 +867,8 @@ void ResDBIntersectionApp::handlePositionUpdate(cObject* obj)
         }
         pending_relays_.clear();
 
+        startStopZoneCertGossip("stop-zone");
+
         stopVehicle();
         
         // Safety fallback timers.
@@ -737,7 +891,10 @@ void ResDBIntersectionApp::handlePositionUpdate(cObject* obj)
             return;
         }
         if (replicaId_ == primary && !propose_submitted_) {
-            if (countStaticCollectedCerts() >= total_vehicles_) {
+            const int neededCerts = cancel_pending_
+                ? minRollbackMembershipSize()
+                : total_vehicles_;
+            if (countStaticCollectedCerts() >= neededCerts) {
                 proposeAll();
             } else if (deferred_propose_after_cert_timeout_) {
                 deferred_propose_after_cert_timeout_ = false;
@@ -770,6 +927,7 @@ void ResDBIntersectionApp::recordIntersectionDeparture(simtime_t departedAt)
     cleared_time_ = departedAt;
     is_departed_ = true;
     current_phase_ = ConsensusPhase::DEPARTED;
+    markCompletedReplicaEpoch(replicaId_, current_epoch_);
     if (resdb_server_handle_) {
         ResdbOmnetMarkReplicaInactive(resdb_server_handle_, replicaId_, current_epoch_ + 1);
     }
@@ -822,6 +980,10 @@ void ResDBIntersectionApp::finish()
     
     std::cerr << "[FINISH-PROBE] r" << replicaId_
     << " handle=" << resdb_server_handle_ << std::endl;
+
+    if (is_departed_ || departureTime >= SIMTIME_ZERO) {
+        markCompletedReplicaEpoch(replicaId_, current_epoch_);
+    }
 
     if (resdb_server_handle_) {
         ResdbOmnetMarkReplicaInactive(resdb_server_handle_, replicaId_, current_epoch_ + 1);
@@ -912,6 +1074,8 @@ void ResDBIntersectionApp::onWSM(BaseFrame1609_4* wsm)
 
     // ── Type 11: ResDB PBFT consensus relay ───────────────────────────────────
     if (msgType == kResdbConsensusRelayType) {
+        pbft_observed_ = true;
+        stopStopZoneCertGossip();
         handleResdbConsensusRelay(bft);
         bool has_pending_order = false;
         {
@@ -950,11 +1114,18 @@ void ResDBIntersectionApp::onWSM(BaseFrame1609_4* wsm)
         return;
     }
 
+    if (msgType == kCancelCommitGossipType) {
+        handleCancelCommitGossip(bft);
+        return;
+    }
+
     // ── Type 8: ResDB PBFT consensus bytes ────────────────────────────────────
     if (msgType == kResdbConsensusMsgType) {
         // Leader is active — cert retransmits are no longer useful.
         if (cert_retry_timer_ && cert_retry_timer_->isScheduled())
             cancelEvent(cert_retry_timer_);
+        pbft_observed_ = true;
+        stopStopZoneCertGossip();
 
         handleResdbConsensusMessage(bft);
 
@@ -989,6 +1160,13 @@ void ResDBIntersectionApp::triggerGossip(uint32_t epoch,
                                           const std::vector<uint8_t>& order_bytes)
 {
     if (order_bytes.empty()) return;
+    if (isEpochTombstoned(epoch) ||
+            (cancel_consensus_pending_ && epoch == cancelled_epoch_)) {
+        std::cout << "[GOSSIP-SKIP] r" << replicaId_
+                  << " epoch=" << epoch
+                  << " reason=cancel-active t=" << simTime() << "\n";
+        return;
+    }
     if (gossip_timer_ && gossip_timer_->isScheduled())
         cancelEvent(gossip_timer_);
 
@@ -1053,30 +1231,28 @@ void ResDBIntersectionApp::handleDecisionGossip(BFTMessage* bft)
     std::vector<uint8_t> order_bytes;
     if (!resdb_gossip::parse(view.resdbBytes, view.resdbLen, epoch, order_bytes)) return;
 
-    if (tombstoned_epochs_.count(epoch)) {
+    if (isEpochTombstoned(epoch)) {
         std::cout << "[TYPE9-RECV] r" << replicaId_
                   << " dropped tombstoned epoch=" << epoch << "\n";
         return;
     }
 
     if (order_applied_) {
-        if (gossip_enabled_ && has_committed_order_ && epoch == last_committed_epoch_
-                && order_bytes == committed_order_bytes_
-                && gossip_order_bytes_.empty()) {
-            std::cout << "[GOSSIP-RELAY] r" << replicaId_ << " from=" << bft->getFromReplicaId()
-                      << " epoch=" << epoch << " t=" << simTime() << "\n";
-            triggerGossip(epoch, committed_order_bytes_);
-        } else {
-            std::cout << "[TYPE9-RECV] r" << replicaId_ << " from=" << bft->getFromReplicaId()
-                      << " order_applied=true, skipping\n";
-        }
+        std::cout << "[TYPE9-RECV] r" << replicaId_ << " from=" << bft->getFromReplicaId()
+                  << " order_applied=true, skipping\n";
         return;
     }
 
     // Epoch guard: drop stale gossip from a previous round.
     if (has_committed_order_ && epoch <= last_committed_epoch_) return;
+    if (hasCompletedReplicaEpoch(replicaId_, epoch)) {
+        std::cout << "[TYPE9-RECV] r" << replicaId_
+                  << " epoch=" << epoch
+                  << " already departed; skipping\n";
+        return;
+    }
 
-    int f         = (total_vehicles_ - 1) / 3;
+    int f         = tolerated_faults_ >= 0 ? tolerated_faults_ : (total_vehicles_ - 1) / 3;
     int threshold = f + 1;
     bool reached  = gossip_acc_.add(bft->getFromReplicaId(), epoch, order_bytes, threshold);
 
@@ -1092,7 +1268,12 @@ bool ResDBIntersectionApp::applyGossipOrder(const std::vector<uint8_t>& order_by
                                              uint32_t epoch)
 {
     if (order_applied_) return false;
-    if (tombstoned_epochs_.count(epoch)) {
+    if (hasCompletedReplicaEpoch(replicaId_, epoch)) {
+        std::cout << "[GOSSIP-APPLY] r" << replicaId_
+                  << " refused completed epoch=" << epoch << "\n";
+        return false;
+    }
+    if (isEpochTombstoned(epoch)) {
         std::cout << "[GOSSIP-APPLY] r" << replicaId_
                   << " refused tombstoned epoch=" << epoch << "\n";
         return false;

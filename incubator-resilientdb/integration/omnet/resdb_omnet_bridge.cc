@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <exception>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -12,6 +13,7 @@
 #include <vector>
 
 #include "chain/storage/memory_db.h"
+#include "common/crypto/hash.h"
 #include "executor/common/transaction_manager.h"
 #include "integration/omnet/resdb_omnet_bridge.h"
 #include "integration/omnet/resdb_intersection_scheduler.h"
@@ -19,6 +21,7 @@
 #include "platform/consensus/ordering/pbft/checkpoint_manager.h"
 #include "platform/consensus/ordering/pbft/commitment.h"
 #include "platform/consensus/ordering/pbft/consensus_manager_pbft.h"
+#include "platform/consensus/ordering/pbft/omnet_forced_view.h"
 #include "platform/consensus/ordering/pbft/response_manager.h"
 #include "platform/consensus/ordering/pbft/viewchange_manager.h"
 #include "platform/networkstrate/replica_communicator.h"
@@ -35,10 +38,19 @@ int ResdbIdToOmnetReplica(int64_t resdb_node_id) {
 }
 
 struct ProposalView {
+  enum Kind { kNormal, kCancel, kRollback };
+
   const uint8_t* data = nullptr;
   size_t len = 0;
-  bool is_rollback = false;
+  Kind kind = kNormal;
   ResdbRollbackHdr rollback{};
+  ResdbCancelHdr cancel{};
+  int32_t cancel_leader_id = -1;
+  std::vector<int32_t> cancel_electors;
+  std::string raw_payload;
+
+  bool is_rollback() const { return kind == kRollback; }
+  bool is_cancel() const { return kind == kCancel; }
 };
 
 bool ParseNormalProposal(const uint8_t* data, size_t len, ResdbProposeHdr* hdr_out) {
@@ -53,11 +65,71 @@ bool ParseNormalProposal(const uint8_t* data, size_t len, ResdbProposeHdr* hdr_o
   return true;
 }
 
+bool ParseCancelTail(const std::string& raw, size_t just_off, size_t just_len,
+                     ProposalView* view) {
+  if (view == nullptr) return false;
+  const size_t tail_off = just_off + just_len;
+  if (raw.size() < tail_off + sizeof(int32_t) + sizeof(uint32_t)) return false;
+  int32_t leader_id = 0;
+  uint32_t n_electors = 0;
+  std::memcpy(&leader_id, raw.data() + tail_off, sizeof(leader_id));
+  std::memcpy(&n_electors, raw.data() + tail_off + sizeof(leader_id),
+              sizeof(n_electors));
+  const size_t electors_off = tail_off + sizeof(leader_id) + sizeof(n_electors);
+  if (n_electors > 10000 ||
+      raw.size() < electors_off + static_cast<size_t>(n_electors) * sizeof(int32_t)) {
+    return false;
+  }
+  view->cancel_leader_id = leader_id;
+  view->cancel_electors.clear();
+  view->cancel_electors.reserve(n_electors);
+  for (uint32_t i = 0; i < n_electors; ++i) {
+    int32_t rid = 0;
+    std::memcpy(&rid, raw.data() + electors_off + i * sizeof(int32_t),
+                sizeof(rid));
+    view->cancel_electors.push_back(rid);
+  }
+  return true;
+}
+
+bool LooksLikeCancelProposal(const std::string& raw, ProposalView* view) {
+  if (view == nullptr || raw.size() < sizeof(ResdbCancelHdr)) return false;
+  ResdbCancelHdr chdr;
+  std::memcpy(&chdr, raw.data(), sizeof(chdr));
+  if (chdr.reason > 1) return false;
+  const size_t just_off = sizeof(ResdbCancelHdr);
+  if (just_off + chdr.justification_len > raw.size()) return false;
+  if (chdr.justification_len == 0) return false;
+  std::string just(raw.data() + just_off, chdr.justification_len);
+  if (just.rfind("CANCEL_CERT|", 0) != 0) return false;
+  // Rollback uses new_epoch at offset 0 and cancelled_epoch at offset 4 with
+  // new_epoch == cancelled_epoch + 1. Cancel uses reason+pad at offset 4.
+  if (raw.size() >= sizeof(ResdbRollbackHdr)) {
+    ResdbRollbackHdr rhdr;
+    std::memcpy(&rhdr, raw.data(), sizeof(rhdr));
+    if (rhdr.reason <= 1 && rhdr.new_epoch == rhdr.cancelled_epoch + 1) {
+      return false;
+    }
+  }
+  view->kind = ProposalView::kCancel;
+  view->cancel = chdr;
+  view->raw_payload = raw;
+  if (!ParseCancelTail(raw, just_off, chdr.justification_len, view)) return false;
+  view->data = reinterpret_cast<const uint8_t*>(raw.data());
+  view->len = raw.size();
+  return true;
+}
+
 bool UnwrapRollbackIfPresent(const std::string& raw, ProposalView* view) {
   if (view == nullptr) return false;
   view->data = reinterpret_cast<const uint8_t*>(raw.data());
   view->len = raw.size();
-  view->is_rollback = false;
+  view->kind = ProposalView::kNormal;
+  view->cancel_electors.clear();
+  view->cancel_leader_id = -1;
+  view->raw_payload = raw;
+
+  if (LooksLikeCancelProposal(raw, view)) return true;
 
   if (raw.size() < sizeof(ResdbRollbackHdr) + sizeof(ResdbProposeHdr))
     return ParseNormalProposal(view->data, view->len, nullptr);
@@ -80,7 +152,7 @@ bool UnwrapRollbackIfPresent(const std::string& raw, ProposalView* view) {
 
   view->data = inner;
   view->len = inner_len;
-  view->is_rollback = true;
+  view->kind = ProposalView::kRollback;
   view->rollback = rhdr;
   return true;
 }
@@ -91,50 +163,245 @@ bool StructurallyValidCancelJustification(const std::string& raw,
   if (raw.size() < off + rhdr.justification_len) return false;
   if (rhdr.reason > 1 || rhdr.justification_len == 0) return false;
   std::string just(raw.data() + off, rhdr.justification_len);
-  if (rhdr.reason == 0) {
-    if (just.find("CANCEL_CERT|") != 0) return false;
-    std::unordered_set<std::string> signers;
-    std::stringstream ss(just);
-    std::string part;
-    int idx = 0;
-    while (std::getline(ss, part, '|')) {
-      if (idx++ < 4) continue;
-      size_t colon = part.find(':');
-      if (colon != std::string::npos)
-        signers.insert(part.substr(0, colon));
-    }
-    return !signers.empty();
+  // Check 14.2: reject raw CANCEL_CERT (skip Phase 2).
+  if (just.rfind("CANCEL_CERT|", 0) == 0) return false;
+  if (just.size() < sizeof(ResdbCancelCommitRef)) return false;
+  ResdbCancelCommitRef ref;
+  std::memcpy(&ref, just.data(), sizeof(ref));
+  if (ref.cancelled_epoch != rhdr.cancelled_epoch) return false;
+  const size_t proof_off = sizeof(ResdbCancelCommitRef);
+  if (just.size() < proof_off + ref.proof_len) return false;
+  return true;
+}
+
+bool Check13ValidCancelProposal(const ProposalView& view) {
+  if (!view.is_cancel()) return false;
+  if (view.cancel.reason > 1 || view.cancel.justification_len == 0) return false;
+  const size_t just_off = sizeof(ResdbCancelHdr);
+  if (view.raw_payload.size() < just_off + view.cancel.justification_len)
+    return false;
+  std::string just(view.raw_payload.data() + just_off,
+                   view.cancel.justification_len);
+  if (just.rfind("CANCEL_CERT|", 0) != 0) return false;
+  std::unordered_set<std::string> signers;
+  std::stringstream ss(just);
+  std::string part;
+  int idx = 0;
+  while (std::getline(ss, part, '|')) {
+    if (idx++ < 4) continue;
+    size_t colon = part.find(':');
+    if (colon != std::string::npos)
+      signers.insert(part.substr(0, colon));
   }
-  // Emergency rollback carries the ambulance ARRIVAL_CERT bytes. Full CA /
-  // P-256 verification remains on the Veins side in this pass.
-  return !just.empty();
+  return !signers.empty() && view.cancel_leader_id >= 0 &&
+         !view.cancel_electors.empty();
+}
+
+struct ToleratedFaultState {
+  std::mutex mu;
+  bool enabled = false;
+  int tolerated_f = -1;
+  bool rollback_per_epoch = true;
+};
+
+int RollbackFaultsForMembership(int configured_f, int member_count) {
+  if (member_count <= 0) return -1;
+  int max_f = (member_count - 1) / 3;
+  return configured_f >= 0 ? std::min(configured_f, max_f) : max_f;
+}
+
+void Sha256Digest(const std::string& data, uint8_t out[32]) {
+  const std::string digest = resdb::utils::CalculateSHA256Hash(data);
+  std::memset(out, 0, 32);
+  if (digest.size() >= 32) {
+    std::memcpy(out, digest.data(), 32);
+  } else if (!digest.empty()) {
+    std::memcpy(out, digest.data(), digest.size());
+  }
+}
+
+bool BuildCancelViewCandidate(const ProposalView& view,
+                              int expected_replicas,
+                              const std::shared_ptr<ToleratedFaultState>& state,
+                              const resdb::Request* request,
+                              resdb::OmnetForcedView* out) {
+  if (!view.is_cancel() || out == nullptr) return false;
+  int anchored_f = -1;
+  {
+    if (!state) return false;
+    std::lock_guard<std::mutex> lk(state->mu);
+    if (!state->enabled || state->tolerated_f < 0) return false;
+    anchored_f = state->tolerated_f;
+  }
+  if (view.cancel_leader_id < 0 ||
+      view.cancel_leader_id >= expected_replicas) {
+    return false;
+  }
+  if (view.cancel_electors.empty()) return false;
+  std::vector<int> members = view.cancel_electors;
+  std::sort(members.begin(), members.end());
+  if (std::adjacent_find(members.begin(), members.end()) != members.end())
+    return false;
+  for (int rid : members) {
+    if (rid < 0 || rid >= expected_replicas) return false;
+  }
+  if (!std::binary_search(members.begin(), members.end(), view.cancel_leader_id))
+    return false;
+  const int n_e = static_cast<int>(members.size());
+  const int min_members = 3 * anchored_f + 1;
+  if (n_e < min_members) {
+    std::cout << "[CANCEL-UNAVAILABLE]"
+              << " |E|=" << n_e
+              << " f_anchored=" << anchored_f
+              << " need>=" << min_members
+              << " cancelled_epoch=" << view.cancel.cancelled_epoch << "\n";
+    return false;
+  }
+  int cancel_quorum = -1;
+  try {
+    cancel_quorum = resdb::BftQuorumSize(n_e, anchored_f);
+  } catch (const std::exception&) {
+    return false;
+  }
+  if (request != nullptr) {
+    int sender_omnet = ResdbIdToOmnetReplica(request->sender_id());
+    if (sender_omnet >= 0 && sender_omnet != view.cancel_leader_id) {
+      std::cout << "[ACTIVE-VIEW-REJECT] reason=sender-not-leader"
+                << " sender=" << sender_omnet
+                << " leader=" << view.cancel_leader_id
+                << " cancelled_epoch=" << view.cancel.cancelled_epoch
+                << " seq=" << request->seq()
+                << " hash=" << request->hash() << "\n";
+      return false;
+    }
+  }
+  resdb::OmnetForcedView candidate;
+  candidate.epoch = view.cancel.cancelled_epoch;
+  candidate.seq = request ? request->seq() : 0;
+  candidate.request_hash = request ? request->hash() : std::string();
+  candidate.primary_omnet = view.cancel_leader_id;
+  candidate.active_omnet_ids = std::move(members);
+  candidate.f_override = true;
+  candidate.f = anchored_f;
+  std::cout << "[CANCEL-FORCED-VIEW]"
+            << " |E|=" << n_e
+            << " f_anchored=" << anchored_f
+            << " quorum=" << cancel_quorum
+            << " cancelled_epoch=" << view.cancel.cancelled_epoch
+            << " leader=r" << view.cancel_leader_id << "\n";
+  *out = std::move(candidate);
+  return true;
 }
 
 bool BuildForcedViewCandidate(const ProposalView& view,
                               const ResdbProposeHdr& hdr,
                               int expected_replicas,
+                              const std::shared_ptr<ToleratedFaultState>& state,
                               const resdb::Request* request,
                               resdb::OmnetForcedView* out) {
-  if (!view.is_rollback || out == nullptr) return false;
+  if (!view.is_rollback() || out == nullptr) return false;
+  int anchored_f = -1;
+  bool per_epoch = true;
+  {
+    if (!state) return false;
+    std::lock_guard<std::mutex> lk(state->mu);
+    if (!state->enabled || state->tolerated_f < 0) return false;
+    anchored_f = state->tolerated_f;
+    per_epoch = state->rollback_per_epoch;
+  }
   if (hdr.n_vehicles == 0 || static_cast<int>(hdr.n_vehicles) > expected_replicas)
     return false;
   if (hdr.leader_id < 0 || hdr.leader_id >= expected_replicas) return false;
 
   const uint8_t* p = view.data + sizeof(ResdbProposeHdr);
-  std::vector<int> members;
-  members.reserve(hdr.n_vehicles);
+  std::vector<int> voter_members;
+  voter_members.reserve(hdr.n_vehicles);
   for (uint32_t i = 0; i < hdr.n_vehicles; ++i) {
     ResdbVehicleEntry e;
     std::memcpy(&e, p, sizeof(e));
     p += sizeof(e);
     if (e.replica_id < 0 || e.replica_id >= expected_replicas) return false;
-    members.push_back(e.replica_id);
+    if (e.cyber_status == 1 && e.sim_time_us != UINT64_MAX) {
+      voter_members.push_back(e.replica_id);
+    }
   }
-  std::sort(members.begin(), members.end());
-  if (std::adjacent_find(members.begin(), members.end()) != members.end())
+  std::sort(voter_members.begin(), voter_members.end());
+  if (std::adjacent_find(voter_members.begin(), voter_members.end()) !=
+      voter_members.end()) {
     return false;
-  if (!std::binary_search(members.begin(), members.end(), hdr.leader_id))
+  }
+  const int voteN = static_cast<int>(voter_members.size());
+  if (voteN == 0) {
+    std::cout << "[ROLLBACK-UNAVAILABLE]"
+              << " mode=" << (per_epoch ? "per_epoch" : "anchored")
+              << " reason=no-voters"
+              << " voteN=0"
+              << " sceneN=" << hdr.n_vehicles
+              << " epoch=" << hdr.epoch
+              << " leader=r" << hdr.leader_id << "\n";
     return false;
+  }
+  if (!std::binary_search(voter_members.begin(), voter_members.end(),
+                          hdr.leader_id)) {
+    return false;
+  }
+
+  int rollback_f = -1;
+  int rollback_quorum = -1;
+  if (per_epoch) {
+    const int min_vote = 4;
+    if (voteN < min_vote) {
+      std::cout << "[ROLLBACK-UNAVAILABLE]"
+                << " mode=per_epoch"
+                << " reason=membership-too-small"
+                << " voteN=" << voteN
+                << " need>=" << min_vote
+                << " sceneN=" << hdr.n_vehicles
+                << " epoch=" << hdr.epoch
+                << " leader=r" << hdr.leader_id << "\n";
+      return false;
+    }
+    rollback_f = RollbackFaultsForMembership(anchored_f, voteN);
+    try {
+      rollback_quorum = resdb::BftQuorumSize(voteN, rollback_f);
+    } catch (const std::exception&) {
+      std::cout << "[ROLLBACK-UNAVAILABLE]"
+                << " mode=per_epoch"
+                << " reason=invalid-quorum"
+                << " voteN=" << voteN
+                << " f=" << rollback_f
+                << " epoch=" << hdr.epoch
+                << " leader=r" << hdr.leader_id << "\n";
+      return false;
+    }
+  } else {
+    const int min_members = 3 * anchored_f + 1;
+    if (voteN < min_members) {
+      std::cout << "[ROLLBACK-UNAVAILABLE]"
+                << " mode=anchored"
+                << " reason=insufficient-membership"
+                << " voteN=" << voteN
+                << " f_anchored=" << anchored_f
+                << " need>=" << min_members
+                << " sceneN=" << hdr.n_vehicles
+                << " epoch=" << hdr.epoch
+                << " leader=r" << hdr.leader_id << "\n";
+      return false;
+    }
+    try {
+      rollback_quorum = resdb::BftQuorumSize(voteN, anchored_f);
+    } catch (const std::exception&) {
+      std::cout << "[ROLLBACK-UNAVAILABLE]"
+                << " mode=anchored"
+                << " reason=invalid-quorum"
+                << " voteN=" << voteN
+                << " f_anchored=" << anchored_f
+                << " epoch=" << hdr.epoch
+                << " leader=r" << hdr.leader_id << "\n";
+      return false;
+    }
+    rollback_f = anchored_f;
+  }
 
   if (request != nullptr) {
     int sender_omnet = ResdbIdToOmnetReplica(request->sender_id());
@@ -154,7 +421,296 @@ bool BuildForcedViewCandidate(const ProposalView& view,
   candidate.seq = request ? request->seq() : 0;
   candidate.request_hash = request ? request->hash() : std::string();
   candidate.primary_omnet = hdr.leader_id;
+  candidate.active_omnet_ids = std::move(voter_members);
+  if (per_epoch) {
+    candidate.f_override = false;
+  } else {
+    candidate.f_override = true;
+    candidate.f = rollback_f;
+  }
+  std::cout << "[ROLLBACK-FORCED-VIEW]"
+            << " mode=" << (per_epoch ? "per_epoch" : "anchored")
+            << " voteN=" << voteN
+            << " sceneN=" << hdr.n_vehicles
+            << " f=" << rollback_f
+            << " quorum=" << rollback_quorum
+            << " epoch=" << hdr.epoch
+            << " leader=r" << hdr.leader_id << "\n";
+  *out = std::move(candidate);
+  return true;
+}
+
+bool BuildToleratedFaultViewCandidate(
+    const std::shared_ptr<ToleratedFaultState>& state,
+    const ResdbProposeHdr& hdr,
+    const uint8_t* proposal_data,
+    int expected_replicas,
+    const resdb::Request* request,
+    resdb::OmnetForcedView* out) {
+  if (!state || proposal_data == nullptr || out == nullptr) return false;
+
+  int tolerated_f = -1;
+  {
+    std::lock_guard<std::mutex> lk(state->mu);
+    if (!state->enabled || state->tolerated_f < 0) return false;
+    tolerated_f = state->tolerated_f;
+  }
+
+  if (hdr.leader_id < 0 || hdr.leader_id >= expected_replicas) return false;
+  if (expected_replicas <= 0 || hdr.n_vehicles == 0 ||
+      static_cast<int>(hdr.n_vehicles) > expected_replicas) {
+    return false;
+  }
+
+  const uint8_t* p = proposal_data + sizeof(ResdbProposeHdr);
+  std::vector<int> members;
+  members.reserve(hdr.n_vehicles);
+  for (uint32_t i = 0; i < hdr.n_vehicles; ++i) {
+    ResdbVehicleEntry e;
+    std::memcpy(&e, p, sizeof(e));
+    p += sizeof(e);
+    if (e.replica_id < 0 || e.replica_id >= expected_replicas) return false;
+    members.push_back(e.replica_id);
+  }
+  std::sort(members.begin(), members.end());
+  if (std::adjacent_find(members.begin(), members.end()) != members.end())
+    return false;
+  if (!std::binary_search(members.begin(), members.end(), hdr.leader_id))
+    return false;
+  if (tolerated_f > (static_cast<int>(members.size()) - 1) / 3)
+    return false;
+
+  if (request != nullptr) {
+    int sender_omnet = ResdbIdToOmnetReplica(request->sender_id());
+    if (sender_omnet >= 0 && sender_omnet != hdr.leader_id) {
+      std::cout << "[ACTIVE-VIEW-REJECT] reason=sender-not-leader"
+                << " sender=" << sender_omnet
+                << " leader=" << hdr.leader_id
+                << " tolerated_f=" << tolerated_f
+                << " active_n=" << members.size()
+                << " epoch=" << hdr.epoch
+                << " seq=" << request->seq()
+                << " hash=" << request->hash() << "\n";
+      return false;
+    }
+  }
+
+  resdb::OmnetForcedView candidate;
+  candidate.epoch = hdr.epoch;
+  candidate.seq = request ? request->seq() : 0;
+  candidate.request_hash = request ? request->hash() : std::string();
+  candidate.primary_omnet = hdr.leader_id;
+  candidate.f_override = true;
+  candidate.f = tolerated_f;
   candidate.active_omnet_ids = std::move(members);
+  *out = std::move(candidate);
+  return true;
+}
+
+bool BuildEpochOrderViewCandidate(
+    const std::shared_ptr<ToleratedFaultState>& state,
+    const ResdbProposeHdr& hdr,
+    const uint8_t* proposal_data,
+    int expected_replicas,
+    const resdb::Request* request,
+    resdb::OmnetForcedView* out) {
+  if (!state || proposal_data == nullptr || out == nullptr) return false;
+
+  int anchored_f = -1;
+  bool per_epoch = true;
+  {
+    std::lock_guard<std::mutex> lk(state->mu);
+    if (!state->enabled || state->tolerated_f < 0) {
+      std::cout << "[EPOCH-VIEW-REJECT]"
+                << " reason=fault-mode-disabled"
+                << " epoch=" << hdr.epoch
+                << " leader=r" << hdr.leader_id << "\n";
+      return false;
+    }
+    anchored_f = state->tolerated_f;
+    per_epoch = state->rollback_per_epoch;
+  }
+
+  if (hdr.epoch == 0) {
+    bool ok = BuildToleratedFaultViewCandidate(
+        state, hdr, proposal_data, expected_replicas, request, out);
+    if (ok) {
+      int quorum = -1;
+      try {
+        quorum = resdb::BftQuorumSize(
+            static_cast<int>(out->active_omnet_ids.size()), out->f);
+      } catch (const std::exception&) {
+        quorum = -1;
+      }
+      std::cout << "[EPOCH-VIEW]"
+                << " mode=anchored-initial"
+                << " epoch=" << hdr.epoch
+                << " voteN=" << out->active_omnet_ids.size()
+                << " f=" << out->f
+                << " quorum=" << quorum
+                << " leader=r" << hdr.leader_id << "\n";
+    } else {
+      std::cout << "[EPOCH-VIEW-REJECT]"
+                << " reason=initial-active-view-invalid"
+                << " epoch=" << hdr.epoch
+                << " leader=r" << hdr.leader_id
+                << " n_vehicles=" << hdr.n_vehicles << "\n";
+    }
+    return ok;
+  }
+
+  if (hdr.leader_id < 0 || hdr.leader_id >= expected_replicas) {
+    std::cout << "[EPOCH-VIEW-REJECT]"
+              << " reason=leader-out-of-range"
+              << " epoch=" << hdr.epoch
+              << " leader=r" << hdr.leader_id
+              << " expected=" << expected_replicas << "\n";
+    return false;
+  }
+  if (expected_replicas <= 0 || hdr.n_vehicles == 0 ||
+      static_cast<int>(hdr.n_vehicles) > expected_replicas) {
+    std::cout << "[EPOCH-VIEW-REJECT]"
+              << " reason=vehicle-count-out-of-range"
+              << " epoch=" << hdr.epoch
+              << " leader=r" << hdr.leader_id
+              << " n_vehicles=" << hdr.n_vehicles
+              << " expected=" << expected_replicas << "\n";
+    return false;
+  }
+
+  const uint8_t* p = proposal_data + sizeof(ResdbProposeHdr);
+  std::vector<int> voter_members;
+  voter_members.reserve(hdr.n_vehicles);
+  for (uint32_t i = 0; i < hdr.n_vehicles; ++i) {
+    ResdbVehicleEntry e;
+    std::memcpy(&e, p, sizeof(e));
+    p += sizeof(e);
+    if (e.replica_id < 0 || e.replica_id >= expected_replicas) {
+      std::cout << "[EPOCH-VIEW-REJECT]"
+                << " reason=replica-out-of-range"
+                << " epoch=" << hdr.epoch
+                << " rid=" << e.replica_id
+                << " expected=" << expected_replicas << "\n";
+      return false;
+    }
+    if (e.cyber_status == 1 && e.sim_time_us != UINT64_MAX) {
+      voter_members.push_back(e.replica_id);
+    }
+  }
+  std::sort(voter_members.begin(), voter_members.end());
+  if (std::adjacent_find(voter_members.begin(), voter_members.end()) !=
+      voter_members.end()) {
+    std::cout << "[EPOCH-VIEW-REJECT]"
+              << " reason=duplicate-voter"
+              << " epoch=" << hdr.epoch
+              << " leader=r" << hdr.leader_id << "\n";
+    return false;
+  }
+
+  const int voteN = static_cast<int>(voter_members.size());
+  if (voteN == 0) {
+    std::cout << "[ROLLBACK-UNAVAILABLE]"
+              << " mode=" << (per_epoch ? "per_epoch" : "anchored")
+              << " reason=no-voters"
+              << " voteN=0"
+              << " sceneN=" << hdr.n_vehicles
+              << " epoch=" << hdr.epoch
+              << " leader=r" << hdr.leader_id << "\n";
+    return false;
+  }
+  if (!std::binary_search(voter_members.begin(), voter_members.end(),
+                          hdr.leader_id)) {
+    std::cout << "[EPOCH-VIEW-REJECT]"
+              << " reason=leader-not-signed"
+              << " epoch=" << hdr.epoch
+              << " leader=r" << hdr.leader_id
+              << " voteN=" << voteN << "\n";
+    return false;
+  }
+
+  int epoch_f = -1;
+  int epoch_quorum = -1;
+  if (per_epoch) {
+    epoch_f = RollbackFaultsForMembership(anchored_f, voteN);
+    if (epoch_f < 0) {
+      std::cout << "[ROLLBACK-UNAVAILABLE]"
+                << " mode=per_epoch"
+                << " reason=invalid-f"
+                << " voteN=" << voteN
+                << " epoch=" << hdr.epoch
+                << " leader=r" << hdr.leader_id << "\n";
+      return false;
+    }
+    try {
+      epoch_quorum = resdb::BftQuorumSize(voteN, epoch_f);
+    } catch (const std::exception&) {
+      std::cout << "[ROLLBACK-UNAVAILABLE]"
+                << " mode=per_epoch"
+                << " reason=invalid-quorum"
+                << " voteN=" << voteN
+                << " f=" << epoch_f
+                << " epoch=" << hdr.epoch
+                << " leader=r" << hdr.leader_id << "\n";
+      return false;
+    }
+  } else {
+    const int min_members = 3 * anchored_f + 1;
+    if (voteN < min_members) {
+      std::cout << "[ROLLBACK-UNAVAILABLE]"
+                << " mode=anchored"
+                << " reason=insufficient-membership"
+                << " voteN=" << voteN
+                << " f_anchored=" << anchored_f
+                << " need>=" << min_members
+                << " sceneN=" << hdr.n_vehicles
+                << " epoch=" << hdr.epoch
+                << " leader=r" << hdr.leader_id << "\n";
+      return false;
+    }
+    try {
+      epoch_quorum = resdb::BftQuorumSize(voteN, anchored_f);
+    } catch (const std::exception&) {
+      std::cout << "[ROLLBACK-UNAVAILABLE]"
+                << " mode=anchored"
+                << " reason=invalid-quorum"
+                << " voteN=" << voteN
+                << " f_anchored=" << anchored_f
+                << " epoch=" << hdr.epoch
+                << " leader=r" << hdr.leader_id << "\n";
+      return false;
+    }
+    epoch_f = anchored_f;
+  }
+
+  if (request != nullptr) {
+    int sender_omnet = ResdbIdToOmnetReplica(request->sender_id());
+    if (sender_omnet >= 0 && sender_omnet != hdr.leader_id) {
+      std::cout << "[ACTIVE-VIEW-REJECT] reason=sender-not-leader"
+                << " sender=" << sender_omnet
+                << " leader=" << hdr.leader_id
+                << " epoch=" << hdr.epoch
+                << " seq=" << request->seq()
+                << " hash=" << request->hash() << "\n";
+      return false;
+    }
+  }
+
+  resdb::OmnetForcedView candidate;
+  candidate.epoch = hdr.epoch;
+  candidate.seq = request ? request->seq() : 0;
+  candidate.request_hash = request ? request->hash() : std::string();
+  candidate.primary_omnet = hdr.leader_id;
+  candidate.active_omnet_ids = std::move(voter_members);
+  candidate.f_override = true;
+  candidate.f = epoch_f;
+  std::cout << "[EPOCH-VIEW]"
+            << " mode=" << (per_epoch ? "per_epoch" : "anchored")
+            << " epoch=" << hdr.epoch
+            << " voteN=" << voteN
+            << " sceneN=" << hdr.n_vehicles
+            << " f=" << epoch_f
+            << " quorum=" << epoch_quorum
+            << " leader=r" << hdr.leader_id << "\n";
   *out = std::move(candidate);
   return true;
 }
@@ -180,12 +736,44 @@ class IntersectionExecutor : public resdb::TransactionManager {
       std::cout << "[EXECUTOR] payload parse failed\n";
       return std::make_unique<std::string>();
     }
-    if (view.is_rollback) {
+
+    if (view.is_cancel()) {
+      static std::atomic<uint64_t> cancel_seq_counter{1};
+      (void)cancel_seq_counter;
+      ResdbCancelDecisionHdr dh{};
+      dh.magic = RESDB_CANCEL_DECISION_MAGIC;
+      dh.cancelled_epoch = view.cancel.cancelled_epoch;
+      dh.reason = view.cancel.reason;
+      Sha256Digest(data, dh.payload_digest);
+      dh.cancel_seq = 0;
+      for (int i = 0; i < 8; ++i) {
+        dh.cancel_seq = (dh.cancel_seq << 8) | dh.payload_digest[i];
+      }
+      std::string cancel_bytes(reinterpret_cast<const char*>(&dh), sizeof(dh));
+      {
+        std::lock_guard<std::mutex> lk(cb_mutex_);
+        if (cb_) {
+          std::cout << "[EXECUTOR] cancel callback cancelled_epoch="
+                    << dh.cancelled_epoch
+                    << " seq=" << dh.cancel_seq << "\n";
+          cb_(ctx_,
+              reinterpret_cast<const uint8_t*>(cancel_bytes.data()),
+              static_cast<uint32_t>(cancel_bytes.size()));
+        }
+      }
+      std::cout << "[CANCEL-COMMIT] executor cancelled_epoch="
+                << dh.cancelled_epoch
+                << " seq=" << dh.cancel_seq
+                << " reason=" << static_cast<int>(dh.reason) << "\n";
+      return std::make_unique<std::string>(cancel_bytes);
+    }
+
+    if (view.is_rollback()) {
       std::cout << "[ROLLBACK-COMMIT] executor unwrap"
                 << " cancelled_epoch=" << view.rollback.cancelled_epoch
                 << " new_epoch=" << view.rollback.new_epoch
                 << " reason=" << static_cast<int>(view.rollback.reason)
-                << " TODO=resdb_dynamic_N_reconfiguration_pending\n";
+                << "\n";
     }
     const uint8_t* p = view.data;
     size_t remaining = view.len;
@@ -446,6 +1034,33 @@ class OmnetConsensusManagerPBFT : public resdb::ConsensusManagerPBFT {
     view_change_manager_->TriggerViewChangeNow();
   }
 
+  int PromotePrimaryFromCert(int primary_omnet) {
+    if (primary_omnet < 0) return -1;
+    const auto replicas = GetReplicas();
+    if (primary_omnet >= static_cast<int>(replicas.size())) return -1;
+    const uint32_t resdb_id = static_cast<uint32_t>(primary_omnet + 1);
+    const int current = ResdbIdToOmnetReplica(static_cast<int64_t>(GetPrimary()));
+    const uint64_t view = GetVersion();
+    if (current != primary_omnet) {
+      // Cert-driven handoff: rotate primary at the *current* PBFT view.
+      // Do not bump view locally — followers still at this view must accept
+      // PRE_PREPARE; they learn the new primary via forced-M install.
+      system_info_->SetPrimary(resdb_id);
+      std::cout << "[CERT-PRIMARY] installed PBFT primary"
+                << " omnet=" << primary_omnet
+                << " resdb=" << resdb_id
+                << " view=" << view << " (unchanged)\n";
+    }
+    if (message_manager_) message_manager_->EnsureNextSeqAheadOfExecuted();
+    return 0;
+  }
+
+  int AdvanceExecutorAfterGossipCancel(uint32_t cancelled_epoch) {
+    if (!message_manager_) return -1;
+    message_manager_->AdvanceExecutorAfterGossipCancel(cancelled_epoch);
+    return 0;
+  }
+
  protected:
   std::unique_ptr<resdb::ReplicaCommunicator> GetReplicaClient(
       const std::vector<resdb::ReplicaInfo>& replicas,
@@ -483,6 +1098,7 @@ struct ResdbOmnetServerHandle {
   IntersectionExecutor* executor = nullptr;
   int64_t vc_timeout_us = 3000000;  // 3 s default
   std::shared_ptr<CertCheckState> cert_state;
+  std::shared_ptr<ToleratedFaultState> tolerated_fault_state;
 };
 
 }  // namespace
@@ -522,6 +1138,7 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
   // forced-M with |M| <= expected.
   const int expected = static_cast<int>(config->GetReplicaInfos().size());
   auto cert_state = std::make_shared<CertCheckState>();
+  auto tolerated_fault_state = std::make_shared<ToleratedFaultState>();
 
   // RESDB_NO_FIREWALL=1 disables all 10 PreVerify checks for "firewall-off" experiments.
   // Demonstrates that Byzantine proposals can be committed by PBFT but still cannot
@@ -530,7 +1147,7 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
   const bool firewall_disabled = (no_fw_env && std::string(no_fw_env) == "1");
   if (firewall_disabled) {
     LOG(WARNING) << "[OMNET-PREVERIFY] RESDB_NO_FIREWALL=1 — all 10 PreVerify checks DISABLED";
-    service_ptr->SetPreVerifyFunc([expected, service_ptr](const resdb::Request& req) -> bool {
+    service_ptr->SetPreVerifyFunc([expected, service_ptr, tolerated_fault_state](const resdb::Request& req) -> bool {
       if (req.type() != resdb::Request::TYPE_PRE_PREPARE &&
           req.type() != resdb::Request::TYPE_NEW_TXNS) {
         return true;
@@ -540,12 +1157,56 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
         return true;
       const std::string& d = batch.user_requests(0).request().data();
       ProposalView view;
-      if (!UnwrapRollbackIfPresent(d, &view) || !view.is_rollback) return true;
+      if (!UnwrapRollbackIfPresent(d, &view)) return true;
+      if (view.is_cancel()) {
+        if (!Check13ValidCancelProposal(view)) return true;
+        resdb::OmnetForcedView cancel_view;
+        if (!BuildCancelViewCandidate(view, expected, tolerated_fault_state,
+                                      &req, &cancel_view))
+          return true;
+        if (req.type() == resdb::Request::TYPE_PRE_PREPARE) {
+          service_ptr->InstallOmnetForcedViewForRequest(req, cancel_view);
+        } else {
+          service_ptr->InstallOmnetPendingForcedView(cancel_view);
+        }
+        return true;
+      }
       ResdbProposeHdr hdr;
       std::memcpy(&hdr, view.data, sizeof(hdr));
+      resdb::OmnetForcedView active_view;
+      if (!view.is_rollback() &&
+          BuildEpochOrderViewCandidate(tolerated_fault_state, hdr, view.data,
+                                       expected, &req, &active_view)) {
+        if (req.type() == resdb::Request::TYPE_PRE_PREPARE) {
+          std::cout << "[EPOCH-VIEW]"
+                    << " epoch=" << hdr.epoch
+                    << " action=install-request"
+                    << " hash=" << req.hash()
+                    << " seq=" << req.seq() << "\n";
+          service_ptr->InstallOmnetForcedViewForRequest(req, active_view);
+        } else {
+          std::cout << "[EPOCH-VIEW]"
+                    << " epoch=" << hdr.epoch
+                    << " action=install-pending"
+                    << " hash=" << req.hash()
+                    << " seq=" << req.seq() << "\n";
+          service_ptr->InstallOmnetPendingForcedView(active_view);
+        }
+      }
+      if (!view.is_rollback() && hdr.epoch > 0 &&
+          active_view.active_omnet_ids.empty()) {
+        std::cout << "[EPOCH-VIEW-REJECT]"
+                  << " reason=missing-reconfiguration-view"
+                  << " epoch=" << hdr.epoch
+                  << " hash=" << req.hash()
+                  << " seq=" << req.seq() << "\n";
+        return false;
+      }
+      if (!view.is_rollback()) return true;
       if (!StructurallyValidCancelJustification(d, view.rollback)) return true;
       resdb::OmnetForcedView forced_view;
-      if (!BuildForcedViewCandidate(view, hdr, expected, &req, &forced_view))
+      if (!BuildForcedViewCandidate(view, hdr, expected, tolerated_fault_state,
+                                    &req, &forced_view))
         return true;
       if (req.type() == resdb::Request::TYPE_PRE_PREPARE) {
         service_ptr->InstallOmnetForcedViewForRequest(req, forced_view);
@@ -555,7 +1216,7 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
       return true;
     });
   } else {
-  service_ptr->SetPreVerifyFunc([expected, cert_state, service_ptr](const resdb::Request& req) -> bool {
+  service_ptr->SetPreVerifyFunc([expected, cert_state, service_ptr, tolerated_fault_state](const resdb::Request& req) -> bool {
     if (req.type() != resdb::Request::TYPE_PRE_PREPARE &&
         req.type() != resdb::Request::TYPE_NEW_TXNS) {
       return true;
@@ -580,16 +1241,93 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
                  << " size=" << d.size();
       return false;
     }
+
+    if (view.is_cancel()) {
+      if (!Check13ValidCancelProposal(view)) {
+        LOG(ERROR) << "[OMNET-PREVERIFY] reject: cancel Check13 invalid"
+                   << " cancelled_epoch=" << view.cancel.cancelled_epoch;
+        return false;
+      }
+      resdb::OmnetForcedView cancel_view;
+      if (!BuildCancelViewCandidate(view, expected, tolerated_fault_state, &req,
+                                    &cancel_view)) {
+        LOG(ERROR) << "[OMNET-PREVERIFY] reject: cancel forced view failed"
+                   << " cancelled_epoch=" << view.cancel.cancelled_epoch;
+        return false;
+      }
+      if (req.type() == resdb::Request::TYPE_PRE_PREPARE) {
+        if (!service_ptr->InstallOmnetForcedViewForRequest(req, cancel_view)) {
+          LOG(ERROR) << "[OMNET-PREVERIFY] reject: cancel view install failed";
+          return false;
+        }
+      } else if (req.type() == resdb::Request::TYPE_NEW_TXNS) {
+        service_ptr->InstallOmnetPendingForcedView(cancel_view);
+      }
+      return true;
+    }
+
     ResdbProposeHdr hdr;
     std::memcpy(&hdr, view.data, sizeof(hdr));
-    if (req.type() == resdb::Request::TYPE_NEW_TXNS && !view.is_rollback) {
+    resdb::OmnetForcedView active_view;
+    const bool has_active_view = !view.is_rollback() &&
+        BuildEpochOrderViewCandidate(
+            tolerated_fault_state, hdr, view.data, expected, &req,
+            &active_view);
+    if (!view.is_rollback()) {
+      std::cout << "[EPOCH-VIEW]"
+                << " type=" << req.type()
+                << " hash=" << req.hash()
+                << " seq=" << req.seq()
+                << " epoch=" << hdr.epoch
+                << " leader=r" << hdr.leader_id
+                << " n_vehicles=" << hdr.n_vehicles
+                << " result=" << (has_active_view ? "candidate" : "none")
+                << "\n";
+    }
+    if (has_active_view) {
+      if (req.type() == resdb::Request::TYPE_PRE_PREPARE) {
+        std::cout << "[EPOCH-VIEW]"
+                  << " type=" << req.type()
+                  << " hash=" << req.hash()
+                  << " seq=" << req.seq()
+                  << " action=install-request\n";
+        if (!service_ptr->InstallOmnetForcedViewForRequest(req, active_view)) {
+          LOG(ERROR) << "[OMNET-PREVERIFY] reject: active view install failed"
+                     << " epoch=" << hdr.epoch
+                     << " seq=" << req.seq()
+                     << " hash=" << req.hash();
+          return false;
+        }
+      } else if (req.type() == resdb::Request::TYPE_NEW_TXNS) {
+        std::cout << "[EPOCH-VIEW]"
+                  << " type=" << req.type()
+                  << " hash=" << req.hash()
+                  << " seq=" << req.seq()
+                  << " action=install-pending\n";
+        service_ptr->InstallOmnetPendingForcedView(active_view);
+      }
+    }
+    if (!view.is_rollback() && hdr.epoch > 0 && !has_active_view) {
+      LOG(ERROR) << "[OMNET-PREVERIFY] reject: missing epoch active view"
+                 << " epoch=" << hdr.epoch
+                 << " seq=" << req.seq()
+                 << " hash=" << req.hash();
+      std::cout << "[EPOCH-VIEW-REJECT]"
+                << " reason=missing-reconfiguration-view"
+                << " epoch=" << hdr.epoch
+                << " hash=" << req.hash()
+                << " seq=" << req.seq() << "\n";
+      return false;
+    }
+    if (req.type() == resdb::Request::TYPE_NEW_TXNS &&
+        view.kind == ProposalView::kNormal) {
       return true;
     }
     const bool installing_pre_prepare =
-        view.is_rollback && req.type() == resdb::Request::TYPE_PRE_PREPARE;
+        view.is_rollback() && req.type() == resdb::Request::TYPE_PRE_PREPARE;
     const bool installing_pending =
-        view.is_rollback && req.type() == resdb::Request::TYPE_NEW_TXNS;
-    if (view.is_rollback &&
+        view.is_rollback() && req.type() == resdb::Request::TYPE_NEW_TXNS;
+    if (view.is_rollback() &&
         !StructurallyValidCancelJustification(d, view.rollback)) {
       LOG(ERROR) << "[OMNET-PREVERIFY] reject: rollback Check11 invalid cancel justification"
                  << " cancelled_epoch=" << view.rollback.cancelled_epoch
@@ -599,7 +1337,7 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
     }
     // Normal proposals: allow hdr.n_vehicles <= expected so epoch 0 can commit only
     // the cars physically at the intersection (e.g. 16 present, 18 static replicas).
-    if (!view.is_rollback &&
+    if (!view.is_rollback() &&
         (hdr.n_vehicles == 0 || static_cast<int>(hdr.n_vehicles) > expected)) {
       LOG(ERROR) << "[OMNET-PREVERIFY] reject: vehicle count out of range"
                  << " hdr.n_vehicles=" << hdr.n_vehicles
@@ -607,7 +1345,7 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
                  << " epoch=" << hdr.epoch;
       return false;
     }
-    if (view.is_rollback) {
+    if (view.is_rollback()) {
       if (hdr.n_vehicles == 0 || static_cast<int>(hdr.n_vehicles) > expected) {
         LOG(ERROR) << "[OMNET-PREVERIFY] reject: rollback membership size out of range"
                    << " hdr.n_vehicles=" << hdr.n_vehicles
@@ -687,7 +1425,7 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
                  << " leader_id=" << hdr.leader_id << " expected=" << expected;
       return false;
     }
-    if (!view.is_rollback) {
+    if (!view.is_rollback()) {
       int32_t proposal_cert_primary = std::numeric_limits<int32_t>::max();
       bool leader_is_signed = false;
       const uint8_t* ep = view.data + sizeof(ResdbProposeHdr);
@@ -771,7 +1509,7 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
           cert_backed_ids.insert(cert_entries[i].replica_id);
         }
 
-        if (!view.is_rollback) {
+        if (!view.is_rollback()) {
           for (uint32_t i = 0; i < cert_count; ++i) {
             const ResdbCertEntry& ce = cert_entries[i];
             if (ce.replica_id >= 0 &&
@@ -847,9 +1585,10 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
       }
     }
 
-    if (view.is_rollback) {
+    if (view.is_rollback()) {
       resdb::OmnetForcedView forced_view;
-      if (!BuildForcedViewCandidate(view, hdr, expected, &req, &forced_view)) {
+      if (!BuildForcedViewCandidate(view, hdr, expected, tolerated_fault_state,
+                                    &req, &forced_view)) {
         LOG(ERROR) << "[OMNET-PREVERIFY] reject: rollback forced-M invalid"
                    << " n_vehicles=" << hdr.n_vehicles
                    << " leader_id=" << hdr.leader_id
@@ -892,6 +1631,7 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
   handle->consensus  = service_ptr;
   handle->executor   = executor_ptr;
   handle->cert_state = cert_state;
+  handle->tolerated_fault_state = tolerated_fault_state;
   return handle;
 }
 
@@ -1017,30 +1757,86 @@ extern "C" int ResdbOmnetTriggerConsensus(void* server_handle,
   {
     std::string raw(reinterpret_cast<const char*>(payload), len);
     ProposalView view;
-    if (UnwrapRollbackIfPresent(raw, &view) && view.is_rollback) {
-      ResdbProposeHdr hdr;
-      std::memcpy(&hdr, view.data, sizeof(hdr));
+    if (UnwrapRollbackIfPresent(raw, &view)) {
       const int expected = h->consensus
                                ? static_cast<int>(h->consensus->GetReplicas().size())
                                : 0;
-      if (!StructurallyValidCancelJustification(raw, view.rollback)) {
+      if (view.is_cancel()) {
+        if (!Check13ValidCancelProposal(view)) {
+          std::cout << "[BRIDGE-TRIGGER] reject cancel: Check13 failed\n";
+          return -1;
+        }
+        resdb::OmnetForcedView cancel_view;
+        if (!BuildCancelViewCandidate(view, expected, h->tolerated_fault_state,
+                                    nullptr, &cancel_view)) {
+          std::cout << "[BRIDGE-TRIGGER] reject cancel: invalid forced E\n";
+          return -1;
+        }
+        cancel_view.request_hash = req.hash();
+        if (h->consensus) {
+          h->consensus->InstallOmnetPendingForcedView(cancel_view);
+        }
+      } else {
+      ResdbProposeHdr hdr;
+      std::memcpy(&hdr, view.data, sizeof(hdr));
+      if (!view.is_rollback()) {
+        resdb::OmnetForcedView active_view;
+        const bool has_active_view =
+            BuildEpochOrderViewCandidate(h->tolerated_fault_state, hdr,
+                                             view.data, expected, &req,
+                                             &active_view);
+        std::cout << "[EPOCH-VIEW]"
+                  << " hash=" << req.hash()
+                  << " seq=" << req.seq()
+                  << " epoch=" << hdr.epoch
+                  << " leader=r" << hdr.leader_id
+                  << " n_vehicles=" << hdr.n_vehicles
+                  << " result=" << (has_active_view ? "candidate" : "none")
+                  << "\n";
+        if (has_active_view) {
+          active_view.request_hash = req.hash();
+          if (h->consensus) {
+            std::cout << "[EPOCH-VIEW]"
+                      << " hash=" << req.hash()
+                      << " seq=" << req.seq()
+                      << " action=install-pending\n";
+            h->consensus->InstallOmnetPendingForcedView(active_view);
+          }
+        }
+        if (hdr.epoch > 0 && !has_active_view) {
+          std::cout << "[EPOCH-VIEW-REJECT]"
+                    << " reason=missing-reconfiguration-view"
+                    << " epoch=" << hdr.epoch
+                    << " hash=" << req.hash()
+                    << " seq=" << req.seq() << "\n";
+          return -1;
+        }
+        std::cout << "[BRIDGE-TRIGGER] active view checked"
+                  << " hash=" << req.hash()
+                  << " epoch=" << hdr.epoch
+                  << " leader=" << hdr.leader_id
+                  << " n_vehicles=" << hdr.n_vehicles << "\n";
+      } else if (!StructurallyValidCancelJustification(raw, view.rollback)) {
         std::cout << "[BRIDGE-TRIGGER] reject rollback: invalid justification"
                   << " hash=" << req.hash() << "\n";
         return -1;
-      }
-      resdb::OmnetForcedView forced_view;
-      if (!BuildForcedViewCandidate(view, hdr, expected, nullptr,
-                                    &forced_view)) {
+      } else {
+        resdb::OmnetForcedView forced_view;
+        if (!BuildForcedViewCandidate(view, hdr, expected,
+                                      h->tolerated_fault_state, nullptr,
+                                      &forced_view)) {
         std::cout << "[BRIDGE-TRIGGER] reject rollback: invalid forced M"
                   << " hash=" << req.hash()
                   << " epoch=" << hdr.epoch
                   << " n=" << hdr.n_vehicles
                   << " leader=" << hdr.leader_id << "\n";
         return -1;
+        }
+        forced_view.request_hash = req.hash();
+        if (h->consensus) {
+          h->consensus->InstallOmnetPendingForcedView(forced_view);
+        }
       }
-      forced_view.request_hash = req.hash();
-      if (h->consensus) {
-        h->consensus->InstallOmnetPendingForcedView(forced_view);
       }
     }
   }
@@ -1087,19 +1883,15 @@ extern "C" int ResdbOmnetSetPrimaryFromCert(void* server_handle,
   if (!server_handle || primary_omnet < 0) return -1;
   auto* h = static_cast<ResdbOmnetServerHandle*>(server_handle);
   if (!h->consensus) return -1;
-  const auto replicas = h->consensus->GetReplicas();
-  if (primary_omnet >= static_cast<int>(replicas.size())) return -1;
-  const int current = ResdbIdToOmnetReplica(
-      static_cast<int64_t>(h->consensus->GetPrimary()));
-  if (current == primary_omnet) return 0;
-  const uint64_t next_view = h->consensus->GetVersion() + 1;
-  h->consensus->SetPrimary(static_cast<uint32_t>(primary_omnet + 1),
-                           next_view);
-  std::cout << "[CERT-PRIMARY] installed PBFT primary"
-            << " omnet=" << primary_omnet
-            << " resdb=" << (primary_omnet + 1)
-            << " view=" << next_view << "\n";
-  return 0;
+  return h->consensus->PromotePrimaryFromCert(primary_omnet);
+}
+
+extern "C" int ResdbOmnetAdvanceExecutorAfterGossipCancel(void* server_handle,
+                                                          uint32_t cancelled_epoch) {
+  if (!server_handle) return -1;
+  auto* h = static_cast<ResdbOmnetServerHandle*>(server_handle);
+  if (!h->consensus) return -1;
+  return h->consensus->AdvanceExecutorAfterGossipCancel(cancelled_epoch);
 }
 
 extern "C" int ResdbOmnetGetPacketRequestType(const uint8_t* data, uint32_t len) {
@@ -1203,6 +1995,58 @@ extern "C" int ResdbOmnetMarkReplicaInactive(void* server_handle,
   std::cout << "[ACTIVE-DEPART] r" << replica_id
             << " min_epoch=" << min_epoch
             << " participation=inactive\n";
+  return 0;
+}
+
+extern "C" int ResdbOmnetSetToleratedFaults(void* server_handle,
+                                            int tolerated_f) {
+  if (!server_handle || tolerated_f < 0) {
+    return -1;
+  }
+  auto* h = static_cast<ResdbOmnetServerHandle*>(server_handle);
+  if (!h->tolerated_fault_state) {
+    h->tolerated_fault_state = std::make_shared<ToleratedFaultState>();
+  }
+  const int static_n = h->consensus
+                           ? static_cast<int>(h->consensus->GetReplicas().size())
+                           : 0;
+  if (static_n <= 0) return -1;
+  int quorum = -1;
+  try {
+    quorum = resdb::BftQuorumSize(static_n, tolerated_f);
+  } catch (const std::exception&) {
+    return -1;
+  }
+
+  {
+    std::lock_guard<std::mutex> lk(h->tolerated_fault_state->mu);
+    h->tolerated_fault_state->enabled = true;
+    h->tolerated_fault_state->tolerated_f = tolerated_f;
+  }
+
+  std::cout << "[TOLERATED-F-CONFIG]"
+            << " tolerated_f=" << tolerated_f
+            << " static_n=" << static_n
+            << " quorum=" << quorum
+            << " cert_threshold=" << (tolerated_f + 1);
+  std::cout << "\n";
+  return 0;
+}
+
+extern "C" int ResdbOmnetSetRollbackFaultMode(void* server_handle,
+                                              int per_epoch_mode) {
+  if (!server_handle) return -1;
+  auto* h = static_cast<ResdbOmnetServerHandle*>(server_handle);
+  if (!h->tolerated_fault_state) {
+    h->tolerated_fault_state = std::make_shared<ToleratedFaultState>();
+  }
+  {
+    std::lock_guard<std::mutex> lk(h->tolerated_fault_state->mu);
+    h->tolerated_fault_state->rollback_per_epoch = (per_epoch_mode != 0);
+  }
+  std::cout << "[ROLLBACK-MODE]"
+            << " mode=" << (per_epoch_mode != 0 ? "per_epoch" : "anchored")
+            << "\n";
   return 0;
 }
 

@@ -204,6 +204,10 @@ private:
     void broadcastArrivalCert(const ArrivalCert& cert);
     void scheduleNextCertRetry();
     void stopCertBroadcastRetries();
+    void startStopZoneCertGossip(const char* reason, bool immediate = true);
+    void scheduleNextStopZoneCertGossip();
+    void stopStopZoneCertGossip();
+    void broadcastCollectedCerts(const char* reason);
     void handleArrivalCert(BFTMessage* msg);
 
     // ── Post-consensus order gossip (Type 9) ──────────────────────────────────
@@ -215,6 +219,7 @@ private:
     bool validateArrivalCert(const ArrivalCert& cert);
 
     // ── Cancel / rollback protocol (Types 12, 13) ─────────────────────────────
+    bool maybeTriggerEmergencyRollbackFromAnnouncement(const ArrivalAnnouncement& ann);
     bool maybeTriggerEmergencyRollbackFromCert(const ArrivalCert& cert);
     void maybeTriggerCrashRollback(const std::string& reasonRef);
     void sendCancelEcho(uint32_t cancelledEpoch, CancelReason reason, const std::string& reasonRef);
@@ -239,12 +244,28 @@ private:
                                 const std::vector<uint8_t>& justification);
     bool rollbackDiscoveryComplete();
     void maybeFinishRollbackDiscovery(const char* reason);
-    std::vector<int> rollbackMembershipCandidates();
+    std::vector<int> rollbackCertedCandidates() const;
+    std::vector<int> rollbackMembershipCandidates() const;
+    int minRollbackVoteN() const;
     int minRollbackMembershipSize() const;
+    bool isRollbackPerEpochMode() const;
     int chooseRollbackProposer();
-    bool shouldIncludeInRollbackMembership(int replicaId);
+    int designatedRollbackUnavailableReporter() const;
+    void logRollbackDiscoveryDiagnostics(const char* reason) const;
+    bool shouldIncludeInRollbackMembership(int replicaId) const;
+    void trySubmitCancelProposal(const char* reason);
+    void proposeCancel();
+    int chooseCancelProposer();
+    std::vector<int> cancelElectorateCandidates() const;
+    bool isEpochTombstoned(uint32_t epoch) const;
+    void handleCancelCommitDecision(const std::vector<uint8_t>& dec);
+    std::vector<uint8_t> buildCancelCommitRef(uint32_t cancelledEpoch) const;
+    bool hasCommittedCancel(uint32_t epoch) const;
+    void triggerCancelCommitGossip(uint32_t cancelledEpoch,
+                                   const std::vector<uint8_t>& attestation);
+    void handleCancelCommitGossip(BFTMessage* bft);
+    void broadcastCancelCommitAttestation(const ResdbCancelDecisionHdr& dh);
     void trySubmitRollbackProposal(const char* reason);
-    void proposeRollback();
     std::string cancelReasonKey(uint32_t epoch, CancelReason reason,
                                 const std::string& reasonRef) const;
     std::string cancelSignPayload(uint32_t cancelledEpoch, CancelReason reason,
@@ -264,6 +285,8 @@ private:
     void proposeAll();
     void processOrders();
     bool isReplicaConfiguredByzantine(int replicaId) const;
+    static bool hasCompletedReplicaEpoch(int replicaId, uint32_t epoch);
+    static void markCompletedReplicaEpoch(int replicaId, uint32_t epoch);
     void detectConsensusAttackOutcome(const ResdbVehicleDecision* decisions, uint32_t n, uint32_t n_batches);
     bool detectUnsafeBatch(const ResdbVehicleDecision* decisions, uint32_t n, uint32_t n_batches);
     bool detectFalsePriorityGrant(const ResdbVehicleDecision* decisions, uint32_t n);
@@ -276,6 +299,8 @@ private:
 
     // ── TraCI helpers (ported from V2VTraCI.cc) ───────────────────────────────
     double getDistanceToIntersection();
+    bool   isInOrPastConflictBox();
+    int    countRollbackPerceivedVehicles() const;
     void   discoverLane();
     bool   vehicleHasClearedIntersectionTraCI(const std::string& carId);
     void   stopVehicle();
@@ -299,6 +324,7 @@ private:
     cMessage* broadcastArrivalAnnouncement_timer_ = nullptr;
     cMessage* propose_timeout_msg_     = nullptr;
     cMessage* cert_retry_timer_        = nullptr;
+    cMessage* cert_gossip_timer_       = nullptr;
     cMessage* initial_announce_msg_    = nullptr;
     cMessage* stop_sign_timeout_msg_   = nullptr;
     cMessage* consensus_timeout_msg_   = nullptr;
@@ -306,6 +332,7 @@ private:
     cMessage* cancel_cert_retry_timer_ = nullptr;
     cMessage* rollback_discovery_timer_ = nullptr;
     cMessage* rollback_vc_timer_       = nullptr;
+    cMessage* cancel_vc_timer_         = nullptr;
     int       pending_resume_position_ = 0;
     cMessage* vc_trigger_msg_          = nullptr;  // follower VC trigger after primary silence
     cMessage* channel_metrics_timer_   = nullptr;  // 100 ms CSV flush (channel + SINR)
@@ -337,6 +364,9 @@ private:
     bool     useRadioTransport_ = false;
     bool moduleIsAmbulance = false;
     bool ambulanceColorSet = false;
+    int      tolerated_faults_ = -1;
+    int      configured_consensus_quorum_ = -1;
+    int      configured_cert_threshold_ = -1;
 
     unsigned int sentMessages_ = 0;
     unsigned int receivedMessages_ = 0;
@@ -384,6 +414,8 @@ private:
     ArrivalCert cert_pending_retries_{};
     int    cert_retry_count_         = 0;
     bool cert_broadcast_          = false;
+    simtime_t cert_gossip_deadline_ = -1;
+    bool      pbft_observed_ = false;
 
     // ── Post-consensus order gossip (Type 9) ──────────────────────────────────
     static constexpr int kDecisionGossipType = 9;
@@ -391,6 +423,7 @@ private:
     static constexpr int kResdbConsensusRelayType = 11;
     static constexpr int kCancelEchoType = 12;
     static constexpr int kCancelCertType = 13;
+    static constexpr int kCancelCommitGossipType = 14;
 
     resdb_gossip::GossipAccumulator  gossip_acc_;
     resdb_gossip::CertRelayTracker   cert_relay_tracker_;
@@ -449,6 +482,7 @@ private:
     bool   is_ambulance_          = false;
     bool          is_byzantine_          = false;
     ByzantineType byzantine_type_        = BYZANTINE_HONEST;
+    bool          byzantine_pbft_silent_ = false;
     bool          enableAmbulanceCertGate_ = false;  // when true, rejects ambulance claims with no ambulanceCertBytes
     int           last_known_primary_ = 0;
     bool          bad_proposal_injected_ = false;
@@ -463,6 +497,22 @@ private:
     double        processing_latency_margin_ = 2.0;
     double        rollback_discovery_timeout_sec_ = 8.0;
     double        rollback_vc_timeout_sec_ = 3.0;
+    bool          rollback_fault_mode_per_epoch_ = true;
+    bool          cancel_consensus_pending_ = false;
+    bool          cancel_propose_submitted_ = false;
+    std::vector<uint8_t> cancel_cert_bytes_;
+    struct CommittedCancelInfo {
+        uint64_t cancel_seq = 0;
+        uint8_t  payload_digest[32] = {};
+        std::vector<uint8_t> attestation_bytes;
+        bool gossip_adopted = false;
+    };
+    std::map<uint32_t, CommittedCancelInfo> committed_cancels_;
+    resdb_gossip::GossipAccumulator cancel_gossip_acc_;
+    cMessage* cancel_gossip_timer_ = nullptr;
+    int cancel_gossip_retry_count_ = 0;
+    uint32_t cancel_gossip_epoch_ = 0;
+    std::vector<uint8_t> cancel_gossip_bytes_;
     bool          cancel_pending_ = false;
     bool          rollback_cancel_initiated_ = false;
     uint32_t      cancelled_epoch_ = 0;
@@ -473,6 +523,7 @@ private:
     bool          rollback_local_recallable_ = false;
     bool          rollback_discovery_ready_ = false;
     bool          rollback_propose_submitted_ = false;
+    int           rollback_expected_membership_size_ = 0;
     int           rollback_rotation_index_ = 0;
     std::map<std::string, std::vector<CancelEcho>> cancel_echoes_;
     std::set<std::string> cancel_echo_sent_;

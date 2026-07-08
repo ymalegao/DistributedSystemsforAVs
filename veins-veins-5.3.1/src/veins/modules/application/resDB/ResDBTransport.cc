@@ -21,6 +21,9 @@ using namespace veins::resdb_app_util;
 
 namespace {
 
+constexpr double kPbftPreparePhaseGapSec = 0.003;
+constexpr double kPbftCommitPhaseGapSec = 0.006;
+
 std::string sha256Hex(const uint8_t* data, uint32_t len)
 {
     unsigned char digest[EVP_MAX_MD_SIZE];
@@ -144,6 +147,16 @@ void ResDBIntersectionApp::drainOutboundQueue()
                                        (uint32_t)pkt.resdbBytes.size(),
                                        &inner);
 
+        double phaseGap = 0.0;
+        if (inner.parse_ok) {
+            if (inner.type == 4) {        // TYPE_PREPARE
+                phaseGap = kPbftPreparePhaseGapSec;
+            } else if (inner.type == 5) { // TYPE_COMMIT
+                phaseGap = kPbftCommitPhaseGapSec;
+            }
+        }
+        delay += phaseGap;
+
         std::cout << "[TYPE8-DRAIN] r" << replicaId_ << " to=" << pkt.toReplicaId
                   << " resdbLen=" << pkt.resdbBytes.size()
                   << " signedLen=" << signed_payload.size()
@@ -158,6 +171,7 @@ void ResDBIntersectionApp::drainOutboundQueue()
                   << " dataLen=" << inner.data_len
                   << " hashLen=" << inner.hash_len
                   << " parseOk=" << inner.parse_ok
+                  << " phaseGap=" << phaseGap
                   << " delay=" << delay << " t=" << simTime() << "\n";
         sendDelayedDown(bft, delay);
     }

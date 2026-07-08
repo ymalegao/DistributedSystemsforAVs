@@ -21,9 +21,53 @@
 
 #include <glog/logging.h>
 
+#include <iostream>
+
 #include "common/utils/utils.h"
 
 namespace resdb {
+
+namespace {
+
+const char* RequestTypeName(int type) {
+  switch (type) {
+    case Request::TYPE_PRE_PREPARE:
+      return "PRE_PREPARE";
+    case Request::TYPE_PREPARE:
+      return "PREPARE";
+    case Request::TYPE_COMMIT:
+      return "COMMIT";
+    case Request::TYPE_RESPONSE:
+      return "RESPONSE";
+    default:
+      return "OTHER";
+  }
+}
+
+const char* TxnStatusName(TransactionStatue status) {
+  switch (status) {
+    case TransactionStatue::None:
+      return "None";
+    case TransactionStatue::Prepare:
+      return "Prepare";
+    case TransactionStatue::READY_PREPARE:
+      return "READY_PREPARE";
+    case TransactionStatue::READY_COMMIT:
+      return "READY_COMMIT";
+    case TransactionStatue::READY_EXECUTE:
+      return "READY_EXECUTE";
+    case TransactionStatue::EXECUTED:
+      return "EXECUTED";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+bool ShouldDebugPbftRequest(const Request& request) {
+  return request.seq() >= 2 || request.hash().rfind("omnet-tx-", 0) == 0;
+}
+
+}  // namespace
 
 MessageManager::MessageManager(
     const ResDBConfig& config,
@@ -149,8 +193,37 @@ void MessageManager::SetOmnetForcedViewRegistry(
 }
 
 bool MessageManager::HasForcedViewForRequest(const Request& request) {
-  return forced_view_registry_ &&
-         forced_view_registry_->FindForRequest(request).has_value();
+  if (!forced_view_registry_) {
+    if (ShouldDebugPbftRequest(request)) {
+      std::cout << "[PBFT-FORCED-CHECK] self=" << config_.GetSelfInfo().id()
+                << " seq=" << request.seq()
+                << " type=" << RequestTypeName(request.type())
+                << " hash=" << request.hash()
+                << " result=miss"
+                << " reason=no-registry\n";
+    }
+    return false;
+  }
+  auto view = forced_view_registry_->FindForRequest(request);
+  if (ShouldDebugPbftRequest(request)) {
+    std::cout << "[PBFT-FORCED-CHECK] self=" << config_.GetSelfInfo().id()
+              << " omnet_self="
+              << OmnetForcedView::ResdbSenderToOmnet(config_.GetSelfInfo().id())
+              << " seq=" << request.seq()
+              << " type=" << RequestTypeName(request.type())
+              << " sender=" << request.sender_id()
+              << " hash=" << request.hash()
+              << " result=" << (view ? "hit" : "miss");
+    if (view) {
+      std::cout << " view_epoch=" << view->epoch
+                << " view_seq=" << view->seq
+                << " N=" << view->active_omnet_ids.size()
+                << " quorum=" << view->quorum
+                << " primary=r" << view->primary_omnet;
+    }
+    std::cout << "\n";
+  }
+  return view.has_value();
 }
 
 bool MessageManager::IsSelfActiveForRequest(const Request& request) {
@@ -164,7 +237,25 @@ bool MessageManager::IsSelfActiveForRequest(const Request& request) {
 int MessageManager::QuorumForRequest(const Request& request) {
   if (forced_view_registry_) {
     auto view = forced_view_registry_->FindForRequest(request);
-    if (view) return view->quorum;
+    if (view) {
+      if (ShouldDebugPbftRequest(request)) {
+        std::cout << "[PBFT-QUORUM] self=" << config_.GetSelfInfo().id()
+                  << " seq=" << request.seq()
+                  << " hash=" << request.hash()
+                  << " source=forced"
+                  << " quorum=" << view->quorum
+                  << " N=" << view->active_omnet_ids.size()
+                  << " epoch=" << view->epoch << "\n";
+      }
+      return view->quorum;
+    }
+  }
+  if (ShouldDebugPbftRequest(request)) {
+    std::cout << "[PBFT-QUORUM] self=" << config_.GetSelfInfo().id()
+              << " seq=" << request.seq()
+              << " hash=" << request.hash()
+              << " source=static"
+              << " quorum=" << config_.GetMinDataReceiveNum() << "\n";
   }
   return config_.GetMinDataReceiveNum();
 }
@@ -190,11 +281,14 @@ bool MessageManager::MayConsensusChangeStatus(
     const Request& request, int type, int received_count,
     std::atomic<TransactionStatue>* status, bool ret) {
   const int quorum = QuorumForRequest(request);
+  const TransactionStatue before =
+      status ? status->load(std::memory_order_acquire) : TransactionStatue::None;
+  bool changed = ret;
   switch (type) {
     case Request::TYPE_PRE_PREPARE:
       if (*status == TransactionStatue::None) {
         TransactionStatue old_status = TransactionStatue::None;
-        return status->compare_exchange_strong(
+        changed = status->compare_exchange_strong(
             old_status, TransactionStatue::READY_PREPARE,
             std::memory_order_acq_rel, std::memory_order_acq_rel);
       }
@@ -203,7 +297,7 @@ bool MessageManager::MayConsensusChangeStatus(
       if (*status == TransactionStatue::READY_PREPARE &&
           quorum <= received_count) {
         TransactionStatue old_status = TransactionStatue::READY_PREPARE;
-        return status->compare_exchange_strong(
+        changed = status->compare_exchange_strong(
             old_status, TransactionStatue::READY_COMMIT,
             std::memory_order_acq_rel, std::memory_order_acq_rel);
       }
@@ -212,13 +306,37 @@ bool MessageManager::MayConsensusChangeStatus(
       if (*status == TransactionStatue::READY_COMMIT &&
           quorum <= received_count) {
         TransactionStatue old_status = TransactionStatue::READY_COMMIT;
-        return status->compare_exchange_strong(
+        changed = status->compare_exchange_strong(
             old_status, TransactionStatue::READY_EXECUTE,
             std::memory_order_acq_rel, std::memory_order_acq_rel);
       }
       break;
   }
-  return ret;
+  const bool forced = HasForcedViewForRequest(request);
+  if ((forced || request.seq() >= 2) &&
+      (type == Request::TYPE_PRE_PREPARE ||
+       type == Request::TYPE_PREPARE ||
+       type == Request::TYPE_COMMIT)) {
+    const TransactionStatue after =
+        status ? status->load(std::memory_order_acquire) : TransactionStatue::None;
+    std::cout << "[PBFT-COUNT] self=" << config_.GetSelfInfo().id()
+              << " omnet_self="
+              << OmnetForcedView::ResdbSenderToOmnet(config_.GetSelfInfo().id())
+              << " seq=" << request.seq()
+              << " type=" << RequestTypeName(type)
+              << " sender=" << request.sender_id()
+              << " omnet_sender="
+              << OmnetForcedView::ResdbSenderToOmnet(request.sender_id())
+              << " hash=" << request.hash()
+              << " count=" << received_count
+              << " quorum=" << quorum
+              << " status_before=" << TxnStatusName(before)
+              << " status_after=" << TxnStatusName(after)
+              << " changed=" << (changed ? 1 : 0)
+              << " forced=" << (forced ? 1 : 0)
+              << "\n";
+  }
+  return changed;
 }
 
 // Add commit messages and return the number of messages have been received.
@@ -238,9 +356,22 @@ CollectorResultCode MessageManager::AddConsensusMsg(
 
   int type = request->type();
   uint64_t seq = request->seq();
+  const int sender_id = request->sender_id();
+  const std::string hash = request->hash();
+  const bool forced = HasForcedViewForRequest(*request);
   int resp_received_count = 0;
   int proxy_id = request->proxy_id();
   if (!IsSenderActiveForRequest(*request)) {
+    if (forced || seq >= 2) {
+      std::cout << "[PBFT-ADD-RESULT] self=" << config_.GetSelfInfo().id()
+                << " seq=" << seq
+                << " type=" << RequestTypeName(type)
+                << " sender=" << sender_id
+                << " hash=" << hash
+                << " result=inactive-sender"
+                << " forced=" << (forced ? 1 : 0)
+                << "\n";
+    }
     return CollectorResultCode::OK;
   }
   if (checkpoint_manager_->IsCommitted(seq)) {
@@ -249,7 +380,8 @@ CollectorResultCode MessageManager::AddConsensusMsg(
     return CollectorResultCode::STATE_CHANGED;
   }
 
-  int ret = collector_pool_->GetCollector(seq)->AddRequest(
+  TransactionCollector* collector = collector_pool_->GetCollector(seq);
+  int ret = collector->AddRequest(
       std::move(request), signature, type == Request::TYPE_PRE_PREPARE,
       [&](const Request& request, int received_count,
           TransactionCollector::CollectorDataType* data,
@@ -263,6 +395,18 @@ CollectorResultCode MessageManager::AddConsensusMsg(
     SetLastCommittedTime(proxy_id);
   } else if (ret != 0) {
     LOG(ERROR) << " add request fail";
+    if (forced || seq >= 2) {
+      std::cout << "[PBFT-ADD-RESULT] self=" << config_.GetSelfInfo().id()
+                << " seq=" << seq
+                << " type=" << RequestTypeName(type)
+                << " sender=" << sender_id
+                << " hash=" << hash
+                << " result=invalid"
+                << " ret=" << ret
+                << " status=" << TxnStatusName(collector->GetStatus())
+                << " forced=" << (forced ? 1 : 0)
+                << "\n";
+    }
     return CollectorResultCode::INVALID;
   }
   if (resp_received_count > 0) {
@@ -271,7 +415,29 @@ CollectorResultCode MessageManager::AddConsensusMsg(
         checkpoint_manager_->AddCommitState(seq);
       }
     }
+    if (forced || seq >= 2) {
+      std::cout << "[PBFT-ADD-RESULT] self=" << config_.GetSelfInfo().id()
+                << " seq=" << seq
+                << " type=" << RequestTypeName(type)
+                << " sender=" << sender_id
+                << " hash=" << hash
+                << " result=state-changed"
+                << " status=" << TxnStatusName(collector->GetStatus())
+                << " forced=" << (forced ? 1 : 0)
+                << "\n";
+    }
     return CollectorResultCode::STATE_CHANGED;
+  }
+  if (forced || seq >= 2) {
+    std::cout << "[PBFT-ADD-RESULT] self=" << config_.GetSelfInfo().id()
+              << " seq=" << seq
+              << " type=" << RequestTypeName(type)
+              << " sender=" << sender_id
+              << " hash=" << hash
+              << " result=ok"
+              << " status=" << TxnStatusName(collector->GetStatus())
+              << " forced=" << (forced ? 1 : 0)
+              << "\n";
   }
   return CollectorResultCode::OK;
 }
@@ -301,6 +467,39 @@ void MessageManager::SetNextCommitSeq(int seq) {
   checkpoint_manager_->SetLastCommit(seq - 1);
   std::cout << "[SET-NEXT-COMMIT-SEQ-DONE] seq=" << seq << "\n";
   return transaction_executor_->SetPendingExecutedSeq(seq);
+}
+
+void MessageManager::EnsureNextSeqAheadOfExecuted() {
+  const uint64_t max_executed = transaction_executor_->GetMaxPendingExecutedSeq();
+  uint64_t need = max_executed + 1;
+  if (checkpoint_manager_) {
+    need = std::max(need, checkpoint_manager_->GetLastCommit() + 1);
+  }
+  if (static_cast<uint64_t>(next_seq_) >= need) return;
+  std::cout << "[SEQ-SYNC] advancing next_seq from " << next_seq_
+            << " to " << need << " max_executed=" << max_executed
+            << " last_commit="
+            << (checkpoint_manager_ ? checkpoint_manager_->GetLastCommit() : 0)
+            << "\n";
+  SetNextSeq(need);
+}
+
+void MessageManager::AdvanceExecutorAfterGossipCancel(uint32_t cancelled_epoch) {
+  // Ledger prefix per epoch: ORDER(e) then CANCEL(e). After gossip-adopting
+  // CANCEL(e), the next executable PBFT seq is 2*(e+1)+1.
+  const uint64_t min_next = 2ULL * (static_cast<uint64_t>(cancelled_epoch) + 1ULL) + 1ULL;
+  const uint64_t current_next = transaction_executor_->GetMaxPendingExecutedSeq() + 1;
+  const uint64_t target = std::max(current_next, min_next);
+  transaction_executor_->AdvanceExecuteSeq(target);
+  if (collector_pool_) {
+    collector_pool_->Update(target - 1);
+  }
+  const uint64_t need = std::max(target, current_next);
+  if (static_cast<uint64_t>(next_seq_) < need) {
+    std::cout << "[SEQ-SYNC] gossip-cancel advancing next_seq from " << next_seq_
+              << " to " << need << " cancelled_epoch=" << cancelled_epoch << "\n";
+    SetNextSeq(need);
+  }
 }
 
 void MessageManager::SetLastCommittedTime(uint64_t proxy_id) {

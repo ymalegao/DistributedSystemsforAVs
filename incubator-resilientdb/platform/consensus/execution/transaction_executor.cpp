@@ -21,6 +21,8 @@
 
 #include <glog/logging.h>
 
+#include <iostream>
+
 #include "common/utils/utils.h"
 
 namespace resdb {
@@ -145,6 +147,46 @@ void TransactionExecutor::SetPendingExecutedSeq(int seq) {
   next_execute_seq_ = seq;
 }
 
+void TransactionExecutor::AdvanceExecuteSeq(uint64_t seq) {
+  const uint64_t current = next_execute_seq_.load();
+  if (seq > 0) {
+    std::unique_lock<std::mutex> lk(mutex_);
+    const int32_t target_last = static_cast<int32_t>(seq - 1);
+    if (last_seq_ < target_last) {
+      std::cout << "[EXECUTOR-GOSSIP-SYNC] advancing last_seq from "
+                << last_seq_ << " to " << target_last << "\n";
+      last_seq_ = target_last;
+    }
+  }
+  if (seq <= current) {
+    for (auto it = candidates_.begin(); it != candidates_.end();) {
+      if (it->first < current) {
+        std::cout << "[ORDERMSG-SKIP] gossip-cancel advance: dropping candidate seq="
+                  << it->first << " next_execute_seq=" << current << "\n";
+        it = candidates_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    return;
+  }
+  next_execute_seq_ = seq;
+  for (auto it = candidates_.begin(); it != candidates_.end();) {
+    if (it->first < seq) {
+      std::cout << "[ORDERMSG-SKIP] gossip-cancel advance: dropping candidate seq="
+                << it->first << " new_next_execute_seq=" << seq << "\n";
+      it = candidates_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  std::cout << "[EXECUTOR-GOSSIP-SYNC] advanced next_execute_seq from " << current
+            << " to " << seq << " (gossip-adopted cancel)\n";
+  if (seq_update_notify_func_) {
+    seq_update_notify_func_(seq);
+  }
+}
+
 bool TransactionExecutor::NeedResponse() {
   return transaction_manager_ == nullptr ||
          transaction_manager_->NeedResponse();
@@ -152,6 +194,14 @@ bool TransactionExecutor::NeedResponse() {
 
 int TransactionExecutor::Commit(std::unique_ptr<Request> message) {
   global_stats_->IncPendingExecute();
+  if (message) {
+    std::cout << "[TXEXEC-COMMIT-ENQUEUE] seq=" << message->seq()
+              << " hash=" << message->hash()
+              << " data_bytes=" << message->data().size()
+              << " out_of_order="
+              << (transaction_manager_ && transaction_manager_->IsOutOfOrder())
+              << "\n";
+  }
   if (transaction_manager_ && transaction_manager_->IsOutOfOrder()) {
     // LOG(ERROR)<<"add out of order exe:"<<message->seq()<<" from
     // proxy:"<<message->proxy_id();
@@ -292,7 +342,16 @@ void TransactionExecutor::Execute(std::unique_ptr<Request> request,
     batch_request = std::make_unique<BatchUserRequest>();
     if (!batch_request->ParseFromString(request->data())) {
       LOG(ERROR) << "parse data fail";
+      std::cout << "[TXEXEC-PARSE-FAIL] seq=" << request->seq()
+                << " hash=" << request->hash()
+                << " data_bytes=" << request->data().size()
+                << " need_execute=" << need_execute << "\n";
     }
+    std::cout << "[TXEXEC-EXECUTE] seq=" << request->seq()
+              << " hash=" << request->hash()
+              << " data_bytes=" << request->data().size()
+              << " batch_requests=" << batch_request->user_requests_size()
+              << " need_execute=" << need_execute << "\n";
     batch_request->set_hash(request->hash());
     if (request->has_committed_certs()) {
       *batch_request->mutable_committed_certs() = request->committed_certs();
@@ -335,11 +394,25 @@ void TransactionExecutor::Execute(std::unique_ptr<Request> request,
       }
 
       WaitForExecute(request->seq());
-      if (last_seq_ == 0) {
-        last_seq_ = request->seq();
-      } else {
-        assert(last_seq_ + 1 == request->seq());
-        last_seq_++;
+      bool duplicate_execute = false;
+      {
+        std::unique_lock<std::mutex> lk(mutex_);
+        if (last_seq_ == 0) {
+          last_seq_ = request->seq();
+        } else if (request->seq() <= last_seq_) {
+          duplicate_execute = true;
+          std::cout << "[TXEXEC-DUP-EXECUTE] seq=" << request->seq()
+                    << " last_seq=" << last_seq_
+                    << " hash=" << request->hash()
+                    << " dropping duplicate execute request\n";
+        } else {
+          assert(last_seq_ + 1 == request->seq());
+          last_seq_++;
+        }
+      }
+      if (duplicate_execute) {
+        FinishExecute(request->seq());
+        return;
       }
       if (data_p->empty() || (*data_p)[0] == nullptr) {
         response = transaction_manager_->ExecuteBatchWithSeq(request->seq(),

@@ -78,6 +78,18 @@ simple TraCIScenarioManager
         bool shutdownOnIntersectionBatchCleared = default(false);  // If true, end simulation globally when intersectionBatchSize distinct vehicles satisfy C2* departure-leg clearance (same idea as V2VTraCI)
         int intersectionBatchSize = default(4);  // Number of vehicles that must clear (TraCI predicate) before endSimulation
         double intersectionDepartureMinMeters @unit("m") = default(3m);  // Min lane position on C2* edge to count as cleared
+        bool enableR0Supervisor = default(false);  // R0-only supervisor: inject late emergency pair after initial batch progress
+        int r0SpawnAfterCleared = default(1);  // Schedule late injection after this many vehicles satisfy departure-leg clearance
+        double lateEmergencyDeltaSec @unit("s") = default(0s);  // Delay from the manager trigger to late vehicle insertion
+        double r0LateSpawnDepartPos @unit("m") = default(250m);  // Position on incoming lane for injected vehicles
+        double r0LateSpawnRetrySec @unit("s") = default(0.2s);  // Retry interval if SUMO rejects insertion because the spot is blocked
+        int r0LateSpawnMaxRetries = default(25);
+        string r0LateNormalVehicleId = default("veh16");
+        string r0LateNormalType = default("car");
+        string r0LateNormalRoute = default("rN");
+        string r0LateEmergencyVehicleId = default("veh17");
+        string r0LateEmergencyType = default("ambulance");
+        string r0LateEmergencyRoute = default("rE");
         int margin = default(25);  // margin to add to all received vehicle positions
         string roiRoads = default("");  // which roads (e.g. "hwy1 hwy2") are considered to consitute the region of interest, if not empty
         string roiRects = default("");  // which rectangles (e.g. "0,0-10,10 20,20-30,30) are considered to consitute the region of interest, if not empty. Note that these rectangles have to use TraCI (SUMO) coordinates and not OMNeT++. They can be easily read from sumo-gui.
@@ -86,4 +98,3 @@ simple TraCIScenarioManager
         int order = default(-1); // specific position in the multi-client execution order of the TraCI server to request upon connecting (-1: do not request a position)
         bool ignoreUnknownSubscriptionResults = default(false); // whether to (try and) ignore any subscription result we did not request (but another client might have)
 }
-

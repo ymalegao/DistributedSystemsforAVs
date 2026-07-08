@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <iostream>
+#include <stdexcept>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -14,12 +15,21 @@
 
 namespace resdb {
 
+inline int BftQuorumSize(int n, int f) {
+  if (n <= 0) return 0;
+  if (f < 0 || f > (n - 1) / 3) {
+    throw std::invalid_argument("invalid BFT f for active voter set");
+  }
+  return std::max((n + f + 2) / 2, 1);
+}
+
 struct OmnetForcedView {
   uint32_t epoch = 0;
   uint64_t seq = 0;
   std::string request_hash;
   int primary_omnet = -1;
   std::vector<int> active_omnet_ids;
+  bool f_override = false;
   int f = 0;
   int quorum = 1;
 
@@ -51,7 +61,12 @@ class OmnetForcedViewRegistry {
   }
 
   bool InstallForRequest(const Request& request, const OmnetForcedView& view) {
-    if (request.hash().empty()) return false;
+    if (request.hash().empty()) {
+      std::cout << "[ACTIVE-VIEW-INSTALL] mode=request result=reject"
+                << " reason=empty-hash"
+                << " seq=" << request.seq() << "\n";
+      return false;
+    }
     std::lock_guard<std::mutex> lk(mu_);
     OmnetForcedView normalized = Normalize(view);
     normalized.seq = request.seq();
@@ -74,16 +89,33 @@ class OmnetForcedViewRegistry {
   }
 
   std::optional<OmnetForcedView> FindForRequest(const Request& request) {
-    if (request.hash().empty()) return std::nullopt;
+    if (request.hash().empty()) {
+      if (ShouldDebug(request)) {
+        std::cout << "[ACTIVE-VIEW-FIND] result=miss"
+                  << " reason=empty-hash"
+                  << " seq=" << request.seq() << "\n";
+      }
+      return std::nullopt;
+    }
     std::lock_guard<std::mutex> lk(mu_);
     for (const auto& kv : views_) {
       const OmnetForcedView& view = kv.second;
       if (view.seq == request.seq() && view.request_hash == request.hash()) {
+        if (ShouldDebug(request)) {
+          LogFind("exact", request, view, views_.size(),
+                  pending_by_hash_.size(), latest_);
+        }
         return view;
       }
     }
     auto pending = pending_by_hash_.find(request.hash());
-    if (pending == pending_by_hash_.end()) return std::nullopt;
+    if (pending == pending_by_hash_.end()) {
+      if (ShouldDebug(request)) {
+        LogFindMiss("no-pending-for-hash", request, views_.size(),
+                    pending_by_hash_.size(), latest_);
+      }
+      return std::nullopt;
+    }
     OmnetForcedView view = pending->second;
     if (request.seq() != 0) {
       view.seq = request.seq();
@@ -91,6 +123,10 @@ class OmnetForcedViewRegistry {
       views_[key] = view;
       latest_ = view;
       LogInstall("promoted", view);
+    }
+    if (ShouldDebug(request)) {
+      LogFind("pending", request, view, views_.size(), pending_by_hash_.size(),
+              latest_);
     }
     return view;
   }
@@ -124,8 +160,10 @@ class OmnetForcedViewRegistry {
         std::unique(view.active_omnet_ids.begin(), view.active_omnet_ids.end()),
         view.active_omnet_ids.end());
     int n = static_cast<int>(view.active_omnet_ids.size());
-    view.f = n > 0 ? (n - 1) / 3 : 0;
-    view.quorum = std::max(2 * view.f + 1, 1);
+    if (!view.f_override) {
+      view.f = n > 0 ? (n - 1) / 3 : 0;
+    }
+    view.quorum = BftQuorumSize(n, view.f);
     return view;
   }
 
@@ -142,6 +180,50 @@ class OmnetForcedViewRegistry {
     for (size_t i = 0; i < view.active_omnet_ids.size(); ++i) {
       if (i) std::cout << ",";
       std::cout << view.active_omnet_ids[i];
+    }
+    std::cout << "\n";
+  }
+
+  static bool ShouldDebug(const Request& request) {
+    return request.seq() >= 2 || request.hash().rfind("omnet-tx-", 0) == 0;
+  }
+
+  static void LogFind(const char* result, const Request& request,
+                      const OmnetForcedView& view, size_t view_count,
+                      size_t pending_count,
+                      const std::optional<OmnetForcedView>& latest) {
+    std::cout << "[ACTIVE-VIEW-FIND] result=" << (result ? result : "?")
+              << " req_seq=" << request.seq()
+              << " req_hash=" << request.hash()
+              << " view_epoch=" << view.epoch
+              << " view_seq=" << view.seq
+              << " view_hash=" << view.request_hash
+              << " N=" << view.active_omnet_ids.size()
+              << " quorum=" << view.quorum
+              << " primary=r" << view.primary_omnet
+              << " views=" << view_count
+              << " pending=" << pending_count;
+    if (latest) {
+      std::cout << " latest_epoch=" << latest->epoch
+                << " latest_seq=" << latest->seq
+                << " latest_hash=" << latest->request_hash;
+    }
+    std::cout << "\n";
+  }
+
+  static void LogFindMiss(const char* reason, const Request& request,
+                          size_t view_count, size_t pending_count,
+                          const std::optional<OmnetForcedView>& latest) {
+    std::cout << "[ACTIVE-VIEW-FIND] result=miss"
+              << " reason=" << (reason ? reason : "?")
+              << " req_seq=" << request.seq()
+              << " req_hash=" << request.hash()
+              << " views=" << view_count
+              << " pending=" << pending_count;
+    if (latest) {
+      std::cout << " latest_epoch=" << latest->epoch
+                << " latest_seq=" << latest->seq
+                << " latest_hash=" << latest->request_hash;
     }
     std::cout << "\n";
   }

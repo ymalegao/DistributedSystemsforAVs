@@ -112,9 +112,8 @@ typedef struct ResdbProposeHdr {
  *   ResdbVehicleEntry[ResdbProposeHdr.n_vehicles]
  *
  * reason: 0=CRASH, 1=EMERGENCY.
- * TODO: ResDB-side dynamic-N membership/quorum reconfiguration is intentionally
- * not implemented in this pass; this wrapper only carries the Veins-side
- * rollback membership to the existing executor/pre-verify path. */
+ * Rollback proposals carry a dynamic membership M; the bridge installs a
+ * forced PBFT view over M with f lowered to what M can safely support. */
 typedef struct ResdbRollbackHdr {
     uint32_t new_epoch;
     uint32_t cancelled_epoch;
@@ -122,6 +121,39 @@ typedef struct ResdbRollbackHdr {
     uint8_t  _pad[3];
     uint32_t justification_len;
 } ResdbRollbackHdr;           /* 16 bytes */
+
+/* Phase-2 cancel proposal (no vehicle entries).  Bytes after this header:
+ *   justification[justification_len]   // serialized CANCEL_CERT
+ *   int32_t  leader_id                 // deterministic cancel proposer in E
+ *   uint32_t n_electors
+ *   int32_t  electors[n_electors]      // epoch-e electorate E
+ */
+typedef struct ResdbCancelHdr {
+    uint32_t cancelled_epoch;
+    uint8_t  reason;
+    uint8_t  _pad[3];
+    uint32_t justification_len;
+} ResdbCancelHdr;             /* 12 bytes */
+
+/* Executor output for a committed CANCEL(e) decision (not an order schedule).
+ * magic distinguishes this from ResdbOrderHdr in the app callback. */
+#define RESDB_CANCEL_DECISION_MAGIC 0xCACEC0DEu
+typedef struct ResdbCancelDecisionHdr {
+    uint32_t magic;              /* RESDB_CANCEL_DECISION_MAGIC */
+    uint32_t cancelled_epoch;
+    uint8_t  reason;
+    uint8_t  _pad[3];
+    uint64_t cancel_seq;
+    uint8_t  payload_digest[32];
+} ResdbCancelDecisionHdr;     /* 48 bytes */
+
+/* Phase-3 rollback justification: reference to committed CANCEL(e). */
+typedef struct ResdbCancelCommitRef {
+    uint32_t cancelled_epoch;
+    uint64_t cancel_seq;
+    uint8_t  payload_digest[32];
+    uint32_t proof_len;
+} ResdbCancelCommitRef;       /* 44 bytes */
 
 /* Per-vehicle batch assignment in the OrderDecision reply.
  *   replica_id  — which vehicle
@@ -173,6 +205,11 @@ int ResdbOmnetGetPrimary(void* server_handle);
 /* Set PBFT's primary from the application-level cert-primary election.
  * primary_omnet is a 0-based replica ID. Returns 0 on success, -1 on error. */
 int ResdbOmnetSetPrimaryFromCert(void* server_handle, int primary_omnet);
+
+/* After gossip-adopting CANCEL(e), advance the PBFT executor past the
+ * ORDER(e)/CANCEL(e) prefix so ORDER(e+1) can execute on late spawns. */
+int ResdbOmnetAdvanceExecutorAfterGossipCancel(void* server_handle,
+                                               uint32_t cancelled_epoch);
 
 /* Diagnostic metadata decoded from a serialized ResDBMessage/Request packet. */
 typedef struct ResdbPacketRequestInfo {
@@ -231,6 +268,14 @@ int ResdbOmnetSetPbftSilent(void* server_handle, int silent);
 int ResdbOmnetMarkReplicaInactive(void* server_handle,
                                   int replica_id,
                                   uint32_t min_epoch);
+
+/* Configure the intended tolerated f for fixed-physical-N experiments.
+ * All static replicas remain consensus members; only quorum is overridden to
+ * 2f+1 for normal proposals. */
+int ResdbOmnetSetToleratedFaults(void* server_handle, int tolerated_f);
+
+/* Rollback Phase-3 fault mode: 1 = per_epoch (default), 0 = anchored. */
+int ResdbOmnetSetRollbackFaultMode(void* server_handle, int per_epoch_mode);
 
 /* ── Step 5 (M4): cert-omission guard (Java OrderRequestVerifier Check 7) ──── */
 

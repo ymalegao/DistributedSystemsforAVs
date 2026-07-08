@@ -16,6 +16,7 @@ cc_library(
     alwayslink = True,
     deps = [
         "//chain/storage:memory_db",
+        "//common/crypto:hash",
         "//executor/common:transaction_manager",
         "//platform/consensus/ordering/pbft:consensus_manager_pbft",
         "//platform/networkstrate:service_network",

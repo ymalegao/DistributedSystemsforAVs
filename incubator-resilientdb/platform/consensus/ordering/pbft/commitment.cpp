@@ -111,9 +111,27 @@ int Commitment::ProcessNewRequest(std::unique_ptr<Context> context,
     }
   }
 
-  if (pre_verify_func_ && !pre_verify_func_(*user_request)) {
-    LOG(ERROR) << " check by the user func fail";
-    return -2;
+  if (pre_verify_func_) {
+    std::cout << "[PBFT-NEW-REQ-PREVERIFY] self=" << config_.GetSelfInfo().id()
+              << " hash=" << user_request->hash()
+              << " seq=" << user_request->seq()
+              << " action=begin\n";
+    if (!pre_verify_func_(*user_request)) {
+      LOG(ERROR) << " check by the user func fail";
+      std::cout << "[PBFT-NEW-REQ-PREVERIFY] self="
+                << config_.GetSelfInfo().id()
+                << " hash=" << user_request->hash()
+                << " seq=" << user_request->seq()
+                << " result=fail\n";
+      return -2;
+    }
+    const bool forced_after =
+        message_manager_->HasForcedViewForRequest(*user_request);
+    std::cout << "[PBFT-NEW-REQ-PREVERIFY] self=" << config_.GetSelfInfo().id()
+              << " hash=" << user_request->hash()
+              << " seq=" << user_request->seq()
+              << " result=pass"
+              << " forced_after=" << (forced_after ? 1 : 0) << "\n";
   }
 
   global_stats_->IncClientRequest();
@@ -149,6 +167,7 @@ int Commitment::ProcessNewRequest(std::unique_ptr<Context> context,
 
   std::cout << "[PBFT-NEW-REQ] primary=" << config_.GetSelfInfo().id()
             << " broadcasting PRE_PREPARE seq=" << *seq
+            << " hash=" << user_request->hash()
             << " view=" << user_request->current_view() << "\n";
   replica_communicator_->BroadCast(*user_request);
 
@@ -210,9 +229,32 @@ int Commitment::ProcessProposeMsg(std::unique_ptr<Context> context,
   }
 
   if (request->sender_id() != config_.GetSelfInfo().id()) {
-    if (pre_verify_func_ && !pre_verify_func_(*request)) {
-      LOG(ERROR) << " check by the user func fail";
-      return -2;
+    if (pre_verify_func_) {
+      std::cout << "[PBFT-PREPREPARE-PREVERIFY] self="
+                << config_.GetSelfInfo().id()
+                << " seq=" << request->seq()
+                << " hash=" << request->hash()
+                << " sender=" << request->sender_id()
+                << " action=begin\n";
+      if (!pre_verify_func_(*request)) {
+        LOG(ERROR) << " check by the user func fail";
+        std::cout << "[PBFT-PREPREPARE-PREVERIFY] self="
+                  << config_.GetSelfInfo().id()
+                  << " seq=" << request->seq()
+                  << " hash=" << request->hash()
+                  << " sender=" << request->sender_id()
+                  << " result=fail\n";
+        return -2;
+      }
+      const bool forced_after =
+          message_manager_->HasForcedViewForRequest(*request);
+      std::cout << "[PBFT-PREPREPARE-PREVERIFY] self="
+                << config_.GetSelfInfo().id()
+                << " seq=" << request->seq()
+                << " hash=" << request->hash()
+                << " sender=" << request->sender_id()
+                << " result=pass"
+                << " forced_after=" << (forced_after ? 1 : 0) << "\n";
     }
   }
 
@@ -279,7 +321,9 @@ int Commitment::ProcessProposeMsg(std::unique_ptr<Context> context,
 int Commitment::ProcessPrepareMsg(std::unique_ptr<Context> context,
                                   std::unique_ptr<Request> request) {
   std::cout << "[PBFT-PREPARE] self=" << config_.GetSelfInfo().id()
-            << " seq=" << request->seq() << " sender=" << request->sender_id() << "\n";
+            << " seq=" << request->seq()
+            << " hash=" << request->hash()
+            << " sender=" << request->sender_id() << "\n";
   if (context == nullptr || context->signature.signature().empty()) {
     LOG(ERROR) << "user request doesn't contain signature, reject";
     return -2;
@@ -329,7 +373,23 @@ int Commitment::ProcessPrepareMsg(std::unique_ptr<Context> context,
       //           << commit_request->data_signature().DebugString();
     }
     global_stats_->RecordStateTime("prepare");
+    if (seq >= 2 || message_manager_->HasForcedViewForRequest(*commit_request)) {
+      std::cout << "[PBFT-BCAST-COMMIT] self=" << config_.GetSelfInfo().id()
+                << " seq=" << seq
+                << " hash=" << commit_request->hash()
+                << " sender=" << commit_request->sender_id()
+                << " ret=" << static_cast<int>(ret)
+                << "\n";
+    }
     replica_communicator_->BroadCast(*commit_request);
+  } else {
+    if (seq >= 2 || message_manager_->HasForcedViewForRequest(*commit_request)) {
+      std::cout << "[PBFT-PREPARE-RESULT] self=" << config_.GetSelfInfo().id()
+                << " seq=" << seq
+                << " sender=" << commit_request->sender_id()
+                << " ret=" << static_cast<int>(ret)
+                << " action=no-commit-broadcast\n";
+    }
   }
   return ret == CollectorResultCode::INVALID ? -2 : 0;
 }
@@ -338,7 +398,9 @@ int Commitment::ProcessPrepareMsg(std::unique_ptr<Context> context,
 int Commitment::ProcessCommitMsg(std::unique_ptr<Context> context,
                                  std::unique_ptr<Request> request) {
   std::cout << "[PBFT-COMMIT] self=" << config_.GetSelfInfo().id()
-            << " seq=" << request->seq() << " sender=" << request->sender_id() << "\n";
+            << " seq=" << request->seq()
+            << " hash=" << request->hash()
+            << " sender=" << request->sender_id() << "\n";
   if (context == nullptr || context->signature.signature().empty()) {
     LOG(ERROR) << "user request doesn't contain signature, reject"
                << " context:" << (context == nullptr);
@@ -367,6 +429,15 @@ int Commitment::ProcessCommitMsg(std::unique_ptr<Context> context,
     // LOG(ERROR)<<request->data().size();
     // global_stats_->GetTransactionDetails(request->data());
     global_stats_->RecordStateTime("commit");
+  }
+  if (seq >= 2) {
+    std::cout << "[PBFT-COMMIT-RESULT] self=" << config_.GetSelfInfo().id()
+              << " seq=" << seq
+              << " ret=" << static_cast<int>(ret)
+              << " action="
+              << (ret == CollectorResultCode::STATE_CHANGED ? "ready-execute" :
+                  (ret == CollectorResultCode::INVALID ? "invalid" : "waiting"))
+              << "\n";
   }
   return ret == CollectorResultCode::INVALID ? -2 : 0;
 }
