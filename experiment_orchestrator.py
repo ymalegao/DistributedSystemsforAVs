@@ -90,7 +90,7 @@ ANALYZE_SCENARIO = {
     "NoFW_ByzLeader_TamperLane": 5,
     "FW_ByzLeader_FakeAmbulance": 4,
     "FW_ByzLeader_TamperLane": 5,
-    "Emergency_Preempt_DynamicN": 2,
+    "Emergency_Preempt_DynamicN": 15,
 }
 SCENARIO_BY_CODE = {
     1: "No_Ambulance_Honest",
@@ -127,6 +127,14 @@ def bft_f(n: int) -> int:
     return (n - 1) // 3
 
 
+def bft_quorum(n: int, f: int) -> int:
+    if n <= 0:
+        raise ValueError("N must be positive")
+    if f < 0 or f > bft_f(n):
+        raise ValueError("invalid f for N")
+    return (n + f + 2) // 2
+
+
 def omnet_config_basename(n: int) -> str:
     names = {4: "Four", 8: "Eight", 12: "Twelve", 16: "Sixteen", 18: "Eighteen", 20: "Twenty"}
     if n not in names:
@@ -141,11 +149,21 @@ def baseline_omnet_config_name(n: int) -> str:
     return f"baseline{n}veh"
 
 
-def benchmark_run_dir(n: int, scenario_name: str, rep: int, *, baseline: bool = False) -> Path:
+def benchmark_run_dir(
+    n: int,
+    scenario_name: str,
+    rep: int,
+    *,
+    baseline: bool = False,
+    tolerated_f: int | None = None,
+) -> Path:
     """Per-run output directory (JSON/logs from analyze_log; channel CSVs from the sim)."""
     sub = SCENARIO_SUBDIR[scenario_name]
     family = "BaselinePriority" if baseline else "Priority"
-    return REPO_ROOT / "benchmarks" / f"{family}{n}cars" / sub / f"run_{rep}"
+    base = REPO_ROOT / "benchmarks" / f"{family}{n}cars" / sub
+    if tolerated_f is not None and not baseline:
+        base = base / f"f_{tolerated_f}"
+    return base / f"run_{rep}"
 
 
 def run_seed(master: int, n: int, scenario_name: str, rep: int) -> int:
@@ -260,7 +278,7 @@ def run_key_generation(*, dry_run: bool, scale: int) -> None:
     run_in_bash_with_omnet(f"cd {shlex.quote(str(CONFIG_DIR))} && ./gen_resdb_keys.sh {scale}", dry_run=dry_run)
 
 
-def randomize_args_for_scenario(n: int, scenario_name: str) -> List[str]:
+def randomize_args_for_scenario(n: int, scenario_name: str, tolerated_f: int) -> List[str]:
     """
     Returns the extra flags for run-resdb-simulation.sh.
 
@@ -268,7 +286,7 @@ def randomize_args_for_scenario(n: int, scenario_name: str) -> List[str]:
     random_scenario.ini (which would otherwise force *.node[*].appl.ambulanceReplicaId
     even when F=0 and turn one car into an ambulance).
     """
-    f = bft_f(n)
+    f = tolerated_f
     if scenario_name == "ByzLeader_Ambulance":
         return ["--randomize", str(n), str(f - 1), "--byzleader", "0"]
     if scenario_name == "ByzFollower_Ambulance":
@@ -309,7 +327,7 @@ def randomize_args_for_scenario(n: int, scenario_name: str) -> List[str]:
     if scenario_name == "Emergency_Preempt_DynamicN":
         if n != 18:
             raise ValueError("Emergency_Preempt_DynamicN is currently defined only for N=18")
-        return ["--rollback-late-emergency", "--leader", "0"]
+        return ["--rollback-late-emergency"]
     raise ValueError(scenario_name)
 
 def baseline_randomize_args_for_scenario(n: int, scenario_name: str) -> List[str]:
@@ -326,13 +344,26 @@ def run_one_simulation(
     rep: int,
     *,
     dry_run: bool,
+    tolerated_f: int,
+    explicit_tolerate: bool,
     randomize_leader: bool = False,
     baseline: bool = False,
 ) -> None:
     cfg = baseline_omnet_config_name(n) if baseline else omnet_config_name(n)
-    extra = baseline_randomize_args_for_scenario(n, scenario_name) if baseline else randomize_args_for_scenario(n, scenario_name)
+    extra = baseline_randomize_args_for_scenario(n, scenario_name) if baseline else randomize_args_for_scenario(n, scenario_name, tolerated_f)
+    tolerate_args = (
+        ["--tolerated-f", str(tolerated_f)]
+        if not baseline and "--randomize" in extra
+        else []
+    )
     seed = run_seed(MASTER_SEED, n, scenario_name, rep)
-    run_dir = benchmark_run_dir(n, scenario_name, rep, baseline=baseline)
+    run_dir = benchmark_run_dir(
+        n,
+        scenario_name,
+        rep,
+        baseline=baseline,
+        tolerated_f=tolerated_f if explicit_tolerate else None,
+    )
     metrics_dir = str(run_dir.resolve())
 
     leader_args: List[str] = []
@@ -352,6 +383,7 @@ def run_one_simulation(
         "--channel-metrics-dir",
         metrics_dir,
         *leader_args,
+        *tolerate_args,
         *extra,
         "-u",
         "Cmdenv",
@@ -378,8 +410,23 @@ def collect_baseline_sumo_outputs(n: int, run_dir: Path, *, dry_run: bool) -> Pa
     return tripinfo
 
 
-def run_analyze(n: int, scenario_name: str, rep: int, *, dry_run: bool, baseline: bool = False) -> None:
-    save_to = benchmark_run_dir(n, scenario_name, rep, baseline=baseline)
+def run_analyze(
+    n: int,
+    scenario_name: str,
+    rep: int,
+    *,
+    dry_run: bool,
+    tolerated_f: int,
+    explicit_tolerate: bool,
+    baseline: bool = False,
+) -> None:
+    save_to = benchmark_run_dir(
+        n,
+        scenario_name,
+        rep,
+        baseline=baseline,
+        tolerated_f=tolerated_f if explicit_tolerate else None,
+    )
     save_to.mkdir(parents=True, exist_ok=True)
     analyze = REPO_ROOT / "fourway" / "analyze_log.py"
     scen = ANALYZE_SCENARIO[scenario_name]
@@ -457,6 +504,15 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help="Pick a random initial consensus leader (replica ID) per run instead of always using replica 0.",
     )
     p.add_argument(
+        "--tolerate",
+        type=int,
+        default=None,
+        metavar="F",
+        help="Fault tolerance f for ResDB active-view experiments. "
+             "Defaults to max floor((N-1)/3) for each N. "
+             "For Byzantine follower scenarios, this also sets the number of follower faults injected.",
+    )
+    p.add_argument(
         "--baseline",
         action="store_true",
         help="Run SUMO all-way-stop baseline configs for no-priority and priority-vehicle scenarios.",
@@ -476,6 +532,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         if n not in DEFAULT_N_VALUES:
             print(f"WARNING: N={n} is outside the usual set {DEFAULT_N_VALUES}; "
                   "omnetpp.ini may not define a matching [Config].", file=sys.stderr)
+        tolerate_n = args.tolerate if args.tolerate is not None else bft_f(n)
+        if tolerate_n < 0:
+            print("ERROR: --tolerate must be >= 0.", file=sys.stderr)
+            return 2
+        if tolerate_n > bft_f(n):
+            print(
+                f"ERROR: --tolerate {tolerate_n} invalid for N={n}; "
+                f"require f <= floor((N-1)/3)={bft_f(n)}.",
+                file=sys.stderr,
+            )
+            return 2
         if args.scenario and 15 in args.scenario and n != 18:
             print("ERROR: scenario 15 Emergency_Preempt_DynamicN is currently defined only for --config 18.", file=sys.stderr)
             return 2
@@ -502,9 +569,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"Scenarios: {', '.join(scenarios)}")
     print(f"N values:  {n_values}")
     print(f"Reps:      run_{rep_indices[0]}..run_{rep_indices[-1]}")
+    print(f"Tolerate:  {args.tolerate if args.tolerate is not None else 'max per N'}")
 
     for n in n_values:
+        tolerated_f = args.tolerate if args.tolerate is not None else bft_f(n)
         print(f"\n========== Scale N={n} ==========")
+        print(f"========== Tolerated f={tolerated_f} (quorum={bft_quorum(n, tolerated_f)}, static N={n}) ==========")
         if not args.dry_run and not args.baseline:
             run_key_generation(dry_run=args.dry_run, scale=n)
         elif args.dry_run and not args.baseline:
@@ -529,10 +599,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                     scenario_name,
                     rep,
                     dry_run=args.dry_run,
+                    tolerated_f=tolerated_f,
+                    explicit_tolerate=args.tolerate is not None,
                     randomize_leader=args.randomize_leader,
                     baseline=args.baseline,
                 )
-                run_analyze(n, scenario_name, rep, dry_run=args.dry_run, baseline=args.baseline)
+                run_analyze(
+                    n,
+                    scenario_name,
+                    rep,
+                    dry_run=args.dry_run,
+                    tolerated_f=tolerated_f,
+                    explicit_tolerate=args.tolerate is not None,
+                    baseline=args.baseline,
+                )
 
     return 0
 

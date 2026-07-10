@@ -109,6 +109,9 @@ class TransactionCollector {
 
   std::vector<RequestInfo> GetPreparedProof();
   TransactionStatue GetStatus() const;
+  bool HasMainRequest();
+  std::string MainRequestHash();
+  bool HasVoteFrom(int type, const std::string& hash, int sender_id);
 
   uint64_t Seq();
 

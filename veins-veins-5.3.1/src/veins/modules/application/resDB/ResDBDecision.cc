@@ -78,6 +78,7 @@ void ResDBIntersectionApp::proposeAll()
     stopCertBroadcastRetries();
     stopStopZoneCertGossip();
     pbft_observed_ = true;
+    cancelPendingDiscoveryTxs("proposeAll");
     propose_submitted_ = true;
     propose_time_ = simTime();
     current_phase_ = ConsensusPhase::WAITING_FOR_CLEARANCE;

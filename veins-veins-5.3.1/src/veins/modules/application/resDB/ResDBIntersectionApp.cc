@@ -62,6 +62,7 @@ ResDBIntersectionApp::~ResDBIntersectionApp()
     if (cert_retry_timer_)        { cancelAndDelete(cert_retry_timer_);        cert_retry_timer_        = nullptr; }
     if (cert_gossip_timer_)       { cancelAndDelete(cert_gossip_timer_);       cert_gossip_timer_       = nullptr; }
     if (gossip_timer_)            { cancelAndDelete(gossip_timer_);            gossip_timer_            = nullptr; }
+    if (discovery_tx_flush_timer_) { cancelAndDelete(discovery_tx_flush_timer_); discovery_tx_flush_timer_ = nullptr; }
     if (initial_announce_msg_)    { cancelAndDelete(initial_announce_msg_);    initial_announce_msg_    = nullptr; }
     if (stop_sign_timeout_msg_)   { cancelAndDelete(stop_sign_timeout_msg_);   stop_sign_timeout_msg_   = nullptr; }
     if (consensus_timeout_msg_)   { cancelAndDelete(consensus_timeout_msg_);   consensus_timeout_msg_   = nullptr; }
@@ -82,6 +83,8 @@ ResDBIntersectionApp::~ResDBIntersectionApp()
         cModule* mac = nic ? nic->getSubmodule("mac1609_4") : nullptr;
         if (mac && mac->isSubscribed(Mac1609_4::sigChannelBusy, channel_metrics_))
             mac->unsubscribe(Mac1609_4::sigChannelBusy, channel_metrics_);
+        if (mac && mac->isSubscribed(Mac1609_4::sigCollision, channel_metrics_))
+            mac->unsubscribe(Mac1609_4::sigCollision, channel_metrics_);
         delete channel_metrics_;
         channel_metrics_ = nullptr;
     }
@@ -357,9 +360,10 @@ void ResDBIntersectionApp::initialize(int stage)
             channel_metrics_ = new ChannelMetrics(replicaId_, csvPath, sinrPath);
             cModule* nic = getParentModule()->getSubmodule("nic");
             cModule* mac = nic ? nic->getSubmodule("mac1609_4") : nullptr;
-            if (mac)
+            if (mac) {
                 mac->subscribe(Mac1609_4::sigChannelBusy, channel_metrics_);
-            else
+                mac->subscribe(Mac1609_4::sigCollision, channel_metrics_);
+            } else
                 std::cerr << "[ChannelMetrics] r" << replicaId_ << " no nic/mac1609_4 — utilization stays 0\n";
             channel_metrics_timer_ = new cMessage("channelMetricsTick");
             scheduleAt(simTime() + 0.1, channel_metrics_timer_);
@@ -448,11 +452,20 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
             delete msg;
             return;
         }
-        if (!cert_broadcast_ && !order_applied_ && !propose_submitted_) {
+        if (!cert_broadcast_ && !shouldQuiesceDiscoveryAir()) {
             broadcastArrivalAnnouncement();
             scheduleAt(simTime() + broadcast_arrival_announcement_interval_, broadcastArrivalAnnouncement_timer_);
             std::cout << "[ANN-SEND] Replica " << replicaId_ << " rescheduled arrival-announcement timer\n";
         } else {
+            if (pbft_observed_ || (cancel_pending_ && rollback_discovery_ready_)) {
+                std::cout << "[ANN-SEND-STOP] r" << replicaId_
+                          << " pbft_observed=" << (pbft_observed_ ? 1 : 0)
+                          << " discovery_ready=" << (rollback_discovery_ready_ ? 1 : 0)
+                          << " cert_broadcast=" << (cert_broadcast_ ? 1 : 0)
+                          << " order_applied=" << (order_applied_ ? 1 : 0)
+                          << " propose_submitted=" << (propose_submitted_ ? 1 : 0)
+                          << " t=" << simTime() << "\n";
+            }
             broadcastArrivalAnnouncement_timer_ = nullptr;
             delete msg;
         }
@@ -460,7 +473,14 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
     }
 
     if (msg == cert_retry_timer_) {
-        if (cert_pending_retries_.carId.empty() || propose_submitted_ || order_applied_) {
+        if (cert_pending_retries_.carId.empty() || shouldQuiesceDiscoveryAir()) {
+            std::cout << "[CERT-RETX-STOP] r" << replicaId_
+                      << " carId=" << cert_pending_retries_.carId
+                      << " propose_submitted=" << (propose_submitted_ ? 1 : 0)
+                      << " order_applied=" << (order_applied_ ? 1 : 0)
+                      << " pbft_observed=" << (pbft_observed_ ? 1 : 0)
+                      << " discovery_ready=" << (rollback_discovery_ready_ ? 1 : 0)
+                      << " t=" << simTime() << "\n";
             stopCertBroadcastRetries();
             return;
         }
@@ -479,9 +499,13 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
         return;
     }
 
+    if (msg == discovery_tx_flush_timer_) {
+        flushDueDiscoveryTxs();
+        return;
+    }
+
     if (msg == cert_gossip_timer_) {
-        if (order_applied_ || propose_submitted_ || pbft_observed_
-                || current_phase_ == ConsensusPhase::DEPARTED || CertPrimary() != replicaId_ ||
+        if (shouldQuiesceDiscoveryAir() || CertPrimary() != replicaId_ ||
                 (cert_gossip_deadline_ >= SIMTIME_ZERO && simTime() >= cert_gossip_deadline_)) {
             cert_gossip_timer_ = nullptr;
             cert_gossip_deadline_ = -1;
@@ -547,7 +571,12 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
 
     if (msg == cancel_cert_retry_timer_) {
         if (cancel_cert_pending_retries_.echoes.empty() ||
-                (!cancel_consensus_pending_ && !cancel_pending_)) {
+                (!cancel_consensus_pending_ && !cancel_pending_) || pbft_observed_) {
+            std::cout << "[CANCEL-CERT-RETX-STOP] r" << replicaId_
+                      << " cancel_consensus_pending=" << (cancel_consensus_pending_ ? 1 : 0)
+                      << " cancel_pending=" << (cancel_pending_ ? 1 : 0)
+                      << " pbft_observed=" << (pbft_observed_ ? 1 : 0)
+                      << " t=" << simTime() << "\n";
             stopCancelCertRetries();
             return;
         }
@@ -570,6 +599,7 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
     if (msg == rollback_discovery_timer_) {
         rollback_discovery_timer_ = nullptr;
         rollback_discovery_ready_ = true;
+        cancelPendingDiscoveryTxs("discovery-timeout");
         trySubmitRollbackProposal("discovery-timeout");
         delete msg; return;
     }
@@ -1016,6 +1046,8 @@ void ResDBIntersectionApp::finish()
         cModule* mac = nic ? nic->getSubmodule("mac1609_4") : nullptr;
         if (mac && mac->isSubscribed(Mac1609_4::sigChannelBusy, channel_metrics_))
             mac->unsubscribe(Mac1609_4::sigChannelBusy, channel_metrics_);
+        if (mac && mac->isSubscribed(Mac1609_4::sigCollision, channel_metrics_))
+            mac->unsubscribe(Mac1609_4::sigCollision, channel_metrics_);
         delete channel_metrics_;
         channel_metrics_ = nullptr;
     }
@@ -1074,7 +1106,8 @@ void ResDBIntersectionApp::onWSM(BaseFrame1609_4* wsm)
 
     // ── Type 11: ResDB PBFT consensus relay ───────────────────────────────────
     if (msgType == kResdbConsensusRelayType) {
-        pbft_observed_ = true;
+        // pbft_observed_ is now set inside handleResdbConsensusRelay(), scoped to
+        // fresh PRE-PREPARE observations only (see ResDBTransport.cc).
         stopStopZoneCertGossip();
         handleResdbConsensusRelay(bft);
         bool has_pending_order = false;
@@ -1124,7 +1157,8 @@ void ResDBIntersectionApp::onWSM(BaseFrame1609_4* wsm)
         // Leader is active — cert retransmits are no longer useful.
         if (cert_retry_timer_ && cert_retry_timer_->isScheduled())
             cancelEvent(cert_retry_timer_);
-        pbft_observed_ = true;
+        // pbft_observed_ is now set inside handleResdbConsensusMessage(), scoped to
+        // fresh PRE-PREPARE observations only (see ResDBTransport.cc).
         stopStopZoneCertGossip();
 
         handleResdbConsensusMessage(bft);

@@ -811,8 +811,7 @@ void ResDBIntersectionApp::broadcastCollectedCerts(const char* reason)
 
 void ResDBIntersectionApp::startStopZoneCertGossip(const char* reason, bool immediate)
 {
-    if (order_applied_ || propose_submitted_ || pbft_observed_
-            || current_phase_ == ConsensusPhase::DEPARTED)
+    if (shouldQuiesceDiscoveryAir())
         return;
 
     const simtime_t newDeadline = simTime() + cert_collection_timeout_;
@@ -826,8 +825,7 @@ void ResDBIntersectionApp::startStopZoneCertGossip(const char* reason, bool imme
 
 void ResDBIntersectionApp::scheduleNextStopZoneCertGossip()
 {
-    if (order_applied_ || propose_submitted_ || pbft_observed_
-            || current_phase_ == ConsensusPhase::DEPARTED)
+    if (shouldQuiesceDiscoveryAir())
         return;
     if (CertPrimary() != replicaId_)
         return;
@@ -915,7 +913,7 @@ void ResDBIntersectionApp::broadcastArrivalCert(const ArrivalCert& cert)
     } else if (shouldStartCollectionTimer) {
         tryStartCertCollectionTimer(false);
     }
-    if (entered_stop_zone_ && !order_applied_ && !propose_submitted_ && !pbft_observed_) {
+    if (entered_stop_zone_ && !shouldQuiesceDiscoveryAir()) {
         startStopZoneCertGossip("self-cert-stored", replicaId_ == certPrimary);
     }
     trySubmitRollbackProposal("self-cert");
@@ -968,12 +966,22 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
     // Epidemic relay: each node forwards each validated cert once.
     // cert already carries f+1 signatures so recipients can verify without
     // re-accumulating votes.  cert_relay_tracker_ deduplicates per carId.
-    if (cert_relay_tracker_.tryRelay(cert.carId)) {
+    // Quiesce once PBFT consensus for this transition is already underway —
+    // continuing to flood cert discovery traffic only contends with the
+    // vote traffic that actually matters at that point.
+    if (shouldQuiesceDiscoveryAir()) {
+        std::cout << "[CERT-RELAY-STOP] r" << replicaId_ << " suppressed relay for "
+                  << cert.carId << " order_applied=" << (order_applied_ ? 1 : 0)
+                  << " propose_submitted=" << (propose_submitted_ ? 1 : 0)
+                  << " pbft_observed=" << (pbft_observed_ ? 1 : 0)
+                  << " discovery_ready=" << (rollback_discovery_ready_ ? 1 : 0)
+                  << " t=" << simTime() << "\n";
+    } else if (cert_relay_tracker_.tryRelay(cert.carId)) {
         sendBFTMessage(-1, serializeArrivalCert(cert), kArrivalCertType);
         std::cout << "[CERT-RELAY] r" << replicaId_ << " relayed cert for "
                   << cert.carId << " t=" << simTime() << "\n";
     }
-    if (entered_stop_zone_ && !order_applied_ && !propose_submitted_ && !pbft_observed_) {
+    if (entered_stop_zone_ && !shouldQuiesceDiscoveryAir()) {
         startStopZoneCertGossip("cert-stored", replicaId_ == certPrimary);
     }
 

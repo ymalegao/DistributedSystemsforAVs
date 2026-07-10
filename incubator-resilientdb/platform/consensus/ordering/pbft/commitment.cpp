@@ -27,6 +27,45 @@
 
 namespace resdb {
 
+namespace {
+
+const char* RequestTypeNameForVoteDrop(int type) {
+  switch (type) {
+    case Request::TYPE_PREPARE:
+      return "PREPARE";
+    case Request::TYPE_COMMIT:
+      return "COMMIT";
+    default:
+      return "OTHER";
+  }
+}
+
+bool ShouldLogVoteDrop(const Request& request) {
+  return (request.type() == Request::TYPE_PREPARE ||
+          request.type() == Request::TYPE_COMMIT) &&
+         (request.seq() >= 2 || request.hash().rfind("omnet-tx-", 0) == 0);
+}
+
+void LogVoteDrop(int self_id, const Request& request, const char* reason,
+                 const char* detail = nullptr) {
+  if (!ShouldLogVoteDrop(request)) return;
+  std::cout << "[VOTE-DROP] self=" << self_id
+            << " omnet_self=" << OmnetForcedView::ResdbSenderToOmnet(self_id)
+            << " seq=" << request.seq()
+            << " type=" << RequestTypeNameForVoteDrop(request.type())
+            << " sender=" << request.sender_id()
+            << " omnet_sender="
+            << OmnetForcedView::ResdbSenderToOmnet(request.sender_id())
+            << " hash=" << request.hash()
+            << " reason=" << (reason ? reason : "?");
+  if (detail) {
+    std::cout << " detail=" << detail;
+  }
+  std::cout << "\n";
+}
+
+}  // namespace
+
 Commitment::Commitment(const ResDBConfig& config,
                        MessageManager* message_manager,
                        ReplicaCommunicator* replica_communicator,
@@ -345,6 +384,8 @@ int Commitment::ProcessPrepareMsg(std::unique_ptr<Context> context,
               << " seq=" << request->seq()
               << " hash=" << request->hash()
               << " action=skip_commit\n";
+    LogVoteDrop(config_.GetSelfInfo().id(), *request, "no-view",
+                "inactive-receiver");
     return 0;
   }
   // global_stats_->IncPrepare();
@@ -404,6 +445,8 @@ int Commitment::ProcessCommitMsg(std::unique_ptr<Context> context,
   if (context == nullptr || context->signature.signature().empty()) {
     LOG(ERROR) << "user request doesn't contain signature, reject"
                << " context:" << (context == nullptr);
+    LogVoteDrop(config_.GetSelfInfo().id(), *request, "no-request",
+                "missing-signature");
     return -2;
   }
   uint64_t seq = request->seq();
@@ -417,6 +460,8 @@ int Commitment::ProcessCommitMsg(std::unique_ptr<Context> context,
               << " seq=" << request->seq()
               << " hash=" << request->hash()
               << " action=skip_execute\n";
+    LogVoteDrop(config_.GetSelfInfo().id(), *request, "no-view",
+                "inactive-receiver");
     return 0;
   }
   // global_stats_->IncCommit();

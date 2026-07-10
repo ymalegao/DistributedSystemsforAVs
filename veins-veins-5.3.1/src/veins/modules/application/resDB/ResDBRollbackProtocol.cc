@@ -461,7 +461,11 @@ void ResDBIntersectionApp::beginRollbackDiscovery(
     cert_broadcast_ = false;
     cert_collection_started_ = false;
     deferred_propose_after_cert_timeout_ = false;
+    pbft_observed_ = false;
     stopCertBroadcastRetries();
+    // Drop any leftover epoch-0 discovery frames still waiting on the stagger
+    // queue before epoch-1 discovery starts filling it again.
+    cancelPendingDiscoveryTxs("rollback-begin");
 
     {
         std::lock_guard<std::mutex> lk(certs_mutex_);
@@ -925,6 +929,10 @@ void ResDBIntersectionApp::maybeFinishRollbackDiscovery(const char* reason)
     rollback_discovery_ready_ = true;
     if (rollback_discovery_timer_ && rollback_discovery_timer_->isScheduled())
         cancelEvent(rollback_discovery_timer_);
+    // Discovery done — drop any still-queued ANN/CERT air frames so they cannot
+    // collide with the impending ORDER(e+1) PRE_PREPARE (same quiesce as epoch 0
+    // once proposeAll / PRE_PREPARE is observed; here we know membership is closed).
+    cancelPendingDiscoveryTxs(reason ? reason : "discovery-complete");
     logRollbackDiscoveryDiagnostics(reason ? reason : "discovery-complete");
     trySubmitRollbackProposal(reason ? reason : "discovery-complete");
 }

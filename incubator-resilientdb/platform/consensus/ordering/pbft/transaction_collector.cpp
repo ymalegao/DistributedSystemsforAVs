@@ -33,6 +33,28 @@ bool TransactionCollector::IsPrepared() { return is_prepared_; }
 
 TransactionStatue TransactionCollector::GetStatus() const { return status_; }
 
+bool TransactionCollector::HasMainRequest() {
+  return atomic_mian_request_.Reference() != nullptr;
+}
+
+std::string TransactionCollector::MainRequestHash() {
+  auto* main_request = atomic_mian_request_.Reference();
+  if (main_request == nullptr || main_request->request == nullptr) return "";
+  return main_request->request->hash();
+}
+
+bool TransactionCollector::HasVoteFrom(int type, const std::string& hash,
+                                       int sender_id) {
+  if (type < 0 || type >= Request::NUM_OF_TYPE || sender_id < 0 ||
+      sender_id >= 128) {
+    return false;
+  }
+  std::lock_guard<std::mutex> lk(mutex_);
+  auto hash_it = senders_[type].find(hash);
+  if (hash_it == senders_[type].end()) return false;
+  return hash_it->second[static_cast<size_t>(sender_id)];
+}
+
 int TransactionCollector::SetContextList(
     uint64_t seq, std::vector<std::unique_ptr<Context>> context) {
   if (seq != seq_) {

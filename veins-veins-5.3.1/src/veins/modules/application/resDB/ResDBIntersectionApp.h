@@ -173,6 +173,16 @@ private:
         std::vector<uint8_t> resdbBytes;
     };
 
+    // Discovery (ANN/CERT) frames held for the usual replicaId*slot stagger so
+    // they can be cancelled when PBFT starts — sendDelayedDown alone is not
+    // cancellable, and 0.3–0.4s-delayed CERTs were colliding with ORDER PRE_PREPARE.
+    struct PendingDiscoveryTx {
+        int toReplicaId = -1;
+        int msgType = 0;
+        std::vector<uint8_t> payload;
+        simtime_t fireTime;
+    };
+
     void registerTransport();
     void enqueueOutbound(int toReplicaId, const uint8_t* data, uint32_t len);
     void drainOutboundQueue();
@@ -185,6 +195,14 @@ private:
     std::string consensusRelayKey(const uint8_t* data, uint32_t len,
                                   const ResdbPacketRequestInfo& info) const;
     void sendBFTMessage(int toReplicaId, const std::vector<uint8_t>& payload, int msgType);
+    void sendBFTMessageNow(int toReplicaId, const std::vector<uint8_t>& payload, int msgType);
+    bool isDiscoveryAirMsgType(int msgType) const;
+    bool shouldQuiesceDiscoveryAir() const;
+    void enqueueDiscoveryTx(int toReplicaId, const std::vector<uint8_t>& payload,
+                            int msgType, simtime_t fireTime);
+    void scheduleDiscoveryTxFlush();
+    void flushDueDiscoveryTxs();
+    void cancelPendingDiscoveryTxs(const char* reason);
 
     // ── Arrival cert protocol ────────────────────────────────────────────────
     void tryStartCertCollectionTimer(bool rearm = false);
@@ -429,6 +447,8 @@ private:
     resdb_gossip::CertRelayTracker   cert_relay_tracker_;
     resdb_gossip::AnnouncementRelayTracker announcement_relay_tracker_;
     std::set<std::string> consensus_relay_seen_;
+    std::vector<PendingDiscoveryTx> pending_discovery_txs_;
+    cMessage*            discovery_tx_flush_timer_ = nullptr;
     std::map<std::pair<uint32_t, std::string>, resdb_gossip::PendingRelay> pending_relays_;
     cMessage*            gossip_timer_              = nullptr;
     int                  gossip_retry_count_        = 0;

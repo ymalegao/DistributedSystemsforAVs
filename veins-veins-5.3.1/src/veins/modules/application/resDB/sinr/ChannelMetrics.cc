@@ -1,5 +1,7 @@
 #include "veins/modules/application/resDB/sinr/ChannelMetrics.h"
+#include "veins/modules/mac/ieee80211p/Mac1609_4.h"
 #include <cmath>
+#include <iostream>
 
 ChannelMetrics::ChannelMetrics(int vehicleId,
                                const std::string& utilizationCsvPath,
@@ -27,8 +29,16 @@ ChannelMetrics::~ChannelMetrics()
     if (sinrCsv_) { fclose(sinrCsv_); sinrCsv_ = nullptr; }
 }
 
-void ChannelMetrics::receiveSignal(cComponent*, simsignal_t, bool isBusy, cObject*)
+void ChannelMetrics::receiveSignal(cComponent*, simsignal_t sig, bool value, cObject*)
 {
+    // MAC collision (hidden-terminal / simultaneous TX) — confirms air loss that
+    // never shows up in RX-only SINR CSVs.
+    if (sig == veins::Mac1609_4::sigCollision) {
+        std::cout << "[MAC-COLLISION] r" << vehicleId_ << " t=" << simTime() << "\n";
+        return;
+    }
+
+    const bool isBusy = value;
     simtime_t now = simTime();
     if (isBusy && !channelBusy_) {
         busyStart_ = now;
@@ -58,6 +68,11 @@ void ChannelMetrics::tick(simtime_t now)
     if (csv_) {
         fprintf(csv_, "%.3f,%d,%.4f\n", now.dbl(), vehicleId_, utilization);
         fflush(csv_);
+    }
+    // Fleet-representative util snapshot (r0 only) — greppable against PREPARE air_t.
+    // SINR CSVs alone are misleading: they only sample successfully decoded frames.
+    if (vehicleId_ == 0) {
+        std::cout << "[CHAN-UTIL] r0 util=" << utilization << " t=" << now << "\n";
     }
     busyAccum_ = SIMTIME_ZERO;
     if (channelBusy_) busyStart_ = now;

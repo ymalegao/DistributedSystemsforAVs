@@ -67,6 +67,30 @@ bool ShouldDebugPbftRequest(const Request& request) {
   return request.seq() >= 2 || request.hash().rfind("omnet-tx-", 0) == 0;
 }
 
+bool IsVoteRequestType(int type) {
+  return type == Request::TYPE_PREPARE || type == Request::TYPE_COMMIT;
+}
+
+void LogVoteDrop(int self_id, const Request& request, const char* reason,
+                 const std::string& extra = "") {
+  if (!IsVoteRequestType(request.type()) || !ShouldDebugPbftRequest(request)) {
+    return;
+  }
+  std::cout << "[VOTE-DROP] self=" << self_id
+            << " omnet_self=" << OmnetForcedView::ResdbSenderToOmnet(self_id)
+            << " seq=" << request.seq()
+            << " type=" << RequestTypeName(request.type())
+            << " sender=" << request.sender_id()
+            << " omnet_sender="
+            << OmnetForcedView::ResdbSenderToOmnet(request.sender_id())
+            << " hash=" << request.hash()
+            << " reason=" << (reason ? reason : "?");
+  if (!extra.empty()) {
+    std::cout << " " << extra;
+  }
+  std::cout << "\n";
+}
+
 }  // namespace
 
 MessageManager::MessageManager(
@@ -172,6 +196,9 @@ bool MessageManager::IsValidMsg(const Request& request) {
               << " curView=" << GetCurrentView()
               << " type=" << request.type()
               << " seq=" << request.seq() << "\n";
+    LogVoteDrop(config_.GetSelfInfo().id(), request, "no-view",
+                "detail=view-mismatch cur_view=" +
+                    std::to_string(GetCurrentView()));
     return false;
   }
 
@@ -181,6 +208,10 @@ bool MessageManager::IsValidMsg(const Request& request) {
               << " type=" << request.type()
               << " maxPendingExec=" << transaction_executor_->GetMaxPendingExecutedSeq()
               << " (seq too old)\n";
+    LogVoteDrop(config_.GetSelfInfo().id(), request, "no-request",
+                "detail=seq-too-old max_pending_exec=" +
+                    std::to_string(
+                        transaction_executor_->GetMaxPendingExecutedSeq()));
     return false;
   }
 
@@ -361,7 +392,13 @@ CollectorResultCode MessageManager::AddConsensusMsg(
   const bool forced = HasForcedViewForRequest(*request);
   int resp_received_count = 0;
   int proxy_id = request->proxy_id();
+  if (IsVoteRequestType(type) && !forced && forced_view_registry_ &&
+      forced_view_registry_->HasAny() && ShouldDebugPbftRequest(*request)) {
+    LogVoteDrop(config_.GetSelfInfo().id(), *request, "no-view",
+                "detail=forced-view-miss");
+  }
   if (!IsSenderActiveForRequest(*request)) {
+    LogVoteDrop(config_.GetSelfInfo().id(), *request, "inactive-sender");
     if (forced || seq >= 2) {
       std::cout << "[PBFT-ADD-RESULT] self=" << config_.GetSelfInfo().id()
                 << " seq=" << seq
@@ -377,10 +414,29 @@ CollectorResultCode MessageManager::AddConsensusMsg(
   if (checkpoint_manager_->IsCommitted(seq)) {
     LOG(ERROR) << " seq:" << seq << " type:" << type << " has been committed";
     std::cout << "[ADDMSG-ALREADY-COMMITTED] seq=" << seq << " type=" << type << "\n";
+    LogVoteDrop(config_.GetSelfInfo().id(), *request, "duplicate",
+                "detail=already-committed");
     return CollectorResultCode::STATE_CHANGED;
   }
 
   TransactionCollector* collector = collector_pool_->GetCollector(seq);
+  if (collector != nullptr && IsVoteRequestType(type) &&
+      ShouldDebugPbftRequest(*request)) {
+    if (!collector->HasMainRequest()) {
+      LogVoteDrop(config_.GetSelfInfo().id(), *request, "no-request",
+                  "detail=missing-pre-prepare");
+    } else {
+      const std::string main_hash = collector->MainRequestHash();
+      if (!main_hash.empty() && main_hash != hash) {
+        LogVoteDrop(config_.GetSelfInfo().id(), *request, "hash-mismatch",
+                    "main_hash=" + main_hash);
+      }
+    }
+    if (collector->HasVoteFrom(type, hash, sender_id)) {
+      LogVoteDrop(config_.GetSelfInfo().id(), *request, "duplicate",
+                  "detail=same-sender");
+    }
+  }
   int ret = collector->AddRequest(
       std::move(request), signature, type == Request::TYPE_PRE_PREPARE,
       [&](const Request& request, int received_count,
@@ -395,6 +451,13 @@ CollectorResultCode MessageManager::AddConsensusMsg(
     SetLastCommittedTime(proxy_id);
   } else if (ret != 0) {
     LOG(ERROR) << " add request fail";
+    Request drop_request;
+    drop_request.set_type(type);
+    drop_request.set_seq(seq);
+    drop_request.set_sender_id(sender_id);
+    drop_request.set_hash(hash);
+    LogVoteDrop(config_.GetSelfInfo().id(), drop_request, "no-request",
+                "detail=collector-reject ret=" + std::to_string(ret));
     if (forced || seq >= 2) {
       std::cout << "[PBFT-ADD-RESULT] self=" << config_.GetSelfInfo().id()
                 << " seq=" << seq
