@@ -51,6 +51,13 @@ void ResDBIntersectionApp::markCompletedReplicaEpoch(int replicaId, uint32_t epo
     g_completed_replica_epochs.insert({replicaId, epoch});
 }
 
+int ResDBIntersectionApp::toleratedF() const
+{
+    // Explicit experiment override wins; otherwise derive from PBFT membership N
+    // (num_replicas_ = vehicles + static intersection units) so f grows as units join.
+    return tolerated_faults_ >= 0 ? tolerated_faults_ : (num_replicas_ - 1) / 3;
+}
+
 // ── Destructor ────────────────────────────────────────────────────────────────
 
 ResDBIntersectionApp::~ResDBIntersectionApp()
@@ -114,6 +121,11 @@ void ResDBIntersectionApp::initialize(int stage)
         total_vehicles_        = par("totalVehicles").intValue();
         stop_distance_ = stop_distance_ * (total_vehicles_ / 2);
 
+        // PBFT membership N (vehicles + static intersection units). -1 → = vehicles.
+        is_intersection_unit_ = par("isIntersectionUnit").boolValue();
+        num_replicas_         = par("totalReplicas").intValue();
+        if (num_replicas_ < 0) num_replicas_ = total_vehicles_;
+
         replicaId_ = par("replicaId").intValue();
         const int ned_replica_id = replicaId_;
         // Replica id must follow the SUMO vehicle this host
@@ -163,7 +175,7 @@ void ResDBIntersectionApp::initialize(int stage)
         cert_retry_max_         = par("arrivalCertRetryMax").intValue();
         tolerated_faults_       = par("toleratedFaults").intValue();
         configured_consensus_quorum_ = tolerated_faults_ >= 0
-            ? bftQuorumSize(total_vehicles_, tolerated_faults_)
+            ? bftQuorumSize(num_replicas_, tolerated_faults_)
             : -1;
         configured_cert_threshold_ = tolerated_faults_ >= 0
             ? (tolerated_faults_ + 1)
@@ -171,7 +183,8 @@ void ResDBIntersectionApp::initialize(int stage)
         if (tolerated_faults_ >= 0) {
             std::cout << "[TOLERATED-F-APP] r" << replicaId_
                       << " tolerated_f=" << tolerated_faults_
-                      << " static_n=" << total_vehicles_
+                      << " static_n=" << num_replicas_
+                      << " vehicles=" << total_vehicles_
                       << " quorum=" << configured_consensus_quorum_
                       << " cert_threshold=" << configured_cert_threshold_;
             std::cout << "\n";
@@ -335,17 +348,22 @@ void ResDBIntersectionApp::initialize(int stage)
             smoke_test_msg_ = new cMessage("resdbSmokeTest");
             scheduleAt(simTime() + 0.05, smoke_test_msg_);
         }
-        // Staggered one-shot arrival announcement.
-        initial_announce_msg_ = new cMessage("resdbInitialAnnounce");
-        scheduleAt(simTime() + trigger_join_time_ + replicaId_ * arrival_slot_sec_,
-                   initial_announce_msg_);
+        // Static intersection units never announce their own arrival (they have no
+        // arrival to announce). They still receive/echo/relay/vote/execute via the
+        // transport-poll and onWSM paths armed in stage 0.
+        if (!is_intersection_unit_) {
+            // Staggered one-shot arrival announcement.
+            initial_announce_msg_ = new cMessage("resdbInitialAnnounce");
+            scheduleAt(simTime() + trigger_join_time_ + replicaId_ * arrival_slot_sec_,
+                       initial_announce_msg_);
 
-        // // Periodic re-announce fallback (in case peers miss the initial broadcast).
-        // state_announce_msg_ = new cMessage("resdbStateAnnounce");
-        // scheduleAt(simTime() + state_announce_interval_, state_announce_msg_);
+            // // Periodic re-announce fallback (in case peers miss the initial broadcast).
+            // state_announce_msg_ = new cMessage("resdbStateAnnounce");
+            // scheduleAt(simTime() + state_announce_interval_, state_announce_msg_);
 
-        broadcastArrivalAnnouncement_timer_ = new cMessage("resdbBroadcastArrivalAnnouncement");
-        scheduleAt(simTime() + broadcast_arrival_announcement_interval_, broadcastArrivalAnnouncement_timer_);
+            broadcastArrivalAnnouncement_timer_ = new cMessage("resdbBroadcastArrivalAnnouncement");
+            scheduleAt(simTime() + broadcast_arrival_announcement_interval_, broadcastArrivalAnnouncement_timer_);
+        }
 
         if (par("enableChannelMetricsCsv").boolValue() && replicaId_ < total_vehicles_) {
             std::string dir = par("channelMetricsCsvDir").stdstringValue();
@@ -404,7 +422,8 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
                           << " propose_submitted=" << propose_submitted_
                           << " order_applied=" << order_applied_ << "\n";
                 last_known_primary_ = current_primary;
-                if (current_primary == replicaId_ && !order_applied_ &&
+                if (current_primary == replicaId_ && !is_intersection_unit_ &&
+                    !order_applied_ &&
                     !propose_submitted_ &&
                     current_phase_ != ConsensusPhase::DEPARTED) {
                     propose_submitted_ = false;
@@ -622,7 +641,7 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
             std::cout << "[ResDB r" << replicaId_
                       << "] cert-collection timeout — proposing with available certs\n";
             if (debug_cert_protocol_) {
-                int f = tolerated_faults_ >= 0 ? tolerated_faults_ : (total_vehicles_ - 1) / 3;
+                int f = toleratedF();
                 int need = f + 1;
                 std::string myCarId = "veh" + std::to_string(replicaId_);
                 size_t myEchoes = my_received_echoes_.count(myCarId)
@@ -867,6 +886,12 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
 void ResDBIntersectionApp::handlePositionUpdate(cObject* obj)
 {
     DemoBaseApplLayer::handlePositionUpdate(obj);
+
+    // Static intersection units have no SUMO vehicle: skip lane discovery, stop-zone
+    // entry, and crossing. This also prevents discoverLane() from dereferencing a
+    // null mobility (RSU hosts a BaseMobility, not a TraCIMobility, so BaseMobility's
+    // mobilityStateChangedSignal still delivers one position update here).
+    if (is_intersection_unit_ || !mobility) return;
 
     if (moduleIsAmbulance && !ambulanceColorSet && mobility && mobility->getVehicleCommandInterface()) {
         std::cout << "[AMBULANCE COLOR] r" << replicaId_ << " setting color to red\n";
@@ -1286,7 +1311,7 @@ void ResDBIntersectionApp::handleDecisionGossip(BFTMessage* bft)
         return;
     }
 
-    int f         = tolerated_faults_ >= 0 ? tolerated_faults_ : (total_vehicles_ - 1) / 3;
+    int f         = toleratedF();
     int threshold = f + 1;
     bool reached  = gossip_acc_.add(bft->getFromReplicaId(), epoch, order_bytes, threshold);
 

@@ -722,7 +722,7 @@ void ResDBIntersectionApp::handleArrivalEcho(BFTMessage* msg)
     std::cout << "[ECHO-RECV] Replica " << replicaId_ << " received echo from "
               << echo.echoingReplicaId << " (" << echoes.size() << " so far)\n";
 
-    int f        = tolerated_faults_ >= 0 ? tolerated_faults_ : (total_vehicles_ - 1) / 3;
+    int f        = toleratedF();
     int required = f + 1;
     if (debug_cert_protocol_)
         std::cout << "[CERT-DEBUG] handleArrivalEcho r" << replicaId_
@@ -1014,7 +1014,7 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
 
 bool ResDBIntersectionApp::validateArrivalCert(const ArrivalCert& cert)
 {
-    int f = tolerated_faults_ >= 0 ? tolerated_faults_ : (total_vehicles_ - 1) / 3;
+    int f = toleratedF();
     int required = f + 1;
     if ((int)cert.echoes.size() < required) {
         if (debug_cert_protocol_)
