@@ -493,7 +493,6 @@ if [[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 ]]; then
         echo "*.node[*].appl.cancelEchoTimeoutSec = 1s"
         echo "*.node[*].appl.cancelCertRetryIntervalSec = 0.1s"
         echo "*.node[*].appl.cancelCertRetryMax = 20"
-        echo "*.node[*].appl.rollbackDiscoveryTimeoutSec = 8s"
         echo "*.node[*].appl.rollbackVcTimeoutSec = 8s"
         echo "*.node[*].appl.brakingDecelMps2 = 4.5"
         echo "*.node[*].appl.processingLatencyMargin = 2.0"

@@ -58,7 +58,8 @@ ResDBIntersectionApp::~ResDBIntersectionApp()
     if (smoke_test_msg_)          { cancelAndDelete(smoke_test_msg_);          smoke_test_msg_          = nullptr; }
     if (transport_poll_msg_)      { cancelAndDelete(transport_poll_msg_);      transport_poll_msg_      = nullptr; }
     if (time_tick_msg_)           { cancelAndDelete(time_tick_msg_);           time_tick_msg_           = nullptr; }
-    if (propose_timeout_msg_)     { cancelAndDelete(propose_timeout_msg_);     propose_timeout_msg_     = nullptr; }
+    if (discovery_deadline_msg_)  { cancelAndDelete(discovery_deadline_msg_);  discovery_deadline_msg_  = nullptr; }
+    if (discovery_settle_msg_)    { cancelAndDelete(discovery_settle_msg_);    discovery_settle_msg_    = nullptr; }
     if (cert_retry_timer_)        { cancelAndDelete(cert_retry_timer_);        cert_retry_timer_        = nullptr; }
     if (cert_gossip_timer_)       { cancelAndDelete(cert_gossip_timer_);       cert_gossip_timer_       = nullptr; }
     if (gossip_timer_)            { cancelAndDelete(gossip_timer_);            gossip_timer_            = nullptr; }
@@ -68,7 +69,8 @@ ResDBIntersectionApp::~ResDBIntersectionApp()
     if (consensus_timeout_msg_)   { cancelAndDelete(consensus_timeout_msg_);   consensus_timeout_msg_   = nullptr; }
     if (resume_msg_)              { cancelAndDelete(resume_msg_);              resume_msg_              = nullptr; }
     if (cancel_cert_retry_timer_) { cancelAndDelete(cancel_cert_retry_timer_); cancel_cert_retry_timer_ = nullptr; }
-    if (rollback_discovery_timer_) { cancelAndDelete(rollback_discovery_timer_); rollback_discovery_timer_ = nullptr; }
+    if (cancel_drain_timer_)      { cancelAndDelete(cancel_drain_timer_);      cancel_drain_timer_      = nullptr; }
+    if (consensus_retry_timer_)   { cancelAndDelete(consensus_retry_timer_);   consensus_retry_timer_   = nullptr; }
     if (rollback_vc_timer_)       { cancelAndDelete(rollback_vc_timer_);       rollback_vc_timer_       = nullptr; }
     if (cancel_vc_timer_)         { cancelAndDelete(cancel_vc_timer_);         cancel_vc_timer_         = nullptr; }
     if (cancel_gossip_timer_)     { cancelAndDelete(cancel_gossip_timer_);     cancel_gossip_timer_     = nullptr; }
@@ -151,6 +153,7 @@ void ResDBIntersectionApp::initialize(int stage)
         const double cert_timeout_base_sec = par("certCollectionTimeoutSec").doubleValue();
         const double cert_timeout_scale_sec = std::floor(static_cast<double>(total_vehicles_) / 5.0);
         cert_collection_timeout_ = SimTime(cert_timeout_base_sec + cert_timeout_scale_sec);
+        discovery_intent_settle_ = par("discoveryIntentSettleSec").doubleValue();
 
         const double view_change_timeout_sec = par("pbftVcTimeoutSec").doubleValue();
         const double view_change_timeout_scale_sec = std::floor(static_cast<double>(total_vehicles_) / 5.0);
@@ -196,12 +199,12 @@ void ResDBIntersectionApp::initialize(int stage)
         byzantine_pbft_silent_   = par("byzantinePbftSilent").boolValue();
         enableAmbulanceCertGate_ = par("enableAmbulanceCertGate").boolValue();
         enableRollback_ = par("enableRollback").boolValue();
-        cancel_echo_timeout_sec_ = par("cancelEchoTimeoutSec").doubleValue();
         cancel_cert_retry_interval_sec_ = par("cancelCertRetryIntervalSec").doubleValue();
         cancel_cert_retry_max_ = par("cancelCertRetryMax").intValue();
+        consensus_retry_interval_sec_ = par("consensusRetryIntervalSec").doubleValue();
+        consensus_retry_max_ = par("consensusRetryMax").intValue();
         braking_decel_mps2_ = par("brakingDecelMps2").doubleValue();
         processing_latency_margin_ = par("processingLatencyMargin").doubleValue();
-        rollback_discovery_timeout_sec_ = par("rollbackDiscoveryTimeoutSec").doubleValue();
         rollback_vc_timeout_sec_ = par("rollbackVcTimeoutSec").doubleValue();
         {
             std::string rollbackMode = par("rollbackFaultMode").stdstringValue();
@@ -328,9 +331,14 @@ void ResDBIntersectionApp::initialize(int stage)
                       << " explicit=" << (byzantine_pbft_silent_ ? 1 : 0)
                       << "\n";
         }
+
+        discovery_deadline_msg_ = new cMessage("resdbDiscoveryDeadline");
+        discovery_settle_msg_ = new cMessage("resdbDiscoverySettle");
+        consensus_retry_timer_ = new cMessage("resdbConsensusRetry");
     }
 
     if (stage == 1) {
+        startDiscoveryRound("initial-approach");
         if (par("smokeTestBroadcast").boolValue()) {
             smoke_test_msg_ = new cMessage("resdbSmokeTest");
             scheduleAt(simTime() + 0.05, smoke_test_msg_);
@@ -406,6 +414,7 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
                 last_known_primary_ = current_primary;
                 if (current_primary == replicaId_ && !order_applied_ &&
                     !propose_submitted_ &&
+                    discovery_.state == DiscoveryState::COMPLETE &&
                     current_phase_ != ConsensusPhase::DEPARTED) {
                     propose_submitted_ = false;
                     std::cout << "[VC-DEBUG] r" << replicaId_
@@ -432,6 +441,17 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
         return;
     }
 
+    if (msg == consensus_retry_timer_) {
+        retryConsensusPackets();
+        return;
+    }
+
+    if (msg == cancel_drain_timer_) {
+        cancel_drain_timer_ = nullptr;
+        finishCancelDrain();
+        delete msg; return;
+    }
+
     if (msg == initial_announce_msg_) {
         initial_announce_msg_ = nullptr;
         broadcastArrivalAnnouncement();
@@ -444,7 +464,7 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
         // Keep re-announcing until cert is assembled: a car may have observed all peers yet still
         // lack f+1 echoes, so witnesses need continued re-announces to trigger re-echoes.
         if (cancel_pending_ && !rollback_local_recallable_) {
-            std::cout << "[ROLLBACK-DISCOVERY] r" << replicaId_
+            std::cout << "[DISCOVERY-VIEW] r" << replicaId_
                       << " suppress periodic announce; local non-recallable"
                       << " cancelled_epoch=" << cancelled_epoch_
                       << " new_epoch=" << rollback_new_epoch_ << "\n";
@@ -452,20 +472,17 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
             delete msg;
             return;
         }
-        if (!cert_broadcast_ && !shouldQuiesceDiscoveryAir()) {
+        if (!cert_broadcast_ && discovery_.state == DiscoveryState::COLLECTING) {
             broadcastArrivalAnnouncement();
             scheduleAt(simTime() + broadcast_arrival_announcement_interval_, broadcastArrivalAnnouncement_timer_);
             std::cout << "[ANN-SEND] Replica " << replicaId_ << " rescheduled arrival-announcement timer\n";
         } else {
-            if (pbft_observed_ || (cancel_pending_ && rollback_discovery_ready_)) {
-                std::cout << "[ANN-SEND-STOP] r" << replicaId_
-                          << " pbft_observed=" << (pbft_observed_ ? 1 : 0)
-                          << " discovery_ready=" << (rollback_discovery_ready_ ? 1 : 0)
-                          << " cert_broadcast=" << (cert_broadcast_ ? 1 : 0)
-                          << " order_applied=" << (order_applied_ ? 1 : 0)
-                          << " propose_submitted=" << (propose_submitted_ ? 1 : 0)
-                          << " t=" << simTime() << "\n";
-            }
+            std::cout << "[ANN-SEND-STOP] r" << replicaId_
+                      << " discovery_state=" << discoveryStateName()
+                      << " cert_broadcast=" << (cert_broadcast_ ? 1 : 0)
+                      << " order_applied=" << (order_applied_ ? 1 : 0)
+                      << " propose_submitted=" << (propose_submitted_ ? 1 : 0)
+                      << " t=" << simTime() << "\n";
             broadcastArrivalAnnouncement_timer_ = nullptr;
             delete msg;
         }
@@ -473,19 +490,23 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
     }
 
     if (msg == cert_retry_timer_) {
-        if (cert_pending_retries_.carId.empty() || shouldQuiesceDiscoveryAir()) {
+        if (cert_pending_retries_.carId.empty() ||
+                discovery_.state == DiscoveryState::INACTIVE ||
+                discovery_.state == DiscoveryState::COMPLETE ||
+                (discovery_.state == DiscoveryState::DRAINING_CERTS &&
+                 discovery_.localCertAired())) {
             std::cout << "[CERT-RETX-STOP] r" << replicaId_
                       << " carId=" << cert_pending_retries_.carId
                       << " propose_submitted=" << (propose_submitted_ ? 1 : 0)
                       << " order_applied=" << (order_applied_ ? 1 : 0)
-                      << " pbft_observed=" << (pbft_observed_ ? 1 : 0)
-                      << " discovery_ready=" << (rollback_discovery_ready_ ? 1 : 0)
+                      << " discovery_state=" << discoveryStateName()
+                      << " local_cert_aired=" << (discovery_.localCertAired() ? 1 : 0)
                       << " t=" << simTime() << "\n";
             stopCertBroadcastRetries();
             return;
         }
         cert_retry_count_++;
-        sendBFTMessage(-1, serializeArrivalCert(cert_pending_retries_), kArrivalCertType);
+        sendBFTMessage(-1, serializeArrivalCert(cert_pending_retries_), kArrivalCertType, true);
         std::cout << "[CERT-RETX] Replica " << replicaId_ << " ARRIVAL_CERT " << cert_pending_retries_.carId
                   << " retry " << cert_retry_count_;
         if (cert_retry_max_ > 0)
@@ -505,7 +526,7 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
     }
 
     if (msg == cert_gossip_timer_) {
-        if (shouldQuiesceDiscoveryAir() || CertPrimary() != replicaId_ ||
+        if (discovery_.state != DiscoveryState::COLLECTING || CertPrimary() != replicaId_ ||
                 (cert_gossip_deadline_ >= SIMTIME_ZERO && simTime() >= cert_gossip_deadline_)) {
             cert_gossip_timer_ = nullptr;
             cert_gossip_deadline_ = -1;
@@ -571,11 +592,11 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
 
     if (msg == cancel_cert_retry_timer_) {
         if (cancel_cert_pending_retries_.echoes.empty() ||
-                (!cancel_consensus_pending_ && !cancel_pending_) || pbft_observed_) {
+                (!cancel_consensus_pending_ && !cancel_pending_)) {
             std::cout << "[CANCEL-CERT-RETX-STOP] r" << replicaId_
                       << " cancel_consensus_pending=" << (cancel_consensus_pending_ ? 1 : 0)
                       << " cancel_pending=" << (cancel_pending_ ? 1 : 0)
-                      << " pbft_observed=" << (pbft_observed_ ? 1 : 0)
+                      << " discovery_state=" << discoveryStateName()
                       << " t=" << simTime() << "\n";
             stopCancelCertRetries();
             return;
@@ -596,70 +617,14 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
         return;
     }
 
-    if (msg == rollback_discovery_timer_) {
-        rollback_discovery_timer_ = nullptr;
-        rollback_discovery_ready_ = true;
-        cancelPendingDiscoveryTxs("discovery-timeout");
-        trySubmitRollbackProposal("discovery-timeout");
-        delete msg; return;
+    if (msg == discovery_deadline_msg_) {
+        maybeAdvanceDiscovery("hard-deadline", true);
+        return;
     }
 
-    if (msg == propose_timeout_msg_) {
-        propose_timeout_msg_ = nullptr;
-        if (cancel_pending_ || cancel_consensus_pending_) {
-            std::cout << "[ROLLBACK-PROPOSE] r" << replicaId_
-                      << " ignore normal cert timeout during cancel/rollback\n";
-            delete msg; return;
-        }
-        if (!propose_submitted_) {
-            if (!entered_stop_zone_) {
-                deferred_propose_after_cert_timeout_ = true;
-                std::cout << "[ResDB r" << replicaId_
-                          << "] cert-collection timeout before stop zone — defer propose until stop line\n";
-                delete msg;
-                return;
-            }
-            std::cout << "[ResDB r" << replicaId_
-                      << "] cert-collection timeout — proposing with available certs\n";
-            if (debug_cert_protocol_) {
-                int f = tolerated_faults_ >= 0 ? tolerated_faults_ : (total_vehicles_ - 1) / 3;
-                int need = f + 1;
-                std::string myCarId = "veh" + std::to_string(replicaId_);
-                size_t myEchoes = my_received_echoes_.count(myCarId)
-                    ? my_received_echoes_[myCarId].size() : 0;
-                std::cout << "[CERT-DEBUG] timeout snapshot r" << replicaId_
-                          << " myEchoesTowardCert=" << myEchoes << "/" << need
-                          << " cert_broadcast_=" << cert_broadcast_
-                          << " collected_certs=" << collected_certs_.size()
-                          << "/" << total_vehicles_ << "\n";
-            }
-            // Only the current cert-primary proposes; no static cert means keep discovery alive.
-            int primary = CertPrimary();
-            if (primary < 0) {
-                std::cout << "[CERT-PRIMARY] r" << replicaId_
-                          << " cert-timeout: no static cert primary; rearming discovery timer\n";
-                propose_timeout_msg_ = new cMessage("resdbProposeTimeout");
-                scheduleAt(simTime() + cert_collection_timeout_, propose_timeout_msg_);
-                delete msg; return;
-            }
-            if (primary == replicaId_) {
-                proposeAll();
-            } else {
-                if (!vc_trigger_msg_ && !order_applied_) {
-                    vc_trigger_msg_ = new cMessage("vc_trigger");
-                    scheduleAt(simTime() + pbft_vc_timeout_sec_, vc_trigger_msg_);
-                    std::cout << "[VC-DEBUG] r" << replicaId_
-                              << " cert-timeout follower: vc_trigger scheduled at "
-                              << simTime() + pbft_vc_timeout_sec_
-                              << " (cert_primary=" << primary
-                              << ", vc_delay_sec=" << pbft_vc_timeout_sec_ << ")\n";
-                }
-                std::cout << "[CERT-PRIMARY] r" << replicaId_
-                          << " cert-timeout: follower of cert_primary=" << primary
-                          << "\n";
-            }
-        }
-        delete msg; return;
+    if (msg == discovery_settle_msg_) {
+        maybeAdvanceDiscovery("intent-stable", false);
+        return;
     }
 
     if (msg == vc_trigger_msg_) {
@@ -911,41 +876,8 @@ void ResDBIntersectionApp::handlePositionUpdate(cObject* obj)
                   << simTime() + stop_sign_timeout_sec_
                   << " consensus_deadline=" << simTime() + consensus_timeout_sec_ << "\n";
 
-        int primary = CertPrimary();
-        if (primary < 0 && !propose_timeout_msg_ && !order_applied_ && !propose_submitted_) {
-            propose_timeout_msg_ = new cMessage("resdbProposeTimeout");
-            scheduleAt(simTime() + cert_collection_timeout_, propose_timeout_msg_);
-            std::cout << "[CERT-PRIMARY] r" << replicaId_
-                      << " stop zone: no static cert primary; recheck scheduled at "
-                      << simTime() + cert_collection_timeout_ << "\n";
-            return;
-        }
-        if (replicaId_ == primary && !propose_submitted_) {
-            const int neededCerts = cancel_pending_
-                ? minRollbackMembershipSize()
-                : total_vehicles_;
-            if (countStaticCollectedCerts() >= neededCerts) {
-                proposeAll();
-            } else if (deferred_propose_after_cert_timeout_) {
-                deferred_propose_after_cert_timeout_ = false;
-                std::cout << "[ResDB r" << replicaId_
-                          << "] stop zone: deferred cert-timeout — re-arming collection (timeout="
-                          << cert_collection_timeout_ << "s)\n";
-                tryStartCertCollectionTimer(true);
-            } else {
-                tryStartCertCollectionTimer(false);
-            }
-        } else if (replicaId_ != primary && !vc_trigger_msg_ && !order_applied_) {
-            // Follower stop zone entry: arm VC trigger in case primary is silent.
-            // Delay = cert-collection window the primary gets + our extra grace period.
-            double vc_delay = cert_collection_timeout_.dbl() + pbft_vc_timeout_sec_;
-            vc_trigger_msg_ = new cMessage("vc_trigger");
-            scheduleAt(simTime() + vc_delay, vc_trigger_msg_);
-            std::cout << "[VC-DEBUG] r" << replicaId_
-                      << " follower stop zone: vc_trigger scheduled at "
-                      << simTime() + vc_delay << " (primary=" << primary
-                      << ", vc_delay_sec=" << vc_delay << ")\n";
-        }
+        armDiscoveryTimers("stop-zone-entry");
+        maybeAdvanceDiscovery("stop-zone-entry");
     }
 }
 
@@ -957,6 +889,8 @@ void ResDBIntersectionApp::recordIntersectionDeparture(simtime_t departedAt)
     cleared_time_ = departedAt;
     is_departed_ = true;
     current_phase_ = ConsensusPhase::DEPARTED;
+    clearConsensusRetries("departed");
+    deactivateDiscovery("departed");
     markCompletedReplicaEpoch(replicaId_, current_epoch_);
     if (resdb_server_handle_) {
         ResdbOmnetMarkReplicaInactive(resdb_server_handle_, replicaId_, current_epoch_ + 1);
@@ -1106,9 +1040,6 @@ void ResDBIntersectionApp::onWSM(BaseFrame1609_4* wsm)
 
     // ── Type 11: ResDB PBFT consensus relay ───────────────────────────────────
     if (msgType == kResdbConsensusRelayType) {
-        // pbft_observed_ is now set inside handleResdbConsensusRelay(), scoped to
-        // fresh PRE-PREPARE observations only (see ResDBTransport.cc).
-        stopStopZoneCertGossip();
         handleResdbConsensusRelay(bft);
         bool has_pending_order = false;
         {
@@ -1154,13 +1085,6 @@ void ResDBIntersectionApp::onWSM(BaseFrame1609_4* wsm)
 
     // ── Type 8: ResDB PBFT consensus bytes ────────────────────────────────────
     if (msgType == kResdbConsensusMsgType) {
-        // Leader is active — cert retransmits are no longer useful.
-        if (cert_retry_timer_ && cert_retry_timer_->isScheduled())
-            cancelEvent(cert_retry_timer_);
-        // pbft_observed_ is now set inside handleResdbConsensusMessage(), scoped to
-        // fresh PRE-PREPARE observations only (see ResDBTransport.cc).
-        stopStopZoneCertGossip();
-
         handleResdbConsensusMessage(bft);
 
         bool has_pending_order = false;

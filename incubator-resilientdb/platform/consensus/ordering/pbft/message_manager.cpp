@@ -533,6 +533,7 @@ void MessageManager::SetNextCommitSeq(int seq) {
 }
 
 void MessageManager::EnsureNextSeqAheadOfExecuted() {
+  std::unique_lock<std::mutex> lk(seq_mutex_);
   const uint64_t max_executed = transaction_executor_->GetMaxPendingExecutedSeq();
   uint64_t need = max_executed + 1;
   if (checkpoint_manager_) {

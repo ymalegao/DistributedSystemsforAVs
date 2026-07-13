@@ -64,6 +64,7 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         double arrivalCertRetryIntervalSec @unit(s) = default(0.1s);
         int arrivalCertRetryMax = default(30); // extra ARRIVAL_CERT sends after first; 0 = unlimited until stop
         double certCollectionTimeoutSec @unit(s) = default(2s);
+        double discoveryIntentSettleSec @unit(s) = default(1.5s);
         double stateAnnounceIntervalSec @unit(s) = default(0.1s);
         double broadcastArrivalAnnouncementIntervalSec @unit(s) = default(0.1s);
 
@@ -94,19 +95,18 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
 
         // ── Cancel / rollback protocol ───────────────────────────────────────
         bool   enableRollback                              = default(false);
-        double cancelEchoTimeoutSec @unit(s)               = default(1s);
         double cancelCertRetryIntervalSec @unit(s)         = default(0.1s);
         int    cancelCertRetryMax                          = default(10);
+        double consensusRetryIntervalSec @unit(s)          = default(0.12s);
+        int    consensusRetryMax                           = default(8);
         double brakingDecelMps2                            = default(4.5);
         double processingLatencyMargin                     = default(2.0);
-        double rollbackDiscoveryTimeoutSec @unit(s)         = default(8s);
         double rollbackVcTimeoutSec @unit(s)               = default(3s);
         string rollbackFaultMode                           = default("per_epoch"); // per_epoch | anchored
 
         // ── Milestone 4: view-change (VC) support ─────────────────────────────
-        // PBFT complaint-timer duration in sim-seconds.  After certCollectionTimeoutSec
-        // fires on a follower with no order, the follower waits this long before forcing
-        // a view-change via ResdbOmnetForceViewChange().
+        // PBFT complaint-timer duration in sim-seconds. A follower arms this
+        // only after its local discovery round reaches COMPLETE.
         double pbftVcTimeoutSec @unit(s) = default(3s);
         string intendedDirection   = default("S");    // S/L/R
         string intendedLane        = default("");     // N/S/E/W — explicit cardinal lane (bypasses SUMO edge name parsing); empty = auto-detect from TraCI

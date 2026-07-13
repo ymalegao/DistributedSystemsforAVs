@@ -209,7 +209,7 @@ ResDBIntersectionApp::deserializeArrivalCert(BFTMessage* msg)
     return cert;
 }
 
-// ── tryStartCertCollectionTimer (V2V parity: deadline starts at primary stop-zone entry) ──
+// ── Discovery-round state ─────────────────────────────────────────────────────
 
 int ResDBIntersectionApp::countStaticCollectedCerts() const
 {
@@ -241,40 +241,198 @@ int ResDBIntersectionApp::CertPrimary() const
     return primary;
 }
 
-void ResDBIntersectionApp::tryStartCertCollectionTimer(bool rearm)
+const char* ResDBIntersectionApp::discoveryStateName() const
 {
-    if (!resdb_server_handle_ || propose_submitted_) return;
-    int certPrimary = CertPrimary();
-    if (certPrimary < 0) {
-        std::cout << "[CERT-PRIMARY] r" << replicaId_
-                  << " no static cert primary yet; keep gossiping\n";
+    switch (discovery_.state) {
+    case DiscoveryState::INACTIVE: return "INACTIVE";
+    case DiscoveryState::COLLECTING: return "COLLECTING";
+    case DiscoveryState::DRAINING_CERTS: return "DRAINING_CERTS";
+    case DiscoveryState::COMPLETE: return "COMPLETE";
+    }
+    return "UNKNOWN";
+}
+
+void ResDBIntersectionApp::startDiscoveryRound(const char* reason)
+{
+    if (current_phase_ == ConsensusPhase::DEPARTED || is_departed_) return;
+    if (discovery_deadline_msg_->isScheduled()) cancelEvent(discovery_deadline_msg_);
+    if (discovery_settle_msg_->isScheduled()) cancelEvent(discovery_settle_msg_);
+    discovery_.reset(current_epoch_, simTime());
+    std::cout << "[DISCOVERY-BEGIN] r" << replicaId_
+              << " epoch=" << discovery_.epoch
+              << " reason=" << (reason ? reason : "start")
+              << " stop_zone=" << (entered_stop_zone_ ? 1 : 0)
+              << " t=" << simTime() << "\n";
+    if (entered_stop_zone_) armDiscoveryTimers(reason);
+}
+
+void ResDBIntersectionApp::armDiscoveryTimers(const char* reason)
+{
+    if (!entered_stop_zone_ || discovery_.state != DiscoveryState::COLLECTING ||
+            propose_submitted_ || order_applied_) return;
+    if (!discovery_deadline_msg_->isScheduled()) {
+        scheduleAt(simTime() + cert_collection_timeout_, discovery_deadline_msg_);
+        discovery_.collectionStartedAt = simTime();
+        std::cout << "[DISCOVERY-DEADLINE] r" << replicaId_
+                  << " epoch=" << discovery_.epoch
+                  << " armed_for=" << simTime() + cert_collection_timeout_
+                  << " reason=" << (reason ? reason : "arm") << "\n";
+    }
+    simtime_t settleAt = discovery_.lastNewIntentAt + discovery_intent_settle_;
+    if (settleAt < simTime()) settleAt = simTime();
+    if (discovery_settle_msg_->isScheduled()) cancelEvent(discovery_settle_msg_);
+    scheduleAt(settleAt, discovery_settle_msg_);
+}
+
+void ResDBIntersectionApp::noteDiscoveryIntent(const std::string& carId, const char* source)
+{
+    if (carId.empty() || propose_submitted_ || order_applied_ ||
+            current_phase_ == ConsensusPhase::DEPARTED) return;
+    if (discovery_.state == DiscoveryState::DRAINING_CERTS ||
+            discovery_.state == DiscoveryState::COMPLETE) {
+        discovery_.state = DiscoveryState::COLLECTING;
+        discovery_.closeReason = DiscoveryCloseReason::NONE;
+        if (vc_trigger_msg_) {
+            if (vc_trigger_msg_->isScheduled()) cancelEvent(vc_trigger_msg_);
+            delete vc_trigger_msg_;
+            vc_trigger_msg_ = nullptr;
+        }
+        if (!broadcastArrivalAnnouncement_timer_) {
+            broadcastArrivalAnnouncement_timer_ =
+                new cMessage("resdbBroadcastArrivalAnnouncement");
+            scheduleAt(simTime() + broadcast_arrival_announcement_interval_,
+                       broadcastArrivalAnnouncement_timer_);
+        }
+    }
+    discovery_.lastNewIntentAt = simTime();
+    std::cout << "[DISCOVERY-VIEW] r" << replicaId_
+              << " epoch=" << discovery_.epoch
+              << " new_intent=" << carId
+              << " source=" << (source ? source : "announce")
+              << " intents=" << observed_intent_cars_.size()
+              << " certs=" << collected_certs_.size()
+              << " t=" << simTime() << "\n";
+    armDiscoveryTimers("new-intent");
+}
+
+bool ResDBIntersectionApp::discoveryViewCertified(std::vector<int>* missing) const
+{
+    bool hasEligibleIntent = false;
+    bool hasLocalIntent = !cancel_pending_ || !rollback_local_recallable_;
+    const std::string localCarId = "veh" + std::to_string(replicaId_);
+    std::lock_guard<std::mutex> lk(certs_mutex_);
+    for (const auto& carId : observed_intent_cars_) {
+        const int rid = extractReplicaId(carId);
+        if (cancel_pending_ && !shouldIncludeInRollbackMembership(rid)) continue;
+        hasEligibleIntent = true;
+        if (carId == localCarId) hasLocalIntent = true;
+        if (!collected_certs_.count(carId)) {
+            if (missing) missing->push_back(rid);
+            else return false;
+        }
+    }
+    return hasEligibleIntent && hasLocalIntent && (!missing || missing->empty());
+}
+
+void ResDBIntersectionApp::maybeAdvanceDiscovery(const char* reason, bool deadline)
+{
+    if (discovery_.state != DiscoveryState::COLLECTING || !entered_stop_zone_ ||
+            propose_submitted_ || order_applied_) return;
+    if (deadline) {
+        beginDiscoveryDrain(reason, true);
         return;
     }
-    if (replicaId_ != certPrimary) return;
-    {
-        std::lock_guard<std::mutex> lk(certs_mutex_);
-        const int need = cancel_pending_ ? minRollbackMembershipSize()
-                                         : total_vehicles_;
-        if (countStaticCollectedCerts() >= need) return;
+    if (simTime() < discovery_.lastNewIntentAt + discovery_intent_settle_) {
+        armDiscoveryTimers("view-not-stable");
+        return;
     }
-    if (!entered_stop_zone_) return;
-    if (!rearm && cert_collection_started_) return;
-    if (propose_timeout_msg_ && propose_timeout_msg_->isScheduled()) {
-        if (!rearm) return;
-        cancelEvent(propose_timeout_msg_);
-    }
+    if (!discoveryViewCertified()) return;
+    beginDiscoveryDrain(reason, false);
+}
 
-    if (!propose_timeout_msg_)
-        propose_timeout_msg_ = new cMessage("resdbProposeTimeout");
-    scheduleAt(simTime() + cert_collection_timeout_, propose_timeout_msg_);
-    cert_collection_started_ = true;
-    cert_collection_start_time_ = simTime();
-    std::cout << "[METRICS " << replicaId_ << "] Cert_Collection_Start: " << cert_collection_start_time_ << "\n";
-    std::cout << "[ResDB r" << replicaId_
-              << "] CertPrimary: cert-collection deadline at stop line"
-              << " cert_primary=" << certPrimary
-              << " (timeout="
-              << cert_collection_timeout_ << "s rearm=" << (rearm ? 1 : 0) << ")\n";
+void ResDBIntersectionApp::beginDiscoveryDrain(const char* reason, bool deadline)
+{
+    if (discovery_.state != DiscoveryState::COLLECTING) return;
+    discovery_.state = DiscoveryState::DRAINING_CERTS;
+    discovery_.closeReason = deadline
+        ? DiscoveryCloseReason::DEADLINE
+        : DiscoveryCloseReason::STABILIZED;
+    if (discovery_deadline_msg_ && discovery_deadline_msg_->isScheduled())
+        cancelEvent(discovery_deadline_msg_);
+    if (discovery_settle_msg_ && discovery_settle_msg_->isScheduled())
+        cancelEvent(discovery_settle_msg_);
+    if (broadcastArrivalAnnouncement_timer_) {
+        if (broadcastArrivalAnnouncement_timer_->isScheduled())
+            cancelEvent(broadcastArrivalAnnouncement_timer_);
+        delete broadcastArrivalAnnouncement_timer_;
+        broadcastArrivalAnnouncement_timer_ = nullptr;
+    }
+    stopStopZoneCertGossip();
+    discardPendingDiscoveryNonCerts(reason ? reason : "view-closed");
+    logDiscoveryDiagnostics(reason ? reason : "view-closed");
+    std::cout << "[DISCOVERY-DRAIN] r" << replicaId_
+              << " epoch=" << discovery_.epoch
+              << " reason=" << (reason ? reason : "view-closed")
+              << " deadline=" << (deadline ? 1 : 0)
+              << " local_cert_assembled=" << (discovery_.localCertAssembled() ? 1 : 0)
+              << " local_cert_aired=" << (discovery_.localCertAired() ? 1 : 0)
+              << " t=" << simTime() << "\n";
+    maybeCompleteDiscoveryDrain(reason);
+}
+
+void ResDBIntersectionApp::maybeCompleteDiscoveryDrain(const char* reason)
+{
+    if (discovery_.state != DiscoveryState::DRAINING_CERTS) return;
+    if (discovery_.localCertAssembled() && !discovery_.localCertAired()) return;
+    if (hasPendingDiscoveryCerts(discovery_.epoch)) return;
+    finishDiscoveryRound(reason);
+}
+
+void ResDBIntersectionApp::finishDiscoveryRound(const char* reason)
+{
+    if (discovery_.state != DiscoveryState::DRAINING_CERTS) return;
+    discovery_.state = DiscoveryState::COMPLETE;
+    stopCertBroadcastRetries();
+    stopStopZoneCertGossip();
+    std::vector<int> missing;
+    discoveryViewCertified(&missing);
+    std::cout << "[DISCOVERY-COMPLETE] r" << replicaId_
+              << " epoch=" << discovery_.epoch
+              << " reason=" << (reason ? reason : "drained")
+              << " intents=" << observed_intent_cars_.size()
+              << " certs=" << collected_certs_.size()
+              << " missing=";
+    for (size_t i = 0; i < missing.size(); ++i) {
+        if (i) std::cout << ",";
+        std::cout << "r" << missing[i];
+    }
+    std::cout << " local_cert_aired=" << (discovery_.localCertAired() ? 1 : 0)
+              << " t=" << simTime() << "\n";
+
+    if (cancel_pending_) trySubmitRollbackProposal("discovery-complete");
+    else if (CertPrimary() == replicaId_) proposeAll();
+
+    const int primary = CertPrimary();
+    if (!propose_submitted_ && primary != replicaId_ && !vc_trigger_msg_ && !order_applied_) {
+        vc_trigger_msg_ = new cMessage("vc_trigger");
+        scheduleAt(simTime() + pbft_vc_timeout_sec_, vc_trigger_msg_);
+        std::cout << "[VC-DEBUG] r" << replicaId_
+                  << " discovery complete: vc_trigger scheduled at "
+                  << simTime() + pbft_vc_timeout_sec_
+                  << " primary=" << primary << "\n";
+    }
+}
+
+void ResDBIntersectionApp::deactivateDiscovery(const char* reason)
+{
+    if (discovery_deadline_msg_ && discovery_deadline_msg_->isScheduled())
+        cancelEvent(discovery_deadline_msg_);
+    if (discovery_settle_msg_ && discovery_settle_msg_->isScheduled())
+        cancelEvent(discovery_settle_msg_);
+    stopCertBroadcastRetries();
+    stopStopZoneCertGossip();
+    cancelPendingDiscoveryTxs(reason ? reason : "inactive");
+    discovery_.state = DiscoveryState::INACTIVE;
 }
 
 // ── attachAmbulanceCryptoToAnnouncement (ported from legacy arrival path) ────
@@ -407,7 +565,8 @@ void ResDBIntersectionApp::broadcastArrivalAnnouncement()
         selfVS.arrival_time_us = (uint64_t)(ann.claimedArrivalTime * 1e6);
         local_vehicle_states_[myCarId]             = selfVS;
         arrival_announcements_received_.insert(myCarId);
-        physically_observed_cars_.insert(myCarId);
+        const bool newIntent = observed_intent_cars_.insert(myCarId).second;
+        if (newIntent) noteDiscoveryIntent(myCarId, "self-announce");
     }
 
     if (is_byzantine_ && byzantine_type_ == BYZANTINE_EQUIVOCATOR) {
@@ -547,7 +706,8 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
         vs.arrival_time_us = (uint64_t)(ann.claimedArrivalTime * 1e6);
         local_vehicle_states_[ann.carId] = vs;
         arrival_announcements_received_.insert(ann.carId);
-        physically_observed_cars_.insert(ann.carId);
+        const bool newIntent = observed_intent_cars_.insert(ann.carId).second;
+        if (newIntent) noteDiscoveryIntent(ann.carId, "invalid-lane-announce");
         std::cout << "[ANN-RECV] Replica " << replicaId_ << " FALSE_LANE from "
                   << ann.carId
                   << " via=" << (viaGossip ? "gossip" : "direct")
@@ -612,7 +772,7 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
     vs.arrival_time_us = (uint64_t)(ann.claimedArrivalTime * 1e6);
     local_vehicle_states_[ann.carId] = vs;
     arrival_announcements_received_.insert(ann.carId);
-    physically_observed_cars_.insert(ann.carId);
+    const bool newIntent = observed_intent_cars_.insert(ann.carId).second;
     echoed_cars_.insert(ann.carId);  // record that we actually echoed this car
     pending_relays_[std::make_pair((uint32_t)ann.epoch, ann.carId)] = {
         ann.carId, (uint32_t)ann.epoch, announceBytes, simTime().dbl(), 0};
@@ -623,15 +783,11 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
 
     std::cout << "[ANN-RECV] Replica " << replicaId_ << " stored VehicleState for "
               << ann.carId << " via=" << (viaGossip ? "gossip" : "direct")
-              << " (" << physically_observed_cars_.size()
+              << " (" << observed_intent_cars_.size()
               << "/" << total_vehicles_ << " observed)\n";
-
-    if (physically_observed_cars_.size() == total_vehicles_) {
+    if (newIntent) noteDiscoveryIntent(ann.carId, viaGossip ? "announce-gossip" : "announce-direct");
+    if (discovery_.state != DiscoveryState::INACTIVE)
         current_phase_ = ConsensusPhase::COLLECTING_CERTS;
-        // Do NOT cancel the re-announce timer here: this car may still need witnesses to re-echo it.
-        // The timer handler stops once cert_broadcast_ is true.
-        std::cout << "[ANN-RECV] Replica " << replicaId_ << " all vehicles observed, phase=COLLECTING_CERTS\n";
-    }
 }
 
 // ── sendArrivalEcho ───────────────────────────────────────────────────────────
@@ -674,7 +830,8 @@ void ResDBIntersectionApp::sendArrivalEcho(const ArrivalAnnouncement& ann)
     }
 
     int targetId = extractReplicaId(ann.carId);
-    sendBFTMessage(-1, serializeArrivalEcho(echo), kArrivalEchoType);
+    sendBFTMessage(-1, serializeArrivalEcho(echo), kArrivalEchoType,
+                   false, true);
     std::cout << "[ECHO-SEND] Replica " << replicaId_ << " → " << ann.carId
               << " ARRIVAL_ECHO sigLen=" << (int)echo.signatureLen << "\n";
     if (debug_cert_protocol_) {
@@ -811,7 +968,7 @@ void ResDBIntersectionApp::broadcastCollectedCerts(const char* reason)
 
 void ResDBIntersectionApp::startStopZoneCertGossip(const char* reason, bool immediate)
 {
-    if (shouldQuiesceDiscoveryAir())
+    if (discovery_.state != DiscoveryState::COLLECTING)
         return;
 
     const simtime_t newDeadline = simTime() + cert_collection_timeout_;
@@ -825,7 +982,7 @@ void ResDBIntersectionApp::startStopZoneCertGossip(const char* reason, bool imme
 
 void ResDBIntersectionApp::scheduleNextStopZoneCertGossip()
 {
-    if (shouldQuiesceDiscoveryAir())
+    if (discovery_.state != DiscoveryState::COLLECTING)
         return;
     if (CertPrimary() != replicaId_)
         return;
@@ -859,7 +1016,8 @@ void ResDBIntersectionApp::stopStopZoneCertGossip()
 
 void ResDBIntersectionApp::broadcastArrivalCert(const ArrivalCert& cert)
 {
-    sendBFTMessage(-1, serializeArrivalCert(cert), kArrivalCertType);
+    discovery_.localCert = LocalCertState::QUEUED;
+    sendBFTMessage(-1, serializeArrivalCert(cert), kArrivalCertType, true);
     std::cout << "[CERT-BROADCAST] Replica " << replicaId_ << " broadcast ARRIVAL_CERT for "
               << cert.carId << "\n";
 
@@ -876,8 +1034,6 @@ void ResDBIntersectionApp::broadcastArrivalCert(const ArrivalCert& cert)
     }
 
     // OMNeT++ modules don't receive their own channel broadcasts — self-store.
-    bool shouldPropose = false;
-    bool shouldStartCollectionTimer = false;
     int certPrimary = -1;
     if (!collected_certs_.count(cert.carId)) {
         int staticCerts = 0;
@@ -892,32 +1048,12 @@ void ResDBIntersectionApp::broadcastArrivalCert(const ArrivalCert& cert)
                   << ") all=" << allCerts
                   << " cert_primary=" << certPrimary << "\n";
         const bool emergencyCancelStarted = maybeTriggerEmergencyRollbackFromCert(cert);
-        // If cert-primary and in stop zone, either propose immediately when all
-        // static certs are present or start the bounded collection window.
-        if (replicaId_ == certPrimary
-                && entered_stop_zone_ && !propose_submitted_) {
-            const int neededCerts = cancel_pending_
-                ? minRollbackMembershipSize()
-                : total_vehicles_;
-            shouldPropose = !emergencyCancelStarted && (staticCerts >= neededCerts);
-            shouldStartCollectionTimer = !emergencyCancelStarted && !shouldPropose;
-        }
+        (void)emergencyCancelStarted;
     }
-    if (shouldPropose) {
-        if (propose_timeout_msg_) {
-            cancelEvent(propose_timeout_msg_);
-            delete propose_timeout_msg_;
-            propose_timeout_msg_ = nullptr;
-        }
-        proposeAll();
-    } else if (shouldStartCollectionTimer) {
-        tryStartCertCollectionTimer(false);
-    }
-    if (entered_stop_zone_ && !shouldQuiesceDiscoveryAir()) {
+    if (entered_stop_zone_ && discovery_.state == DiscoveryState::COLLECTING) {
         startStopZoneCertGossip("self-cert-stored", replicaId_ == certPrimary);
     }
-    trySubmitRollbackProposal("self-cert");
-    maybeFinishRollbackDiscovery("self-cert");
+    maybeAdvanceDiscovery("self-cert");
 }
 
 // ── handleArrivalCert ─────────────────────────────────────────────────────────
@@ -960,54 +1096,32 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
         vs.direction      = cert.direction;
         vs.isAmbulance    = cert.isAmbulance;
         local_vehicle_states_[cert.carId] = vs;
-        physically_observed_cars_.insert(cert.carId);
+        const bool newIntent = observed_intent_cars_.insert(cert.carId).second;
+        if (newIntent) noteDiscoveryIntent(cert.carId, "certificate");
     }
 
     // Epidemic relay: each node forwards each validated cert once.
     // cert already carries f+1 signatures so recipients can verify without
     // re-accumulating votes.  cert_relay_tracker_ deduplicates per carId.
-    // Quiesce once PBFT consensus for this transition is already underway —
-    // continuing to flood cert discovery traffic only contends with the
-    // vote traffic that actually matters at that point.
-    if (shouldQuiesceDiscoveryAir()) {
+    if (discovery_.state != DiscoveryState::COLLECTING) {
         std::cout << "[CERT-RELAY-STOP] r" << replicaId_ << " suppressed relay for "
                   << cert.carId << " order_applied=" << (order_applied_ ? 1 : 0)
                   << " propose_submitted=" << (propose_submitted_ ? 1 : 0)
-                  << " pbft_observed=" << (pbft_observed_ ? 1 : 0)
-                  << " discovery_ready=" << (rollback_discovery_ready_ ? 1 : 0)
+                  << " discovery_state=" << discoveryStateName()
                   << " t=" << simTime() << "\n";
     } else if (cert_relay_tracker_.tryRelay(cert.carId)) {
         sendBFTMessage(-1, serializeArrivalCert(cert), kArrivalCertType);
         std::cout << "[CERT-RELAY] r" << replicaId_ << " relayed cert for "
                   << cert.carId << " t=" << simTime() << "\n";
     }
-    if (entered_stop_zone_ && !shouldQuiesceDiscoveryAir()) {
+    if (entered_stop_zone_ && discovery_.state == DiscoveryState::COLLECTING) {
         startStopZoneCertGossip("cert-stored", replicaId_ == certPrimary);
     }
 
     const bool emergencyCancelStarted = maybeTriggerEmergencyRollbackFromCert(cert);
 
-    // Cert-primary: if in stop zone, either propose when all static certs are
-    // collected or start the bounded window for omission-fault runs.
-    // Emergency late certs take the cancel path first; the old normal order
-    // should not race the rollback trigger.
-    if (replicaId_ == certPrimary && entered_stop_zone_ && !propose_submitted_) {
-        const int neededCerts = cancel_pending_
-            ? minRollbackMembershipSize()
-            : total_vehicles_;
-        if (!emergencyCancelStarted && staticCerts >= neededCerts) {
-            if (propose_timeout_msg_) {
-                cancelEvent(propose_timeout_msg_);
-                delete propose_timeout_msg_;
-                propose_timeout_msg_ = nullptr;
-            }
-            proposeAll();
-        } else if (!emergencyCancelStarted) {
-            tryStartCertCollectionTimer(false);
-        }
-    }
-    trySubmitRollbackProposal("cert-stored");
-    maybeFinishRollbackDiscovery("cert-stored");
+    (void)emergencyCancelStarted;
+    maybeAdvanceDiscovery("cert-stored");
 }
 
 // ── validateArrivalCert ───────────────────────────────────────────────────────

@@ -55,6 +55,14 @@ bool TransactionCollector::HasVoteFrom(int type, const std::string& hash,
   return hash_it->second[static_cast<size_t>(sender_id)];
 }
 
+int TransactionCollector::VoteCount(int type, const std::string& hash) {
+  if (type < 0 || type >= Request::NUM_OF_TYPE) return 0;
+  std::lock_guard<std::mutex> lk(mutex_);
+  auto hash_it = senders_[type].find(hash);
+  if (hash_it == senders_[type].end()) return 0;
+  return static_cast<int>(hash_it->second.count());
+}
+
 int TransactionCollector::SetContextList(
     uint64_t seq, std::vector<std::unique_ptr<Context>> context) {
   if (seq != seq_) {

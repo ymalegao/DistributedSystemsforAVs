@@ -195,6 +195,13 @@ void ResDBIntersectionApp::sendCancelEcho(
     if (!enableRollback_ || !ec_private_key_) return;
     std::string key = cancelReasonKey(cancelledEpoch, reason, cleanRef(reasonRef));
     if (!cancel_echo_sent_.insert(key).second) return;
+    if (cancel_state_ == CancelState::INACTIVE) {
+        cancel_state_ = CancelState::WITNESSING;
+        std::cout << "[CANCEL-WITNESSING] r" << replicaId_
+                  << " cancelled_epoch=" << cancelledEpoch
+                  << " ref=" << cleanRef(reasonRef)
+                  << " t=" << simTime() << "\n";
+    }
 
     CancelEcho echo;
     echo.echoingReplicaId = replicaId_;
@@ -295,6 +302,86 @@ void ResDBIntersectionApp::stopCancelCertRetries()
     }
     cancel_cert_pending_retries_.echoes.clear();
     cancel_cert_retry_count_ = 0;
+}
+
+const char* ResDBIntersectionApp::cancelStateName() const
+{
+    switch (cancel_state_) {
+    case CancelState::INACTIVE: return "INACTIVE";
+    case CancelState::WITNESSING: return "WITNESSING";
+    case CancelState::DRAINING: return "DRAINING";
+    case CancelState::CONSENSUS: return "CONSENSUS";
+    case CancelState::COMMITTED: return "COMMITTED";
+    }
+    return "UNKNOWN";
+}
+
+void ResDBIntersectionApp::beginCancelDrain(const char* reason)
+{
+    if (!cancel_consensus_pending_ || cancel_state_ == CancelState::COMMITTED)
+        return;
+    if (cancel_state_ == CancelState::DRAINING ||
+            cancel_state_ == CancelState::CONSENSUS)
+        return;
+
+    cancel_state_ = CancelState::DRAINING;
+    cancel_active_batch_ = perceivedActiveBatch();
+    cancel_leader_candidates_ =
+        cancelLeaderCandidatesForBatch(cancel_active_batch_);
+    cancel_primary_ = cancel_leader_candidates_.empty()
+        ? -1
+        : cancel_leader_candidates_.front();
+
+    // A validated f+1 CANCEL certificate closes witnessing for this event.
+    // Keep bounded CANCEL_CERT retries active so replicas that missed the
+    // first broadcast can enter this state too. Existing staggered ANN/ECHO
+    // frames may still reach the NIC; the drain horizon below lets them finish
+    // without admitting more discovery traffic.
+    if (broadcastArrivalAnnouncement_timer_) {
+        if (broadcastArrivalAnnouncement_timer_->isScheduled())
+            cancelEvent(broadcastArrivalAnnouncement_timer_);
+        delete broadcastArrivalAnnouncement_timer_;
+        broadcastArrivalAnnouncement_timer_ = nullptr;
+    }
+
+    const double slot = std::max(
+        par("viewAgreementSlotSec").doubleValue(),
+        par("arrivalSlotSec").doubleValue());
+    const double jitter = std::max(
+        par("viewJitterMax").doubleValue(),
+        par("broadcastJitterMax").doubleValue());
+    const simtime_t drainFor = SimTime(
+        std::max(0.05, (std::max(total_vehicles_ - 1, 0) * slot) + jitter + 0.025));
+
+    if (!cancel_drain_timer_) cancel_drain_timer_ = new cMessage("cancelDrainTimer");
+    if (cancel_drain_timer_->isScheduled()) cancelEvent(cancel_drain_timer_);
+    scheduleAt(simTime() + drainFor, cancel_drain_timer_);
+
+    std::cout << "[CANCEL-DRAIN] r" << replicaId_
+              << " state=" << cancelStateName()
+              << " reason=" << (reason ? reason : "valid-cert")
+              << " active_batch=" << cancel_active_batch_
+              << " leader_candidates=";
+    for (size_t i = 0; i < cancel_leader_candidates_.size(); ++i) {
+        if (i) std::cout << ",";
+        std::cout << "r" << cancel_leader_candidates_[i];
+    }
+    std::cout << " cancel_primary=r" << cancel_primary_
+              << " drain_for=" << drainFor
+              << " deadline=" << simTime() + drainFor
+              << " t=" << simTime() << "\n";
+}
+
+void ResDBIntersectionApp::finishCancelDrain()
+{
+    if (!cancel_consensus_pending_ || cancel_state_ != CancelState::DRAINING)
+        return;
+    cancel_state_ = CancelState::CONSENSUS;
+    std::cout << "[CANCEL-CONSENSUS] r" << replicaId_
+              << " active_batch=" << cancel_active_batch_
+              << " proposer=r" << cancel_primary_
+              << " t=" << simTime() << "\n";
+    trySubmitCancelProposal("cancel-drain-complete");
 }
 
 void ResDBIntersectionApp::broadcastCancelCert(const CancelCert& cert)
@@ -423,6 +510,9 @@ void ResDBIntersectionApp::handleValidCancelJustification(
     cancel_consensus_pending_ = true;
     cancel_propose_submitted_ = false;
     rollback_rotation_index_ = 0;
+    cancel_active_batch_ = -1;
+    cancel_primary_ = -1;
+    cancel_leader_candidates_.clear();
     rollback_cancel_initiated_ = true;
     stopGossip();
 
@@ -436,10 +526,10 @@ void ResDBIntersectionApp::handleValidCancelJustification(
               << " proposer=r" << chooseCancelProposer()
               << " |E|=" << cancelElectorateCandidates().size()
               << "\n";
-    trySubmitCancelProposal("cert-validated");
+    beginCancelDrain("cert-validated");
 }
 
-void ResDBIntersectionApp::beginRollbackDiscovery(
+void ResDBIntersectionApp::beginPostCancelDiscovery(
     uint32_t cancelledEpoch, CancelReason reason, const std::string& reasonRef,
     const std::vector<uint8_t>& justification)
 {
@@ -450,7 +540,6 @@ void ResDBIntersectionApp::beginRollbackDiscovery(
     rollback_reason_ = reason;
     rollback_reason_ref_ = reasonRef;
     rollback_justification_ = justification;
-    rollback_discovery_ready_ = false;
     rollback_propose_submitted_ = false;
     rollback_expected_membership_size_ = 0;
     rollback_rotation_index_ = 0;
@@ -459,9 +548,6 @@ void ResDBIntersectionApp::beginRollbackDiscovery(
     propose_submitted_ = false;
     order_applied_ = false;
     cert_broadcast_ = false;
-    cert_collection_started_ = false;
-    deferred_propose_after_cert_timeout_ = false;
-    pbft_observed_ = false;
     stopCertBroadcastRetries();
     // Drop any leftover epoch-0 discovery frames still waiting on the stagger
     // queue before epoch-1 discovery starts filling it again.
@@ -471,7 +557,7 @@ void ResDBIntersectionApp::beginRollbackDiscovery(
         std::lock_guard<std::mutex> lk(certs_mutex_);
         collected_certs_.clear();
         local_vehicle_states_.clear();
-        physically_observed_cars_.clear();
+        observed_intent_cars_.clear();
     }
     my_received_echoes_.clear();
     arrival_announcements_received_.clear();
@@ -479,6 +565,8 @@ void ResDBIntersectionApp::beginRollbackDiscovery(
     announcement_relay_tracker_.reset();
     cert_relay_tracker_.reset();
     pending_relays_.clear();
+
+    startDiscoveryRound("cancel-committed");
 
     std::cout << "[ROLLBACK-BEGIN] r" << replicaId_
               << " cancelled_epoch=" << cancelled_epoch_
@@ -494,26 +582,18 @@ void ResDBIntersectionApp::beginRollbackDiscovery(
             cancelEvent(broadcastArrivalAnnouncement_timer_);
         scheduleAt(simTime() + broadcast_arrival_announcement_interval_,
                    broadcastArrivalAnnouncement_timer_);
-        std::cout << "[ROLLBACK-DISCOVERY] r" << replicaId_
+        std::cout << "[DISCOVERY-BEGIN] r" << replicaId_
                   << " reannounce timer armed interval="
                   << broadcast_arrival_announcement_interval_
                   << " cancelled_epoch=" << cancelled_epoch_
                   << " new_epoch=" << rollback_new_epoch_ << "\n";
-        tryStartCertCollectionTimer(true);
     } else {
-        std::cout << "[ROLLBACK-DISCOVERY] r" << replicaId_
+        std::cout << "[DISCOVERY-BEGIN] r" << replicaId_
                   << " local vehicle non-recallable; not announcing into M"
                   << " cancelled_epoch=" << cancelled_epoch_
                   << " new_epoch=" << rollback_new_epoch_ << "\n";
     }
-    if (!rollback_discovery_timer_)
-        rollback_discovery_timer_ = new cMessage("rollbackDiscoveryTimer");
-    if (rollback_discovery_timer_->isScheduled()) cancelEvent(rollback_discovery_timer_);
-    scheduleAt(simTime() + rollback_discovery_timeout_sec_, rollback_discovery_timer_);
-    std::cout << "[ROLLBACK-DISCOVERY] r" << replicaId_
-              << " started timeout=" << rollback_discovery_timeout_sec_
-              << "s cancelled_epoch=" << cancelled_epoch_
-              << " new_epoch=" << rollback_new_epoch_ << "\n";
+    armDiscoveryTimers("cancel-committed");
 }
 
 int ResDBIntersectionApp::minRollbackVoteN() const
@@ -543,6 +623,38 @@ std::vector<int> ResDBIntersectionApp::cancelElectorateCandidates() const
     return electors;
 }
 
+int ResDBIntersectionApp::perceivedActiveBatch() const
+{
+    for (size_t batch = 0; batch < committed_order_batches_.size(); ++batch) {
+        for (int rid : committed_order_batches_[batch]) {
+            if (!vehicleHasClearedIntersectionTraCI("veh" + std::to_string(rid)))
+                return static_cast<int>(batch);
+        }
+    }
+    return -1;
+}
+
+std::vector<int> ResDBIntersectionApp::cancelLeaderCandidatesForBatch(
+    int activeBatch) const
+{
+    std::vector<int> candidates;
+    if (activeBatch < 0) return candidates;
+
+    for (size_t batch = static_cast<size_t>(activeBatch + 1);
+            batch < committed_order_batches_.size(); ++batch) {
+        std::vector<int> waiting;
+        for (int rid : committed_order_batches_[batch]) {
+            if (!vehicleHasClearedIntersectionTraCI("veh" + std::to_string(rid)))
+                waiting.push_back(rid);
+        }
+        if (!waiting.empty()) {
+            std::sort(waiting.begin(), waiting.end());
+            return waiting;
+        }
+    }
+    return candidates;
+}
+
 bool ResDBIntersectionApp::isEpochTombstoned(uint32_t epoch) const
 {
     if (tombstoned_epochs_.count(epoch)) return true;
@@ -557,16 +669,25 @@ bool ResDBIntersectionApp::hasCommittedCancel(uint32_t epoch) const
 
 int ResDBIntersectionApp::chooseCancelProposer()
 {
-    std::vector<int> electors = cancelElectorateCandidates();
-    if (electors.empty()) return -1;
-    int idx = rollback_rotation_index_ % static_cast<int>(electors.size());
-    return electors[idx];
+    if (cancel_leader_candidates_.empty()) return -1;
+    int idx = rollback_rotation_index_ %
+        static_cast<int>(cancel_leader_candidates_.size());
+    cancel_primary_ = cancel_leader_candidates_[idx];
+    return cancel_primary_;
 }
 
 void ResDBIntersectionApp::trySubmitCancelProposal(const char* reason)
 {
     std::vector<int> electors = cancelElectorateCandidates();
     int proposer = chooseCancelProposer();
+    if (cancel_state_ != CancelState::CONSENSUS) {
+        std::cout << "[CANCEL-PROPOSE-GATE] r" << replicaId_
+                  << " action=skip reason=" << (reason ? reason : "try")
+                  << " gate=state state=" << cancelStateName()
+                  << " proposer=r" << proposer
+                  << " t=" << simTime() << "\n";
+        return;
+    }
     if (!cancel_consensus_pending_ || cancel_propose_submitted_) {
         std::cout << "[CANCEL-PROPOSE-GATE] r" << replicaId_
                   << " action=skip reason=" << (reason ? reason : "try")
@@ -581,6 +702,7 @@ void ResDBIntersectionApp::trySubmitCancelProposal(const char* reason)
                   << " t=" << simTime() << "\n";
         return;
     }
+
     std::cout << "[CANCEL-PROPOSER-CHECK] r" << replicaId_
               << " reason=" << (reason ? reason : "try")
               << " rotation_index=" << rollback_rotation_index_
@@ -599,6 +721,13 @@ void ResDBIntersectionApp::trySubmitCancelProposal(const char* reason)
                   << " |E|=" << electors.size()
                   << " cert_bytes=" << cancel_cert_bytes_.size()
                   << " t=" << simTime() << "\n";
+        return;
+    }
+    if (!rollback_local_recallable_) {
+        std::cout << "[CANCEL-PROPOSE-GATE] r" << replicaId_
+                  << " action=skip reason=local-non-recallable"
+                  << " active_batch=" << perceivedActiveBatch()
+                  << " proposer=r" << proposer << "\n";
         return;
     }
     proposeCancel();
@@ -752,6 +881,7 @@ void ResDBIntersectionApp::handleCancelCommitDecision(const std::vector<uint8_t>
     ResdbCancelDecisionHdr dh{};
     std::memcpy(&dh, dec.data(), sizeof(dh));
     if (dh.magic != RESDB_CANCEL_DECISION_MAGIC) return;
+    clearConsensusRetries("cancel-committed");
 
     tombstoned_epochs_.insert(dh.cancelled_epoch);
     CommittedCancelInfo info;
@@ -773,6 +903,7 @@ void ResDBIntersectionApp::handleCancelCommitDecision(const std::vector<uint8_t>
 
     cancel_consensus_pending_ = false;
     cancel_propose_submitted_ = false;
+    cancel_state_ = CancelState::COMMITTED;
     rollback_cancel_initiated_ = false;
     stopCancelCertRetries();
     if (cancel_vc_timer_) {
@@ -780,10 +911,15 @@ void ResDBIntersectionApp::handleCancelCommitDecision(const std::vector<uint8_t>
         delete cancel_vc_timer_;
         cancel_vc_timer_ = nullptr;
     }
+    if (cancel_drain_timer_) {
+        if (cancel_drain_timer_->isScheduled()) cancelEvent(cancel_drain_timer_);
+        delete cancel_drain_timer_;
+        cancel_drain_timer_ = nullptr;
+    }
 
     rollback_justification_ = buildCancelCommitRef(dh.cancelled_epoch);
     broadcastCancelCommitAttestation(dh);
-    beginRollbackDiscovery(dh.cancelled_epoch, rollback_reason_,
+    beginPostCancelDiscovery(dh.cancelled_epoch, rollback_reason_,
                            rollback_reason_ref_, rollback_justification_);
 }
 
@@ -838,13 +974,20 @@ void ResDBIntersectionApp::handleCancelCommitGossip(BFTMessage* bft)
     rollback_justification_ = buildCancelCommitRef(cancelled_epoch);
     cancel_consensus_pending_ = false;
     cancel_propose_submitted_ = false;
+    cancel_state_ = CancelState::COMMITTED;
+    clearConsensusRetries("cancel-gossip-adopted");
+    if (cancel_drain_timer_) {
+        if (cancel_drain_timer_->isScheduled()) cancelEvent(cancel_drain_timer_);
+        delete cancel_drain_timer_;
+        cancel_drain_timer_ = nullptr;
+    }
     triggerCancelCommitGossip(cancelled_epoch, attestation);
 
     const CancelReason reason = static_cast<CancelReason>(dh.reason);
     const std::string ref = rollback_reason_ref_.empty()
         ? "gossip-adopted"
         : rollback_reason_ref_;
-    beginRollbackDiscovery(cancelled_epoch, reason, ref, rollback_justification_);
+    beginPostCancelDiscovery(cancelled_epoch, reason, ref, rollback_justification_);
 
     if (resdb_server_handle_) {
         const int sync_rc = ResdbOmnetAdvanceExecutorAfterGossipCancel(
@@ -857,44 +1000,20 @@ void ResDBIntersectionApp::handleCancelCommitGossip(BFTMessage* bft)
     }
 }
 
-bool ResDBIntersectionApp::rollbackDiscoveryComplete()
+void ResDBIntersectionApp::logDiscoveryDiagnostics(const char* reason) const
 {
     std::set<int> visible;
     std::set<int> certed;
     {
         std::lock_guard<std::mutex> lk(certs_mutex_);
-        for (const auto& kv : local_vehicle_states_) {
-            int rid = extractReplicaId(kv.first);
-            if (shouldIncludeInRollbackMembership(rid)) visible.insert(rid);
+        for (const auto& carId : observed_intent_cars_) {
+            int rid = extractReplicaId(carId);
+            if (rid >= 0 && (!cancel_pending_ || shouldIncludeInRollbackMembership(rid)))
+                visible.insert(rid);
         }
         for (const auto& kv : collected_certs_) {
             int rid = extractReplicaId(kv.first);
-            if (shouldIncludeInRollbackMembership(rid)) {
-                visible.insert(rid);
-                certed.insert(rid);
-            }
-        }
-    }
-    const int expectedN = minRollbackMembershipSize();
-    return (int)certed.size() >= expectedN &&
-        (int)visible.size() >= expectedN &&
-        certed.size() >= visible.size();
-}
-
-void ResDBIntersectionApp::logRollbackDiscoveryDiagnostics(const char* reason) const
-{
-    std::set<int> visible;
-    std::set<int> certed;
-    {
-        std::lock_guard<std::mutex> lk(certs_mutex_);
-        for (const auto& kv : local_vehicle_states_) {
-            int rid = extractReplicaId(kv.first);
-            if (shouldIncludeInRollbackMembership(rid)) visible.insert(rid);
-        }
-        for (const auto& kv : collected_certs_) {
-            int rid = extractReplicaId(kv.first);
-            if (shouldIncludeInRollbackMembership(rid)) {
-                visible.insert(rid);
+            if (visible.count(rid)) {
                 certed.insert(rid);
             }
         }
@@ -905,36 +1024,21 @@ void ResDBIntersectionApp::logRollbackDiscoveryDiagnostics(const char* reason) c
     }
     std::sort(missing.begin(), missing.end());
     const int quiet = static_cast<int>(visible.size() - certed.size());
-    std::cout << "[ROLLBACK-DISCOVERY] r" << replicaId_
+    std::cout << "[DISCOVERY-VIEW] r" << replicaId_
               << " snapshot reason=" << (reason ? reason : "snapshot")
-              << " mode=" << (isRollbackPerEpochMode() ? "per_epoch" : "anchored")
+              << " epoch=" << discovery_.epoch
+              << " state=" << discoveryStateName()
               << " signed=" << certed.size()
               << " quiet=" << quiet
-              << " voteN=" << certed.size()
-              << " sceneN=" << visible.size()
-              << " expectedN=" << minRollbackMembershipSize()
+              << " intents=" << visible.size()
               << " missingCerts=";
     for (size_t i = 0; i < missing.size(); ++i) {
         if (i) std::cout << ",";
         std::cout << "r" << missing[i];
     }
-    std::cout << " cancelled_epoch=" << cancelled_epoch_
-              << " new_epoch=" << rollback_new_epoch_ << "\n";
-}
-
-void ResDBIntersectionApp::maybeFinishRollbackDiscovery(const char* reason)
-{
-    if (!cancel_pending_ || rollback_discovery_ready_) return;
-    if (!rollbackDiscoveryComplete()) return;
-    rollback_discovery_ready_ = true;
-    if (rollback_discovery_timer_ && rollback_discovery_timer_->isScheduled())
-        cancelEvent(rollback_discovery_timer_);
-    // Discovery done — drop any still-queued ANN/CERT air frames so they cannot
-    // collide with the impending ORDER(e+1) PRE_PREPARE (same quiesce as epoch 0
-    // once proposeAll / PRE_PREPARE is observed; here we know membership is closed).
-    cancelPendingDiscoveryTxs(reason ? reason : "discovery-complete");
-    logRollbackDiscoveryDiagnostics(reason ? reason : "discovery-complete");
-    trySubmitRollbackProposal(reason ? reason : "discovery-complete");
+    std::cout << " deadline="
+              << (discovery_.closeReason == DiscoveryCloseReason::DEADLINE ? 1 : 0)
+              << " t=" << simTime() << "\n";
 }
 
 std::vector<int> ResDBIntersectionApp::rollbackCertedCandidates() const
@@ -1000,16 +1104,17 @@ bool ResDBIntersectionApp::shouldIncludeInRollbackMembership(int replicaId) cons
 void ResDBIntersectionApp::trySubmitRollbackProposal(const char* reason)
 {
     if (!cancel_pending_ || rollback_propose_submitted_) return;
-    if (!rollback_discovery_ready_) {
+    if (discovery_.state != DiscoveryState::COMPLETE ||
+            discovery_.epoch != rollback_new_epoch_) {
         std::cout << "[ROLLBACK-PROPOSE] r" << replicaId_
                   << " wait reason=" << (reason ? reason : "try")
-                  << " discovery_ready=0"
+                  << " discovery_state=" << discoveryStateName()
                   << " voteN=" << rollbackCertedCandidates().size()
                   << " need>=" << minRollbackMembershipSize() << "\n";
         return;
     }
-    if (reason && std::string(reason) == "discovery-timeout")
-        logRollbackDiscoveryDiagnostics(reason);
+    if (reason && std::string(reason) == "hard-deadline")
+        logDiscoveryDiagnostics(reason);
 
     const int voteN = static_cast<int>(rollbackCertedCandidates().size());
     const int expectedN = minRollbackMembershipSize();

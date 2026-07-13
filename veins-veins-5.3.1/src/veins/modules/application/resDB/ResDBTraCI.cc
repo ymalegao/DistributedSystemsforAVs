@@ -96,7 +96,7 @@ int ResDBIntersectionApp::countRollbackPerceivedVehicles() const
     }
 }
 
-bool ResDBIntersectionApp::vehicleHasClearedIntersectionTraCI(const std::string& carId)
+bool ResDBIntersectionApp::vehicleHasClearedIntersectionTraCI(const std::string& carId) const
 {
     if (!mobility || !mobility->getCommandInterface()) return false;
     TraCICommandInterface* traci = mobility->getCommandInterface();
@@ -222,6 +222,7 @@ bool ResDBIntersectionApp::checkIfDeparted()
     if (dist < -15.0 || (current_phase_ == ConsensusPhase::EXECUTING && dist > 15.0)) {
         is_departed_ = true;
         current_phase_ = ConsensusPhase::DEPARTED;
+        clearConsensusRetries("departed");
         const double departTimeSec = simTime().dbl();
         const double stopTimeSec = (stopTime >= SIMTIME_ZERO) ? stopTime.dbl() : -1.0;
         const double waitStopToDepartureSec =

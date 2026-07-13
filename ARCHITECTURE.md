@@ -27,7 +27,7 @@ There is no Java or JNI consensus path on the current hot path. Archived migrati
 
 4. **OMNeT++ simulation APIs are used only on the simulation thread.** ResDB worker threads enqueue outbound packets and committed orders. `ResDBIntersectionApp` drains those queues from self-messages.
 
-5. **Witness certificates happen before consensus.** Physical arrival, lane verification, echo collection, and `ARRIVAL_CERT` validation happen in Veins C++ before the cert-primary submits `ResdbProposeHdr + ResdbVehicleEntry[]` to PBFT.
+5. **Discovery completes locally before ORDER consensus.** Every replica runs the same view-based discovery state machine. Physical arrival, lane verification, echo collection, and `ARRIVAL_CERT` validation happen in Veins C++ before the elected discovery primary submits `ResdbProposeHdr + ResdbVehicleEntry[]` to PBFT.
 
 6. **Consensus decides an order, not movement directly.** ResDB commits binary order bytes. `ResDBIntersectionApp::processOrders()` applies the order, waits for preceding batches to clear through TraCI, and then resumes the vehicle.
 
@@ -90,7 +90,7 @@ The ResDB library still runs internal worker threads, but all interaction with V
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/IV2VTransport.h` | Minimal abstract transport interface. Provides C-compatible adapters for the bridge callback table. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResdbV2VWire.h` | Shared signed-envelope helper for type 8, type 9, and type 10 radio payloads. Layout is pubkey, signature length, DER ECDSA signature, then inner bytes. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBDecisionGossip.h/.cc` | Pure relay-dedup logic for three independent mechanisms: (1) decision gossip — serializes `epoch \|\| order_bytes`, parses TYPE9 payloads, counts matching votes per sender via `GossipAccumulator`; (2) cert relay — `CertRelayTracker` deduplicates per-carId ARRIVAL_CERT re-floods so each node relays each validated cert exactly once; (3) announce gossip — serializes `epoch \|\| original_announce_bytes` and deduplicates per `(epoch, carId)` through `AnnouncementRelayTracker`. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBRollbackProtocol.cc` | Cancel/rollback protocol module. Owns type 12 cancel echoes, type 13 cancel certs, fast local halt, rollback re-discovery, rollback proposal construction, epoch tombstones, and retry/relay state. |
+| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBRollbackProtocol.cc` | CANCEL protocol module. Owns type 12 cancel echoes, type 13 cancel certs, local halt, CANCEL draining/consensus, post-CANCEL round setup, epoch tombstones, and retry/relay state. Discovery itself remains in `ResDBArrivalProtocol.cc`. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBTraCI.cc` | TraCI helpers extracted from the legacy V2V module: distance-to-lane-end, lane queue discovery, vehicle stop/resume helpers, and clearance detection. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/crypto/CryptoAuth.h/.cc` | OpenSSL ECDSA P-256 helper. Generates per-vehicle EC keys, signs arbitrary byte buffers, verifies signatures, and contains CA certificate helpers. |
 | `incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h` | C ABI between Veins and ResDB. Defines lifecycle, transport callback registration, sim-time update, consensus trigger, order callback, cert-primary/PBFT primary alignment, view-change hooks, and shared packed structs. |
@@ -118,7 +118,8 @@ sequenceDiagram
     App->>App: validateArrivalCert_and_store
 
     App->>TraCI: stopVehicle_at_stop_zone
-    App->>App: cert_primary_checks_certs_or_timeout
+    App->>App: all_replicas_close_stable_certified_intent_view
+    App->>App: drain_queued_CERT_frames
     App->>Bridge: ResdbOmnetTriggerConsensus
     Bridge->>PBFT: inject_TYPE_NEW_TXNS
 
@@ -190,7 +191,7 @@ All inter-vehicle traffic is carried in `BFTMessage` packets over the Veins 802.
 | `10` | Arrival announce gossip | Relay of an already-signed `ARRIVAL_ANNOUNCE` by a witness or carrier replica. | `resdbwire` signed wrapper around `epoch || original ARRIVAL_ANNOUNCE bytes`. |
 | `11` | ResDB consensus relay | Re-flood of selected raw ResDB PBFT bytes through the existing signed carrier. | `resdbwire` signed wrapper around `epoch || raw ResDB bytes`. |
 | `12` | `CANCEL_ECHO` | Witness attests that epoch `e` should be cancelled for a verified emergency or crash reason. | Text/pipe encoded cancel echo with signer's compressed P-256 pubkey and ECDSA signature. |
-| `13` | `CANCEL_CERT` | f+1 collected `CANCEL_ECHO`s for epoch `e`; valid receivers halt locally and start rollback discovery. | Text/pipe encoded cancel cert carrying echo signer ids, pubkeys, and signatures. |
+| `13` | `CANCEL_CERT` | f+1 collected `CANCEL_ECHO`s for epoch `e`; valid receivers halt locally and enter the CANCEL drain/consensus state machine. Discovery for `e+1` starts only after CANCEL commits. | Text/pipe encoded cancel cert carrying echo signer ids, pubkeys, and signatures. |
 
 Important legacy note: type `9` used to mean Java/BFT-SMaRt client-request broadcast in the JNI architecture. In the current ResDB architecture it is not a client request; it is post-consensus decision gossip.
 
@@ -321,6 +322,28 @@ The original announce bytes are copied unchanged from the type `1` payload. `Res
 
 The arrival-cert protocol is the physical-world firewall before PBFT. It proves that a vehicle was observed by enough independent replicas before the cert-primary can schedule it as SIGNED.
 
+### Discovery round state machine
+
+Initial discovery and discovery after a committed CANCEL use the same states and completion rule:
+
+```text
+INACTIVE
+  -> COLLECTING
+  -> DRAINING_CERTS
+  -> COMPLETE
+  -> INACTIVE when ORDER applies, the vehicle departs, or a newer round starts
+```
+
+- `COLLECTING` accepts and transmits ANN, ANN gossip, ECHO, and CERT traffic. Discovery begins while the vehicle approaches the intersection.
+- The stop zone arms the hard `cert_collection_timeout_` deadline and the intent-settle timer. Post-CANCEL participants are already stopped, so both timers arm immediately.
+- `observed_intent_cars_` contains validated network intent, not an independent physical census. A normal close therefore requires no new eligible intent for `discoveryIntentSettleSec`, at least one eligible intent, the recallable local vehicle's intent, and a valid cert for every eligible intent.
+- The hard deadline closes an incomplete view when an announced vehicle is Byzantine, crashed, or unreachable. Only observed uncertified intents become QUIET; unobserved configured replica IDs are not synthesized into membership.
+- `DRAINING_CERTS` stops ANN/ECHO production and removes queued non-CERT discovery frames. Queued CERTs remain. A replica cannot enter `COMPLETE` until its assembled local cert has actually reached the radio and all queued cert frames for the round have drained.
+- A newly accepted eligible ANN before proposal submission reopens `COLLECTING`, restarts stabilization, and cancels the follower leader-timeout.
+- `COMPLETE` lets the elected primary call `proposeAll()` and lets followers arm `vc_trigger_msg_`. PBFT TYPE8/TYPE11 traffic is verified and delivered to ResDB but does not alter discovery state or cancel discovery traffic.
+
+The primary's PRE_PREPARE is therefore not the discovery-closure event. Every follower reaches closure from its own stabilized, certified intent view.
+
 ### Phase A: Arrival announcement
 
 Each vehicle periodically broadcasts `ARRIVAL_ANNOUNCE` (`messageType = 1`) until it has broadcast its cert or consensus has started.
@@ -358,7 +381,7 @@ When a replica receives an announcement:
 3. It checks whether it has already verified and echoed the car.
 4. It calls `verifyCarPosition(carId, laneId, positionInLane, tolerance)` using TraCI.
 5. If the car is physically present but lying about lane, the receiver records the car but does not echo.
-6. If verification passes, it stores a `VehicleState`, records physical observation, stores the original announce bytes for possible custody relay, broadcasts an `ARRIVAL_ECHO`, and may gossip the announcement.
+6. If verification passes, it stores a `VehicleState`, records observed intent, stores the original announce bytes for possible custody relay, broadcasts an `ARRIVAL_ECHO`, and may gossip the announcement.
 
 The echo signature covers:
 
@@ -418,12 +441,12 @@ If validation passes, the receiver stores `collected_certs_[carId] = cert`.
 
 ### Certificate retries
 
-If enabled by `enableArrivalCertRetries`, a vehicle rebroadcasts its assembled cert every `arrivalCertRetryIntervalSec` until one of these happens:
+If enabled by `enableArrivalCertRetries`, a vehicle rebroadcasts its assembled cert every `arrivalCertRetryIntervalSec` while discovery is collecting. During `DRAINING_CERTS`, future retries stop after the local cert's first successful air transmission; already queued CERT frames still flush. Retries also stop when:
 
 1. `arrivalCertRetryMax` is reached, unless `0` means unlimited.
 2. `proposeAll()` runs.
 3. An order is applied.
-4. A type `8` PBFT frame from the current primary is observed.
+4. the discovery round becomes inactive.
 
 This improves visibility of type `5` certificates without adding TCP-like ACK machinery.
 
@@ -444,7 +467,7 @@ Source retries (`enableArrivalCertRetries`) are kept. Relay is additive: it cove
 
 ### QUIET entries
 
-If the cert-primary reaches proposal time without a valid cert for every replica id, it pads missing vehicles as QUIET:
+If the hard discovery deadline is reached with an observed intent lacking a valid cert, the primary includes that observed vehicle as QUIET:
 
 ```text
 sim_time_us = UINT64_MAX
@@ -453,11 +476,11 @@ is_ambulance = 0
 direction = 0
 ```
 
-If the cert-primary has local physical state for that vehicle, it still fills lane and position from that state. QUIET vehicles are isolated by the executor into singleton batches.
+Lane and position come from the locally verified `VehicleState`; direction remains unknown because it is cert-only cyber state. Unobserved configured replicas are excluded. QUIET vehicles are isolated by the executor into singleton batches.
 
 ### Cert-primary selection
 
-Normal proposal leadership is derived from the current arrival-cert set, not from the static `leaderReplicaId` ini default. `ResDBIntersectionApp::CertPrimary()` returns the smallest static replica id in `collected_certs_`:
+Normal proposal leadership is derived from the current arrival-cert set, not from the static `leaderReplicaId` ini default. `ResDBIntersectionApp::CertPrimary()` returns the smallest eligible replica id in `collected_certs_`:
 
 ```text
 CertPrimary = min { rid | collected_certs_ contains veh<rid>, 0 <= rid < totalVehicles }
@@ -524,6 +547,14 @@ transport_poll_msg_
 ```
 
 `enqueueOutbound()` deduplicates identical outbound byte strings. This matters because some ResDB send paths call per-recipient send functions for the same logical broadcast. In the V2V model, identical per-recipient sends collapse to one broadcast frame.
+
+Because the radio does not provide perfect links, each replica also keeps bounded retry state for its own PBFT phase packet:
+
+- PRE_PREPARE retries stop after verified PREPARE progress is observed.
+- PREPARE retries continue until that replica's local ResDB emits COMMIT. They may also stop after the local verified collector contains a matching `2f+1` COMMIT certificate; merely overhearing one COMMIT is insufficient.
+- COMMIT retries continue until the decision is applied/adopted or `consensusRetryMax` is reached.
+
+Before any locally triggered proposal enters `TYPE_NEW_TXNS`, the bridge calls `EnsureNextSeqAheadOfExecuted()`. This advances the new primary's allocator to at least `max(local executed sequence, checkpoint last commit) + 1`. It is necessary when deterministic application leadership moves from the previous PBFT primary to a follower; it does not infer epoch from sequence or assume ORDER/CANCEL alternation.
 
 ### Inbound radio path
 
@@ -630,16 +661,16 @@ Only the current cert-primary should submit a normal proposal:
 replicaId_ == CertPrimary()
 ```
 
-`CertPrimary()` returns `-1` when no static cert exists; in that case `proposeAll()` returns without submitting and the app keeps discovery/gossip timers alive. Before submitting a normal proposal, the app calls `ResdbOmnetSetPrimaryFromCert(handle, CertPrimary())` so the local PBFT primary matches the cert-primary.
+`CertPrimary()` returns `-1` when no eligible cert exists; in that case `proposeAll()` returns without submitting. Before submitting, the app calls `ResdbOmnetSetPrimaryFromCert(handle, CertPrimary())` so the local PBFT primary matches the discovery primary. `proposeAll()` is gated on `DiscoveryState::COMPLETE`.
 
 `proposeAll()`:
 
 1. Stops cert rebroadcast retries.
 2. Marks `propose_submitted_ = true`.
 3. Records `ProposeAll_Submit_Time`.
-4. Ensures the local vehicle has at least a minimal self entry.
-5. Converts each collected cert into a SIGNED `ResdbVehicleEntry`.
-6. Pads missing replica ids with QUIET `ResdbVehicleEntry` records.
+4. Converts each collected eligible cert into a SIGNED `ResdbVehicleEntry`.
+5. Adds QUIET entries only for locally observed eligible intents that lack certs at the hard deadline.
+6. Submits the resulting view; it does not fabricate a self certificate or pad unobserved configured replica IDs.
 7. Builds `ResdbProposeHdr + ResdbVehicleEntry[]`.
 8. Applies Byzantine primary corruption if enabled.
 9. Calls `ResdbOmnetTriggerConsensus()`.
@@ -789,23 +820,28 @@ This is intentionally lower than PBFT commit quorum. Gossip is not a replacement
 
 ---
 
-## 15. Cancel / Rollback Protocol
+## 15. CANCEL and Post-CANCEL Ordering
 
-Rollback is the multi-epoch recovery path used when an already-committed order for epoch `e` becomes unsafe or stale before all scheduled vehicles have crossed. The first concrete triggers are:
+CANCEL is the committed invalidation path used when an already-committed order for epoch `e` becomes unsafe or stale before all scheduled vehicles have crossed. The first concrete triggers are:
 
 1. a certified emergency vehicle arrives after epoch `e` committed and is absent from epoch `e`'s order; or
 2. a crash / unsafe committed batch is detected after order delivery.
 
-The rollback design deliberately separates two operations:
+The design separates cancellation from the ordinary discovery that follows it:
 
 ```text
-halt locally       -> fast, unilateral, no consensus
-resume / re-order  -> PBFT consensus over a fresh epoch
+CANCEL_WITNESSING
+  -> valid f+1 CANCEL certificate
+  -> CANCEL_DRAINING
+  -> CANCEL_CONSENSUS
+  -> CANCEL_COMMITTED
+  -> ordinary discovery for epoch e+1
+  -> ORDER consensus
 ```
 
 ### Ownership boundary
 
-`ResDBRollbackProtocol.cc` owns the Veins-side rollback protocol. It does not live in `ResDBArrivalProtocol.cc`; arrival code only stores and validates arrival facts. Rollback consumes those facts and decides when a cancel reason exists.
+`ResDBRollbackProtocol.cc` owns the Veins-side CANCEL protocol and post-CANCEL proposal wrapper. It does not own discovery: `ResDBArrivalProtocol.cc` stores and validates arrival facts and runs the shared discovery state machine. CANCEL consumes those facts and decides when a committed order must be invalidated.
 
 The bridge owns binary payload parsing, PRE_PREPARE pre-verify, executor dispatch, and rollback forced membership injection. It unwraps rollback proposals, validates the proposal-defined `M`, installs a request-scoped PBFT active view, and commits the same payload under quorum `N = |M|`. Static `server.config` remains an identity/address/key registry; it is not mutated or shrunk.
 
@@ -835,7 +871,22 @@ cancelledEpoch:reason:reasonRef:echoingReplicaId
 
 Any replica that validates a `CANCEL_CERT` may relay it once. The cert already contains f+1 independent signatures, so relay does not need another gossip vote threshold.
 
-`CANCEL_CERT` is the rollback barrier. An emergency arrival cert or crash observation may cause a replica to send a `CANCEL_ECHO`, but it must not start rollback discovery or submit a rollback proposal until a valid `CANCEL_CERT` is assembled or received.
+`CANCEL_CERT` closes witnessing, but it does not start the next discovery round. An emergency announcement/cert or crash observation may produce `CANCEL_ECHO`; a valid f+1 `CANCEL_CERT` moves replicas into `DRAINING`, and only a committed CANCEL starts discovery for `e+1`.
+
+### CANCEL draining and deterministic primary
+
+At `CANCEL_DRAINING`, every scheduled replica freezes the same schedule-derived election snapshot:
+
+```text
+active_batch = first committed batch containing a vehicle not yet clear
+leader_candidates = sorted vehicles in the earliest waiting batch after active_batch
+cancel_primary = leader_candidates[0]
+cancel_electorate = all vehicles in the committed order
+```
+
+Clearance is polled through the centralized TraCI world view in simulation. A vehicle in the active executing batch is never eligible to lead CANCEL: it may continue crossing because it is non-recallable, or it may participate as a PBFT voter, but it cannot both execute the invalidated schedule and propose its cancellation. The frozen snapshot prevents the leader from changing merely because the active batch clears during the drain.
+
+The drain duration covers the configured per-replica slot horizon plus jitter. Existing staggered witness traffic may reach the NIC, but new discovery traffic is blocked. At the drain deadline the frozen primary submits CANCEL. App-level proposer rotation exists as a bounded retry mechanism; full forced-membership CANCEL view-change/new-view remains unimplemented.
 
 ### Fast local halt
 
@@ -846,7 +897,7 @@ recallable = distanceToConflictBox >
              speed^2 / (2 * brakingDecelMps2) + processingLatencyMargin
 ```
 
-Recallable vehicles cancel pending resume / clearance timers, call the existing TraCI stop helper, and set `cancel_pending_` for the cancelled epoch. Non-recallable vehicles are already physically committed and are not force-stopped; the rollback membership excludes them.
+Recallable vehicles cancel pending resume / clearance timers and call the existing TraCI stop helper. Non-recallable vehicles are already physically committed and are not force-stopped; post-CANCEL discovery excludes their local intent.
 
 While `cancel_pending_` is true, the normal simulation fallback meaning inverts:
 
@@ -857,9 +908,9 @@ stopSignTimeoutSec / consensusTimeoutSec / clearanceTimeoutSec
 
 This keeps a vehicle that heard cancel evidence from crossing just because an app-level safety timer expired.
 
-### Re-discovery and rollback proposal
+### Discovery and ORDER after CANCEL
 
-After cancel cert validation, recallable vehicles restart arrival discovery for epoch `e + 1`. Old arrival certs are epoch-bound and should not authorize the new order. The fresh membership `M` is the Veins-side responsive set:
+After CANCEL commits, recallable vehicles start the same `COLLECTING -> DRAINING_CERTS -> COMPLETE` discovery state machine used initially, with timers armed immediately because they are already in the stop zone. Old arrival certs remain epoch-bound and do not authorize the new order. The fresh membership `M` is the responsive intent view:
 
 ```text
 M = certified/observed responsive vehicles for epoch e+1
@@ -867,7 +918,7 @@ M = certified/observed responsive vehicles for epoch e+1
     including the new certified ambulance/emergency vehicle
 ```
 
-The rollback proposal payload is:
+The post-CANCEL ORDER proposal payload is:
 
 ```text
 ResdbRollbackHdr
@@ -892,18 +943,13 @@ typedef struct ResdbRollbackHdr {
 
 The inner `ResdbProposeHdr + ResdbVehicleEntry[]` is the proposed epoch `e+1` membership/order input. For rollback, this payload is the only source of `M`; ResDB validates it and then forces PREPARE/COMMIT quorum counting, sender admission, and primary identity to that exact membership for the rollback request.
 
-Rollback discovery runs until either:
+Completion uses the normal stabilization rule from Section 8: the intent view must be stable for `discoveryIntentSettleSec` and fully certified, or the shared hard `cert_collection_timeout_` deadline closes it. There is no rollback-specific discovery timeout or expected epoch-0 membership count. At the deadline, only observed missing intents become QUIET.
 
-1. every locally visible rollback candidate has a fresh epoch `e+1` arrival cert, and `|M|` is at least the configured minimum; or
-2. `rollbackDiscoveryTimeoutSec` expires, currently `8s` in scenario `15`.
+This keeps post-CANCEL membership compatible with future perception-engine changes: if perception later changes who is visible, only the Veins-side discovery result changes, not the ResDB forced-M rules.
 
-Before that point, followers only broadcast/relay cancel evidence and arrival discovery traffic. They do not submit rollback proposals. When the timeout fires, the proposer still includes the locally visible intersection set `M`: cert-backed members are encoded as signed/active entries, while visible members that did not assemble a fresh cert are encoded as QUIET (`cyber_status=0`, `sim_time_us=UINT64_MAX`). Quiet members remain part of the scheduling input because they are physically present at the intersection, even if they did not acknowledge cancellation or form a cert.
+### Deterministic post-CANCEL ORDER proposer
 
-This keeps the rollback membership compatible with future perception-engine changes: if perception later changes who is visible, only the Veins-side discovery result changes, not the ResDB forced-M rules.
-
-### Deterministic rollback proposer
-
-The rollback proposer is derived from the rediscovered epoch `e+1` membership candidates. The same `shouldIncludeInRollbackMembership()` filter is used for proposer selection and proposal construction, so the app-level proposer is a member of the proposal-defined `M`:
+The post-CANCEL ORDER proposer is derived from the epoch `e+1` discovery candidates. The same `shouldIncludeInRollbackMembership()` filter is used for proposer selection and proposal construction, so the app-level proposer is a member of the proposal-defined `M`:
 
 ```text
 smallest replica id in the sorted rollback membership candidates,
@@ -916,7 +962,7 @@ If the forced rollback primary is silent after the rollback instance starts, ful
 
 ### Tombstones and gossip suppression
 
-When rollback for `cancelled_epoch=e` commits at `new_epoch=e+1`, the app records a tombstone for `e`.
+When CANCEL for `cancelled_epoch=e` commits, the app immediately records a tombstone for `e`; it does not wait for ORDER(e+1).
 
 Tombstoned epochs must be refused by:
 
@@ -989,7 +1035,7 @@ with OMNeT++ config `EighteenVehiclesResDB`.
 *.node[*].appl.ambulanceReplicaId = 16
 *.node[*].appl.enableRollback = true
 *.node[*].appl.enableAmbulanceCertGate = true
-*.node[*].appl.rollbackDiscoveryTimeoutSec = 8s
+*.node[*].appl.discoveryIntentSettleSec = 1.5s
 ```
 
 The fixed SUMO route is `fourway/bft_18veh_rollback_late.rou.xml`:
@@ -1105,11 +1151,7 @@ int ResdbOmnetSetPbftSilent(void* handle, int silent);
 
 ### App-level VC trigger
 
-When a follower enters the stop zone and no order arrives, it schedules `vc_trigger_msg_` for:
-
-```text
-certCollectionTimeoutSec + pbftVcTimeoutSec
-```
+A follower does not time out the leader merely because it entered the stop zone. It arms `vc_trigger_msg_` for `pbftVcTimeoutSec` only after its own discovery reaches `COMPLETE`. A new eligible ANN received before proposal submission reopens discovery and cancels that timer.
 
 When this fires, the app calls `ResdbOmnetForceViewChange()`. The bridge calls `ViewChangeManager::TriggerViewChangeNow()` through `OmnetConsensusManagerPBFT::TriggerViewChange()`.
 
@@ -1119,7 +1161,7 @@ Before forcing view change, the handler calls `processOrders()`. This closes the
 
 ### VC timer cancellation on delivery
 
-Type `8` PBFT traffic normally proves the primary is active, so followers may rearm `vc_trigger_msg_` while no order has arrived. Once an order is either queued or applied, the app cancels and deletes the follower VC trigger instead of rearming it.
+Once an order is either queued or applied, the app cancels and deletes the follower VC trigger instead of rearming it. Merely hearing PRE_PREPARE, PREPARE, or COMMIT does not complete discovery or cancel discovery traffic.
 
 The cancellation rule is:
 
@@ -1261,7 +1303,8 @@ Defined in `ResDBIntersectionApp.ned`.
 | `triggerJoinTimeSec` | Initial arrival announcement start time. |
 | `arrivalSlotSec` | Per-replica stagger for announcements and some cert sends. |
 | `broadcastArrivalAnnouncementIntervalSec` | Periodic re-announcement interval. |
-| `certCollectionTimeoutSec` | Cert-primary's wait for certs before proposing with QUIET padding. If no static cert exists, no proposal is submitted and discovery timers keep rechecking. |
+| `certCollectionTimeoutSec` | Hard discovery deadline, armed on stop-zone entry. Observed intents still missing certs become QUIET when the deadline closes the view. |
+| `discoveryIntentSettleSec` | Required interval with no newly accepted eligible intent before normal discovery completion; default `1.5s`. |
 | `enableArrivalCertRetries` | Enables repeated type 5 cert broadcasts. |
 | `arrivalCertRetryIntervalSec` | Cert retry interval. |
 | `arrivalCertRetryMax` | Number of extra cert retries; `0` means unlimited until stopped by another condition. |
@@ -1292,17 +1335,17 @@ Defined in `ResDBIntersectionApp.ned`.
 | `intendedDirection` | `S`, `L`, or `R`, used in announcements. |
 | `intendedLane` | Optional `N/S/E/W` override to avoid SUMO lane-name ambiguity. |
 
-### Rollback
+### CANCEL and post-CANCEL ordering
 
 | Parameter | Meaning |
 |-----------|---------|
-| `enableRollback` | Enables cancel echo/cert handling, fast local halt, rollback discovery, rollback proposals, and tombstone filtering. |
-| `cancelEchoTimeoutSec` | Window for collecting enough cancel echoes to assemble a cancel cert. |
+| `enableRollback` | Enables CANCEL echo/cert handling, local halt, CANCEL consensus, post-CANCEL discovery, and tombstone filtering. |
 | `cancelCertRetryIntervalSec` | Retry interval for rebroadcasting an assembled cancel cert. |
 | `cancelCertRetryMax` | Maximum cancel cert retry count; `0` means unlimited while cancel remains pending. |
+| `consensusRetryIntervalSec` | Interval for bounded PRE_PREPARE/PREPARE/COMMIT radio retransmission. |
+| `consensusRetryMax` | Maximum retransmissions retained for each local PBFT phase packet. |
 | `brakingDecelMps2` | Deceleration used for recallable / committed horizon calculation. |
 | `processingLatencyMargin` | Extra distance margin added to the braking horizon. |
-| `rollbackDiscoveryTimeoutSec` | Maximum epoch `e+1` discovery window after a valid cancel cert before proposing with the visible responsive `M`. |
 | `rollbackVcTimeoutSec` | App-level timeout before rotating to the next deterministic rollback proposer. |
 
 ---
@@ -1321,8 +1364,12 @@ Common log markers used by benchmark scripts and debugging:
 | `[METRICS r] Resume_Time` | Vehicle resumed movement. |
 | `[CAR-METRICS]` | Per-car wait/departure summary. |
 | `[ANN-RECV]` | Arrival announcement received. Includes `via=direct` or `via=gossip`; gossiped messages also log the carrier replica. |
+| `[DISCOVERY-BEGIN]`, `[DISCOVERY-VIEW]` | Discovery round start and newly accepted intent. |
+| `[DISCOVERY-DEADLINE]`, `[DISCOVERY-DRAIN]`, `[DISCOVERY-COMPLETE]` | Hard deadline, certificate drain, and local completion, including intent/cert counts, missing IDs, and local-CERT-air state. |
 | `[TYPE8-DRAIN]` | Outbound signed PBFT bytes sent to radio. |
 | `[TYPE8-RECV]` | Inbound signed PBFT bytes verified and delivered. |
+| `[PBFT-RETRY-ARM]`, `[PBFT-RETRY]`, `[PBFT-RETRY-STOP]` | Bounded local phase retransmission lifecycle. |
+| `[SEQ-SYNC]` | A newly selected primary advanced its PBFT sequence allocator past its locally executed prefix. |
 | `[GOSSIP-SEND]` | Type 9 order gossip broadcast. |
 | `[GOSSIP-RECV]` | Type 9 order gossip vote received. |
 | `[GOSSIP-APPLY]` | Replica applied an order through gossip catch-up. |
@@ -1331,8 +1378,9 @@ Common log markers used by benchmark scripts and debugging:
 | `[CANCEL-ECHO]` | Type 12 cancel echo sent or received. |
 | `[CANCEL-CERT]` | Type 13 cancel cert assembled, broadcast, received, or rejected. |
 | `[CANCEL-RELAY]` | Valid cancel cert relayed once by a receiver. |
+| `[CANCEL-DRAIN]`, `[CANCEL-CONSENSUS]` | Frozen active batch/candidate election and transition into CANCEL PBFT. |
 | `[HALT-LOCAL]` | Local halt decision on valid cancel evidence, including recallable classification. |
-| `[ROLLBACK-BEGIN]` | App entered rollback discovery for `cancelled_epoch` and `new_epoch`. |
+| `[ROLLBACK-BEGIN]` | Legacy-named marker showing that committed CANCEL started the ordinary discovery round for `new_epoch`. |
 | `[ROLLBACK-PROPOSE]` | Deterministic rollback proposer submitted or skipped a rollback proposal. Includes `|M|` when submitted. |
 | `[ROLLBACK-COMMIT]` | Rollback order committed and cancelled epoch tombstoned. |
 | `[ROLLBACK-VC]` | App-level rollback proposer rotation timer fired. |

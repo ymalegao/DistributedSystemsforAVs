@@ -1,6 +1,7 @@
 #pragma once
 
 #include <deque>
+#include <array>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -70,6 +71,54 @@ private:
     };
     ConsensusPhase current_phase_ = IDLE;
 
+    enum class DiscoveryState {
+        INACTIVE,
+        COLLECTING,
+        DRAINING_CERTS,
+        COMPLETE,
+    };
+
+    enum class LocalCertState {
+        NOT_ASSEMBLED,
+        QUEUED,
+        AIRED,
+    };
+
+    enum class DiscoveryCloseReason {
+        NONE,
+        STABILIZED,
+        DEADLINE,
+    };
+
+    struct DiscoveryRound {
+        DiscoveryState state = DiscoveryState::INACTIVE;
+        uint32_t epoch = 0;
+        simtime_t lastNewIntentAt = -1;
+        simtime_t collectionStartedAt = SIMTIME_ZERO;
+        LocalCertState localCert = LocalCertState::NOT_ASSEMBLED;
+        DiscoveryCloseReason closeReason = DiscoveryCloseReason::NONE;
+
+        void reset(uint32_t newEpoch, simtime_t now)
+        {
+            state = DiscoveryState::COLLECTING;
+            epoch = newEpoch;
+            lastNewIntentAt = now;
+            collectionStartedAt = SIMTIME_ZERO;
+            localCert = LocalCertState::NOT_ASSEMBLED;
+            closeReason = DiscoveryCloseReason::NONE;
+        }
+
+        bool localCertAssembled() const
+        {
+            return localCert != LocalCertState::NOT_ASSEMBLED;
+        }
+
+        bool localCertAired() const
+        {
+            return localCert == LocalCertState::AIRED;
+        }
+    };
+
     // ── Arrival-cert direction ────────────────────────────────────────────────
 
     // ── Arrival cert protocol structs ─────────────────────────────────────────
@@ -124,6 +173,14 @@ private:
         CANCEL_EMERGENCY = 1,
     };
 
+    enum class CancelState {
+        INACTIVE,
+        WITNESSING,
+        DRAINING,
+        CONSENSUS,
+        COMMITTED,
+    };
+
     struct CancelEcho {
         int          echoingReplicaId = -1;
         uint32_t     cancelledEpoch = 0;
@@ -173,19 +230,62 @@ private:
         std::vector<uint8_t> resdbBytes;
     };
 
-    // Discovery (ANN/CERT) frames held for the usual replicaId*slot stagger so
-    // they can be cancelled when PBFT starts — sendDelayedDown alone is not
-    // cancellable, and 0.3–0.4s-delayed CERTs were colliding with ORDER PRE_PREPARE.
+    struct ConsensusRetryKey {
+        uint64_t view = 0;
+        uint64_t seq = 0;
+        std::array<uint8_t, 32> requestHash{};
+
+        bool operator<(const ConsensusRetryKey& other) const
+        {
+            if (view != other.view) return view < other.view;
+            if (seq != other.seq) return seq < other.seq;
+            return requestHash < other.requestHash;
+        }
+    };
+
+    struct ConsensusRetryPacket {
+        std::vector<uint8_t> resdbBytes;
+        int type = 0;
+        int attempts = 0;
+    };
+
+    class ConsensusRetryManager {
+    public:
+        using PhaseMap = std::map<int, ConsensusRetryPacket>;
+        using InstanceMap = std::map<ConsensusRetryKey, PhaseMap>;
+
+        bool remember(const std::vector<uint8_t>& bytes,
+                      const ResdbPacketRequestInfo& info);
+        bool empty() const { return instances_.empty(); }
+        size_t size() const;
+        void clear() { instances_.clear(); }
+        InstanceMap& instances() { return instances_; }
+
+    private:
+        InstanceMap instances_;
+    };
+
+    // Discovery frames are held for the replicaId*slot stagger so a round can
+    // stop ANN/ECHO traffic while allowing already-created CERTs to drain.
     struct PendingDiscoveryTx {
         int toReplicaId = -1;
         int msgType = 0;
         std::vector<uint8_t> payload;
         simtime_t fireTime;
+        uint32_t epoch = 0;
+        bool localCert = false;
+        bool witnessTraffic = false;
     };
 
     void registerTransport();
     void enqueueOutbound(int toReplicaId, const uint8_t* data, uint32_t len);
     void drainOutboundQueue();
+    void sendConsensusBytes(const std::vector<uint8_t>& bytes, int toReplicaId,
+                            const char* source, int retryAttempt = 0);
+    void rememberConsensusRetry(const std::vector<uint8_t>& bytes,
+                                const ResdbPacketRequestInfo& info);
+    void retryConsensusPackets();
+    void clearConsensusRetries(const char* reason);
     void handleResdbConsensusMessage(BFTMessage* bft);
     void handleResdbConsensusRelay(BFTMessage* bft);
     void maybeRelayResdbConsensusBytes(const uint8_t* data, uint32_t len,
@@ -194,18 +294,31 @@ private:
     bool isConsensusRelayEligible(const ResdbPacketRequestInfo& info) const;
     std::string consensusRelayKey(const uint8_t* data, uint32_t len,
                                   const ResdbPacketRequestInfo& info) const;
-    void sendBFTMessage(int toReplicaId, const std::vector<uint8_t>& payload, int msgType);
+    void sendBFTMessage(int toReplicaId, const std::vector<uint8_t>& payload, int msgType,
+                        bool localCert = false, bool witnessTraffic = false);
     void sendBFTMessageNow(int toReplicaId, const std::vector<uint8_t>& payload, int msgType);
     bool isDiscoveryAirMsgType(int msgType) const;
-    bool shouldQuiesceDiscoveryAir() const;
+    bool discoveryAcceptsNewTx(int msgType, bool localCert, bool witnessTraffic) const;
     void enqueueDiscoveryTx(int toReplicaId, const std::vector<uint8_t>& payload,
-                            int msgType, simtime_t fireTime);
+                            int msgType, simtime_t fireTime, bool localCert,
+                            bool witnessTraffic);
     void scheduleDiscoveryTxFlush();
     void flushDueDiscoveryTxs();
     void cancelPendingDiscoveryTxs(const char* reason);
+    void discardPendingDiscoveryNonCerts(const char* reason);
+    bool hasPendingDiscoveryCerts(uint32_t epoch) const;
 
     // ── Arrival cert protocol ────────────────────────────────────────────────
-    void tryStartCertCollectionTimer(bool rearm = false);
+    void startDiscoveryRound(const char* reason);
+    void armDiscoveryTimers(const char* reason);
+    void noteDiscoveryIntent(const std::string& carId, const char* source);
+    bool discoveryViewCertified(std::vector<int>* missing = nullptr) const;
+    void maybeAdvanceDiscovery(const char* reason, bool deadline = false);
+    void beginDiscoveryDrain(const char* reason, bool deadline);
+    void maybeCompleteDiscoveryDrain(const char* reason);
+    void finishDiscoveryRound(const char* reason);
+    void deactivateDiscovery(const char* reason);
+    const char* discoveryStateName() const;
     void broadcastArrivalAnnouncement();
     void attachAmbulanceCryptoToAnnouncement(ArrivalAnnouncement& ann);
     void handleArrivalAnnouncement(BFTMessage* msg);
@@ -251,17 +364,18 @@ private:
     CancelCert deserializeCancelCert(BFTMessage* msg) const;
     void scheduleNextCancelCertRetry();
     void stopCancelCertRetries();
+    void beginCancelDrain(const char* reason);
+    void finishCancelDrain();
+    const char* cancelStateName() const;
     void handleValidCancelJustification(uint32_t cancelledEpoch,
                                         CancelReason reason,
                                         const std::string& reasonRef,
                                         const std::vector<uint8_t>& justification);
     bool isRecallable();
-    void beginRollbackDiscovery(uint32_t cancelledEpoch,
-                                CancelReason reason,
-                                const std::string& reasonRef,
-                                const std::vector<uint8_t>& justification);
-    bool rollbackDiscoveryComplete();
-    void maybeFinishRollbackDiscovery(const char* reason);
+    void beginPostCancelDiscovery(uint32_t cancelledEpoch,
+                                  CancelReason reason,
+                                  const std::string& reasonRef,
+                                  const std::vector<uint8_t>& justification);
     std::vector<int> rollbackCertedCandidates() const;
     std::vector<int> rollbackMembershipCandidates() const;
     int minRollbackVoteN() const;
@@ -269,12 +383,14 @@ private:
     bool isRollbackPerEpochMode() const;
     int chooseRollbackProposer();
     int designatedRollbackUnavailableReporter() const;
-    void logRollbackDiscoveryDiagnostics(const char* reason) const;
+    void logDiscoveryDiagnostics(const char* reason) const;
     bool shouldIncludeInRollbackMembership(int replicaId) const;
     void trySubmitCancelProposal(const char* reason);
     void proposeCancel();
     int chooseCancelProposer();
     std::vector<int> cancelElectorateCandidates() const;
+    std::vector<int> cancelLeaderCandidatesForBatch(int activeBatch) const;
+    int perceivedActiveBatch() const;
     bool isEpochTombstoned(uint32_t epoch) const;
     void handleCancelCommitDecision(const std::vector<uint8_t>& dec);
     std::vector<uint8_t> buildCancelCommitRef(uint32_t cancelledEpoch) const;
@@ -320,7 +436,7 @@ private:
     bool   isInOrPastConflictBox();
     int    countRollbackPerceivedVehicles() const;
     void   discoverLane();
-    bool   vehicleHasClearedIntersectionTraCI(const std::string& carId);
+    bool   vehicleHasClearedIntersectionTraCI(const std::string& carId) const;
     void   stopVehicle();
     void   resumeVehicle(int position_in_order);
     bool   isApproachingIntersection();
@@ -340,7 +456,8 @@ private:
     cMessage* transport_poll_msg_      = nullptr;
     cMessage* time_tick_msg_           = nullptr;
     cMessage* broadcastArrivalAnnouncement_timer_ = nullptr;
-    cMessage* propose_timeout_msg_     = nullptr;
+    cMessage* discovery_deadline_msg_  = nullptr;
+    cMessage* discovery_settle_msg_    = nullptr;
     cMessage* cert_retry_timer_        = nullptr;
     cMessage* cert_gossip_timer_       = nullptr;
     cMessage* initial_announce_msg_    = nullptr;
@@ -348,7 +465,8 @@ private:
     cMessage* consensus_timeout_msg_   = nullptr;
     cMessage* resume_msg_              = nullptr;
     cMessage* cancel_cert_retry_timer_ = nullptr;
-    cMessage* rollback_discovery_timer_ = nullptr;
+    cMessage* cancel_drain_timer_      = nullptr;
+    cMessage* consensus_retry_timer_   = nullptr;
     cMessage* rollback_vc_timer_       = nullptr;
     cMessage* cancel_vc_timer_         = nullptr;
     int       pending_resume_position_ = 0;
@@ -375,6 +493,7 @@ private:
     simtime_t time_tick_interval_       = 0.001;
     simtime_t broadcast_arrival_announcement_interval_ = 0.5;
     simtime_t cert_collection_timeout_  = 2.0;
+    simtime_t discovery_intent_settle_  = 1.5;
     bool      enable_sim_time_provider_ = true;
 
     int      replicaId_         = 0;
@@ -417,14 +536,12 @@ private:
     std::map<std::string, VehicleState>             local_vehicle_states_;
     std::map<std::string, ArrivalCert>              collected_certs_;
     std::map<std::string, std::vector<ArrivalEcho>> my_received_echoes_;
-    std::set<std::string>                           physically_observed_cars_;
+    std::set<std::string>                           observed_intent_cars_;
     std::set<std::string>                           arrival_announcements_received_;
     std::set<std::string>                           echoed_cars_;  // cars we actually sent an echo to (not FALSE_LANE)
     std::set<std::string>                           uncertified_ambulance_claimers_;
     std::set<std::string>                           cert_gate_rejected_ambulance_claimers_;
-    bool cert_collection_started_ = false;
-    simtime_t cert_collection_start_time_ = SIMTIME_ZERO;
-    bool deferred_propose_after_cert_timeout_ = false;
+    DiscoveryRound discovery_;
 
     bool   enable_cert_retries_      = true;
     double cert_retry_interval_      = 0.1;
@@ -433,7 +550,6 @@ private:
     int    cert_retry_count_         = 0;
     bool cert_broadcast_          = false;
     simtime_t cert_gossip_deadline_ = -1;
-    bool      pbft_observed_ = false;
 
     // ── Post-consensus order gossip (Type 9) ──────────────────────────────────
     static constexpr int kDecisionGossipType = 9;
@@ -510,16 +626,20 @@ private:
     int           tamper_lane_proposal_replica_id_ = -1;
     double        pbft_vc_timeout_sec_ = 3.0;
     bool          enableRollback_ = false;
-    double        cancel_echo_timeout_sec_ = 1.0;
     double        cancel_cert_retry_interval_sec_ = 0.1;
     int           cancel_cert_retry_max_ = 10;
+    double        consensus_retry_interval_sec_ = 0.12;
+    int           consensus_retry_max_ = 8;
     double        braking_decel_mps2_ = 4.5;
     double        processing_latency_margin_ = 2.0;
-    double        rollback_discovery_timeout_sec_ = 8.0;
     double        rollback_vc_timeout_sec_ = 3.0;
     bool          rollback_fault_mode_per_epoch_ = true;
     bool          cancel_consensus_pending_ = false;
     bool          cancel_propose_submitted_ = false;
+    CancelState   cancel_state_ = CancelState::INACTIVE;
+    int           cancel_active_batch_ = -1;
+    int           cancel_primary_ = -1;
+    std::vector<int> cancel_leader_candidates_;
     std::vector<uint8_t> cancel_cert_bytes_;
     struct CommittedCancelInfo {
         uint64_t cancel_seq = 0;
@@ -541,7 +661,6 @@ private:
     std::string   rollback_reason_ref_;
     std::vector<uint8_t> rollback_justification_;
     bool          rollback_local_recallable_ = false;
-    bool          rollback_discovery_ready_ = false;
     bool          rollback_propose_submitted_ = false;
     int           rollback_expected_membership_size_ = 0;
     int           rollback_rotation_index_ = 0;
@@ -551,6 +670,7 @@ private:
     std::set<std::string> cancel_cert_relayed_;
     CancelCert    cancel_cert_pending_retries_{};
     int           cancel_cert_retry_count_ = 0;
+    ConsensusRetryManager consensus_retry_manager_;
     double trigger_join_time_     = 0.5;
     double arrival_slot_sec_      = 0.1;
     double stop_sign_timeout_sec_ = 10.0;

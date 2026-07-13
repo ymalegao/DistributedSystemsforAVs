@@ -1023,6 +1023,27 @@ class OmnetConsensusManagerPBFT : public resdb::ConsensusManagerPBFT {
     if (omnet_comm_) omnet_comm_->SetPbftSilent(silent);
   }
 
+  int GetVerifiedVoteProgress(const uint8_t* packet_data, uint32_t packet_len,
+                              int vote_type, int* count_out, int* quorum_out) {
+    if (!packet_data || packet_len == 0 || !count_out || !quorum_out ||
+        !message_manager_) return -1;
+    resdb::ResDBMessage wire;
+    if (!wire.ParseFromArray(packet_data, static_cast<int>(packet_len))) return -1;
+    resdb::Request request;
+    if (!request.ParseFromString(wire.data()) || request.hash().empty()) return -1;
+
+    auto* pool = message_manager_->GetCollectorPool();
+    auto* collector = pool ? pool->GetCollector(request.seq()) : nullptr;
+    if (!collector || collector->Seq() != request.seq()) return -1;
+    *count_out = collector->VoteCount(vote_type, request.hash());
+    *quorum_out = -1;
+    if (forced_view_registry_) {
+      auto view = forced_view_registry_->FindForRequest(request);
+      if (view) *quorum_out = view->quorum;
+    }
+    return 0;
+  }
+
   // Directly initiate VC via TriggerViewChangeNow() — bypasses the complaint /
   // checkpoint chain entirely.  All downstream VC timers (TYPE_VIEWCHANGE,
   // TYPE_NEWVIEW) use SleepForUs, which is driven by SimTimeProvider →
@@ -1053,6 +1074,10 @@ class OmnetConsensusManagerPBFT : public resdb::ConsensusManagerPBFT {
     }
     if (message_manager_) message_manager_->EnsureNextSeqAheadOfExecuted();
     return 0;
+  }
+
+  void PrepareLocalSubmission() {
+    if (message_manager_) message_manager_->EnsureNextSeqAheadOfExecuted();
   }
 
   int AdvanceExecutorAfterGossipCancel(uint32_t cancelled_epoch) {
@@ -1710,6 +1735,16 @@ extern "C" int ResdbOmnetDeliverPacket(void* server_handle, int from_replica,
   return rc;
 }
 
+extern "C" int ResdbOmnetGetVerifiedVoteProgress(
+    void* server_handle, const uint8_t* packet_data, uint32_t packet_len,
+    int vote_type, int* count_out, int* quorum_out) {
+  if (!server_handle) return -1;
+  auto* h = static_cast<ResdbOmnetServerHandle*>(server_handle);
+  if (!h->consensus) return -1;
+  return h->consensus->GetVerifiedVoteProgress(
+      packet_data, packet_len, vote_type, count_out, quorum_out);
+}
+
 extern "C" int ResdbOmnetUpdateSimTimeUs(void* server_handle, int64_t now_us) {
   if (!server_handle || now_us < 0) return -1;
   resdb::SimTimeProvider::UpdateNowUs(static_cast<uint64_t>(now_us));
@@ -1732,6 +1767,12 @@ extern "C" int ResdbOmnetTriggerConsensus(void* server_handle,
   if (!server_handle || !payload || len == 0) return -1;
   auto* h = static_cast<ResdbOmnetServerHandle*>(server_handle);
   if (!h->server) return -1;
+
+  // A deterministic application-level handoff can select a follower as the
+  // next primary without going through PromotePrimaryFromCert().  Synchronize
+  // that replica's allocator with its executed PBFT prefix before assigning a
+  // sequence to the new proposal.
+  if (h->consensus) h->consensus->PrepareLocalSubmission();
 
   // Inject TYPE_NEW_TXNS directly into the primary's commitment pipeline,
   // bypassing ResponseManager::DoBatch which would try to send to self
@@ -1925,6 +1966,10 @@ extern "C" int ResdbOmnetGetPacketRequestInfo(const uint8_t* data, uint32_t len,
   info->current_executed_seq = req.current_executed_seq();
   info->data_len = static_cast<uint32_t>(req.data().size());
   info->hash_len = static_cast<uint32_t>(req.hash().size());
+  const std::string hash_digest =
+      resdb::utils::CalculateSHA256Hash(req.hash());
+  std::memcpy(info->request_hash_digest, hash_digest.data(),
+              sizeof(info->request_hash_digest));
   return 0;
 }
 

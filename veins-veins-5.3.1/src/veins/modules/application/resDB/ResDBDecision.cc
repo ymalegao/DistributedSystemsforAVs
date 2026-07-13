@@ -33,7 +33,7 @@ bool ResDBIntersectionApp::isReplicaConfiguredByzantine(int replicaId) const
 void ResDBIntersectionApp::proposeAll()
 {
     const bool rollbackOrderEpoch =
-        cancel_pending_ && rollback_discovery_ready_ &&
+        cancel_pending_ && discovery_.state == DiscoveryState::COMPLETE &&
         current_epoch_ == rollback_new_epoch_;
     if (cancel_consensus_pending_) {
         std::cout << "[CANCEL-PROPOSE] r" << replicaId_
@@ -57,6 +57,12 @@ void ResDBIntersectionApp::proposeAll()
                   << " proposeAll skipped: already submitted at " << propose_time_ << "\n";
         return;
     }
+    if (discovery_.state != DiscoveryState::COMPLETE) {
+        std::cout << "[DISCOVERY-PROPOSE-WAIT] r" << replicaId_
+                  << " state=" << discoveryStateName()
+                  << " epoch=" << discovery_.epoch << "\n";
+        return;
+    }
     int certPrimary = CertPrimary();
     if (certPrimary < 0) {
         std::cout << "[CERT-PRIMARY] r" << replicaId_
@@ -74,47 +80,30 @@ void ResDBIntersectionApp::proposeAll()
                   << " cert_primary=" << certPrimary << "\n";
         return;
     }
-    deferred_propose_after_cert_timeout_ = false;
     stopCertBroadcastRetries();
     stopStopZoneCertGossip();
-    pbft_observed_ = true;
-    cancelPendingDiscoveryTxs("proposeAll");
     propose_submitted_ = true;
     propose_time_ = simTime();
     current_phase_ = ConsensusPhase::WAITING_FOR_CLEARANCE;
     std::cout << "[METRICS " << replicaId_ << "] ProposeAll_Submit_Time: " << propose_time_ << "\n";
-    if (cert_collection_start_time_ > SIMTIME_ZERO && propose_time_ >= cert_collection_start_time_) {
+    if (discovery_.collectionStartedAt > SIMTIME_ZERO &&
+            propose_time_ >= discovery_.collectionStartedAt) {
         std::cout << "[METRICS " << replicaId_ << "] Cert_Collection_Duration: "
-                  << (propose_time_ - cert_collection_start_time_).dbl() << "s\n";
+                  << (propose_time_ - discovery_.collectionStartedAt).dbl() << "s\n";
     }
     std::cout << "[VC-TRACE] r" << replicaId_
               << " proposeAll context phase=" << phaseToStr(current_phase_)
               << " static_certs=" << countStaticCollectedCerts() << "/"
               << (rollbackOrderEpoch ? minRollbackMembershipSize() : total_vehicles_)
               << " all_certs=" << collected_certs_.size()
-              << " observed=" << physically_observed_cars_.size()
+              << " observed=" << observed_intent_cars_.size()
               << " cert_primary=" << certPrimary
               << " pbft_primary=" << ResdbOmnetGetPrimary(resdb_server_handle_);
     if (stop_time_ >= SIMTIME_ZERO)
         std::cout << " stop_to_propose_sec=" << (simTime() - stop_time_).dbl();
     std::cout << "\n";
 
-    // Ensure own entry exists (self-announce may not have been processed by cert protocol yet).
     std::string myCarId = "veh" + std::to_string(replicaId_);
-    if (!collected_certs_.count(myCarId)) {
-        // Build a minimal self-cert if we don't have f+1 echoes yet.
-        ArrivalCert selfCert;
-        selfCert.carId         = myCarId;
-        selfCert.isAmbulance   = is_ambulance_;
-        selfCert.epoch         = (int)current_epoch_;
-        if (local_vehicle_states_.count(myCarId)) {
-            const VehicleState& sv = local_vehicle_states_.at(myCarId);
-            selfCert.lane           = sv.lane;
-            selfCert.positionInLane = sv.positionInLane;
-            selfCert.direction      = sv.direction;
-        }
-        collected_certs_[myCarId] = selfCert;
-    }
     // Ensure own arrival_time_us is set if missing.
     if (local_vehicle_states_.count(myCarId)
             && local_vehicle_states_[myCarId].arrival_time_us == 0) {
@@ -172,7 +161,7 @@ void ResDBIntersectionApp::proposeAll()
         entries.push_back(e);
         present_ids.insert(e.replica_id);
     }
-    // Add synthetic QUIET entries for any missing replica IDs.
+    // Add QUIET entries only for observed intents that missed certification.
     // Lane and position_in_lane are physically observable (sensors catch a lie)
     // so we use the primary's observed announcement state directly.
     // direction is intentional cyber-state and requires f+1 cert signatures —
@@ -216,10 +205,10 @@ void ResDBIntersectionApp::proposeAll()
                 appendQuiet(rid, &kv.second);
         }
     } else {
-        for (int rid = 0; rid < total_vehicles_; ++rid) {
-            std::string quietCarId = "veh" + std::to_string(rid);
-            auto it = local_vehicle_states_.find(quietCarId);
-            appendQuiet(rid, it == local_vehicle_states_.end() ? nullptr : &it->second);
+        for (const auto& kv : local_vehicle_states_) {
+            const int rid = extractReplicaId(kv.first);
+            if (rid >= 0 && (rid < total_vehicles_ || kv.second.isAmbulance))
+                appendQuiet(rid, &kv.second);
         }
     }
     quietHonestOpportunities_ += proposal_honest_opportunities;
@@ -665,6 +654,7 @@ void ResDBIntersectionApp::processOrders()
             }
             continue;
         }
+        clearConsensusRetries("order-committed");
 
         const ResdbVehicleDecision* decisions = reinterpret_cast<const ResdbVehicleDecision*>(
             dec.data() + sizeof(ResdbOrderHdr));
@@ -679,14 +669,13 @@ void ResDBIntersectionApp::processOrders()
 
         if (cancel_pending_ && ohdr.epoch == rollback_new_epoch_) {
             cancel_pending_ = false;
+            cancel_state_ = CancelState::INACTIVE;
+            cancel_active_batch_ = -1;
+            cancel_primary_ = -1;
+            cancel_leader_candidates_.clear();
             rollback_cancel_initiated_ = false;
             rollback_propose_submitted_ = false;
             stopCancelCertRetries();
-            if (rollback_discovery_timer_) {
-                if (rollback_discovery_timer_->isScheduled()) cancelEvent(rollback_discovery_timer_);
-                delete rollback_discovery_timer_;
-                rollback_discovery_timer_ = nullptr;
-            }
             if (rollback_vc_timer_) {
                 if (rollback_vc_timer_->isScheduled()) cancelEvent(rollback_vc_timer_);
                 delete rollback_vc_timer_;
@@ -710,6 +699,7 @@ void ResDBIntersectionApp::processOrders()
                   << " n_batches=" << ohdr.n_batches << "\n";
         
         has_committed_order_ = true;
+        deactivateDiscovery("order-applied");
         last_committed_epoch_ = ohdr.epoch;
         committed_order_bytes_ = dec;
         if (propose_time_ >= SIMTIME_ZERO) {

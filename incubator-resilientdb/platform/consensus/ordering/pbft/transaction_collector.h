@@ -112,6 +112,7 @@ class TransactionCollector {
   bool HasMainRequest();
   std::string MainRequestHash();
   bool HasVoteFrom(int type, const std::string& hash, int sender_id);
+  int VoteCount(int type, const std::string& hash);
 
   uint64_t Seq();
 

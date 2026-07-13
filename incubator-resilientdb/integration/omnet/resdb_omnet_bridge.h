@@ -66,6 +66,16 @@ int ResdbOmnetSetChannel(void* server_handle, void* channel_ptr);
 int ResdbOmnetDeliverPacket(void* server_handle, int from_replica,
                             const uint8_t* data, uint32_t len);
 
+/* Return the local collector's distinct, verified votes matching the packet's
+ * (view, seq, request hash). vote_type uses Request::Type (4=PREPARE, 5=COMMIT).
+ * quorum_out is the exact forced-view quorum when available, otherwise -1. */
+int ResdbOmnetGetVerifiedVoteProgress(void* server_handle,
+                                      const uint8_t* packet_data,
+                                      uint32_t packet_len,
+                                      int vote_type,
+                                      int* count_out,
+                                      int* quorum_out);
+
 /* ── Step 4: time virtualization ──────────────────────────────────────────── */
 
 /* Update the ResDB sim-time provider (microseconds). This must be called by
@@ -223,6 +233,7 @@ typedef struct ResdbPacketRequestInfo {
     uint64_t current_executed_seq;
     uint32_t data_len;
     uint32_t hash_len;
+    uint8_t  request_hash_digest[32];
 } ResdbPacketRequestInfo;
 
 /* Decode a serialized ResDBMessage/Request packet carried by Type 8.
