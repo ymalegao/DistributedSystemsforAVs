@@ -32,6 +32,14 @@ bool ResDBIntersectionApp::isReplicaConfiguredByzantine(int replicaId) const
 
 void ResDBIntersectionApp::proposeAll()
 {
+    // Static intersection units are quorum/vote/relay/execute members only — they
+    // never originate a proposal (no arrival state, never cert-primary). Hard
+    // chokepoint so no path (cert-store, timeout, view-change) can make a unit propose.
+    if (is_intersection_unit_) {
+        std::cout << "[UNIT] r" << replicaId_
+                  << " proposeAll suppressed (intersection unit never proposes)\n";
+        return;
+    }
     const bool rollbackOrderEpoch =
         cancel_pending_ && discovery_.state == DiscoveryState::COMPLETE &&
         current_epoch_ == rollback_new_epoch_;
@@ -726,6 +734,21 @@ void ResDBIntersectionApp::processOrders()
         if (consensus_timeout_msg_) {
             cancelEvent(consensus_timeout_msg_);
             delete consensus_timeout_msg_; consensus_timeout_msg_ = nullptr;
+        }
+
+        // Static intersection units are never scheduled to cross. They execute the
+        // committed order by recording it (already stored above) and gossiping it for
+        // stragglers, then stop — no batch / clearance / resume. This is the intended
+        // terminal path, distinct from the vehicle [ORDER-WARN] "no slot" case below.
+        if (is_intersection_unit_) {
+            order_applied_ = true;
+            if (gossip_enabled_ && gossip_order_bytes_.empty())
+                triggerGossip(ohdr.epoch, dec);
+            std::cout << "[UNIT] r" << replicaId_
+                      << " executed committed order epoch=" << ohdr.epoch
+                      << " n_batches=" << ohdr.n_batches
+                      << " (records order, does not cross)\n";
+            continue;
         }
 
         // Find own batch index.

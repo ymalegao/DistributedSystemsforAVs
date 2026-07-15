@@ -12,6 +12,19 @@
 
 using namespace veins;
 
+TraCICommandInterface* ResDBIntersectionApp::getTraCI() const
+{
+    // Vehicles query TraCI through their own TraCIMobility. Static intersection
+    // units have no mobility, so they fall back to the global scenario manager's
+    // command interface — TraCI is a simulation-wide service, so a unit can still
+    // observe/verify any vehicle to witness its arrival.
+    if (mobility && mobility->getCommandInterface())
+        return mobility->getCommandInterface();
+    if (auto* mgr = TraCIScenarioManagerAccess().get())
+        return mgr->getCommandInterface();
+    return nullptr;
+}
+
 double ResDBIntersectionApp::getDistanceToIntersection()
 {
     if (!mobility || !mobility->getCommandInterface()) {
@@ -154,7 +167,10 @@ void ResDBIntersectionApp::stopVehicle()
 
 void ResDBIntersectionApp::discoverLane() {
     if (lane_discovered_) return;
- 
+    // Defense-in-depth: units never reach here (handlePositionUpdate/stopVehicle are
+    // vehicle-only), but never dereference a null mobility if they somehow do.
+    if (!mobility) return;
+
     auto* traci = mobility->getVehicleCommandInterface();
     TraCICommandInterface* traciCmd = mobility->getCommandInterface();
     if (!traci) return;
@@ -277,8 +293,9 @@ ResDBIntersectionApp::verifyCarPosition(const std::string& carId,
                                          const std::string& claimedLane,
                                          double claimedPosition, double tolerance)
 {
-    if (!mobility) return {false, "NO_TRACI"};
-    TraCICommandInterface* traci = mobility->getCommandInterface();
+    // Route via getTraCI() so static intersection units (no own mobility) can also
+    // witness/verify vehicles through the global manager command interface.
+    TraCICommandInterface* traci = getTraCI();
     if (!traci) return {false, "NO_TRACI"};
     std::list<std::string> ids = traci->getVehicleIds();
     if (std::find(ids.begin(), ids.end(), carId) == ids.end())

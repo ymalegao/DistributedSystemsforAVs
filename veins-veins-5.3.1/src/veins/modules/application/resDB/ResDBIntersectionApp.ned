@@ -53,6 +53,17 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         double stopDistance  @unit(m) = default(5m);   // distance-to-lane-end threshold (TraCI-based)
         int    totalVehicles          = default(4);
 
+        // ── PBFT membership vs vehicle count ──────────────────────────────────
+        // totalReplicas = number of PBFT replicas N (vehicles + static intersection
+        // units). -1 → falls back to totalVehicles (back-compat: no units present).
+        // f/quorum/PreVerify range use N; the arrival-cert/proposal/schedule layer
+        // stays keyed to totalVehicles (only vehicles announce, hold certs, cross).
+        int    totalReplicas          = default(-1);
+        // Static intersection unit: participates in PBFT (vote/relay/execute) and
+        // witnesses+echoes vehicle arrivals, but never announces, stops, crosses,
+        // or proposes. Runs on an RSU node with no TraCIMobility.
+        bool   isIntersectionUnit     = default(false);
+
         // ── Fault-tolerance experiment knob ─────────────────────────────────
         int    toleratedFaults         = default(-1);  // intended f; -1 = derive from static ResDB replica count
 

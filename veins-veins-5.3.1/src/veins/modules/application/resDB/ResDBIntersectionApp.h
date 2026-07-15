@@ -430,8 +430,16 @@ private:
     void applyByzantineTamperLane(uint8_t* base, uint32_t n);
     int countStaticCollectedCerts() const;
     int CertPrimary() const;
+    // Tolerated Byzantine faults f. Explicit toleratedFaults par wins; otherwise
+    // derived from the PBFT membership size N (num_replicas_), so f scales when
+    // static intersection units join the quorum.
+    int toleratedF() const;
 
     // ── TraCI helpers (ported from V2VTraCI.cc) ───────────────────────────────
+    // Command interface for TraCI queries. Vehicles use their own TraCIMobility;
+    // static intersection units (no mobility) fall back to the global manager so
+    // they can still witness/verify vehicles. Returns nullptr if neither exists.
+    TraCICommandInterface* getTraCI() const;
     double getDistanceToIntersection();
     bool   isInOrPastConflictBox();
     int    countRollbackPerceivedVehicles() const;
@@ -614,6 +622,12 @@ private:
 
     // ── Params ────────────────────────────────────────────────────────────────
     int    total_vehicles_        = 4;
+    // PBFT membership size N = vehicles + static intersection units. Defaults to
+    // total_vehicles_ when no units are configured (totalReplicas = -1).
+    int    num_replicas_          = 4;
+    // When true, this module is a static intersection unit (RSU-hosted): quorum
+    // participant + witness/echo + executor, but never announces/stops/crosses/proposes.
+    bool   is_intersection_unit_  = false;
     double cruise_speed_mps_      = 14.0;
     bool   is_ambulance_          = false;
     bool          is_byzantine_          = false;
