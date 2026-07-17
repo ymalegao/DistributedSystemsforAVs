@@ -219,6 +219,31 @@ void ResDBIntersectionApp::proposeAll()
                 appendQuiet(rid, &kv.second);
         }
     }
+    // In anchored/forced-view mode (tolerated_faults_ >= 0, i.e. the rollback path)
+    // the bridge derives the ORDER active-voter view from the proposal entries. Add
+    // the static units as QUIET entries so they land in that view and vote like cars.
+    // They are never scheduled to cross: QUIET → singleton batch, non-existent SUMO id
+    // clears immediately, and processOrders() routes units to execute-without-cross.
+    // (Normal mode uses the full server.config quorum, so units already vote there.)
+    if (tolerated_faults_ >= 0) {
+        for (int uid : staticUnitReplicaIds()) {
+            if (present_ids.count(uid)) continue;
+            ResdbVehicleEntry unit{};
+            unit.replica_id       = uid;
+            unit.sim_time_us      = UINT64_MAX;  // QUIET sentinel
+            unit.is_ambulance     = 0;
+            unit.direction        = 0;
+            unit.cyber_status     = 0;           // QUIET — never a scheduled crosser
+            unit.lane             = 0;
+            unit.position_in_lane = 255;         // sort after all real vehicles
+            entries.push_back(unit);
+            present_ids.insert(uid);
+            std::cout << "[UNIT] r" << replicaId_
+                      << " proposeAll: QUIET unit entry replica " << uid
+                      << " (forced-view voter, not scheduled) epoch=" << current_epoch_
+                      << "\n";
+        }
+    }
     quietHonestOpportunities_ += proposal_honest_opportunities;
     const double quiet_honest_rate =
         quietHonestOpportunities_ > 0

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+    <!-- Fast channel for watching the combined units+rollback scenario in Qtenv.
+         Identical to config.xml but WITHOUT SimpleObstacleShadowing (buildings) and
+         VehicleObstacleShadowing (per-vehicle knife-edge diffraction). Those two models
+         recompute signal blocking for every transmission against every vehicle, which
+         dominates wall-clock time on 22 nodes and floods the console with
+         "VehicleObstacleControl ... checking vehicle in proximity". Dropping them keeps
+         path loss + fading (still a realistic channel) and makes the sim ~orders faster. -->
+    <AnalogueModel type="SimplePathlossModel">
+        <parameter name="alpha"            type="double" value="2.75"/>
+        <parameter name="carrierFrequency" type="double" value="5.89e9"/>
+    </AnalogueModel>
+
+    <AnalogueModel type="NakagamiFading">
+        <parameter name="constM" type="bool" value="false"/>
+    </AnalogueModel>
+
+    <Decider type="Decider80211p">
+        <parameter name="centerFrequency" type="double" value="5.89e9"/>
+        <parameter name="bandwidth"       type="double" value="10e6"/>
+        <parameter name="sensitivity"     type="double" value="-88.0"/>
+    </Decider>
+
+    <Antenna type="AntennaPosition">
+        <parameter name="offsetX" type="double" value="0.0"/>
+        <parameter name="offsetY" type="double" value="0.0"/>
+        <parameter name="offsetZ" type="double" value="1.895"/>
+    </Antenna>
+</root>

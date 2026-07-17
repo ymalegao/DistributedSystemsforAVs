@@ -434,6 +434,12 @@ private:
     // derived from the PBFT membership size N (num_replicas_), so f scales when
     // static intersection units join the quorum.
     int toleratedF() const;
+    // Replica IDs of the static intersection units: [total_vehicles_, num_replicas_).
+    // Units are permanent PBFT members, so they are injected into every forced-view
+    // membership (ORDER entries as QUIET, CANCEL electorate, rollback membership) so
+    // they vote in the rollback path exactly like cars — but are never scheduled to cross.
+    std::vector<int> staticUnitReplicaIds() const;
+    bool isStaticUnitReplica(int replicaId) const;
 
     // ── TraCI helpers (ported from V2VTraCI.cc) ───────────────────────────────
     // Command interface for TraCI queries. Vehicles use their own TraCIMobility;
@@ -625,6 +631,8 @@ private:
     // PBFT membership size N = vehicles + static intersection units. Defaults to
     // total_vehicles_ when no units are configured (totalReplicas = -1).
     int    num_replicas_          = 4;
+    // Number of static intersection units (the top num_units_ replica IDs are units).
+    int    num_units_             = 0;
     // When true, this module is a static intersection unit (RSU-hosted): quorum
     // participant + witness/echo + executor, but never announces/stops/crosses/proposes.
     bool   is_intersection_unit_  = false;

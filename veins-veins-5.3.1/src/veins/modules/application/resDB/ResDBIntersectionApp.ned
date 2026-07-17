@@ -63,6 +63,10 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         // witnesses+echoes vehicle arrivals, but never announces, stops, crosses,
         // or proposes. Runs on an RSU node with no TraCIMobility.
         bool   isIntersectionUnit     = default(false);
+        // Number of static intersection units in the run. Units are the top
+        // intersectionUnitCount replica IDs, i.e. [totalReplicas - count, totalReplicas).
+        // Every replica (vehicles included) needs this so it knows which IDs are units.
+        int    intersectionUnitCount  = default(0);
 
         // ── Fault-tolerance experiment knob ─────────────────────────────────
         int    toleratedFaults         = default(-1);  // intended f; -1 = derive from static ResDB replica count

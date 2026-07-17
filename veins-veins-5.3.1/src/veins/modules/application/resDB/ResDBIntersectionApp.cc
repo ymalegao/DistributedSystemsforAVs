@@ -58,6 +58,23 @@ int ResDBIntersectionApp::toleratedF() const
     return tolerated_faults_ >= 0 ? tolerated_faults_ : (num_replicas_ - 1) / 3;
 }
 
+std::vector<int> ResDBIntersectionApp::staticUnitReplicaIds() const
+{
+    // Units are the top num_units_ replica IDs: [num_replicas_ - num_units_, num_replicas_).
+    // This is robust when total_vehicles_ (the cert/QUIET-fill count, e.g. 16 in the
+    // rollback scenario) is less than the real provisioned vehicle count (18).
+    std::vector<int> ids;
+    for (int rid = num_replicas_ - num_units_; rid < num_replicas_; ++rid)
+        if (rid >= 0) ids.push_back(rid);
+    return ids;
+}
+
+bool ResDBIntersectionApp::isStaticUnitReplica(int replicaId) const
+{
+    return num_units_ > 0 &&
+           replicaId >= num_replicas_ - num_units_ && replicaId < num_replicas_;
+}
+
 // ── Destructor ────────────────────────────────────────────────────────────────
 
 ResDBIntersectionApp::~ResDBIntersectionApp()
@@ -127,6 +144,7 @@ void ResDBIntersectionApp::initialize(int stage)
         is_intersection_unit_ = par("isIntersectionUnit").boolValue();
         num_replicas_         = par("totalReplicas").intValue();
         if (num_replicas_ < 0) num_replicas_ = total_vehicles_;
+        num_units_            = par("intersectionUnitCount").intValue();
 
         replicaId_ = par("replicaId").intValue();
         const int ned_replica_id = replicaId_;

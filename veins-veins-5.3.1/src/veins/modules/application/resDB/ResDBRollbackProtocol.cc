@@ -619,7 +619,11 @@ std::vector<int> ResDBIntersectionApp::cancelElectorateCandidates() const
 {
     std::vector<int> electors(committed_order_vehicle_ids_.begin(),
                               committed_order_vehicle_ids_.end());
+    // Static units are permanent CANCEL voters — they took part in epoch e's PBFT,
+    // so they belong in the CANCEL forced-view electorate exactly like the cars.
+    for (int uid : staticUnitReplicaIds()) electors.push_back(uid);
     std::sort(electors.begin(), electors.end());
+    electors.erase(std::unique(electors.begin(), electors.end()), electors.end());
     return electors;
 }
 
@@ -1070,6 +1074,9 @@ std::vector<int> ResDBIntersectionApp::rollbackMembershipCandidates() const
             if (shouldIncludeInRollbackMembership(rid)) candidates.push_back(rid);
         }
     }
+    // Static units are permanent recovery-membership voters (they hold no cert/intent,
+    // so the cert/state loops above never surface them — add them explicitly).
+    for (int uid : staticUnitReplicaIds()) candidates.push_back(uid);
     std::sort(candidates.begin(), candidates.end());
     candidates.erase(std::unique(candidates.begin(), candidates.end()), candidates.end());
     return candidates;
@@ -1094,6 +1101,9 @@ int ResDBIntersectionApp::chooseRollbackProposer()
 bool ResDBIntersectionApp::shouldIncludeInRollbackMembership(int replicaId) const
 {
     if (replicaId < 0) return false;
+    // Static units are always present (never depart, never crash), so they are
+    // permanent rollback members — including when a unit evaluates itself.
+    if (isStaticUnitReplica(replicaId)) return true;
     if (replicaId == replicaId_)
         return rollback_local_recallable_ &&
             current_phase_ != ConsensusPhase::DEPARTED &&
