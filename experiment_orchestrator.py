@@ -72,6 +72,7 @@ SCENARIO_SUBDIR = {
     "FW_ByzLeader_FakeAmbulance": "fw_fake_ambulance",
     "FW_ByzLeader_TamperLane": "fw_tamper_lane",
     "Emergency_Preempt_DynamicN": "rollback_emergency_dynamic_n",
+    "Crash_Wait_Clear": "crash_wait_clear",
 }
 
 # analyze_log.py --scenario codes (also used by --scenario CLI flag)
@@ -91,6 +92,7 @@ ANALYZE_SCENARIO = {
     "FW_ByzLeader_FakeAmbulance": 4,
     "FW_ByzLeader_TamperLane": 5,
     "Emergency_Preempt_DynamicN": 15,
+    "Crash_Wait_Clear": 16,
 }
 SCENARIO_BY_CODE = {
     1: "No_Ambulance_Honest",
@@ -108,6 +110,7 @@ SCENARIO_BY_CODE = {
     13: "FW_ByzLeader_FakeAmbulance",
     14: "FW_ByzLeader_TamperLane",
     15: "Emergency_Preempt_DynamicN",
+    16: "Crash_Wait_Clear",
 }
 
 DEFAULT_N_VALUES = (4, 8, 12, 16, 20)
@@ -328,6 +331,10 @@ def randomize_args_for_scenario(n: int, scenario_name: str, tolerated_f: int) ->
         if n != 18:
             raise ValueError("Emergency_Preempt_DynamicN is currently defined only for N=18")
         return ["--rollback-late-emergency"]
+    if scenario_name == "Crash_Wait_Clear":
+        if n != 16:
+            raise ValueError("Crash_Wait_Clear is currently defined only for N=16")
+        return ["--crash-wait-clear"]
     raise ValueError(scenario_name)
 
 def baseline_randomize_args_for_scenario(n: int, scenario_name: str) -> List[str]:
@@ -487,7 +494,7 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
              "9=NoFW_ByzLeader_FakeAmbulance, 10=NoCertGate_ByzFollower_FakeAmbu, "
              "11=CertGate_ByzFollower_FakeAmbu, 12=NoFW_ByzLeader_TamperLane, "
              "13=FW_ByzLeader_FakeAmbulance, 14=FW_ByzLeader_TamperLane, "
-             "15=Emergency_Preempt_DynamicN. "
+             "15=Emergency_Preempt_DynamicN, 16=Crash_Wait_Clear. "
              "Default: all six baseline scenarios in order 1,6,5,2,3,4.",
     )
     p.add_argument(
@@ -546,6 +553,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.scenario and 15 in args.scenario and n != 18:
             print("ERROR: scenario 15 Emergency_Preempt_DynamicN is currently defined only for --config 18.", file=sys.stderr)
             return 2
+        if args.scenario and 16 in args.scenario and n != 16:
+            print("ERROR: scenario 16 Crash_Wait_Clear is currently defined only for --config 16.", file=sys.stderr)
+            return 2
 
     if args.scenario:
         # Respect user-requested order and de-duplicate aliases that map to the same scenario.
@@ -586,7 +596,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # build_veins_and_bft(dry_run=args.dry_run)
 
         for scenario_name in scenarios:
-            if scenario_name in ("Honest_Ambulance", "No_Ambulance_Honest", "Emergency_Preempt_DynamicN"):
+            if scenario_name in ("Honest_Ambulance", "No_Ambulance_Honest", "Emergency_Preempt_DynamicN", "Crash_Wait_Clear"):
                 if not args.dry_run:
                     clear_stale_random_ini()
                 else:
