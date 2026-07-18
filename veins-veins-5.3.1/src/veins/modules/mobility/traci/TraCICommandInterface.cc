@@ -150,6 +150,16 @@ void TraCICommandInterface::Vehicle::setSpeed(double speed)
     ASSERT(buf.eof());
 }
 
+void TraCICommandInterface::Vehicle::remove(uint8_t reason)
+{
+    uint8_t variableId = REMOVE;
+    uint8_t variableType = TYPE_BYTE;
+    TraCIBuffer buf = traci->connection.query(
+        CMD_SET_VEHICLE_VARIABLE,
+        TraCIBuffer() << variableId << nodeId << variableType << reason);
+    ASSERT(buf.eof());
+}
+
 void TraCICommandInterface::Vehicle::setMaxSpeed(double speed)
 {
     uint8_t variableId = VAR_MAXSPEED;

@@ -75,6 +75,7 @@ ResDBIntersectionApp::~ResDBIntersectionApp()
     if (cancel_vc_timer_)         { cancelAndDelete(cancel_vc_timer_);         cancel_vc_timer_         = nullptr; }
     if (cancel_gossip_timer_)     { cancelAndDelete(cancel_gossip_timer_);     cancel_gossip_timer_     = nullptr; }
     if (clearance_poll_msg_)      { cancelAndDelete(clearance_poll_msg_);      clearance_poll_msg_      = nullptr; }
+    if (crash_mac_grace_msg_)     { cancelAndDelete(crash_mac_grace_msg_);     crash_mac_grace_msg_     = nullptr; }
     if (broadcastArrivalAnnouncement_timer_) { cancelAndDelete(broadcastArrivalAnnouncement_timer_); broadcastArrivalAnnouncement_timer_ = nullptr; }
     if (channel_metrics_timer_) {
         cancelAndDelete(channel_metrics_timer_);
@@ -199,6 +200,7 @@ void ResDBIntersectionApp::initialize(int stage)
         byzantine_pbft_silent_   = par("byzantinePbftSilent").boolValue();
         enableAmbulanceCertGate_ = par("enableAmbulanceCertGate").boolValue();
         enableRollback_ = par("enableRollback").boolValue();
+        crash_mac_grace_sec_ = par("crashMacGraceSec").doubleValue();
         cancel_cert_retry_interval_sec_ = par("cancelCertRetryIntervalSec").doubleValue();
         cancel_cert_retry_max_ = par("cancelCertRetryMax").intValue();
         consensus_retry_interval_sec_ = par("consensusRetryIntervalSec").doubleValue();
@@ -383,6 +385,15 @@ void ResDBIntersectionApp::initialize(int stage)
 
 void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
 {
+    if (msg == crash_mac_grace_msg_) {
+        crash_mac_grace_msg_ = nullptr;
+        std::cout << "[CRASH-COMMS-DEAD] r" << replicaId_
+                  << " t=" << simTime()
+                  << " grace_sec=" << crash_mac_grace_sec_ << "\n";
+        delete msg;
+        return;
+    }
+
     if (msg == channel_metrics_timer_) {
         if (channel_metrics_)
             channel_metrics_->tick(simTime());
@@ -1007,6 +1018,14 @@ void ResDBIntersectionApp::onWSM(BaseFrame1609_4* wsm)
     if (!bft) return;
     if (bft->getFromReplicaId() == replicaId_) return;   // no self-delivery
     if (current_phase_ == ConsensusPhase::DEPARTED) return;  // Gap 9: zombie filter
+
+    if (crashCommsDisabled_) {
+        std::cout << "[CRASH-RX-DROP] r" << replicaId_
+                  << " from=" << bft->getFromReplicaId()
+                  << " type=" << bft->getMessageType()
+                  << " t=" << simTime() << "\n";
+        return;
+    }
 
     int msgType = bft->getMessageType();
 

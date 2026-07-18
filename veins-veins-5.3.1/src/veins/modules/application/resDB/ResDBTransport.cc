@@ -81,6 +81,12 @@ void ResDBIntersectionApp::enqueueOutbound(int toReplicaId,
 {
     if (!data || len == 0) return;
     if (current_phase_ == ConsensusPhase::DEPARTED || is_departed_) return;
+    if (crashCommsDisabled_) {
+        std::cout << "[CRASH-TX-DROP] r" << replicaId_
+                  << " path=enqueueOutbound to=" << toReplicaId
+                  << " len=" << len << " t=" << simTime() << "\n";
+        return;
+    }
     std::vector<uint8_t> bytes(data, data + len);
     std::lock_guard<std::mutex> lk(outbound_mutex_);
     // Dedup: the bridge's per-recipient SendMessage calls broadcast() N-1 times
@@ -120,6 +126,13 @@ void ResDBIntersectionApp::drainOutboundQueue()
         std::lock_guard<std::mutex> lk(outbound_mutex_);
         if (outbound_queue_.empty()) return;
         local.swap(outbound_queue_);
+    }
+
+    if (crashCommsDisabled_) {
+        std::cout << "[CRASH-TX-DROP] r" << replicaId_
+                  << " path=drainOutboundQueue dropped=" << local.size()
+                  << " t=" << simTime() << "\n";
+        return;
     }
 
     for (auto& pkt : local) {
@@ -389,6 +402,12 @@ void ResDBIntersectionApp::sendBFTMessageNow(int toReplicaId,
                                               int msgType)
 {
     if (payload.empty()) return;
+    if (crashCommsDisabled_) {
+        std::cout << "[CRASH-TX-DROP] r" << replicaId_
+                  << " path=sendBFTMessageNow type=" << msgType
+                  << " to=" << toReplicaId << " t=" << simTime() << "\n";
+        return;
+    }
     sentMessages_++;
     sentPayloadBytes_ += payload.size();
     BFTMessage* bft = new BFTMessage();
@@ -415,6 +434,12 @@ void ResDBIntersectionApp::enqueueDiscoveryTx(int toReplicaId,
                                                 bool localCert,
                                                 bool witnessTraffic)
 {
+    if (crashCommsDisabled_) {
+        std::cout << "[CRASH-TX-DROP] r" << replicaId_
+                  << " path=enqueueDiscoveryTx type=" << msgType
+                  << " to=" << toReplicaId << " t=" << simTime() << "\n";
+        return;
+    }
     PendingDiscoveryTx pending;
     pending.toReplicaId = toReplicaId;
     pending.msgType = msgType;
@@ -543,6 +568,12 @@ void ResDBIntersectionApp::sendBFTMessage(int toReplicaId,
                                            bool witnessTraffic)
 {
     if (payload.empty()) return;
+    if (crashCommsDisabled_) {
+        std::cout << "[CRASH-TX-DROP] r" << replicaId_
+                  << " path=sendBFTMessage type=" << msgType
+                  << " to=" << toReplicaId << " t=" << simTime() << "\n";
+        return;
+    }
 
     double delaySec = 0;
     if (msgType == kArrivalEchoType) {

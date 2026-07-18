@@ -40,12 +40,13 @@ _parser.add_argument("log_file", nargs="?", default="/tmp/bft-all-replicas.log",
 _parser.add_argument("--save-to", metavar="DIR",
                      help="Copy metrics into DIR as <N>veh_<i>.log for later batch analysis")
 _parser.add_argument(
-    "--scenario", type=int, choices=[1, 2, 3, 4, 5, 6, 15], default=None,
+    "--scenario", type=int, choices=[1, 2, 3, 4, 5, 6, 15, 16], default=None,
     metavar="N",
     help="Save under a scenario subfolder (requires --save-to): "
          "1=no ambulance, 2=honest ambulance, 3=ambulance+Byzantine followers, "
          "4=ambulance+Byzantine leader, 5=no ambulance+Byzantine leader, "
-         "6=no ambulance+Byzantine followers, 15=R0 late-emergency rollback. "
+         "6=no ambulance+Byzantine followers, 15=R0 late-emergency rollback, "
+         "16=crash wait-clear. "
          "Use same base DIR and --cars for each run; "
          "plot_wait_time_cdf.py pools all matching <N>veh_*.json in that folder.")
 _parser.add_argument("--cars", type=int, default=None,
@@ -91,6 +92,7 @@ SCENARIO_SUBDIR = {
     5: "no_amb_byz_leader",
     6: "no_amb_byz_follower",
     15: "rollback_emergency_dynamic_n",
+    16: "crash_wait_clear",
 }
 SCENARIO_LABEL = {
     1: "no ambulance",
@@ -100,6 +102,7 @@ SCENARIO_LABEL = {
     5: "no ambulance + Byzantine leader",
     6: "no ambulance + Byzantine followers",
     15: "R0 late-emergency rollback",
+    16: "Crash wait-clear (Stage 1a harness)",
 }
 
 LOG_FILE = _args.log_file

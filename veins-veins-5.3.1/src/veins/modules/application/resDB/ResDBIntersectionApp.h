@@ -31,7 +31,8 @@ public:
     ~ResDBIntersectionApp() override;
     enum Direction { DIR_STRAIGHT = 0, DIR_LEFT = 1, DIR_RIGHT = 2 };
     void recordIntersectionDeparture(simtime_t departedAt);
-
+    /** Mute this replica after manager-side crash freeze (Scenario 16). */
+    void disableCrashComms(const char* reason);
 
 protected:
     void initialize(int stage) override;
@@ -446,8 +447,6 @@ private:
                                          double claimedPosition, double tolerance);
     int    extractReplicaId(const std::string& carId) const;
 
-    
-
     // ── State ─────────────────────────────────────────────────────────────────
     void*  resdb_server_handle_ = nullptr;
     std::unique_ptr<IV2VTransport> transport_;
@@ -483,6 +482,11 @@ private:
     simtime_t                clearance_started_        = -1;
     double                   clearance_poll_period_sec_ = 0.1;
     double                   clearance_timeout_sec_     = 8.0;
+
+    // Scenario 16: manager freezes/tows; app only mutes when asked.
+    bool                     crashCommsDisabled_       = false;
+    cMessage*                crash_mac_grace_msg_      = nullptr;
+    double                   crash_mac_grace_sec_      = 0.2;
 
     // Legacy single-predecessor fields kept for existing clearance-poll handler
     // (now polls all preceding_batch_cars_ instead of one car).

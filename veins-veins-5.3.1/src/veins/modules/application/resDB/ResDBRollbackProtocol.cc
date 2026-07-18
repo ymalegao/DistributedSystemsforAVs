@@ -233,7 +233,6 @@ void ResDBIntersectionApp::handleCancelEcho(BFTMessage* msg)
     CancelEcho echo = deserializeCancelEcho(msg);
     if (echo.echoingReplicaId < 0 || echo.signatureLen == 0) return;
     if (echo.reason != CANCEL_CRASH && echo.reason != CANCEL_EMERGENCY) return;
-
     std::string toSign = cancelSignPayload(
         echo.cancelledEpoch, echo.reason, echo.reasonRef, echo.echoingReplicaId);
     if (!CryptoAuth::instance().verifyBytes(

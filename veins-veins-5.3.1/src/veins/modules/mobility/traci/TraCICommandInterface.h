@@ -158,6 +158,8 @@ public:
         void setSpeedMode(int32_t bitset);
         void setSpeed(double speed);
         void setMaxSpeed(double speed);
+        /** Remove this vehicle from the SUMO simulation (TraCI REMOVE; reason 0x03 = vaporized). */
+        void remove(uint8_t reason = 0x03);
         TraCIColor getColor();
         void setColor(const TraCIColor& color);
         void slowDown(double speed, simtime_t time);

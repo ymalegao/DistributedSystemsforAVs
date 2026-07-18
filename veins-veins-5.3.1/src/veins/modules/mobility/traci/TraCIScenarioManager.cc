@@ -66,6 +66,7 @@ TraCIScenarioManager::TraCIScenarioManager()
     , connectAndStartTrigger(nullptr)
     , executeOneTimestepTrigger(nullptr)
     , r0LateEmergencySpawnTrigger(nullptr)
+    , crashSupervisorPollTrigger_(nullptr)
     , world(nullptr)
 {
 }
@@ -86,6 +87,10 @@ TraCIScenarioManager::~TraCIScenarioManager()
     if (r0LateEmergencySpawnTrigger) {
         cancelAndDelete(r0LateEmergencySpawnTrigger);
         r0LateEmergencySpawnTrigger = nullptr;
+    }
+    if (crashSupervisorPollTrigger_) {
+        cancelAndDelete(crashSupervisorPollTrigger_);
+        crashSupervisorPollTrigger_ = nullptr;
     }
 }
 
@@ -299,6 +304,14 @@ void TraCIScenarioManager::initialize(int stage)
     r0LateEmergencyVehicleId = par("r0LateEmergencyVehicleId").stdstringValue();
     r0LateEmergencyType = par("r0LateEmergencyType").stdstringValue();
     r0LateEmergencyRoute = par("r0LateEmergencyRoute").stdstringValue();
+    enableCrashSupervisor = par("enableCrashSupervisor").boolValue();
+    crashWreckCount = par("crashWreckCount").intValue();
+    if (crashWreckCount < 1) {
+        throw cRuntimeError("TraCIScenarioManager: crashWreckCount must be >= 1");
+    }
+    crashPollPeriodSec = par("crashPollPeriodSec");
+    crashOnBoxEntrySec = par("crashOnBoxEntrySec");
+    clearDelaySec = par("clearDelaySec");
 
     annotations = AnnotationManagerAccess().getIfExists();
 
@@ -320,6 +333,13 @@ void TraCIScenarioManager::initialize(int stage)
     r0LateSpawnDone = false;
     r0LateSpawnRetryCount = 0;
     autoShutdownTriggered = false;
+    crashBatch0Members_.clear();
+    crashWreckIds_.clear();
+    crashInjected_.clear();
+    crashTowed_.clear();
+    crashPendingInjectAt_.clear();
+    crashTowAt_.clear();
+    crashSelectDone_ = false;
 
     world = FindModule<BaseWorldUtility*>::findGlobalModule();
 
@@ -331,6 +351,7 @@ void TraCIScenarioManager::initialize(int stage)
     executeOneTimestepTrigger = new cMessage("step");
     scheduleAt(firstStepAt, executeOneTimestepTrigger);
     r0LateEmergencySpawnTrigger = new cMessage("r0LateEmergencySpawn");
+    crashSupervisorPollTrigger_ = new cMessage("crashSupervisorPoll");
 
     EV_DEBUG << "initialized TraCIScenarioManager" << endl;
 }
@@ -546,6 +567,10 @@ void TraCIScenarioManager::handleSelfMsg(cMessage* msg)
         tryR0LateEmergencySpawn();
         return;
     }
+    if (msg == crashSupervisorPollTrigger_) {
+        pollCrashSupervisor();
+        return;
+    }
     throw cRuntimeError("TraCIScenarioManager received unknown self-message");
 }
 
@@ -732,8 +757,13 @@ void TraCIScenarioManager::unsubscribeFromVehicleVariables(std::string vehicleId
     std::string objectId = vehicleId;
     uint8_t variableNumber = 0;
 
-    TraCIBuffer buf = connection->query(CMD_SUBSCRIBE_VEHICLE_VARIABLE, TraCIBuffer() << beginTime << endTime << objectId << variableNumber);
-    ASSERT(buf.eof());
+    try {
+        TraCIBuffer buf = connection->query(CMD_SUBSCRIBE_VEHICLE_VARIABLE, TraCIBuffer() << beginTime << endTime << objectId << variableNumber);
+        ASSERT(buf.eof());
+    } catch (cRuntimeError& e) {
+        // SUMO auto-drops subscriptions when a vehicle is removed/teleported; ignore stale unsub.
+        EV_WARN << "Ignoring TraCI unsubscribe for " << vehicleId << ": " << e.what() << endl;
+    }
 }
 void TraCIScenarioManager::subscribeToTrafficLightVariables(std::string tlId)
 {
@@ -1070,7 +1100,13 @@ void TraCIScenarioManager::tryShutdownOnIntersectionBatchCleared(const std::stri
 
 void TraCIScenarioManager::notifyR0BatchStarted(const std::string& vehicleId, int batchIndex)
 {
-    if (!enableR0Supervisor || batchIndex != 0) {
+    if (batchIndex != 0) {
+        return;
+    }
+    if (enableCrashSupervisor) {
+        onCrashBatch0Started(vehicleId);
+    }
+    if (!enableR0Supervisor) {
         return;
     }
     if (r0LateSpawnScheduled || r0LateSpawnDone || autoShutdownTriggered) {
@@ -1170,6 +1206,161 @@ void TraCIScenarioManager::tryR0LateEmergencySpawn()
               << "\n";
     if (r0LateSpawnMaxRetries <= 0 || r0LateSpawnRetryCount < r0LateSpawnMaxRetries) {
         scheduleAt(simTime() + r0LateSpawnRetrySec, r0LateEmergencySpawnTrigger);
+    }
+}
+
+void TraCIScenarioManager::onCrashBatch0Started(const std::string& vehicleId)
+{
+    crashBatch0Members_.insert(vehicleId);
+    if (crashSelectDone_) return;
+    if ((int) crashBatch0Members_.size() < crashWreckCount) return;
+
+    std::vector<std::string> members(crashBatch0Members_.begin(), crashBatch0Members_.end());
+    std::sort(members.begin(), members.end(), [](const std::string& a, const std::string& b) {
+        auto idOf = [](const std::string& s) {
+            try {
+                return (s.size() > 3) ? std::stoi(s.substr(3)) : 0;
+            } catch (...) {
+                return 0;
+            }
+        };
+        return idOf(a) < idOf(b);
+    });
+    crashWreckIds_.assign(members.begin(), members.begin() + crashWreckCount);
+    crashSelectDone_ = true;
+
+    std::cout << "[CRASH-SELECT] manager batch=0 wrecks=";
+    for (size_t i = 0; i < crashWreckIds_.size(); ++i) {
+        if (i) std::cout << ",";
+        std::cout << crashWreckIds_[i];
+    }
+    std::cout << " t=" << simTime() << "\n";
+
+    if (crashSupervisorPollTrigger_ && !crashSupervisorPollTrigger_->isScheduled()) {
+        scheduleAt(simTime() + crashPollPeriodSec, crashSupervisorPollTrigger_);
+    }
+}
+
+bool TraCIScenarioManager::vehicleOnInternalConflictLane(const std::string& vehicleId) const
+{
+    if (!commandIfc) return false;
+    try {
+        std::list<std::string> ids = commandIfc->getVehicleIds();
+        if (std::find(ids.begin(), ids.end(), vehicleId) == ids.end()) return false;
+        const std::string laneId = commandIfc->vehicle(vehicleId).getLaneId();
+        return !laneId.empty() && laneId.front() == ':';
+    } catch (...) {
+        return false;
+    }
+}
+
+void TraCIScenarioManager::freezeCrashWreck(const std::string& vehicleId)
+{
+    if (!commandIfc || crashInjected_.count(vehicleId)) return;
+    try {
+        auto v = commandIfc->vehicle(vehicleId);
+        const std::string laneId = v.getLaneId();
+        const double speed = v.getSpeed();
+        // Absolute TraCI hold (speedMode 0). Do not reuse stopVehicle()'s setSpeed(-1).
+        v.setSpeedMode(0);
+        v.setSpeed(0.0);
+        crashInjected_.insert(vehicleId);
+        crashTowAt_[vehicleId] = simTime() + clearDelaySec;
+
+        std::cout << "[CRASH-INJECT] manager " << vehicleId
+                  << " t=" << simTime()
+                  << " lane=" << laneId
+                  << " speed=" << speed
+                  << " tow_at=" << crashTowAt_[vehicleId] << "\n";
+
+        if (cModule* host = getManagedModule(vehicleId)) {
+            if (auto* appl = dynamic_cast<ResDBIntersectionApp*>(host->getSubmodule("appl"))) {
+                appl->disableCrashComms("crash-inject");
+            }
+        }
+    } catch (const std::exception& e) {
+        std::cout << "[CRASH-INJECT-FAIL] manager " << vehicleId
+                  << " err=" << e.what() << " t=" << simTime() << "\n";
+    } catch (...) {
+        std::cout << "[CRASH-INJECT-FAIL] manager " << vehicleId
+                  << " err=unknown t=" << simTime() << "\n";
+    }
+}
+
+void TraCIScenarioManager::towCrashWreck(const std::string& vehicleId)
+{
+    if (!commandIfc || crashTowed_.count(vehicleId)) return;
+    try {
+        std::list<std::string> ids = commandIfc->getVehicleIds();
+        if (std::find(ids.begin(), ids.end(), vehicleId) == ids.end()) {
+            crashTowed_.insert(vehicleId);
+            std::cout << "[TOW] manager " << vehicleId
+                      << " already_absent t=" << simTime() << "\n";
+            if (getManagedModule(vehicleId)) deleteManagedModule(vehicleId);
+            return;
+        }
+
+        // Prevent ID_LIST path from calling unsubscribe on an already-removed vehicle
+        // (SUMO error 0xd4: "The subscription to remove was not found").
+        subscribedVehicles.erase(vehicleId);
+        commandIfc->vehicle(vehicleId).remove(/* REMOVE_VAPORIZED */ 0x03);
+        crashTowed_.insert(vehicleId);
+        std::cout << "[TOW] manager " << vehicleId << " t=" << simTime() << "\n";
+
+        if (getManagedModule(vehicleId)) {
+            deleteManagedModule(vehicleId);
+        }
+    } catch (const std::exception& e) {
+        std::cout << "[TOW-FAIL] manager " << vehicleId
+                  << " err=" << e.what() << " t=" << simTime() << "\n";
+    } catch (...) {
+        std::cout << "[TOW-FAIL] manager " << vehicleId
+                  << " err=unknown t=" << simTime() << "\n";
+    }
+}
+
+void TraCIScenarioManager::pollCrashSupervisor()
+{
+    if (!enableCrashSupervisor || !commandIfc) return;
+
+    bool workRemaining = false;
+    for (const auto& vehicleId : crashWreckIds_) {
+        if (crashTowed_.count(vehicleId)) continue;
+        workRemaining = true;
+
+        if (!crashInjected_.count(vehicleId)) {
+            auto pending = crashPendingInjectAt_.find(vehicleId);
+            if (pending != crashPendingInjectAt_.end()) {
+                if (simTime() >= pending->second) {
+                    freezeCrashWreck(vehicleId);
+                    crashPendingInjectAt_.erase(pending);
+                }
+            } else if (vehicleOnInternalConflictLane(vehicleId)) {
+                if (crashOnBoxEntrySec > SIMTIME_ZERO) {
+                    crashPendingInjectAt_[vehicleId] = simTime() + crashOnBoxEntrySec;
+                    std::cout << "[CRASH-BOX-ENTRY] manager " << vehicleId
+                              << " inject_at=" << crashPendingInjectAt_[vehicleId] << "\n";
+                } else {
+                    freezeCrashWreck(vehicleId);
+                }
+            }
+        } else {
+            // Re-assert freeze so SUMO cannot coast the wreck out of the box.
+            try {
+                auto v = commandIfc->vehicle(vehicleId);
+                v.setSpeedMode(0);
+                v.setSpeed(0.0);
+            } catch (...) {
+            }
+            auto towIt = crashTowAt_.find(vehicleId);
+            if (towIt != crashTowAt_.end() && simTime() >= towIt->second) {
+                towCrashWreck(vehicleId);
+            }
+        }
+    }
+
+    if (workRemaining && crashSupervisorPollTrigger_) {
+        scheduleAt(simTime() + crashPollPeriodSec, crashSupervisorPollTrigger_);
     }
 }
 

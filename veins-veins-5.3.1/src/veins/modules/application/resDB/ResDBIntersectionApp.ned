@@ -104,6 +104,9 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         double rollbackVcTimeoutSec @unit(s)               = default(3s);
         string rollbackFaultMode                           = default("per_epoch"); // per_epoch | anchored
 
+        // ── Scenario 16: app mute grace after manager freeze (freeze/tow is manager-owned)
+        double crashMacGraceSec @unit(s)                   = default(0.2s);
+
         // ── Milestone 4: view-change (VC) support ─────────────────────────────
         // PBFT complaint-timer duration in sim-seconds. A follower arms this
         // only after its local discovery round reaches COMPLETE.
