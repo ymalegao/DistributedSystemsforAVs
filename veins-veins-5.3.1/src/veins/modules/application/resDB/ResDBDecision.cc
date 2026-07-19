@@ -795,6 +795,25 @@ void ResDBIntersectionApp::processOrders()
                 order_applied_ = true;
                 std::cout << "[ORDER-WARN] r" << replicaId_
                           << " no slot in current epoch; staying stopped/excluded\n";
+                // A late ambulance excluded from the just-committed order must force a
+                // rollback: broadcast its emergency arrival (peers witness it → each echoes
+                // a CANCEL, forming the f+1 CANCEL cert) and (re)arm the announce timer to
+                // keep re-broadcasting until it is admitted to a committed order. Without
+                // this, deactivateDiscovery("order-applied") + the order_applied_ guard
+                // silence the ambulance and no rollback is ever triggered.
+                if (is_ambulance_ && enableRollback_) {
+                    std::cout << "[AMBULANCE-EXCLUDED] r" << replicaId_
+                              << " ambulance not in committed epoch=" << ohdr.epoch
+                              << " (n_vehicles=" << ohdr.n_vehicles
+                              << "); forcing emergency arrival to trigger rollback\n";
+                    broadcastArrivalAnnouncement(/*forceEmergency=*/true);
+                    if (!broadcastArrivalAnnouncement_timer_)
+                        broadcastArrivalAnnouncement_timer_ =
+                            new cMessage("resdbBroadcastArrivalAnnouncement");
+                    if (!broadcastArrivalAnnouncement_timer_->isScheduled())
+                        scheduleAt(simTime() + broadcast_arrival_announcement_interval_,
+                                   broadcastArrivalAnnouncement_timer_);
+                }
             }
             continue;
         }

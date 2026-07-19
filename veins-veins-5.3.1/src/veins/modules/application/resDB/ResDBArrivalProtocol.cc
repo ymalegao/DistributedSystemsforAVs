@@ -475,9 +475,12 @@ void ResDBIntersectionApp::attachAmbulanceCryptoToAnnouncement(ArrivalAnnounceme
 
 // ── broadcastArrivalAnnouncement (port of V2VArrivalProtocol::broadcastArrivalAnnouncement) ──
 
-void ResDBIntersectionApp::broadcastArrivalAnnouncement()
+void ResDBIntersectionApp::broadcastArrivalAnnouncement(bool forceEmergency)
 {
-    if (current_phase_ == ConsensusPhase::DEPARTED || order_applied_) return;
+    // forceEmergency lets a late ambulance keep announcing after order_applied_ so peers
+    // witness it and echo a CANCEL (the rollback trigger). Never override DEPARTED / no mobility.
+    if (current_phase_ == ConsensusPhase::DEPARTED) return;
+    if (order_applied_ && !forceEmergency) return;
     if (!mobility) return;
 
     TraCICommandInterface* traci = mobility->getCommandInterface();
@@ -598,21 +601,30 @@ void ResDBIntersectionApp::gossipArrivalAnnouncement(const ArrivalAnnouncement& 
                                                      const std::vector<uint8_t>& announceBytes)
 {
     if (!gossip_enabled_ || announceBytes.empty() || ann.carId.empty()) return;
-    if (propose_submitted_ || order_applied_) return;
+    // A late ambulance excluded from the committed order is an emergency that must keep
+    // propagating post-commit: replicas out of its radio range (notably the static units)
+    // otherwise never witness it, so the CANCEL can't reach f+1 echoes. This mirrors the
+    // in-flight-consensus case where gossip already floods the announcement to everyone.
+    const bool ambulanceEmergency = enableRollback_ && ann.isAmbulance &&
+        has_committed_order_ && !isEpochTombstoned((uint32_t)ann.epoch) &&
+        !committed_order_vehicle_ids_.count(extractReplicaId(ann.carId));
+    if ((propose_submitted_ || order_applied_) && !ambulanceEmergency) return;
     if (!announcement_relay_tracker_.tryRelay((uint32_t)ann.epoch, ann.carId)) return;
 
     sendArrivalAnnouncementGossipPayload(
-        ann.carId, (uint32_t)ann.epoch, announceBytes, "verified");
+        ann.carId, (uint32_t)ann.epoch, announceBytes,
+        ambulanceEmergency ? "ambulance-emergency" : "verified", ambulanceEmergency);
 }
 
 void ResDBIntersectionApp::sendArrivalAnnouncementGossipPayload(
     const std::string& carId,
     uint32_t epoch,
     const std::vector<uint8_t>& announceBytes,
-    const char* reason)
+    const char* reason,
+    bool forceEmergency)
 {
     if (!gossip_enabled_ || announceBytes.empty() || carId.empty()) return;
-    if (propose_submitted_ || order_applied_) return;
+    if ((propose_submitted_ || order_applied_) && !forceEmergency) return;
 
     auto inner = resdb_gossip::serializeAnnouncement(epoch, announceBytes);
     auto signedPayload = resdbwire::packSignedPacket(
@@ -650,11 +662,20 @@ void ResDBIntersectionApp::handleArrivalAnnouncementGossip(BFTMessage* msg)
     std::vector<uint8_t> announceBytes;
     if (!resdb_gossip::parseAnnouncement(view.resdbBytes, view.resdbLen,
                                          epoch, announceBytes)) return;
-    if (has_committed_order_ && epoch <= last_committed_epoch_) return;
-    if ((int)epoch < (int)current_epoch_) return;
 
     BFTMessage* announceMsg = makeArrivalAnnouncementMessage(
         announceBytes, msg->getFromReplicaId(), replicaId_);
+    // Peek at the announcement: a late ambulance excluded from the committed order must
+    // bypass the post-commit suppression below, otherwise its arrival for the (already
+    // committed) epoch is dropped and out-of-range replicas never witness it to CANCEL.
+    ArrivalAnnouncement peek = deserializeArrivalAnnouncement(announceMsg);
+    const bool ambulanceEmergency = enableRollback_ && peek.isAmbulance &&
+        has_committed_order_ && !isEpochTombstoned(epoch) &&
+        !committed_order_vehicle_ids_.count(extractReplicaId(peek.carId));
+    if (!ambulanceEmergency) {
+        if (has_committed_order_ && epoch <= last_committed_epoch_) { delete announceMsg; return; }
+        if ((int)epoch < (int)current_epoch_) { delete announceMsg; return; }
+    }
     handleArrivalAnnouncement(announceMsg, true, msg->getFromReplicaId());
     delete announceMsg;
 }

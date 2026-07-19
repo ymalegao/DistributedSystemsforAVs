@@ -509,6 +509,22 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
             delete msg;
             return;
         }
+        // Late ambulance excluded from the committed order keeps re-broadcasting its
+        // emergency arrival (bypassing order_applied_) until admitted to a committed order,
+        // so peers witness it and echo a CANCEL. Checked before the normal COLLECTING branch
+        // because deactivateDiscovery("order-applied") leaves discovery_.state == INACTIVE.
+        if (is_ambulance_ && enableRollback_ && has_committed_order_ &&
+                !committed_order_vehicle_ids_.count(replicaId_) &&
+                !isEpochTombstoned(last_committed_epoch_) &&
+                current_phase_ != ConsensusPhase::DEPARTED) {
+            broadcastArrivalAnnouncement(/*forceEmergency=*/true);
+            scheduleAt(simTime() + broadcast_arrival_announcement_interval_,
+                       broadcastArrivalAnnouncement_timer_);
+            std::cout << "[AMBULANCE-FORCE-ANN] r" << replicaId_
+                      << " excluded from committed epoch=" << last_committed_epoch_
+                      << "; re-broadcasting emergency arrival t=" << simTime() << "\n";
+            return;
+        }
         if (!cert_broadcast_ && discovery_.state == DiscoveryState::COLLECTING) {
             broadcastArrivalAnnouncement();
             scheduleAt(simTime() + broadcast_arrival_announcement_interval_, broadcastArrivalAnnouncement_timer_);

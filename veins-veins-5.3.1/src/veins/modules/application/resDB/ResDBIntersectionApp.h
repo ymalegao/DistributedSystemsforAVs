@@ -319,7 +319,7 @@ private:
     void finishDiscoveryRound(const char* reason);
     void deactivateDiscovery(const char* reason);
     const char* discoveryStateName() const;
-    void broadcastArrivalAnnouncement();
+    void broadcastArrivalAnnouncement(bool forceEmergency = false);
     void attachAmbulanceCryptoToAnnouncement(ArrivalAnnouncement& ann);
     void handleArrivalAnnouncement(BFTMessage* msg);
     void handleArrivalAnnouncement(BFTMessage* msg, bool viaGossip, int carrierReplicaId);
@@ -328,7 +328,8 @@ private:
     void sendArrivalAnnouncementGossipPayload(const std::string& carId,
                                              uint32_t epoch,
                                              const std::vector<uint8_t>& announceBytes,
-                                             const char* reason);
+                                             const char* reason,
+                                             bool forceEmergency = false);
     void handleArrivalAnnouncementGossip(BFTMessage* msg);
     void sendArrivalEcho(const ArrivalAnnouncement& ann);
     void handleArrivalEcho(BFTMessage* msg);
