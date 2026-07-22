@@ -29,11 +29,17 @@ RE_BYTES  = re.compile(r"\[METRICS (\d+)\]\s+Bytes_Sent:\s+(\d+)")
 RE_CLEAR  = re.compile(r"Replica (\d+) cleared intersection")
 RE_CTO    = re.compile(r"\[METRICS (\d+)\]\s+Consensus_Timeout:\s+1")
 RE_STO    = re.compile(r"\[METRICS (\d+)\]\s+StopSign_Timeout:\s+1")
+# Who actually supplies the ARRIVAL_ECHOes that certificates get built from. In the ON
+# config replicas 0-3 are vehicles and 4-7 are the static units, so the split tells us
+# whether units merely help or carry certificate formation outright.
+RE_ECHOSRC = re.compile(r"received echo from (\d+)")
+N_VEHICLES = 4
 
 
 def parse_log(path):
     ordered, sent, recv, byts, cleared, cto, sto = set(), {}, {}, {}, set(), set(), set()
     lat = []
+    echo_veh = echo_unit = 0
     with open(path, errors="ignore") as fh:
         for line in fh:
             m = RE_ORDER.search(line);  ordered.add(int(m.group(1)))         if m else None
@@ -44,8 +50,14 @@ def parse_log(path):
             m = RE_CLEAR.search(line);  cleared.add(int(m.group(1)))         if m else None
             m = RE_CTO.search(line);    cto.add(int(m.group(1)))             if m else None
             m = RE_STO.search(line);    sto.add(int(m.group(1)))             if m else None
+            m = RE_ECHOSRC.search(line)
+            if m:
+                if int(m.group(1)) < N_VEHICLES: echo_veh += 1
+                else:                            echo_unit += 1
     return {
         "committed": 1 if ordered else 0,
+        "echo_veh": echo_veh,
+        "echo_unit": echo_unit,
         "n_ordered": len(ordered),
         "consensus_latency": statistics.mean(lat) if lat else None,
         "msgs_sent": sum(sent.values()),
@@ -123,9 +135,30 @@ def main():
         md.append(f"| {r['k']} | {g(r['off_c'],'{:.0%}')} | {g(r['on_c'],'{:.0%}')} | "
                   f"{g(r['off_l'])} | {g(r['on_l'])} | {g(r['off_m'],'{:.0f}')} | {g(r['on_m'],'{:.0f}')} |")
     md += ["",
-           "**Reading it:** the *frontier* is commit-success vs faults — OFF collapses once "
-           "`k > 1`, ON survives to `k = 2` (the units supply the extra quorum). The *cost* is "
-           "the higher `msgs sent` for ON: the price of the added fault tolerance.\n"]
+           "**Reading it:** the *frontier* is commit-success vs faults — OFF degrades at "
+           "`k = 1` and collapses at `k = 2`, ON survives all three (the units supply the extra "
+           "quorum). The *cost* is the higher `msgs sent` for ON: the price of the added fault "
+           "tolerance. Note OFF's message count *falls* as `k` rises — that is silent replicas "
+           "ceasing to transmit, i.e. the system dying, not efficiency.\n",
+           "## Who supplies the ARRIVAL_ECHOes\n",
+           "Measured from `received echo from <replica>` (replicas 0-3 are vehicles, 4-7 are "
+           "units). This is the certificate layer, not the PBFT quorum:\n",
+           "| k faults | OFF: veh / unit echoes | ON: veh / unit echoes |",
+           "|---|---|---|"]
+    for k in ks:
+        def es(label):
+            recs = runs.get((label, k), [])
+            if not recs: return "n/a"
+            v = statistics.mean(r["echo_veh"] for r in recs)
+            u = statistics.mean(r["echo_unit"] for r in recs)
+            return f"{v:.1f} / {u:.1f}"
+        md.append(f"| {k} | {es('OFF')} | {es('ON')} |")
+    md += ["",
+           "When no units are present, vehicles echo each other and certificates form normally. "
+           "When units are present they win the race to the f+1 echo threshold, `cert_broadcast_` "
+           "latches, and later vehicle echoes are dropped — so units end up carrying certificate "
+           "formation. Consensus still commits either way; this is a property of the echo layer "
+           "worth stating explicitly rather than an error.\n"]
     report = os.path.join(RESULTS, "report.md")
     with open(report, "w") as fh:
         fh.write("\n".join(md))

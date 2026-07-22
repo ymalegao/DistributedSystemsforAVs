@@ -24,6 +24,20 @@ RESULTS="$HERE/results"
 FASTXML="$FOURWAY/config_fast.xml"
 REPS="${1:-1}"
 TIMEOUT="${2:-180}"
+# $3 = Byzantine type. 0 (default) = pure omission via byzantinePbftSilent — the
+# AVAILABILITY study (units as extra voters). This is the study we report.
+#
+# >0 injects that byzantineType instead. NOTE on 2 = INVALID_SIG (corrupts ARRIVAL_ECHO
+# signatures): this was tried as a "units as witnesses" study and DOES NOT WORK as such.
+# Measured 2026-07-21: in the with-units arm, 100% of accepted echoes come from the units
+# (the units re-echo on every re-announcement and win the race to f+1, after which
+# cert_broadcast_ latches and vehicle echoes are dropped). The Byzantine vehicles' corrupt
+# echoes therefore never enter a certificate, so nothing is ever rejected and the attack
+# is not actually exercised. Do not report that arm as evidence of witness resilience.
+# Results land in results_byz<N>/ so the studies never collide.
+BYZ_TYPE="${3:-0}"
+KLIST="${4:-0 1 2}"
+[ "$BYZ_TYPE" != "0" ] && RESULTS="$HERE/results_byz${BYZ_TYPE}"
 mkdir -p "$RESULTS"
 
 gen_fault_ini() {   # $1 = k ; prints path to generated ini
@@ -44,7 +58,11 @@ gen_fault_ini() {   # $1 = k ; prints path to generated ini
     local i
     for ((i=1; i<=k; i++)); do
       echo "*.node[${i}].appl.isByzantine = true"
-      echo "*.node[${i}].appl.byzantinePbftSilent = true"
+      if [ "$BYZ_TYPE" = "0" ]; then
+        echo "*.node[${i}].appl.byzantinePbftSilent = true"   # omission fault
+      else
+        echo "*.node[${i}].appl.byzantineType = ${BYZ_TYPE}"  # active misbehaviour
+      fi
     done
   } > "$f"
   printf '%s\n' "$f"
@@ -59,12 +77,16 @@ run_one() {   # $1=label $2=config $3=k $4=rep
       ./run-resdb-simulation.sh -f "$FOURWAY/omnetpp.ini" -f "$ini" \
         -u Cmdenv -c "$config" ) > "$log" 2>&1
   rc=$?
-  echo "  ${label} k=${k} rep=${rep} exit=${rc} -> $(basename "$log")"
+  local ord quiet rej
+  ord=$(grep -c "Order_Decided_Time" "$log")
+  quiet=$(grep -c "QUIET entry for replica" "$log")
+  rej=$(grep -c "CERT-INVALID" "$log")
+  echo "  ${label} k=${k} rep=${rep} exit=${rc} order_commits=${ord} quiet=${quiet} certs_rejected=${rej}"
 }
 
 echo "=== RSU ablation matrix: reps=${REPS} timeout=${TIMEOUT}s ==="
 for rep in $(seq 1 "$REPS"); do
-  for k in 0 1 2; do
+  for k in $KLIST; do
     run_one OFF FourVehiclesResDB          "$k" "$rep"
     run_one ON  FourVehiclesFourUnitsResDB "$k" "$rep"
   done

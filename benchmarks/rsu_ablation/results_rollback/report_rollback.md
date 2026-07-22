@@ -6,12 +6,16 @@
 
 **Metric:** did an epoch-0 ORDER commit at all? If not, vehicles cross via the stop-sign **timeout fallback** — BFT agreement bypassed, the safety-relevant degradation this protocol exists to prevent.
 
-| k silent | consensus OFF | consensus ON | fallbacks OFF | fallbacks ON |
+**Caveat on the fallback column:** the intended `sim-time-limit = 25s` does *not* actually apply (the generated ini sets it under `[General]`, but the scenario's own `[Config ...]` section is more specific and wins), so runs continue to t≈65-77s and some are cut off by the wall-clock timeout instead. The **committed** column is robust — the outcome is decided by t≈20s, which every run reaches. The **fallback count** is not directly comparable across cells, since it keeps accumulating for as long as a given run happened to survive.
+
+**Rep counts vary per k** (n shown below): the k=0/4/5/6 cells were re-run with 3 reps, while k=1/2/3 retain 2 reps from the earlier sweep of the same script and settings. Weight the cells accordingly.
+
+| k silent | consensus OFF (n) | consensus ON (n) | fallbacks OFF | fallbacks ON |
 |---|---|---|---|---|
-| 0 | 100% | 100% | 0.0 | 0.0 |
-| 1 | 100% | 100% | 0.0 | 0.0 |
-| 2 | 100% | 100% | 0.0 | 0.0 |
-| 3 | 100% | 100% | 0.0 | 0.0 |
-| 4 | 100% | 100% | 0.0 | 0.0 |
-| 5 | 0% | 100% | 8.0 | 0.0 |
-| 6 | 0% | 100% | 16.0 | 0.0 |
+| 0 | 100% (3) | 100% (3) | 0.0 | 0.0 |
+| 1 | 100% (2) | 100% (2) | 0.0 | 0.0 |
+| 2 | 100% (2) | 100% (2) | 0.0 | 0.0 |
+| 3 | 100% (2) | 100% (2) | 0.0 | 0.0 |
+| 4 | 67% (3) | 100% (3) | 3.0 | 0.0 |
+| 5 | 67% (3) | 100% (3) | 5.3 | 0.0 |
+| 6 | 0% (3) | 100% (3) | 16.0 | 0.0 |

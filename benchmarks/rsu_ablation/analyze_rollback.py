@@ -74,6 +74,7 @@ def main():
         print(f"{k:>2} │ OFF {f(offr):>5} (n={offn})  ON {f(onr):>5} (n={onn}) │ "
               f"OFF {f(offf,'{:.1f}'):>5}   ON {f(onf,'{:.1f}'):>5}")
         rows.append(dict(k=k, off=offr, on=onr, offf=offf, onf=onf,
+                         offn=offn, onn=onn,
                          offq=meanf("OFF", k, "quorum"), onq=meanf("ON", k, "quorum")))
 
     md = ["# 18-vehicle fault pressure — consensus availability with/without RSU\n",
@@ -86,11 +87,21 @@ def main():
           "**Metric:** did an epoch-0 ORDER commit at all? If not, vehicles cross via the "
           "stop-sign **timeout fallback** — BFT agreement bypassed, the safety-relevant "
           "degradation this protocol exists to prevent.\n",
-          "| k silent | consensus OFF | consensus ON | fallbacks OFF | fallbacks ON |",
+          "**Caveat on the fallback column:** the intended `sim-time-limit = 25s` does *not* "
+          "actually apply (the generated ini sets it under `[General]`, but the scenario's own "
+          "`[Config ...]` section is more specific and wins), so runs continue to t≈65-77s and "
+          "some are cut off by the wall-clock timeout instead. The **committed** column is "
+          "robust — the outcome is decided by t≈20s, which every run reaches. The **fallback "
+          "count** is not directly comparable across cells, since it keeps accumulating for as "
+          "long as a given run happened to survive.\n",
+          "**Rep counts vary per k** (n shown below): the k=0/4/5/6 cells were re-run with 3 "
+          "reps, while k=1/2/3 retain 2 reps from the earlier sweep of the same script and "
+          "settings. Weight the cells accordingly.\n",
+          "| k silent | consensus OFF (n) | consensus ON (n) | fallbacks OFF | fallbacks ON |",
           "|---|---|---|---|---|"]
     for r in rows:
         g = lambda x, p="{:.0%}": "n/a" if x is None else p.format(x)
-        md.append(f"| {r['k']} | {g(r['off'])} | {g(r['on'])} | "
+        md.append(f"| {r['k']} | {g(r['off'])} ({r['offn']}) | {g(r['on'])} ({r['onn']}) | "
                   f"{g(r['offf'],'{:.1f}')} | {g(r['onf'],'{:.1f}')} |")
     with open(os.path.join(RESULTS, "report_rollback.md"), "w") as fh:
         fh.write("\n".join(md))
