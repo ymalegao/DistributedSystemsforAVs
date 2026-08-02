@@ -17,6 +17,7 @@ from collections import defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RESULTS = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "results_rollback_msg")
+FIGS = os.path.join(HERE, "figures"); os.makedirs(FIGS, exist_ok=True)  # consolidated output
 RE_NAME = re.compile(r"(OFF|ON)_k(\d+)_rep(\d+)\.log$")
 RE_MSG  = re.compile(r"\[METRICS (\d+)\]\s+Messages_Sent:\s+(\d+)")
 RE_ORD  = re.compile(r"Order_Decided_Time")
@@ -93,7 +94,7 @@ def main():
                  fontsize=10)
     ax.set_xticks(xs); ax.legend(); ax.grid(alpha=.3, axis="y")
     fig.tight_layout()
-    out = os.path.join(RESULTS, "msg_overhead.png")
+    out = os.path.join(FIGS, "18veh_msg_cost.png")
     fig.savefig(out, dpi=130)
     print(f"\nPlot: {out}")
 

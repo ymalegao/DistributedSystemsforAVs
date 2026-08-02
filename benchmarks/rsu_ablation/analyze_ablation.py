@@ -19,6 +19,7 @@ from collections import defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RESULTS = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "results")
+FIGS = os.path.join(HERE, "figures"); os.makedirs(FIGS, exist_ok=True)  # consolidated output
 
 RE_NAME   = re.compile(r"(OFF|ON)_k(\d+)_rep(\d+)\.log$")
 RE_ORDER  = re.compile(r"\[METRICS (\d+)\]\s+Order_Decided_Time:")
@@ -159,7 +160,7 @@ def main():
            "latches, and later vehicle echoes are dropped — so units end up carrying certificate "
            "formation. Consensus still commits either way; this is a property of the echo layer "
            "worth stating explicitly rather than an error.\n"]
-    report = os.path.join(RESULTS, "report.md")
+    report = os.path.join(FIGS, "4veh_report.md")
     with open(report, "w") as fh:
         fh.write("\n".join(md))
     print(f"Report written: {report}")
@@ -180,7 +181,7 @@ def main():
     ax.set_xlabel("PBFT-silent replicas (k)"); ax.set_ylabel("consensus committed (%)")
     ax.set_title("Fault-tolerance frontier:\nRSU units extend the survivable fault count", fontsize=11)
     ax.set_xticks(xs); ax.set_ylim(-5, 105); ax.legend(); ax.grid(alpha=.3)
-    fig.tight_layout(); fig.savefig(os.path.join(RESULTS, "frontier.png"), dpi=130)
+    fig.tight_layout(); fig.savefig(os.path.join(FIGS, "4veh_frontier.png"), dpi=130)
     # overhead
     fig, ax = plt.subplots(figsize=(6, 4))
     w = .35
@@ -189,7 +190,7 @@ def main():
     ax.set_xlabel("PBFT-silent replicas (k)"); ax.set_ylabel("total messages sent")
     ax.set_title("Cost of RSU units: added consensus traffic")
     ax.set_xticks(xs); ax.legend(); ax.grid(alpha=.3, axis="y")
-    fig.tight_layout(); fig.savefig(os.path.join(RESULTS, "overhead.png"), dpi=130)
+    fig.tight_layout(); fig.savefig(os.path.join(FIGS, "4veh_overhead.png"), dpi=130)
 
     # latency — the *other* cost of units: a bigger quorum takes longer to commit.
     # Points where consensus never committed (e.g. OFF at k=2) have no latency and are
@@ -212,9 +213,9 @@ def main():
     ax.set_ylabel("consensus latency, propose→commit (s)")
     ax.set_title("Cost of RSU units:\nconsensus latency (mean ± sd over reps)", fontsize=11)
     ax.set_xticks(xs); ax.set_ylim(bottom=0); ax.legend(); ax.grid(alpha=.3)
-    fig.tight_layout(); fig.savefig(os.path.join(RESULTS, "latency.png"), dpi=130)
-    print("Plots written: " + ", ".join(os.path.join(RESULTS, p) for p in
-          ("frontier.png", "overhead.png", "latency.png")))
+    fig.tight_layout(); fig.savefig(os.path.join(FIGS, "4veh_latency.png"), dpi=130)
+    print("Plots written to figures/: " + ", ".join(
+          ("4veh_frontier.png", "4veh_overhead.png", "4veh_latency.png")))
 
 
 if __name__ == "__main__":

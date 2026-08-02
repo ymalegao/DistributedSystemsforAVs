@@ -24,6 +24,7 @@ from collections import defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RESULTS = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "results_rollback")
+FIGS = os.path.join(HERE, "figures"); os.makedirs(FIGS, exist_ok=True)  # consolidated output
 RE_NAME = re.compile(r"(OFF|ON)_k(\d+)_rep(\d+)\.log$")
 STAGES = [("ep0", "Order_Decided_Time", "epoch-0\ncommitted"),
           ("wit", "CANCEL-WITNESS",     "ambulance\nwitnessed"),
@@ -68,7 +69,7 @@ def main():
             if n == 0: continue
             g = lambda x: "n/a" if x is None else f"{x:.0%}"
             md.append(f"| {k} | {arm} | {g(row[0])} | {g(row[1])} | {g(row[2])} | {g(row[3])} | {n} |")
-    with open(os.path.join(RESULTS, "report_rollback_pipeline.md"), "w") as fh:
+    with open(os.path.join(FIGS, "18veh_rollback_report.md"), "w") as fh:
         fh.write("\n".join(md))
 
     try:
@@ -97,7 +98,7 @@ def main():
     fig.suptitle("Emergency rollback pipeline: RSU keeps the late-ambulance rollback "
                  "available under fault pressure", fontsize=12)
     fig.tight_layout()
-    fig.savefig(os.path.join(RESULTS, "rollback_pipeline.png"), dpi=130)
+    fig.savefig(os.path.join(FIGS, "18veh_rollback_pipeline.png"), dpi=130)
 
     # Figure 2: rollback success (cancel-committed) rate vs k
     fig, ax = plt.subplots(figsize=(7.4, 4.6))
@@ -111,7 +112,7 @@ def main():
                  "(cancel-committed = the late ambulance was safely re-ordered)", fontsize=11)
     ax.set_xticks(ks); ax.set_ylim(-5,105); ax.legend(); ax.grid(alpha=.3)
     fig.tight_layout()
-    fig.savefig(os.path.join(RESULTS, "rollback_success.png"), dpi=130)
+    fig.savefig(os.path.join(FIGS, "18veh_rollback_success.png"), dpi=130)
     print("Report: report_rollback_pipeline.md")
     print("Plots: rollback_pipeline.png, rollback_success.png")
 

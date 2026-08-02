@@ -15,6 +15,7 @@ from collections import defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RESULTS = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "results_scaling")
+FIGS = os.path.join(HERE, "figures"); os.makedirs(FIGS, exist_ok=True)  # consolidated output
 RE_NAME = re.compile(r"(OFF|ON)_v(\d+)_k(\d+)_rep(\d+)\.log$")
 RE_MSG  = re.compile(r"\[METRICS (\d+)\]\s+Messages_Sent:\s+(\d+)")
 RE_ORD  = re.compile(r"Order_Decided_Time")
@@ -87,7 +88,7 @@ def main():
         g = lambda x: "n/a" if x is None else f"{x:.0f}"
         md.append(f"| {t['V']} | {t['arm']} | {t['kmin']} | {f(t['r0'])} | {g(t['m0'])} | "
                   f"{t['kmax']} | {f(t['rmax'])} | {g(t['mmax'])} |")
-    with open(os.path.join(RESULTS, "report_scaling.md"), "w") as fh:
+    with open(os.path.join(FIGS, "scaling_report.md"), "w") as fh:
         fh.write("\n".join(md))
 
     try:
@@ -123,7 +124,7 @@ def main():
     ax.set_xlabel("vehicles at intersection"); ax.set_ylabel("runs reaching consensus (%)")
     ax.set_title("Consensus availability vs intersection size\n(dashed = no faults, solid = at each config's fault frontier)", fontsize=11)
     ax.set_xticks(Vs); ax.set_ylim(-5,105); ax.legend(fontsize=8); ax.grid(alpha=.3)
-    fig.tight_layout(); fig.savefig(os.path.join(RESULTS,"scaling_consensus.png"), dpi=130)
+    fig.tight_layout(); fig.savefig(os.path.join(FIGS,"scaling_consensus.png"), dpi=130)
 
     # Figure 2: messages per run
     fig, ax = plt.subplots(figsize=(7.8, 4.8))
@@ -134,8 +135,8 @@ def main():
     ax.set_xlabel("vehicles at intersection"); ax.set_ylabel("total messages sent per run")
     ax.set_title("Message cost vs intersection size\n(dashed = no faults, solid = at fault frontier)", fontsize=11)
     ax.set_xticks(Vs); ax.legend(fontsize=8); ax.grid(alpha=.3)
-    fig.tight_layout(); fig.savefig(os.path.join(RESULTS,"scaling_msgs.png"), dpi=130)
-    print(f"\nReport: {os.path.join(RESULTS,'report_scaling.md')}")
+    fig.tight_layout(); fig.savefig(os.path.join(FIGS,"scaling_msgs.png"), dpi=130)
+    print(f"\nReport: {os.path.join(FIGS,'scaling_report.md')}")
     print(f"Plots: scaling_consensus.png, scaling_msgs.png")
 
 

@@ -19,6 +19,7 @@ from collections import defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RESULTS = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "results_rollback")
+FIGS = os.path.join(HERE, "figures"); os.makedirs(FIGS, exist_ok=True)  # consolidated output
 
 RE_NAME = re.compile(r"(OFF|ON)_k(\d+)_rep(\d+)\.log$")
 RE_ORD  = re.compile(r"Order_Decided_Time")
@@ -103,9 +104,9 @@ def main():
         g = lambda x, p="{:.0%}": "n/a" if x is None else p.format(x)
         md.append(f"| {r['k']} | {g(r['off'])} ({r['offn']}) | {g(r['on'])} ({r['onn']}) | "
                   f"{g(r['offf'],'{:.1f}')} | {g(r['onf'],'{:.1f}')} |")
-    with open(os.path.join(RESULTS, "report_rollback.md"), "w") as fh:
+    with open(os.path.join(FIGS, "18veh_availability_report.md"), "w") as fh:
         fh.write("\n".join(md))
-    print(f"\nReport: {os.path.join(RESULTS,'report_rollback.md')}")
+    print(f"\nReport: {os.path.join(FIGS,'18veh_availability_report.md')}")
 
     try:
         import matplotlib; matplotlib.use("Agg")
@@ -124,7 +125,7 @@ def main():
                  "RSUs keep consensus alive where it otherwise collapses", fontsize=11)
     ax.set_xticks(xs); ax.set_ylim(-5, 105); ax.legend(); ax.grid(alpha=.3)
     fig.tight_layout()
-    out = os.path.join(RESULTS, "rollback_availability.png")
+    out = os.path.join(FIGS, "18veh_availability.png")
     fig.savefig(out, dpi=130)
     print(f"Plot: {out}")
 
