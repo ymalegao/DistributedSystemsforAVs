@@ -92,6 +92,16 @@ def main():
         vals = [r[key] for r in recs if r[key] is not None]
         return statistics.pstdev(vals) if len(vals) > 1 else 0.0
 
+    def msgs_committed(label, k):
+        """Messages averaged over COMMITTED runs only (the cost 'when it works').
+        Never blend successful and failed runs into one mean — a failed run isn't a
+        cheaper success, it's a collapse. Returns (mean, n_committed, n_total, lo, hi)."""
+        recs = runs.get((label, k), [])
+        ok = [r["msgs_sent"] for r in recs if r["committed"] and r["msgs_sent"] is not None]
+        if not ok:
+            return (None, 0, len(recs), None, None)
+        return (statistics.mean(ok), len(ok), len(recs), min(ok), max(ok))
+
     ks = sorted({k for (_, k) in runs})
     # ── table ──
     hdr = f"{'k':>2} │ {'committed':^17} │ {'consensus latency (s)':^23} │ {'msgs sent (total)':^19}"
@@ -109,12 +119,17 @@ def main():
         lines.append(
             f"{k:>2} │ OFF {f(offc,'{:.0%}'):>5}  ON {f(onc,'{:.0%}'):>5} │ "
             f"OFF {f(offl):>7}  ON {f(onl):>7} │ OFF {f(offm,'{:.0f}'):>6} ON {f(onm,'{:.0f}'):>6}")
+        offmok, offnok, offntot, offlo, offhi = msgs_committed("OFF", k)
+        onmok,  onnok,  onntot,  onlo,  onhi  = msgs_committed("ON", k)
         rows.append(dict(k=k, off_c=offc, on_c=onc, off_l=offl, on_l=onl,
                          off_m=offm, on_m=onm, off_n=offn, on_n=onn,
                          off_l_sd=spread("OFF", k, "consensus_latency"),
                          on_l_sd=spread("ON", k, "consensus_latency"),
                          off_m_sd=spread("OFF", k, "msgs_sent"),
-                         on_m_sd=spread("ON", k, "msgs_sent")))
+                         on_m_sd=spread("ON", k, "msgs_sent"),
+                         # messages over committed runs only (cost when it works)
+                         off_mok=offmok, off_nok=offnok, off_ntot=offntot, off_lo=offlo, off_hi=offhi,
+                         on_mok=onmok, on_nok=onnok, on_ntot=onntot, on_lo=onlo, on_hi=onhi))
     table = "\n".join(lines)
     print("\n=== WITH / WITHOUT RSU — ablation summary ===\n" + table + "\n")
 
@@ -182,14 +197,37 @@ def main():
     ax.set_title("Fault-tolerance frontier:\nRSU units extend the survivable fault count", fontsize=11)
     ax.set_xticks(xs); ax.set_ylim(-5, 105); ax.legend(); ax.grid(alpha=.3)
     fig.tight_layout(); fig.savefig(os.path.join(FIGS, "4veh_frontier.png"), dpi=130)
-    # overhead
-    fig, ax = plt.subplots(figsize=(6, 4))
-    w = .35
-    ax.bar([x-w/2 for x in xs], [r["off_m"] or 0 for r in rows], w, label="without RSU", color="#d1495b")
-    ax.bar([x+w/2 for x in xs], [r["on_m"] or 0 for r in rows], w, label="with RSU", color="#2e8b57")
-    ax.set_xlabel("PBFT-silent replicas (k)"); ax.set_ylabel("total messages sent")
-    ax.set_title("Cost of RSU units: added consensus traffic")
-    ax.set_xticks(xs); ax.legend(); ax.grid(alpha=.3, axis="y")
+    # overhead — messages per COMMITTED run only (never average success with failure).
+    # A cell where no run committed gets a "consensus failed" marker, not a misleading
+    # blended bar. Error bars span min-max over the committed reps.
+    fig, ax = plt.subplots(figsize=(7, 4.4))
+    w = .38
+    def draw(side, mkey, nok, ntot, lokey, hikey, color, label):
+        drew_label = False
+        for r in rows:
+            x = r["k"] + side*w/2
+            m = r[mkey]
+            if m is not None:
+                yerr = [[m - r[lokey]], [r[hikey] - m]]
+                ax.bar(x, m, w, color=color, label=(label if not drew_label else None),
+                       yerr=yerr, capsize=3, ecolor="#333")
+                drew_label = True
+            else:
+                # no committed run at this k → mark failure instead of a bar
+                ax.plot(x, 0, marker="x", color=color, ms=9, mew=2.5)
+                ax.annotate("consensus\nfailed", xy=(x, 0), xytext=(0, 6),
+                            textcoords="offset points", ha="center", va="bottom",
+                            fontsize=7, color=color)
+        return drew_label
+    draw(-1, "off_mok", "off_nok", "off_ntot", "off_lo", "off_hi", "#d1495b", "without RSU")
+    draw(+1, "on_mok",  "on_nok",  "on_ntot",  "on_lo",  "on_hi",  "#2e8b57", "with RSU")
+    ax.set_xlabel("PBFT-silent replicas (k)")
+    ax.set_ylabel("messages per successful run")
+    ax.set_title("Cost of RSU units: messages per SUCCESSFUL run\n"
+                 "(failed cells marked, not averaged — bars are cost when consensus holds)",
+                 fontsize=10)
+    ax.set_xticks(xs); ax.set_ylim(bottom=0, top=1350)
+    ax.legend(loc="upper right"); ax.grid(alpha=.3, axis="y")
     fig.tight_layout(); fig.savefig(os.path.join(FIGS, "4veh_overhead.png"), dpi=130)
 
     # latency — the *other* cost of units: a bigger quorum takes longer to commit.
