@@ -47,25 +47,28 @@ def main():
     ks = sorted({k for _, k in runs})
 
     def cell(lbl, k):
-        # only average runs that actually emitted the metric (clean finish)
+        # cost when it works: average messages over COMMITTED runs only (never blend a
+        # failed run into the cost). Returns (mean, n_committed, n_total, rate, lo, hi).
         recs = [r for r in runs.get((lbl, k), []) if r["emitted"]]
-        if not recs:
-            return None, 0, None
-        msgs = statistics.mean(r["msgs"] for r in recs)
-        commit_rate = statistics.mean(r["committed"] for r in recs)
-        return msgs, len(recs), commit_rate
+        ntot = len(recs)
+        rate = statistics.mean(r["committed"] for r in recs) if recs else None
+        ok = [r["msgs"] for r in recs if r["committed"]]
+        if not ok:
+            return None, 0, ntot, rate, None, None
+        return statistics.mean(ok), len(ok), ntot, rate, min(ok), max(ok)
 
-    print("\n=== 18-veh messages per run (clean-finish only) ===")
-    print(f"{'k':>2} │ {'OFF msgs (n, commit%)':^26} │ {'ON msgs (n, commit%)':^26}")
-    print("─" * 62)
+    print("\n=== 18-veh messages per COMMITTED run ===")
+    print(f"{'k':>2} │ {'OFF msgs (ncommit, rate)':^28} │ {'ON msgs (ncommit, rate)':^28}")
+    print("─" * 66)
     rows = []
     for k in ks:
-        om, on_, oc = cell("OFF", k)
-        nm, nn, nc = cell("ON", k)
+        om, onk, ont, oc, olo, ohi = cell("OFF", k)
+        nm, nnk, nnt, nc, nlo, nhi = cell("ON", k)
         f = lambda v, p="{:.0f}": "n/a" if v is None else p.format(v)
-        print(f"{k:>2} │ OFF {f(om):>6} (n={on_}, {f(oc,'{:.0%}')})   │ "
-              f"ON {f(nm):>6} (n={nn}, {f(nc,'{:.0%}')})")
-        rows.append(dict(k=k, off=om, on=nm, offc=oc, onc=nc))
+        print(f"{k:>2} │ OFF {f(om):>6} (n={onk}/{ont}, {f(oc,'{:.0%}')})   │ "
+              f"ON {f(nm):>6} (n={nnk}/{nnt}, {f(nc,'{:.0%}')})")
+        rows.append(dict(k=k, off=om, on=nm, offc=oc, onc=nc,
+                         off_lo=olo, off_hi=ohi, on_lo=nlo, on_hi=nhi))
 
     try:
         import matplotlib; matplotlib.use("Agg")
@@ -76,23 +79,27 @@ def main():
     xs = [r["k"] for r in rows]
     w = 0.38
     fig, ax = plt.subplots(figsize=(7.6, 4.6))
-    ob = ax.bar([x - w/2 for x in xs], [r["off"] or 0 for r in rows], w,
-                label="without RSU (N=18)", color="#d1495b")
-    nb = ax.bar([x + w/2 for x in xs], [r["on"] or 0 for r in rows], w,
-                label="with 4 RSU (N=22)", color="#2e8b57")
-    # annotate bars where consensus FAILED — that is what causes the message dip
-    for r in rows:
-        for val, xoff, rate in ((r["off"], -w/2, r["offc"]), (r["on"], w/2, r["onc"])):
-            if val is not None and rate is not None and rate < 0.5:
-                ax.annotate("consensus\nfailed", xy=(r["k"] + xoff, val),
-                            xytext=(0, 4), textcoords="offset points",
-                            ha="center", va="bottom", fontsize=7, color="#555")
+    def draw(side, mkey, lokey, hikey, color, label):
+        drew = False
+        for r in rows:
+            x = r["k"] + side*w/2
+            m = r[mkey]
+            if m is not None:
+                yerr = [[m - r[lokey]], [r[hikey] - m]]
+                ax.bar(x, m, w, color=color, label=(label if not drew else None),
+                       yerr=yerr, capsize=3, ecolor="#333"); drew = True
+            else:  # no committed run at this k → mark failure, no bar
+                ax.plot(x, 0, marker="x", color=color, ms=9, mew=2.5)
+                ax.annotate("consensus\nfailed", xy=(x, 0), xytext=(0, 6),
+                            textcoords="offset points", ha="center", va="bottom",
+                            fontsize=7, color=color)
+    draw(-1, "off", "off_lo", "off_hi", "#d1495b", "without RSU (N=18)")
+    draw(+1, "on",  "on_lo",  "on_hi",  "#2e8b57", "with 4 RSU (N=22)")
     ax.set_xlabel("PBFT-silent vehicles (k)")
-    ax.set_ylabel("total messages sent per run (at t=30s)")
-    ax.set_title("18-vehicle message cost: RSU traffic holds until consensus fails\n"
-                 "(uniform 30s sim cap; a dip = the run stopped committing, not efficiency)",
-                 fontsize=10)
-    ax.set_xticks(xs); ax.legend(); ax.grid(alpha=.3, axis="y")
+    ax.set_ylabel("messages per successful run (at t=30s)")
+    ax.set_title("18-vehicle message cost per SUCCESSFUL run\n"
+                 "(committed runs only; failed cells marked, not averaged)", fontsize=10)
+    ax.set_xticks(xs); ax.set_ylim(bottom=0); ax.legend(); ax.grid(alpha=.3, axis="y")
     fig.tight_layout()
     out = os.path.join(FIGS, "18veh_msg_cost.png")
     fig.savefig(out, dpi=130)

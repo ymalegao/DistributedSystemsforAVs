@@ -54,7 +54,9 @@ def main():
         return (statistics.mean(r["committed"] for r in recs), len(recs)) if recs else (None, 0)
 
     def msgs(arm, V, k):
-        recs = [r for r in runs.get((arm, V, k), []) if r["emitted"]]
+        # cost when it works: average messages over COMMITTED runs only, never blend
+        # a failed run (which sends less because it collapsed) into the cost.
+        recs = [r for r in runs.get((arm, V, k), []) if r["emitted"] and r["committed"]]
         return statistics.mean(r["msgs"] for r in recs) if recs else None
 
     print("\n=== Scaling study: consensus rate + messages vs vehicle count ===")
@@ -132,8 +134,9 @@ def main():
         ys = series(arm, which, "msgs")
         ax.plot(Vs, [y if y is not None else float("nan") for y in ys],
                 mk+ls, color=col, label=lab, alpha=0.9)
-    ax.set_xlabel("vehicles at intersection"); ax.set_ylabel("total messages sent per run")
-    ax.set_title("Message cost vs intersection size\n(dashed = no faults, solid = at fault frontier)", fontsize=11)
+    ax.set_xlabel("vehicles at intersection"); ax.set_ylabel("messages per successful run")
+    ax.set_title("Message cost vs intersection size (committed runs only)\n"
+                 "(dashed = no faults, solid = at fault frontier; gap = no run committed)", fontsize=10)
     ax.set_xticks(Vs); ax.legend(fontsize=8); ax.grid(alpha=.3)
     fig.tight_layout(); fig.savefig(os.path.join(FIGS,"scaling_msgs.png"), dpi=130)
     print(f"\nReport: {os.path.join(FIGS,'scaling_report.md')}")
