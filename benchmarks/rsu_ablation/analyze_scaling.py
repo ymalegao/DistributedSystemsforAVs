@@ -117,16 +117,34 @@ def main():
               ("OFF","max"):("#d1495b","o","-","without RSU, k=max (frontier)"),
               ("ON","max"): ("#2e8b57","s","-","with RSU, k=max (frontier)")}
 
-    # Figure 1: consensus rate
+    # Figure 1: fault tolerance vs intersection size.
+    # NOTE: this replaces an earlier "consensus rate at each config's frontier" line
+    # plot. That plot was misleading — it put both arms at their *own* marginal quorum
+    # (honest voters == quorum), a coin-flip for each, so the lines were noise and,
+    # being at different k per arm, not comparable (ON even dipped below OFF at V=16).
+    # More reps would not fix a design flaw. The exact, meaningful quantity is how many
+    # silent vehicles each configuration tolerates: tol = N - quorum, quorum = 2f+1,
+    # f = floor((N-1)/3). N = V (OFF) or V+4 (ON). k=0 was empirically 100% for all.
+    def tol(n):
+        f = (n - 1) // 3
+        return n - (2 * f + 1)
+    off_tol = [tol(V) for V in Vs]
+    on_tol = [tol(V + 4) for V in Vs]
     fig, ax = plt.subplots(figsize=(7.8, 4.8))
-    for (arm, which), (col, mk, ls, lab) in styles.items():
-        ys = [(y*100 if y is not None else None) for y in series(arm, which, "rate")]
-        ax.plot(Vs, [y if y is not None else float("nan") for y in ys],
-                mk+ls, color=col, label=lab, alpha=0.9)
-    ax.set_xlabel("vehicles at intersection"); ax.set_ylabel("runs reaching consensus (%)")
-    ax.set_title("Consensus availability vs intersection size\n(dashed = no faults, solid = at each config's fault frontier)", fontsize=11)
-    ax.set_xticks(Vs); ax.set_ylim(-5,105); ax.legend(fontsize=8); ax.grid(alpha=.3)
-    fig.tight_layout(); fig.savefig(os.path.join(FIGS,"scaling_consensus.png"), dpi=130)
+    w = 0.38
+    import numpy as _np
+    x = _np.arange(len(Vs))
+    b1 = ax.bar(x - w/2, off_tol, w, color="#d1495b", label="without RSU (N=V)")
+    b2 = ax.bar(x + w/2, on_tol, w, color="#2e8b57", label="with 4 RSU (N=V+4)")
+    ax.bar_label(b1, padding=2, fontsize=9); ax.bar_label(b2, padding=2, fontsize=9)
+    ax.set_xlabel("vehicles at intersection")
+    ax.set_ylabel("silent vehicles tolerated (N − quorum)")
+    ax.set_title("Fault tolerance vs intersection size\n"
+                 "(exact: silent faults each config survives; +2 from RSU except V=12)",
+                 fontsize=11)
+    ax.set_xticks(x); ax.set_xticklabels(Vs); ax.set_ylim(0, max(on_tol) + 1.5)
+    ax.legend(fontsize=8); ax.grid(alpha=.3, axis="y")
+    fig.tight_layout(); fig.savefig(os.path.join(FIGS,"scaling_fault_tolerance.png"), dpi=130)
 
     # Figure 2: messages per run
     fig, ax = plt.subplots(figsize=(7.8, 4.8))

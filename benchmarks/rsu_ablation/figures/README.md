@@ -43,12 +43,13 @@ OFF vs ON across intersection sizes, at k=0 (min) and k=frontier (max).
 
 - **[scaling_msgs.png](scaling_msgs.png)** — the strong result. Message cost scales
   **super-linearly** with size (PBFT's O(N²)); the RSU premium is a modest ~6–23%.
-- **[scaling_consensus.png](scaling_consensus.png)** — consensus rate vs size. The
-  **dashed k=0 lines (100% everywhere)** are the reliable takeaway: every config works
-  and scales. The **solid frontier lines are noisy** (marginal quorum + only 2 reps →
-  0/50/100 jumps) — do not read the crossovers as real. Note V=12 is a special case
-  where 4 units add **zero net** silent-fault tolerance (they raise the quorum by
-  exactly 4).
+- **[scaling_fault_tolerance.png](scaling_fault_tolerance.png)** — silent-fault
+  tolerance (N − quorum) per size, OFF vs ON. Exact (from N and quorum), so no noise.
+  RSU adds **+2** tolerated faults at V=4/8/16, but **+0 at V=12** — there the 4 units
+  raise the quorum by exactly 4, cancelling the gain. Empirically, k=0 committed 100%
+  for every config. (This replaced an earlier consensus-rate-vs-size line plot that put
+  both arms at their own marginal quorum — a coin-flip that produced misleading noise;
+  a re-run can't fix that design, so it was replaced with the exact quantity.)
 
 ---
 
