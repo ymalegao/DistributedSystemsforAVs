@@ -33,9 +33,6 @@ Late-emergency scenario. OFF (N=18, quorum 11) vs ON (N=22, quorum 13), k=0–8.
   rollback traced stage-by-stage at k=0 vs k=6. At k=6 the no-RSU arm can't even *start*
   a rollback (epoch-0 never commits, so the late ambulance is never admitted); the RSU
   arm completes the whole cancel→re-order pipeline.
-- **[18veh_rollback_success.png](18veh_rollback_success.png)** — cancel-committed rate
-  vs k. *Noisier* — the late-ambulance trigger is intermittent, so read the trend, not
-  individual points.
 - **[18veh_msg_cost.png](18veh_msg_cost.png)** — messages/run at k=0,4,6,8. Traffic
   holds until consensus fails (OFF at k=6, ON at k=8), then dips. *Noisier* due to
   rollback intermittency; use the 4-veh overhead figure for the cost headline.
@@ -60,8 +57,10 @@ OFF vs ON across intersection sizes, at k=0 (min) and k=frontier (max).
 - **Marginal-quorum cells are flaky.** At a config's exact fault limit (honest voters =
   quorum), success is ~a coin flip. With 2 reps that reads as 0/50/100. The k=0 baselines
   and the message-cost figures are solid; the *frontier* rate lines need ~5 reps to smooth.
-- **Rollback trigger is intermittent**, adding noise to the two 18-veh rollback-stage
-  figures (not to the availability figure).
+- **Rollback trigger is intermittent**, adding some noise to the rollback pipeline
+  figure's ON stage bars (the 67% at k=6 is 2/3 = trigger not firing in one run), not
+  to the availability figure. A "cancel-committed rate vs k" line plot was dropped for
+  this reason — it was dominated by trigger noise and redundant with availability.
 - The **INVALID_SIG (active-Byzantine) study was dropped** — units out-transmit the
   faulty nodes so the corrupt echoes never enter a certificate; the attack is never
   exercised. Not a valid experiment; excluded on purpose.

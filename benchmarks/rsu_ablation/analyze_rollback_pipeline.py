@@ -100,21 +100,14 @@ def main():
     fig.tight_layout()
     fig.savefig(os.path.join(FIGS, "18veh_rollback_pipeline.png"), dpi=130)
 
-    # Figure 2: rollback success (cancel-committed) rate vs k
-    fig, ax = plt.subplots(figsize=(7.4, 4.6))
-    for arm, col, mk in (("OFF","#d1495b","o"), ("ON","#2e8b57","s")):
-        ys = [ (frac(arm, k, "cc")[0]) for k in ks ]
-        ax.plot(ks, [ (y*100 if y is not None else float("nan")) for y in ys ],
-                mk+"-", color=col, label=("without RSU" if arm=="OFF" else "with 4 RSU"))
-    ax.set_xlabel("PBFT-silent vehicles (k)")
-    ax.set_ylabel("runs where cancellation BFT-committed (%)")
-    ax.set_title("Rollback success under fault pressure\n"
-                 "(cancel-committed = the late ambulance was safely re-ordered)", fontsize=11)
-    ax.set_xticks(ks); ax.set_ylim(-5,105); ax.legend(); ax.grid(alpha=.3)
-    fig.tight_layout()
-    fig.savefig(os.path.join(FIGS, "18veh_rollback_success.png"), dpi=130)
-    print("Report: report_rollback_pipeline.md")
-    print("Plots: rollback_pipeline.png, rollback_success.png")
+    # NOTE: a "cancel-committed rate vs k" line plot was intentionally dropped. It
+    # conflated the intermittent late-ambulance trigger (cancel-committed reads 0 when
+    # the trigger simply didn't fire) with actual rollback capability, producing a
+    # misleading zigzag; and once conditioned on the trigger it just reproduces the
+    # availability curve (a cancel can only commit if epoch-0 did). The pipeline funnel
+    # above is the clean, non-redundant rollback-specific view.
+    print("Report: 18veh_rollback_report.md")
+    print("Plot: 18veh_rollback_pipeline.png")
 
 
 if __name__ == "__main__":
