@@ -21,10 +21,16 @@ FIGS = os.path.join(HERE, "figures"); os.makedirs(FIGS, exist_ok=True)  # consol
 RE_NAME = re.compile(r"(OFF|ON)_k(\d+)_rep(\d+)\.log$")
 RE_MSG  = re.compile(r"\[METRICS (\d+)\]\s+Messages_Sent:\s+(\d+)")
 RE_ORD  = re.compile(r"Order_Decided_Time")
+# A run's message total is bimodal on whether the late-ambulance rollback actually
+# fired: fired -> 2 consensus rounds (~2x messages), not fired -> 1 round. Averaging
+# the two modes together is what made this plot noisy. We detect "fired" and average
+# only over committed runs where it fired, so each bar is the cost of the intended
+# (full late-ambulance) scenario rather than a smear across two different scenarios.
+RE_FIRED = re.compile(r"CANCEL-COMMIT|ROLLBACK-BEGIN")
 
 
 def parse(path):
-    last, committed = {}, False
+    last, committed, fired = {}, False, False
     with open(path, errors="ignore") as fh:
         for line in fh:
             m = RE_MSG.search(line)
@@ -32,8 +38,10 @@ def parse(path):
                 last[int(m.group(1))] = int(m.group(2))
             if RE_ORD.search(line):
                 committed = True
+            if RE_FIRED.search(line):
+                fired = True
     return {"msgs": sum(last.values()), "committed": 1 if committed else 0,
-            "emitted": len(last) > 0}
+            "fired": fired, "emitted": len(last) > 0}
 
 
 def main():
@@ -47,18 +55,19 @@ def main():
     ks = sorted({k for _, k in runs})
 
     def cell(lbl, k):
-        # cost when it works: average messages over COMMITTED runs only (never blend a
-        # failed run into the cost). Returns (mean, n_committed, n_total, rate, lo, hi).
+        # cost of the intended scenario: average messages over runs that COMMITTED *and*
+        # where the rollback FIRED (removes the fired/not-fired bimodality that caused the
+        # wide error bars). Returns (mean, n_used, n_total, commit_rate, lo, hi).
         recs = [r for r in runs.get((lbl, k), []) if r["emitted"]]
         ntot = len(recs)
         rate = statistics.mean(r["committed"] for r in recs) if recs else None
-        ok = [r["msgs"] for r in recs if r["committed"]]
+        ok = [r["msgs"] for r in recs if r["committed"] and r["fired"]]
         if not ok:
             return None, 0, ntot, rate, None, None
         return statistics.mean(ok), len(ok), ntot, rate, min(ok), max(ok)
 
-    print("\n=== 18-veh messages per COMMITTED run ===")
-    print(f"{'k':>2} │ {'OFF msgs (ncommit, rate)':^28} │ {'ON msgs (ncommit, rate)':^28}")
+    print("\n=== 18-veh messages per run (committed AND rollback-fired only) ===")
+    print(f"{'k':>2} │ {'OFF msgs (nfired, commit%)':^28} │ {'ON msgs (nfired, commit%)':^28}")
     print("─" * 66)
     rows = []
     for k in ks:
@@ -96,10 +105,11 @@ def main():
     draw(-1, "off", "off_lo", "off_hi", "#d1495b", "without RSU (N=18)")
     draw(+1, "on",  "on_lo",  "on_hi",  "#2e8b57", "with 4 RSU (N=22)")
     ax.set_xlabel("PBFT-silent vehicles (k)")
-    ax.set_ylabel("messages per successful run (at t=30s)")
-    ax.set_title("18-vehicle message cost per SUCCESSFUL run\n"
-                 "(committed runs only; failed cells marked, not averaged)", fontsize=10)
-    ax.set_xticks(xs); ax.set_ylim(bottom=0); ax.legend(); ax.grid(alpha=.3, axis="y")
+    ax.set_ylabel("messages per run (at t=30s)")
+    ax.set_title("18-vehicle message cost — rollback-fired runs only\n"
+                 "(removes fired/not-fired bimodality; failed cells marked ✗)", fontsize=10)
+    ax.set_xticks(xs); ax.set_ylim(0, 21000)
+    ax.legend(loc="upper right"); ax.grid(alpha=.3, axis="y")
     fig.tight_layout()
     out = os.path.join(FIGS, "18veh_msg_cost.png")
     fig.savefig(out, dpi=130)

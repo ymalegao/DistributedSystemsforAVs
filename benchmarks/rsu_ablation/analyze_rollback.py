@@ -83,21 +83,15 @@ def main():
           "view 16, quorum 11). ON = +4 static intersection units (N=22, active view ~19-20, "
           "quorum 13). `k` = PBFT-silent vehicles (`node[1..k]`); units never go silent, and "
           "`node[16]/[17]` (late normal + ambulance) are never silenced.\n",
-          "**Settings:** fast channel, 5 ms bridge poll, `sim-time-limit=25s` (the outcome is "
-          "decided by ~t=20s, so runs are capped rather than run to completion).\n",
+          "**Settings:** fast channel, 5 ms bridge poll, hard `--sim-time-limit=30s` (applied "
+          "on the command line, so it actually takes effect), **6 reps per k**.\n",
           "**Metric:** did an epoch-0 ORDER commit at all? If not, vehicles cross via the "
           "stop-sign **timeout fallback** — BFT agreement bypassed, the safety-relevant "
           "degradation this protocol exists to prevent.\n",
-          "**Caveat on the fallback column:** the intended `sim-time-limit = 25s` does *not* "
-          "actually apply (the generated ini sets it under `[General]`, but the scenario's own "
-          "`[Config ...]` section is more specific and wins), so runs continue to t≈65-77s and "
-          "some are cut off by the wall-clock timeout instead. The **committed** column is "
-          "robust — the outcome is decided by t≈20s, which every run reaches. The **fallback "
-          "count** is not directly comparable across cells, since it keeps accumulating for as "
-          "long as a given run happened to survive.\n",
-          "**Rep counts vary per k** (n shown below): the k=0/4/5/6 cells were re-run with 3 "
-          "reps, while k=1/2/3 retain 2 reps from the earlier sweep of the same script and "
-          "settings. Weight the cells accordingly.\n",
+          "**Caveat on the fallback column:** every run now ends cleanly at the 30 s cap, but "
+          "the stop-sign timeout fallbacks only fire *later* (t>30 in the uncapped scenario), "
+          "so the fallback column is uniformly ~0 here and is **not** meaningful. Use the "
+          "**committed** column — it is decided by t≈20s, which every run reaches, and is robust.\n",
           "| k silent | consensus OFF (n) | consensus ON (n) | fallbacks OFF | fallbacks ON |",
           "|---|---|---|---|---|"]
     for r in rows:

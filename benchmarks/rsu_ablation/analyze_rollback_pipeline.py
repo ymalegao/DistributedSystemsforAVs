@@ -27,7 +27,7 @@ RESULTS = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "results_roll
 FIGS = os.path.join(HERE, "figures"); os.makedirs(FIGS, exist_ok=True)  # consolidated output
 RE_NAME = re.compile(r"(OFF|ON)_k(\d+)_rep(\d+)\.log$")
 STAGES = [("ep0", "Order_Decided_Time", "epoch-0\ncommitted"),
-          ("wit", "CANCEL-WITNESS",     "ambulance\nwitnessed"),
+          ("wit", "CANCEL-WITNESS",     "rollback\ntriggered"),
           ("cc",  "CANCEL-COMMIT",      "cancel\nCOMMITTED"),
           ("reord","ROLLBACK-BEGIN",    "re-order\nstarted")]
 
@@ -51,22 +51,39 @@ def main():
         print(f"No logs in {RESULTS}"); return
     ks = sorted({k for _, k in runs})
 
-    def frac(arm, k, stage):
-        recs = runs.get((arm, k), [])
-        return (statistics.mean(1 if r[stage] else 0 for r in recs), len(recs)) if recs else (None, 0)
+    STAGE_KEYS = [s for s, _, _ in STAGES]  # ep0 -> wit -> cc -> reord (monotone by protocol)
 
-    # report
+    def cfrac(arm, k, i):
+        """Conditional funnel: fraction reaching stage i AMONG runs that reached stage i-1
+        (i=0 -> all runs). Isolates the intermittent trigger (stage 'wit') from the
+        rollback-consensus stages (cc, reord), which then read as '% of triggered runs' —
+        so their value answers 'once triggered, does the rollback complete?'."""
+        recs = runs.get((arm, k), [])
+        if not recs:
+            return (None, 0)
+        if i == 0:
+            return (sum(1 for r in recs if r[STAGE_KEYS[0]]) / len(recs), len(recs))
+        denom = [r for r in recs if r[STAGE_KEYS[i - 1]]]
+        if not denom:
+            return (None, 0)
+        return (sum(1 for r in denom if r[STAGE_KEYS[i]]) / len(denom), len(denom))
+
+    # report (conditional funnel)
     md = ["# Emergency rollback pipeline vs fault pressure (with/without RSU)\n",
-          "Fraction of runs reaching each rollback stage. ep0=epoch-0 committed "
-          "(prerequisite), wit=ambulance witnessed, **cc=cancellation BFT-committed "
-          "(rollback succeeded)**, reord=re-order started. Late-ambulance trigger is "
-          "intermittent, so low-k `wit/cc` can dip even when ep0=100%.\n",
-          "| k | arm | ep0 | wit | cc | reord | n |", "|---|---|---|---|---|---|---|"]
+          "**Conditional funnel** — each stage is the fraction of runs that reached the "
+          "*previous* stage. ep0 = epoch-0 committed (of all runs; the rollback prerequisite). "
+          "trig = rollback triggered / ambulance witnessed (of committed runs) — this is the "
+          "**intermittent late-ambulance trigger**, so it varies by luck, not fault level. "
+          "cc = cancellation BFT-committed (of triggered runs); reord = re-order started (of "
+          "cancelled runs). So cc/reord answer *'once triggered, does the rollback complete?'* "
+          "and are ~100% whenever consensus is healthy, regardless of the flaky trigger.\n",
+          "| k | arm | ep0 (all) | trig (of ep0) | cc (of trig) | reord (of cc) | n |",
+          "|---|---|---|---|---|---|---|"]
     for k in ks:
         for arm in ("OFF", "ON"):
-            row = [frac(arm, k, s)[0] for s, _, _ in STAGES]
-            n = frac(arm, k, "ep0")[1]
+            n = cfrac(arm, k, 0)[1]
             if n == 0: continue
+            row = [cfrac(arm, k, i)[0] for i in range(len(STAGE_KEYS))]
             g = lambda x: "n/a" if x is None else f"{x:.0%}"
             md.append(f"| {k} | {arm} | {g(row[0])} | {g(row[1])} | {g(row[2])} | {g(row[3])} | {n} |")
     with open(os.path.join(FIGS, "18veh_rollback_report.md"), "w") as fh:
@@ -79,24 +96,25 @@ def main():
     except Exception as e:
         print(f"(no matplotlib: {e})"); return
 
-    # Figure 1: pipeline funnel at k=0 (baseline) and a stress k (max available)
-    stress_k = max(k for k in ks if any(frac("OFF", k, "ep0")[1] for _ in [0]))
-    # pick a stress k where OFF has died but ON survives, if present (prefer 6)
+    # Figure 1: pipeline funnel at k=0 (baseline) and a stress k where OFF has collapsed
+    # but ON survives (prefer k=6).
     stress_k = 6 if 6 in ks else ks[-1]
     panels = [(0, "no faults (k=0)"), (stress_k, f"under fault pressure (k={stress_k})")]
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.8), sharey=True)
     x = np.arange(len(STAGES)); w = 0.38
     for ax, (k, title) in zip(axes, panels):
-        off = [ (frac("OFF", k, s)[0] or 0)*100 for s,_,_ in STAGES ]
-        on  = [ (frac("ON",  k, s)[0] or 0)*100 for s,_,_ in STAGES ]
+        off = [ (cfrac("OFF", k, i)[0] or 0)*100 for i in range(len(STAGE_KEYS)) ]
+        on  = [ (cfrac("ON",  k, i)[0] or 0)*100 for i in range(len(STAGE_KEYS)) ]
         ax.bar(x-w/2, off, w, label="without RSU", color="#d1495b")
         ax.bar(x+w/2, on,  w, label="with 4 RSU",  color="#2e8b57")
         ax.set_xticks(x); ax.set_xticklabels([lbl for _,_,lbl in STAGES], fontsize=8)
         ax.set_title(title, fontsize=11); ax.set_ylim(0,105); ax.grid(alpha=.3, axis="y")
         ax.legend(fontsize=8)
-    axes[0].set_ylabel("runs reaching stage (%)")
-    fig.suptitle("Emergency rollback pipeline: RSU keeps the late-ambulance rollback "
-                 "available under fault pressure", fontsize=12)
+    axes[0].set_ylabel("% of runs reaching previous stage")
+    fig.suptitle("Emergency rollback pipeline (conditional funnel): once triggered, RSU "
+                 "completes the rollback under fault pressure where the baseline can't even start\n"
+                 "'rollback triggered' = intermittent late-ambulance trigger; cc & re-order are "
+                 "% of triggered runs (so ~100% = always completes once triggered)", fontsize=10)
     fig.tight_layout()
     fig.savefig(os.path.join(FIGS, "18veh_rollback_pipeline.png"), dpi=130)
 
