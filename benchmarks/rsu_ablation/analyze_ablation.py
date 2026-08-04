@@ -222,10 +222,8 @@ def main():
     draw(-1, "off_mok", "off_nok", "off_ntot", "off_lo", "off_hi", "#d1495b", "without RSU")
     draw(+1, "on_mok",  "on_nok",  "on_ntot",  "on_lo",  "on_hi",  "#2e8b57", "with RSU")
     ax.set_xlabel("PBFT-silent replicas (k)")
-    ax.set_ylabel("messages per successful run")
-    ax.set_title("Cost of RSU units: messages per SUCCESSFUL run\n"
-                 "(failed cells marked, not averaged — bars are cost when consensus holds)",
-                 fontsize=10)
+    ax.set_ylabel("messages sent per run")
+    ax.set_title("Cost of RSU units: message cost")
     ax.set_xticks(xs); ax.set_ylim(bottom=0, top=1350)
     ax.legend(loc="upper right"); ax.grid(alpha=.3, axis="y")
     fig.tight_layout(); fig.savefig(os.path.join(FIGS, "4veh_overhead.png"), dpi=130)
