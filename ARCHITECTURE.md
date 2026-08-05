@@ -35,6 +35,10 @@ There is no Java or JNI consensus path on the current hot path. Archived migrati
 
 8. **Type 10 is arrival-announce gossip.** Replicas that verify an `ARRIVAL_ANNOUNCE` may relay the original announcement bytes through the existing signed gossip wrapper. The relayer signs only the outer carrier frame; the inner announcement remains the originating vehicle's byte-for-byte payload.
 
+9. **Crash recovery separates decisions, evidence, and liveness advice.** ORDER and CANCEL are committed PBFT decisions. BLOCKED and CLEAR are `f+1` physical-evidence certificates. WAIT is a signed, leader-only advisory heartbeat that can delay a local suspicion timer but cannot authorize motion, change membership, or validate an ORDER.
+
+10. **Propagation is state-aware where implemented.** Decision/CANCEL gossip and CANCEL/CLEAR certificate paths stop on peer propagation or owning state transitions. CLEAR and TYPE11 count registry-bound carriers; TYPE11 uses deterministic, cancellable suppression rather than immediate all-replica flooding. Remaining blind paths are listed in Section 22.
+
 ---
 
 ## 2. High-Level Node Model
@@ -85,17 +89,22 @@ The ResDB library still runs internal worker threads, but all interaction with V
 | File | Role |
 |------|------|
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.h` | Main Veins app declaration. Defines phases, Byzantine modes, arrival-cert structs, transport queues, timers, gossip state, TraCI state, and ResDB callback hooks. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc` | Main app implementation. Owns initialization, timers, radio receive dispatch, arrival protocol, ResDB transport drain, `proposeAll()`, order processing, gossip, and fault injection. |
+| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc` | App lifecycle, self-message dispatch, radio type dispatch, shared gossip timers, metrics, and fault-injection coordination. Protocol bodies are split into the files below. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.ned` | NED parameters for replica identity, ResDB paths, radio transport, jitter, cert timeout, gossip, view-change timeout, Byzantine injection, and TraCI behavior. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/IV2VTransport.h` | Minimal abstract transport interface. Provides C-compatible adapters for the bridge callback table. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResdbV2VWire.h` | Shared signed-envelope helper for type 8, type 9, and type 10 radio payloads. Layout is pubkey, signature length, DER ECDSA signature, then inner bytes. |
+| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBArrivalProtocol.cc` | Arrival ANN/ECHO/CERT handling, discovery-round closure/drain, announce gossip, cert retries, and stop-zone cert gossip. |
+| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBDecision.cc` | Normal and post-CANCEL ORDER construction, optional CLEAR evidence trailer, order callback processing, and movement scheduling. |
+| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBTransport.cc` | ResDB outbound/inbound radio transport, bounded PBFT retries, and deterministic cancellable TYPE11 propagation. |
+| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResdbV2VWire.h` | Shared signed-envelope helper used by types 8–11, 14, 16, and 17 where an authenticated outer carrier is required. Layout is pubkey, signature length, DER ECDSA signature, then inner bytes. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBDecisionGossip.h/.cc` | Pure relay-dedup logic for three independent mechanisms: (1) decision gossip — serializes `epoch \|\| order_bytes`, parses TYPE9 payloads, counts matching votes per sender via `GossipAccumulator`; (2) cert relay — `CertRelayTracker` deduplicates per-carId ARRIVAL_CERT re-floods so each node relays each validated cert exactly once; (3) announce gossip — serializes `epoch \|\| original_announce_bytes` and deduplicates per `(epoch, carId)` through `AnnouncementRelayTracker`. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBRollbackProtocol.cc` | CANCEL protocol module. Owns type 12 cancel echoes, type 13 cancel certs, local halt, CANCEL draining/consensus, post-CANCEL round setup, epoch tombstones, and retry/relay state. Discovery itself remains in `ResDBArrivalProtocol.cc`. |
+| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBRollbackProtocol.cc` | BLOCKED/CANCEL/CLEAR/WAIT protocol module. Owns types 12–17, local halt, CANCEL consensus, incident state, CLEAR propagation, post-CANCEL round setup, tombstones, and rollback proposal gating. |
+| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBWitnessCert.h/.cc` | Shared `f+1` witness statement/certificate validation and immutable replica-id-to-P-256-key registry. |
+| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBPropagationTracker.h` | Generic semantic-keyed distinct-carrier tracker. Authentication and membership checks remain at the caller; currently used by CLEAR propagation. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBTraCI.cc` | TraCI helpers extracted from the legacy V2V module: distance-to-lane-end, lane queue discovery, vehicle stop/resume helpers, and clearance detection. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/crypto/CryptoAuth.h/.cc` | OpenSSL ECDSA P-256 helper. Generates per-vehicle EC keys, signs arbitrary byte buffers, verifies signatures, and contains CA certificate helpers. |
 | `incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h` | C ABI between Veins and ResDB. Defines lifecycle, transport callback registration, sim-time update, consensus trigger, order callback, cert-primary/PBFT primary alignment, view-change hooks, and shared packed structs. |
 | `incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc` | ResDB-side integration. Builds socketless PBFT service, installs OMNeT communicator, registers pre-verify function, hosts `IntersectionExecutor`, injects inbound packets, and exposes the C API. |
-| `incubator-resilientdb/platform/consensus/ordering/pbft/omnet_forced_view.h` | Header-only rollback active-view registry. Stores request-scoped, proposal-defined rollback membership `M`, quorum `2f+1`, forced primary, and sender-admission helpers for PBFT. |
+| `incubator-resilientdb/platform/consensus/ordering/pbft/omnet_forced_view.h` | Header-only request-scoped active-view registry. Stores proposal-defined epoch membership `M`, quorum `2f+1`, primary, and sender-admission helpers without rewriting static `server.config`. |
 | `incubator-resilientdb/common/utils/sim_time_provider.h/.cpp` | Global simulated-time provider used by ResDB worker threads. Updated by the OMNeT simulation thread. |
 
 ---
@@ -139,7 +148,7 @@ sequenceDiagram
     App->>TraCI: resume_when_batch_clear
 ```
 
-The key split is between ResDB worker threads and the OMNeT++ simulation thread. Worker threads may call transport callbacks and order callbacks. Those callbacks only enqueue data. Self-messages (`transport_poll_msg_`, `time_tick_msg_`, `clearance_poll_msg_`, and others) do the actual simulation work.
+The key split is between ResDB worker threads and the OMNeT++ simulation thread. Worker threads may call transport callbacks and order callbacks. Those callbacks only enqueue data. Self-messages (`transport_poll_msg_`, `time_tick_msg_`, `preceding_batch_poll_msg_`, and others) do the actual simulation work.
 
 ---
 
@@ -192,6 +201,10 @@ All inter-vehicle traffic is carried in `BFTMessage` packets over the Veins 802.
 | `11` | ResDB consensus relay | Re-flood of selected raw ResDB PBFT bytes through the existing signed carrier. | `resdbwire` signed wrapper around `epoch || raw ResDB bytes`. |
 | `12` | `CANCEL_ECHO` | Witness attests that epoch `e` should be cancelled for a verified emergency or crash reason. | Text/pipe encoded cancel echo with signer's compressed P-256 pubkey and ECDSA signature. |
 | `13` | `CANCEL_CERT` | f+1 collected `CANCEL_ECHO`s for epoch `e`; valid receivers halt locally and enter the CANCEL drain/consensus state machine. Discovery for `e+1` starts only after CANCEL commits. | Text/pipe encoded cancel cert carrying echo signer ids, pubkeys, and signatures. |
+| `14` | CANCEL-commit gossip | Post-CANCEL attestation used to disseminate the committed tombstone and let stragglers begin recovery discovery. | `resdbwire` signed wrapper around `cancelled_epoch || ResdbCancelDecisionHdr`. |
+| `15` | `CLEAR_ECHO` | One-shot witness statement that the blocked executing batch's conflict box remained empty for `clearDwellSec`. | CLEAR statement plus trusted witness id, bound public key, and signature. |
+| `16` | `CLEAR_CERT` | `f+1` CLEAR evidence carried in a carrier-signed envelope. Candidate senders and relays are ranked and cancellable. | `resdbwire` signed wrapper around the unchanged embedded CLEAR certificate. |
+| `17` | WAIT heartbeat | Signed advisory lease from the ordinary epoch-`e+1` cert-primary while a crash incident remains BLOCKING. No quorum and no bridge/PBFT meaning. | `resdbwire` signed wrapper around fixed-layout `WaitHeartbeatPayload`. |
 
 Important legacy note: type `9` used to mean Java/BFT-SMaRt client-request broadcast in the JNI architecture. In the current ResDB architecture it is not a client request; it is post-consensus decision gossip.
 
@@ -199,7 +212,7 @@ Important legacy note: type `9` used to mean Java/BFT-SMaRt client-request broad
 
 ## 7. Wire Formats
 
-### Signed radio wrapper for type 8, type 9, and type 10
+### Signed radio wrapper
 
 Defined in `ResdbV2VWire.h`:
 
@@ -210,15 +223,15 @@ Defined in `ResdbV2VWire.h`:
 [inner bytes]
 ```
 
-For type `8`, inner bytes are serialized ResDB network bytes. For type `9`, inner bytes are decision-gossip bytes. For type `10`, inner bytes are announce-gossip bytes.
+The wrapper is used for PBFT transport and for carrier-authenticated gossip/evidence paths. Important inner payloads are: raw ResDB bytes for type `8`; `epoch || order_bytes` for type `9`; `epoch || original announce` for type `10`; `epoch || raw ResDB bytes` for type `11`; CLEAR certificate bytes for type `16`; and `WaitHeartbeatPayload` for type `17`.
 
-Inbound type `8`, type `9`, and type `10` messages are dropped if:
+Inbound wrapped messages are dropped if:
 
 1. The signed packet cannot be parsed.
 2. The inner byte length is zero.
 3. `CryptoAuth::verifyBytes(pubKey, innerBytes, sig)` fails.
 
-The wrapper proves that the inner bytes were signed by the included P-256 public key. The current code does not maintain a separate pubkey-to-replica registry, so this is an integrity check for the radio envelope rather than a complete identity-binding layer. ResDB's built-in node signature verifier is disabled in the simulation bridge because the bridge uses this P-256 wrapper and socketless injection instead.
+Every module registers its generated P-256 key in `WitnessKeyRegistry`; the first binding for a replica id is immutable. Security-critical evidence paths bind the wrapper or embedded witness key to the claimed replica id: BLOCKED/CANCEL and CLEAR certificate validation, type `16` carrier counting, type `17` WAIT, and type `11` suppression carriers. Type `9`, type `10`, type `14`, and the direct type `8` outer wrapper currently verify the included key's signature but do not all apply the registry binding; that remaining hardening gap is documented in Section 22. ResDB's built-in node signature verifier remains disabled in the simulation bridge because the socketless path uses these P-256 radio envelopes.
 
 For type `10`, this outer signature authenticates the carrier frame, not the original vehicle. The carried announcement bytes are not rewritten. They remain the exact `ARRIVAL_ANNOUNCE` payload produced by the origin vehicle, including its self-signature and claimed fields.
 
@@ -340,7 +353,7 @@ INACTIVE
 - The hard deadline closes an incomplete view when an announced vehicle is Byzantine, crashed, or unreachable. Only observed uncertified intents become QUIET; unobserved configured replica IDs are not synthesized into membership.
 - `DRAINING_CERTS` stops ANN/ECHO production and removes queued non-CERT discovery frames. Queued CERTs remain. A replica cannot enter `COMPLETE` until its assembled local cert has actually reached the radio and all queued cert frames for the round have drained.
 - A newly accepted eligible ANN before proposal submission reopens `COLLECTING`, restarts stabilization, and cancels the follower leader-timeout.
-- `COMPLETE` lets the elected primary call `proposeAll()` and lets followers arm `vc_trigger_msg_`. PBFT TYPE8/TYPE11 traffic is verified and delivered to ResDB but does not alter discovery state or cancel discovery traffic.
+- `COMPLETE` lets the elected primary call `proposeAll()` and lets followers arm the ordinary VC trigger. During crash recovery, a still-BLOCKING incident gates ORDER submission and activates WAIT; CLEAR or an ORDER carrying valid CLEAR evidence ends WAIT. PBFT TYPE8/TYPE11 traffic does not itself close discovery.
 
 The primary's PRE_PREPARE is therefore not the discovery-closure event. Every follower reaches closure from its own stabilized, certified intent view.
 
@@ -568,6 +581,25 @@ onWSM()
   -> normal ResDB ConsensusManager::Process() path
 ```
 
+### Deterministic TYPE11 relay suppression
+
+TYPE11 is a coverage relay for eligible PRE_PREPARE, PREPARE, and COMMIT bytes; it is no longer sent immediately by every first-time hearer. Each raw PBFT packet is keyed by type, view, sequence, original sender, and SHA-256 digest.
+
+On first receipt, a non-origin replica arms one cancellable relay:
+
+```text
+carrier_target = max(1, min(type11RelayCarrierCap, f + 1))
+rank = membership position rotated after the original PBFT sender
+fire_time = first_receipt + type11RelayBaseDelaySec
+            + rank * type11RelaySlotSec
+```
+
+The default carrier cap is `2`. This is a bounded forwarding-redundancy target, not a PBFT quorum. With `f >= 1`, the first two deterministic relays normally transmit and later ranked relays cancel after hearing two distinct authenticated TYPE11 carriers. A node across a coverage gap that hears fewer than the target retains its fallback timer.
+
+Carrier observations count only after the outer signature verifies and its public key matches `fromReplicaId` in `WitnessKeyRegistry`. Pending relays also cancel when the relevant PRE_PREPARE/PREPARE progress has already reached the next PBFT-phase quorum, the packet becomes stale, the replica becomes inactive, or ORDER/CANCEL cleanup calls `clearConsensusRetries()`. Actual relay transmission uses `sendBFTMessageNow()` because the deterministic holdoff already supplied the scheduling slot; adding the generic random broadcast jitter again would defeat the ranking.
+
+This is counter-based suppression with deterministic sender-relative ranking. It does not yet compute a perception-derived connected dominating set or geographic-progress relay priority.
+
 ### Self-injection
 
 `OmnetReplicaCommunicator::SendMessage()` also self-injects broadcast bytes into the local `ServiceNetwork`.
@@ -594,12 +626,12 @@ These verify the binary proposal is well-formed for this cluster:
 2. PRE_PREPARE data parses as `BatchUserRequest`.
 3. Batch contains at least one user request.
 4. Payload is large enough to hold `ResdbProposeHdr`.
-5. For normal proposals, `hdr.n_vehicles` is in `(0, static_config_N]` so physically absent or late replicas can be omitted from the payload. For rollback proposals, `hdr.n_vehicles` is the proposal-defined forced membership size `|M|` and must also be in `(0, static_config_N]`.
+5. For ordinary proposals, `hdr.n_vehicles` is in `(0, static_config_N]` so physically absent, departed, or late replicas can be omitted from the request-scoped epoch view. The legacy wrapped-rollback compatibility parser applies the same bound to its inner proposal.
 6. Payload is large enough for all `ResdbVehicleEntry` records.
 7. All `replica_id` values are unique.
 8. All `replica_id` values are in `[0, expected)`.
 
-Per-entry field sanity (part of the above gate): `sim_time_us ≠ 0` (UINT64_MAX is the QUIET sentinel), `is_ambulance ∈ {0,1}`, `cyber_status ∈ {0,1}`, `leader_id ∈ [0, expected)`. For rollback proposals, `leader_id` must also be a member of `M`.
+Per-entry field sanity (part of the above gate): `sim_time_us ≠ 0` (UINT64_MAX is the QUIET sentinel), `is_ambulance ∈ {0,1}`, `cyber_status ∈ {0,1}`, `leader_id ∈ [0, expected)`. The leader must also be a member of the request's proposed entry set.
 
 For normal proposals, the bridge also enforces cert-primary leadership before PBFT accepts the PRE_PREPARE:
 
@@ -634,22 +666,21 @@ ResdbOmnetSetCertSnapshotFn(resdb_server_handle_,
 
 `certSnapshotCallback` is a static method in `ResDBIntersectionApp`. It locks `certs_mutex_`, iterates `collected_certs_`, parses `"vehN"` → replica id, and fills the `ResdbCertEntry` buffer with cert-attested state. All writes to `collected_certs_` in `ResDBArrivalProtocol.cc` also lock `certs_mutex_` to protect against concurrent pre-verify reads from the ResDB worker thread.
 
-### Rollback forced-M install
+### Request-scoped epoch-view install
 
-Rollback PRE_PREPAREs are validated in two phases:
+Scenario 15 and Scenario 16 recovery ORDERs use the ordinary `ResdbProposeHdr + ResdbVehicleEntry[]` path. After structural, evidence, leader, and cert-backed state checks pass, the bridge builds the request's active view from the proposal entries and installs it in the PBFT active-view registry. Crash-recovery proposals additionally require a valid CLEAR evidence trailer before view installation.
 
-1. The existing proposal checks validate the rollback wrapper, cancel justification shape, entry bounds, duplicate ids, and cert-backed state fields.
-2. Only after those checks pass, the bridge builds an `OmnetForcedView` candidate from the inner `ResdbVehicleEntry[].replica_id` list and installs it in the PBFT active-view registry.
+Malformed or rejected proposals do not mutate the registry. A locally submitted proposal is first recorded as a pending view keyed by its request hash; when PRE_PREPARE assigns a PBFT sequence, the bridge promotes it to the full request identity. The installed view is scoped by epoch, sequence, and request hash where available, so it does not rewrite the static identity configuration or leak into unrelated requests.
 
-Malformed or rejected rollback proposals do not mutate the active-view registry. The active view is request-scoped by rollback epoch, PBFT sequence, and request hash where available. A locally submitted rollback proposal is first installed as a pending forced view keyed by request hash; when the PRE_PREPARE receives its PBFT sequence, it is promoted to the full request identity.
-
-The forced membership is proposal-defined:
+The request membership is proposal-defined:
 
 ```text
 M = { ResdbVehicleEntry.replica_id from the validated rollback payload }
 ```
 
-ResDB does not infer `M` from traffic, responsive senders, or local observations. `M` stores canonical OMNeT replica ids (`0..N-1`), matching `ResdbVehicleEntry.replica_id`. ResDB message sender ids are still 1-based node ids, so PBFT filtering converts `Request.sender_id()` to OMNeT id exactly once at the membership boundary.
+ResDB does not infer `M` from PBFT traffic or whichever senders happen to respond. The application constructs it from the completed discovery round. `M` stores canonical OMNeT replica ids (`0..N-1`), matching `ResdbVehicleEntry.replica_id`. ResDB message sender ids are still 1-based node ids, so PBFT filtering converts `Request.sender_id()` to OMNeT id exactly once at the membership boundary.
+
+The bridge still parses `ResdbRollbackHdr`/`ResdbRollbackEntry` for compatibility with older traces and callers. That wrapper is not the current Scenario 15/16 application hot path.
 
 ---
 
@@ -741,7 +772,7 @@ primary-change polling
 8. Triggers decision gossip if enabled.
 9. Sets phase to `EXECUTING`.
 10. If batch index is `0`, resumes immediately.
-11. If batch index is greater than `0`, starts `clearance_poll_msg_`.
+11. If batch index is greater than `0`, starts `preceding_batch_poll_msg_`.
 
 ### Clearance-gated batch movement
 
@@ -836,7 +867,8 @@ CANCEL_WITNESSING
   -> CANCEL_CONSENSUS
   -> CANCEL_COMMITTED
   -> ordinary discovery for epoch e+1
-  -> ORDER consensus
+  -> emergency: ordinary ORDER(e+1)
+  -> crash: WAIT while BLOCKING -> f+1 CLEAR -> ordinary ORDER(e+1) with CLEAR evidence
 ```
 
 ### Ownership boundary
@@ -866,10 +898,13 @@ cancelledEpoch:reason:reasonRef:echoingReplicaId
 
 1. at least `f + 1` distinct echo signers;
 2. no duplicate signer ids;
-3. every echo signature verifies against the embedded signer pubkey;
-4. every signed string matches the cert's `cancelledEpoch`, `reason`, `reasonRef`, and signer id.
+3. every signer key matches its immutable `WitnessKeyRegistry` binding and belongs to the committed incident view;
+4. every echo signature verifies;
+5. every signed string matches the cert's `cancelledEpoch`, `reason`, `reasonRef`, and signer id.
 
 Any replica that validates a `CANCEL_CERT` may relay it once. The cert already contains f+1 independent signatures, so relay does not need another gossip vote threshold.
+
+The source's bounded CANCEL_CERT retry uses exponential evidence backoff and stops early after observing `f+1` distinct carrier IDs for the same semantic cancel key. Unlike CLEAR and TYPE11, type 13 does not currently wrap each relay in a carrier signature, so this carrier-count stop is transport-sender-aware but not yet cryptographically carrier-bound.
 
 `CANCEL_CERT` closes witnessing, but it does not start the next discovery round. An emergency announcement/cert or crash observation may produce `CANCEL_ECHO`; a valid f+1 `CANCEL_CERT` moves replicas into `DRAINING`, and only a committed CANCEL starts discovery for `e+1`.
 
@@ -918,34 +953,19 @@ M = certified/observed responsive vehicles for epoch e+1
     including the new certified ambulance/emergency vehicle
 ```
 
-The post-CANCEL ORDER proposal payload is:
+The post-CANCEL ORDER uses the ordinary proposal format. The active epoch membership is the proposal's entry set; the already committed CANCEL/tombstone is not repeated in a `ResdbRollbackHdr` on the current application hot path:
 
 ```text
-ResdbRollbackHdr
-justification[justification_len]
 ResdbProposeHdr
 ResdbVehicleEntry[ResdbProposeHdr.n_vehicles]
+ResdbOrderEvidenceHdr + length-prefixed CLEAR_CERT bytes  // crash recovery only
 ```
 
-`ResdbRollbackHdr` is:
-
-```c
-#pragma pack(push, 1)
-typedef struct ResdbRollbackHdr {
-    uint32_t new_epoch;        // e + 1
-    uint32_t cancelled_epoch;  // e
-    uint8_t  reason;           // 0=CRASH, 1=EMERGENCY
-    uint8_t  _pad[3];
-    uint32_t justification_len;
-} ResdbRollbackHdr;
-#pragma pack(pop)
-```
-
-The inner `ResdbProposeHdr + ResdbVehicleEntry[]` is the proposed epoch `e+1` membership/order input. For rollback, this payload is the only source of `M`; ResDB validates it and then forces PREPARE/COMMIT quorum counting, sender admission, and primary identity to that exact membership for the rollback request.
+The bridge derives the request-scoped epoch view from `ResdbVehicleEntry[].replica_id`, validates it, and installs PREPARE/COMMIT sender admission, quorum, and primary for that exact request. The legacy `ResdbRollbackHdr` parser remains in the bridge for compatibility, but Scenario 15 and Scenario 16 both log `normal_proposeAll=1` and do not use it.
 
 Completion uses the normal stabilization rule from Section 8: the intent view must be stable for `discoveryIntentSettleSec` and fully certified, or the shared hard `cert_collection_timeout_` deadline closes it. There is no rollback-specific discovery timeout or expected epoch-0 membership count. At the deadline, only observed missing intents become QUIET.
 
-This keeps post-CANCEL membership compatible with future perception-engine changes: if perception later changes who is visible, only the Veins-side discovery result changes, not the ResDB forced-M rules.
+This keeps post-CANCEL membership compatible with future perception-engine changes: if perception later changes who is visible, only the Veins-side discovery result changes, not the ResDB request-scoped epoch-view rules.
 
 ### Deterministic post-CANCEL ORDER proposer
 
@@ -958,7 +978,34 @@ rotated by rollback_rotation_index_ on retry
 
 The selected proposer is encoded as `ResdbProposeHdr.leader_id`. When the bridge validates the rollback proposal, that leader becomes the PBFT primary for the rollback instance. `ResdbOmnetGetPrimary()`, PBFT `SystemInfo`, and the app-level proposer therefore agree on the same 0-based replica id for epoch `e+1`.
 
-If the forced rollback primary is silent after the rollback instance starts, full forced-M view-change is not implemented yet. The current prototype fails loud with `[ROLLBACK-VC-UNSUPPORTED]` rather than falling back to the original static `N`.
+Byzantine-primary recovery for the proposal-defined epoch view is the next phase of work. The honest Scenario 15/16 paths are complete; do not infer that a deterministic app-level proposer rotation is equivalent to a fully implemented PBFT VIEW_CHANGE/NEW_VIEW for every dynamic epoch view.
+
+### BLOCKED, WAIT, and CLEAR crash recovery
+
+Crash recovery uses one incident per cancelled epoch and executing batch:
+
+```text
+BlockedIncident { cancelledEpoch, executingBatch }
+IncidentState = BLOCKING | CLEARED
+```
+
+A vehicle continuously stationary inside the conflict box for `crashDwellSec` causes each surviving witness to emit at most one crash `CANCEL_ECHO` for the canonical `blocked_batch:e:b` statement. A valid `f+1` crash certificate both supplies the CANCEL justification and registers the batch incident as BLOCKING. The incident remains separate from the singleton CANCEL state so later CLEAR validation still has an authoritative subject.
+
+After CANCEL commits, the existing clearance poll is explicitly rearmed. This is required because the halt path cancels that timer, while both crash dwell and empty-box dwell run on it. Recovery discovery can complete while the wreck remains, but `trySubmitRollbackProposal()` refuses to propose while any incident for the cancelled epoch is BLOCKING.
+
+WAIT (type 17) is sent only by the ordinary epoch-`e+1` `CertPrimary()` after discovery is COMPLETE and the incident remains BLOCKING. Receivers require a registry-bound leader signature, committed CANCEL tombstone, matching local BLOCKING incident, locally matching cert-primary, increasing heartbeat index, bounded lease, and valid simulated timestamps. WAIT only reschedules the local leader-suspicion deferral. CLEAR and ORDER always supersede it; WAIT never enters the bridge or PBFT.
+
+CLEAR uses type 15 witness echoes and type 16 certificates. A valid certificate requires `f+1` committed-view witnesses with registry-bound keys and matching incident statements. CLEAR transmission is deliberately quiet:
+
+1. Once a node assembles a candidate certificate, it stops accumulating/logging further echoes for that incident.
+2. Candidate broadcasters are ranked with `CertPrimary()` first and remaining active members in deterministic order; rank `i` waits `i * clearCertCandidateSlotSec`.
+3. Receiving a valid earlier carrier cancels later candidates, marks the incident CLEARED, stops WAIT and CLEAR retries, and triggers the gated ORDER attempt.
+4. Type 16's outer signature is rebound by every relay. `AuthenticatedPropagationTracker` counts distinct valid active-view carriers under `CLEAR:cancelledEpoch:executingBatch` and stops relaying at `f+1` or sooner when ORDER is proposed/applied.
+5. `handleClearEcho()` hushes late echoes before accumulation when the incident is CLEARED, a valid cert is known, or a candidate is already assembled.
+
+Crash-recovery ORDER appends a `ResdbOrderEvidenceHdr` and at least one length-prefixed raw CLEAR certificate. The bridge tracks epochs created by committed `CANCEL_CRASH` and rejects PRE_PREPARE for their recovery ORDER when the trailer is absent or invalid. Validation is delegated through `ResdbOmnetSetClearEvidenceCallback()` to the Veins certificate validator; the bridge does not implement a weaker second validator. A replica that missed type 16 can adopt the same CLEAR evidence atomically while applying ORDER.
+
+In the latest successful honest 16-vehicle crash log, anchored counts show one initial CLEAR certificate, five follow-up CLEAR relays (the `f=5` fallback bound), no CLEAR-echo accumulation above the six-witness threshold, 11 hush events, 11 propagation-stop events, WAIT termination at all 14 survivors, and 14 epoch-1 commit callbacks. Deterministic TYPE11 suppression reduced TYPE11 sends from the earlier 978-frame baseline to 237, with 1,101 pending relays cancelled before transmission. Treat raw counts as lower bounds when log-line interleaving corruption is present (Section 22).
 
 ### Tombstones and gossip suppression
 
@@ -972,41 +1019,23 @@ Tombstoned epochs must be refused by:
 
 This prevents a missed or delayed type 9 gossip frame from resurrecting the cancelled order after rollback.
 
-### Bridge pre-verify for rollback
+### Request-scoped epoch active view
 
-The bridge pre-verify path must distinguish normal proposals from rollback proposals:
-
-```text
-normal:   ResdbProposeHdr + entries
-rollback: ResdbRollbackHdr + justification + ResdbProposeHdr + entries
-```
-
-For this pass, Check 11 is structural cancel-justification validation:
-
-1. `reason` is valid;
-2. `justification_len` is non-zero and in bounds;
-3. crash justification parses as a cancel cert shape;
-4. emergency justification carries ambulance arrival-cert bytes.
-
-Full cryptographic CA enforcement for emergency certs and the complete Check 12 membership-corroboration rule remain follow-up work. They should consume the same proposal-defined `M`; they must not introduce a second independently computed membership set.
-
-### Forced-M PBFT active view
-
-Rollback does not call BFT-SMaRt-style runtime reconfiguration and does not rewrite ResDB `server.config`. Instead, `omnet_forced_view.h` provides a request-scoped active-view registry:
+Post-CANCEL ordering does not call runtime reconfiguration and does not rewrite ResDB `server.config`. `omnet_forced_view.h` provides a request-scoped active-view registry for ordinary epoch proposals:
 
 | Concern | Current behavior |
 |---------|------------------|
-| Active membership storage | `OmnetForcedViewRegistry` is injected into PBFT managers. It stores forced rollback views keyed by request identity: epoch, sequence, and request hash when available. |
-| Membership source | The only source is the validated rollback proposal's inner `ResdbVehicleEntry[].replica_id` list. ResDB does not infer active membership from traffic. |
+| Active membership storage | `OmnetForcedViewRegistry` is injected into PBFT managers. It stores epoch views keyed by request identity: epoch, sequence, and request hash when available. |
+| Membership source | The only source is the validated ordinary proposal's `ResdbVehicleEntry[].replica_id` list. ResDB does not infer active membership from traffic or live perception. |
 | Id basis | `M` stores OMNeT 0-based replica ids. PBFT `Request.sender_id()` is converted from ResDB 1-based node id at the filter/counting boundary. |
-| Quorum | For rollback PREPARE/COMMIT, `quorum = 2f + 1` with `f = (|M| - 1) / 3`. Example: `|M|=11` gives `f=3`, quorum `7`. |
-| Primary | The validated rollback `leader_id` is forced into PBFT `SystemInfo`; `ResdbOmnetGetPrimary()` returns that active rollback primary. |
+| Quorum | PREPARE/COMMIT use `floor((|M| + f) / 2) + 1`, the smallest quorum whose two intersections contain more than `f` replicas. Per-epoch mode clamps configured `f` to `floor((|M|-1)/3)`. This equals `2f+1` when `|M|=3f+1`; Scenario 16 uses `|M|=14`, `f=4`, quorum `10`. |
+| Primary | The validated `leader_id` is installed in PBFT `SystemInfo`; `ResdbOmnetGetPrimary()` returns that epoch primary. |
 | Sender admission | PRE_PREPARE/PREPARE/COMMIT senders outside `M` are non-voting and dropped/logged before collector vote bits are counted. |
-| Non-members | Non-members are passive/non-voting. They may still learn tombstones or final rollback knowledge so stale decision gossip cannot resurrect epoch `e`. |
-| Scope | Forced `N` applies only to rollback request identity. Static config remains the registry for known ids, addresses, and keys. |
-| Executor consistency | `IntersectionExecutor` schedules exactly the same inner `M` that PBFT committed under forced-M quorum. |
+| Non-members | Non-members are passive/non-voting. They may still learn tombstones or final recovery knowledge so stale decision gossip cannot resurrect epoch `e`. |
+| Scope | The dynamic `N` applies only to the request identity. Static config remains the provisioned identity/key universe. |
+| Executor consistency | `IntersectionExecutor` schedules exactly the same `M` that PBFT committed under the request-scoped quorum. |
 
-Checkpoint/recovery and forced-M view-change/new-view are not part of this first implementation. If a rollback VIEWCHANGE or NEWVIEW is encountered while a forced rollback view exists, the node logs `[ROLLBACK-VC-UNSUPPORTED]` and rejects it rather than silently using the original `N`. The Veins app-level `vc_trigger_msg_` is also suppressed while `cancel_pending_` is true, because forcing ResDB's normal static-`N` view-change during rollback can assert on missing fixed-membership proofs.
+Checkpoint/recovery and complete dynamic-view VIEW_CHANGE/NEW_VIEW support remain follow-up work. The Veins ordinary VC trigger is suppressed while `cancel_pending_` is waiting on BLOCKING/CLEAR so a static-view change cannot be mistaken for recovery progress; WAIT provides bounded local deferral during that interval.
 
 ### Scenario 15: late emergency rollback test
 
@@ -1021,44 +1050,47 @@ python3 experiment_orchestrator.py --config 18 --scenario 15 --reps 1
 The orchestrator expands scenario `15` to:
 
 ```bash
-fourway/run-resdb-simulation.sh ... --rollback-late-emergency --leader 0
+fourway/run-resdb-simulation.sh ... --rollback-late-emergency
 ```
 
 with OMNeT++ config `EighteenVehiclesResDB`.
+
+The first Byzantine protocol-surface pair reuses this exact physical harness:
+
+```bash
+# Unguarded: valid emergency evidence exists, but the selected CANCEL leader
+# withholds the proposal and no follower owns a replacement lease.
+python3 experiment_orchestrator.py --config 18 --scenario 17 --reps 1
+
+# Guarded: the same round-0 leader withholds; all honest replicas' leases
+# advance to the next deterministic proposer.
+python3 experiment_orchestrator.py --config 18 --scenario 18 --reps 1
+```
+
+Both rows inject the fault by protocol role after the committed schedule identifies the round-0 CANCEL proposer. This avoids assuming that a fixed replica id will always occupy the next recallable batch. Scenario 17 disables `enableCancelLeaderFailover`; Scenario 18 leaves it enabled. The analyzer records the attacked replica, rotation-timer firings, maximum logical rotation index, staged outcome, and attack-to-CANCEL-commit latency. The expected contrast is `suppressed_cancel_stalled` versus a completed epoch-1 recovery.
 
 `--rollback-late-emergency` writes `fourway/rollback_late_emergency.ini` at run time and selects:
 
 ```text
 *.manager.launchConfig = xmldoc("resdb_bft_18veh_rollback_late.launchd.xml")
 *.manager.intersectionBatchSize = 16
+*.manager.enableR0Supervisor = true
+*.manager.r0SpawnAfterCleared = 1
 *.node[*].appl.totalVehicles = 16
-*.node[*].appl.ambulanceReplicaId = 16
+*.node[*].appl.toleratedFaults = 5
+*.node[*].appl.ambulanceReplicaId = 17
 *.node[*].appl.enableRollback = true
 *.node[*].appl.enableAmbulanceCertGate = true
-*.node[*].appl.discoveryIntentSettleSec = 1.5s
+*.node[*].appl.rollbackFaultMode = "per_epoch"
 ```
 
-The fixed SUMO route is `fourway/bft_18veh_rollback_late.rou.xml`:
-
-```text
-veh0..veh15  depart at 0s    (16 vehicles, epoch 0 batch)
-veh16        ambulance, depart at 40s
-veh17        normal car, depart at 40s
-```
-
-The late `depart` time must land **after** epoch 0 commits (roughly `t=18–23s`
-with 16 cars) and **before** the batch fully clears / SUMO auto-shutdown. Tune
-`depart` in `bft_18veh_rollback_late.rou.xml` if consensus or clearance timing
-shifts (e.g. `depart=40` after moving epoch-0 commit earlier via the bridge fix).
+The scenario manager—not a fixed late route departure—injects `veh16` as the late normal car and `veh17` as the ambulance after one committed vehicle has cleared. Both identities are pre-provisioned in the 18-entry ResDB configuration; this is physical late spawn, not runtime key enrollment.
 
 `totalVehicles = 16` is the critical parameter, even though 18 replicas exist.
-`proposeAll()` in `ResDBDecision.cc` pads the committed order with a QUIET entry
-for every `rid` in `[0, totalVehicles)`. If `totalVehicles` were 18, replica 16
-(the ambulance) would be QUIET-padded into epoch 0's committed order, and
+`proposeAll()` uses `totalVehicles` as the initial eligibility boundary. If it were 18, the late identities could be treated as epoch-0 candidates, and
 `maybeTriggerEmergencyRollbackFromCert()` (which skips when the ambulance id is
 already in `committed_order_vehicle_ids_`) would never fire. Keeping it at 16
-means epoch 0 commits exactly `{0..15}`, so the late ambulance is genuinely
-"unscheduled" and triggers the rollback. The late arrivals `veh16`/`veh17` still
+means epoch 0 commits `{0..15}`, so the late ambulance is genuinely unscheduled and triggers rollback. The late arrivals `veh16`/`veh17` still
 receive correct replica ids: the SUMO identity binding only overrides ids
 `< totalVehicles`, so they fall back to the NED `node[16]/node[17].replicaId`
 values (valid because they spawn last, so node index equals veh number).
@@ -1076,19 +1108,40 @@ The intended timeline is:
 2. The first physical wave has 16 vehicles (`veh0..veh15`) at the intersection.
 3. The initial epoch `e` commits a normal order over `M0 = {0..15}`; replicas 16 and 17 stay silent (16 present >= quorum `2f+1 = 11`).
 4. Some vehicles begin crossing and at least two leave or become non-recallable.
-5. `veh16` arrives as the emergency vehicle, with `veh17` as an additional late non-emergency participant.
+5. The manager injects `veh16` as a late normal vehicle and `veh17` as the emergency vehicle.
 6. Vehicles that can verify the emergency reason send `CANCEL_ECHO`.
 7. `f+1` cancel echoes form a `CANCEL_CERT`.
 8. Recallable vehicles halt, tombstone epoch `e`, restart discovery for epoch `e+1`, and propose rollback membership `M`.
-9. Rollback consensus commits under forced `N=|M|` (M = the 16 still-present vehicles: `{0..15}` minus the two departed, plus `{16, 17}`), not static `18`.
+9. Ordinary epoch-`e+1` consensus commits under request-scoped `N=|M|`, not static `18`.
 
-This scenario was added because a tiny `N=4` rollback case is structurally weak: after two vehicles leave, fewer than four may remain, so the rollback consensus instance cannot demonstrate a meaningful forced-M quorum. The `N=18` test commits 16 vehicles first, lets two depart, and admits two pre-keyed late arrivals (one emergency, one ordinary), leaving a forced-M rollback membership of 16. Note that the two late arrivals are *pre-provisioned* replicas physically idle until `t=12`, not a runtime ResDB join (which remains the pending `resdb_dynamic_N_reconfiguration` work).
+This scenario was added because a tiny `N=4` rollback case is structurally weak: after vehicles leave, too few may remain to demonstrate a meaningful recovery quorum. The `N=18` identity universe commits 16 vehicles first, then admits two pre-keyed late arrivals under manager control. This is not runtime ResDB identity enrollment.
 
-Known suspicion if scenario `15` does not trigger rollback:
+If scenario `15` does not trigger rollback:
 
-- Timing may be wrong. If `veh16` arrives too late, too many vehicles may already be departed/non-recallable before cancel evidence spreads. If it arrives too early (before epoch 0 commits), it may be included in the first epoch instead of forcing a rollback. Tune the `depart="12"` time and `departPos` in `bft_18veh_rollback_late.rou.xml` so exactly two vehicles clear before the late arrivals.
-- If `totalVehicles` were left at 18 (instead of 16), `proposeAll()` would QUIET-pad replica 16 (the ambulance) into epoch 0's committed order, so the ambulance would already be in `committed_order_vehicle_ids_` and `maybeTriggerEmergencyRollbackFromCert()` would skip it (no rollback). The scenario therefore pins `totalVehicles = 16` so epoch 0 commits exactly `{0..15}`.
-- The analyzer mapping for scenario `15` currently reuses the emergency-priority analyzer path. Rollback-specific success criteria still need dedicated parsing for `[CANCEL-*]`, `[ROLLBACK-*]`, `[ACTIVE-*]`, tombstone, and forced-M quorum logs.
+- Inspect the manager's `[R0-*]` injection/supervisor logs and `r0SpawnAfterCleared` condition rather than editing a late route departure time.
+- Confirm `totalVehicles=16` and `ambulanceReplicaId=17`; configurations using ambulance 16 describe an older harness.
+- `fourway/analyze_log.py --scenario 15` has dedicated CANCEL/rollback/view parsing and reports a staged failure reason such as `no_echo`, `no_cert`, `rollback_propose_no_commit`, or `ok_epoch1_commit`. Some marker names retain the legacy `ROLLBACK`/`ACTIVE-VIEW` terminology.
+
+### Scenario 16: crash, WAIT, CLEAR, and recovery ORDER
+
+Scenario code `16`, `Crash_Wait_Clear`, is hard-scoped to config 16:
+
+```bash
+python3 experiment_orchestrator.py --config 16 --scenario 16 --reps 1
+```
+
+The runner expands this to `--crash-wait-clear` and generates overrides under `[Config SixteenVehiclesResDB]`: crash supervision enabled, two wrecks, a 0.2-second post-freeze MAC grace, a 20-second tow delay, `totalVehicles=16`, `toleratedFaults=5`, no ambulance, and rollback enabled.
+
+The intended membership/quorum sequence is:
+
+```text
+ORDER(0): N=16, f=5, quorum=11
+BLOCKED/CLEAR evidence: f+1=6 committed-view witnesses
+CANCEL(0): committed 16-member view, quorum=11
+ORDER(1): 14 responsive vehicles, f=4, quorum=10
+```
+
+The manager freezes two executing batch-0 vehicles and disables their app/PBFT communications after the bounded MAC grace. Survivors form one batch-scoped BLOCKED certificate and commit CANCEL. Epoch-1 discovery completes among the survivors; WAIT keeps the recovery leader from being falsely suspected while the wrecks remain. After tow plus empty-box dwell, ranked CLEAR dissemination ends WAIT and unlocks ordinary ORDER(1) with embedded CLEAR evidence.
 
 ### Departed replica lifecycle
 
@@ -1137,7 +1190,7 @@ During teardown, the app updates sim time to `INT64_MAX` / max uint time to unbl
 
 ResDB's built-in PBFT view-change is the intended replacement for the old BFT-SMaRt `RequestsTimer` / STOP / STOP_NACK stack.
 
-Normal cert-primary selection is separate from rollback forced-M and from PBFT view-change. At proposal time, the app installs the cert-primary into local PBFT state with `ResdbOmnetSetPrimaryFromCert()`. On followers, bridge pre-verify repeats the same cert-primary check and installs the incoming proposal's `leader_id` into PBFT `SystemInfo` for that PRE_PREPARE view before ResDB verifies that the PRE_PREPARE came from the current primary.
+Normal cert-primary selection, request-scoped recovery membership, and PBFT view-change are related but distinct. At proposal time, the app installs the selected proposal leader into local PBFT state with `ResdbOmnetSetPrimaryFromCert()`. On followers, bridge pre-verify repeats the leader check and installs the incoming proposal's `leader_id` into PBFT `SystemInfo` for that PRE_PREPARE view before ResDB verifies that PRE_PREPARE came from the current primary.
 
 The bridge exposes:
 
@@ -1205,10 +1258,12 @@ The system assumes:
 
 ```text
 N = 3f + 1
-quorum = 2f + 1
+quorum = floor((N + f) / 2) + 1
 arrival cert threshold = f + 1
 decision gossip threshold = f + 1
 ```
+
+For the common `N=3f+1` case, the quorum formula reduces to `2f+1`. Keeping the intersection formula explicit matters for recovery views whose responsive membership is not exactly `3f+1`; for example, Scenario 16's 14-member epoch-1 view uses `f=4`, quorum `10`, while BLOCKED/CLEAR evidence remains anchored to the cancelled 16-member view and therefore requires 6 witnesses.
 
 Examples:
 
@@ -1216,6 +1271,7 @@ Examples:
 |---|---|-------------|-----------------------|
 | 4 | 1 | 3 | 2 |
 | 12 | 3 | 7 | 4 |
+| 14 | 4 | 10 | 5 |
 | 16 | 5 | 11 | 6 |
 
 ### Current fault injection modes
@@ -1295,6 +1351,9 @@ Defined in `ResDBIntersectionApp.ned`.
 | `viewAgreementSlotSec` | Per-replica echo slot. |
 | `broadcastJitterMin`, `broadcastJitterMax` | Broadcast jitter. |
 | `broadcastSlotSec` | Per-replica slot for generic broadcasts, including type 8. |
+| `type11RelayCarrierCap` | Maximum authenticated TYPE11 carriers required to suppress a pending relay. Live target is `min(cap, f+1)`; default `2`. |
+| `type11RelayBaseDelaySec` | Deterministic minimum TYPE11 holdoff before the earliest ranked fallback; default `0.02s`. |
+| `type11RelaySlotSec` | Deterministic spacing between sender-relative TYPE11 relay ranks; default `0.02s`. |
 
 ### Cert collection and proposal
 
@@ -1316,7 +1375,7 @@ Defined in `ResDBIntersectionApp.ned`.
 | `stopDistance` | Stop-zone trigger distance to lane end. Code multiplies this by `totalVehicles / 2`. |
 | `totalVehicles` | Number of vehicles/replicas expected in the scenario. |
 | `cruiseSpeedMps` | Speed applied on resume. |
-| `clearancePollPeriodSec` | Poll interval while waiting for previous batch to clear. |
+| `precedingBatchPollPeriodSec` | Poll interval while waiting for previous batch to clear (also drives Scenario 16 crash-dwell perception). |
 | `clearanceTimeoutSec` | Safety timeout for clearance wait. |
 | `stopSignTimeoutSec` | App-level safety release if no order arrives. |
 | `consensusTimeoutSec` | Longer app-level fallback timeout. |
@@ -1328,7 +1387,7 @@ Defined in `ResDBIntersectionApp.ned`.
 | `isByzantine` | Enables Byzantine behavior for this vehicle. |
 | `byzantineType` | Fault type `0` through `8`. See Byzantine fault model table. |
 | `enableAmbulanceCertGate` | When true, the arrival-echo path rejects any `isAmbulance=true` announcement without a valid Emergency_CA `VehicleCert` and payload signature. Legitimate ambulances (`ambulanceReplicaId`) auto-issue the cert at init and attach it in `broadcastArrivalAnnouncement()` using the ported legacy ambulance-cert helper. Ablation toggle for cert-gate scenarios (types 10 and 11). |
-| `enableDecisionGossip` | Enables the shared gossip machinery: type 9 decision gossip and type 10 announce gossip. |
+| `enableDecisionGossip` | Enables shared gossip/relay machinery, including types 9–11. |
 | `decisionGossipInitialIntervalSec` | First retry interval for gossip. |
 | `decisionGossipMaxRetries` | Maximum gossip retries. |
 | `pbftVcTimeoutSec` | Extra wait before app-level forced view-change. |
@@ -1340,13 +1399,22 @@ Defined in `ResDBIntersectionApp.ned`.
 | Parameter | Meaning |
 |-----------|---------|
 | `enableRollback` | Enables CANCEL echo/cert handling, local halt, CANCEL consensus, post-CANCEL discovery, and tombstone filtering. |
-| `cancelCertRetryIntervalSec` | Retry interval for rebroadcasting an assembled cancel cert. |
+| `cancelCertRetryIntervalSec` | Legacy compatibility setting; evidence retry timing now uses the exponential-backoff parameters below. |
 | `cancelCertRetryMax` | Maximum cancel cert retry count; `0` means unlimited while cancel remains pending. |
+| `evidenceRetryBaseSec`, `evidenceRetryFactor`, `evidenceRetryCapSec` | Fast-start capped exponential backoff for CANCEL/CLEAR evidence retry; defaults `0.1s`, `2.0`, `2.0s`. |
+| `cancelGossipRetryBaseSec`, `cancelGossipRetryCapSec` | Capped exponential retry timing for CANCEL-commit gossip. |
 | `consensusRetryIntervalSec` | Interval for bounded PRE_PREPARE/PREPARE/COMMIT radio retransmission. |
 | `consensusRetryMax` | Maximum retransmissions retained for each local PBFT phase packet. |
+| `clearDwellSec` | Required continuously empty conflict-box interval before a witness emits CLEAR. |
+| `clearCertCandidateSlotSec` | Deterministic candidate/relay fallback slot for type 16; default `0.1s`. |
+| `waitHeartbeatIntervalSec` | Leader WAIT heartbeat cadence while recovery discovery is COMPLETE but the incident remains BLOCKING. |
+| `waitHeartbeatMaxDeferralSec` | Maximum lease extension accepted from one WAIT heartbeat. |
+| `waitClockSkewSec` | Allowed simulated timestamp skew for WAIT validation. |
 | `brakingDecelMps2` | Deceleration used for recallable / committed horizon calculation. |
 | `processingLatencyMargin` | Extra distance margin added to the braking horizon. |
 | `rollbackVcTimeoutSec` | App-level timeout before rotating to the next deterministic rollback proposer. |
+| `injectSuppressInitialCancelLeader` | Experiment-only fault: the deterministic round-0 CANCEL proposer withholds the proposal after accepting valid evidence. |
+| `enableCancelLeaderFailover` | Guard/ablation switch. When enabled, every replica accepting the CANCEL certificate arms the same non-extending proposer lease; expiry advances the deterministic candidate index. |
 
 ---
 
@@ -1368,6 +1436,10 @@ Common log markers used by benchmark scripts and debugging:
 | `[DISCOVERY-DEADLINE]`, `[DISCOVERY-DRAIN]`, `[DISCOVERY-COMPLETE]` | Hard deadline, certificate drain, and local completion, including intent/cert counts, missing IDs, and local-CERT-air state. |
 | `[TYPE8-DRAIN]` | Outbound signed PBFT bytes sent to radio. |
 | `[TYPE8-RECV]` | Inbound signed PBFT bytes verified and delivered. |
+| `[TYPE11-RELAY-ARM]` | Deterministic TYPE11 fallback armed with carrier target, sender-relative rank, and fire time. |
+| `[TYPE11-CARRIER]` | Newly observed registry-bound TYPE11 carrier for one semantic raw PBFT packet. |
+| `[TYPE11-RELAY-CANCEL]`, `[TYPE11-PROPAGATION-STOP]` | Pending TYPE11 relay canceled by enough carriers, phase quorum, stale/inactive state, or consensus cleanup. |
+| `[TYPE11-SEND]` | A deterministic fallback actually reached its timer and relayed. |
 | `[PBFT-RETRY-ARM]`, `[PBFT-RETRY]`, `[PBFT-RETRY-STOP]` | Bounded local phase retransmission lifecycle. |
 | `[SEQ-SYNC]` | A newly selected primary advanced its PBFT sequence allocator past its locally executed prefix. |
 | `[GOSSIP-SEND]` | Type 9 order gossip broadcast. |
@@ -1384,12 +1456,19 @@ Common log markers used by benchmark scripts and debugging:
 | `[ROLLBACK-PROPOSE]` | Deterministic rollback proposer submitted or skipped a rollback proposal. Includes `|M|` when submitted. |
 | `[ROLLBACK-COMMIT]` | Rollback order committed and cancelled epoch tombstoned. |
 | `[ROLLBACK-VC]` | App-level rollback proposer rotation timer fired. |
-| `[ACTIVE-VIEW]` | ResDB installed or promoted a forced rollback active view. Includes epoch, seq, hash, `N`, `f`, quorum, primary, and members. |
-| `[ACTIVE-VIEW-REJECT]` | Forced rollback membership was rejected, usually for conflicting membership or sender/leader mismatch. |
-| `[ACTIVE-VOTE-DROP]` | PBFT ignored a PRE_PREPARE/PREPARE/COMMIT vote because the sender is outside rollback `M`. |
-| `[ACTIVE-PASSIVE]` | A non-member observed rollback PBFT traffic but skipped voting or execution for that instance. |
+| `[CANCEL-LEADER-LEASE]` | A replica armed the shared CANCEL proposer lease. Repeated evidence never extends an already scheduled lease. |
+| `[BYZANTINE-CANCEL-SUPPRESS]` | Experiment fault injected at the deterministic round-0 CANCEL proposer. Includes attack time and failover setting. |
+| `[ACTIVE-VIEW]` | ResDB installed or promoted a request-scoped active view. Includes epoch, seq, hash, `N`, `f`, quorum, primary, and members. Older log text may call this a forced rollback view. |
+| `[EPOCH-VIEW]`, `[EPOCH-VIEW-REJECT]` | Ordinary epoch proposal active-view candidate/install or rejection, including CLEAR-evidence rejection for crash recovery. |
+| `[ACTIVE-VIEW-REJECT]` | A request-scoped membership was rejected, usually for conflicting membership or sender/leader mismatch. |
+| `[ACTIVE-VOTE-DROP]` | PBFT ignored a PRE_PREPARE/PREPARE/COMMIT vote because the sender is outside the request's `M`. |
+| `[ACTIVE-PASSIVE]` | A non-member observed request-scoped PBFT traffic but skipped voting or execution for that instance. |
 | `[ACTIVE-DEPART]` | A local vehicle departed and its ResDB/PBFT participation was disabled for future epochs. |
-| `[ROLLBACK-VC-UNSUPPORTED]` | A forced-M rollback view-change/new-view path was reached; the prototype rejects it instead of falling back to static `N`. |
+| `[ROLLBACK-VC-UNSUPPORTED]` | A dynamic epoch-view view-change/new-view path was reached; the prototype rejects it instead of silently falling back to static `N`. |
+| `[CLEAR-CERT-CANDIDATE]`, `[CLEAR-CERT-CANDIDATE-CANCEL]` | Ranked CLEAR broadcaster/relay fallback lifecycle. |
+| `[CLEAR-CARRIER]`, `[CLEAR-PROPAGATION-STOP]` | Authenticated type-16 carrier progress and relay suppression. |
+| `[CLEAR-ECHO-HUSH]` | Late CLEAR echo ignored before accumulation because a candidate/cert/CLEARED state already exists. |
+| `[WAIT-SEND]`, `[WAIT-ACCEPT]`, `[WAIT-REJECT]`, `[WAIT-STOP]` | Advisory WAIT lease lifecycle; these are app-level logs, not PBFT decisions. |
 | `[VC-DEBUG]`, `[VC-TRIGGER]`, `[APP-VC]` | View-change instrumentation. |
 | `[OMNET-PREVERIFY]` | Bridge PRE_PREPARE pre-verify result. |
 | `[EXECUTOR]`, `[EXEC-CB]` | ResDB executor and order callback logs. |
@@ -1411,7 +1490,7 @@ cd incubator-resilientdb
 bazel build //integration/omnet:resdb_omnet_bridge
 
 cd ../veins-veins-5.3.1
-make -j$(nproc)
+make
 
 cd ../fourway
 runomnetnogui -c BFTOverV2VWithResilientDB
@@ -1441,32 +1520,44 @@ Use the scenario configs in `fourway/omnetpp.ini` for honest, ambulance, batch, 
 | 10 | `NoCertGate_ByzFollower_FakeAmbu` | FAKE_AMBULANCE_FOLLOWER (type 7), cert gate OFF — uncertified ambulance claim accepted. |
 | 11 | `CertGate_ByzFollower_FakeAmbu` | FAKE_AMBULANCE_FOLLOWER (type 7), cert gate ON — claim rejected, correct priority. |
 | 12 | `NoFW_ByzLeader_TamperLane` | TAMPER_LANE (type 8), firewall off — N+E co-batched, `[CRASH_DETECTED]` fires. Run with firewall on to confirm Check 10 prevents it. |
+| 13 | `FW_ByzLeader_FakeAmbulance` | FAKE_AMBULANCE primary with the proposal firewall enabled. |
+| 14 | `FW_ByzLeader_TamperLane` | TAMPER_LANE primary with the proposal firewall enabled. |
+| 15 | `Emergency_Preempt_DynamicN` | Honest emergency rollback: committed CANCEL, fresh discovery, and epoch-1 ORDER over responsive membership. |
+| 16 | `Crash_Wait_Clear` | Honest crash recovery: BLOCKING incident, advisory WAIT, signed CLEAR, and evidence-carrying epoch-1 ORDER. |
+| 17 | `Emergency_SuppressCancel_Unguarded` | Scenario 15 with the round-0 CANCEL leader suppressing preemption and proposer failover disabled. Expected liveness harm: valid evidence exists but CANCEL does not commit. |
+| 18 | `Emergency_SuppressCancel_Guarded` | Same suppression attack with all-replica deterministic proposer leases enabled. The next candidate should commit CANCEL and recovery ORDER. |
 
 ---
 
 ## 22. Known Limitations and Technical Debt
 
-### Multi-epoch reset is incomplete
+### General repeated multi-epoch reset remains incomplete
 
-`current_epoch_` is present, but full `resetForNextRound()` parity with the legacy V2V module is not implemented. Departed/zombie filtering exists, but a long scenario with multiple independent rounds needs more reset logic.
+Scenario 15 and 16 implement the intended CANCEL-to-epoch-`e+1` transition, including fresh discovery, tombstones, incident state, and request-scoped membership. A long-lived scenario with multiple independent cancellation/recovery cycles still lacks full `resetForNextRound()` parity and needs a dedicated soak test.
 
 ### `ResdbOmnetRemoveReplica()` is a stub; inactive marking is local
 
 The bridge function currently returns success for non-null handles but does not remove or reconfigure a replica. The implemented departure path instead uses `ResdbOmnetMarkReplicaInactive(handle, replica_id, min_epoch)`, which disables local PBFT outbound participation and prevents late outbound radio sends after physical departure. This is not static-config reconfiguration; the original config remains an identity registry.
 
-### Rollback forced-M implementation scope
+### Request-scoped dynamic epoch-view scope
 
-Rollback PREPARE/COMMIT now uses proposal-defined forced `M`: quorum is computed from `|M|`, non-members are non-voting, and the rollback `leader_id` is forced into PBFT primary state. This covers the intended "start fresh from 11 cars" case without mutating `server.config`.
+Recovery PREPARE/COMMIT uses proposal-defined `M`: quorum is computed from `|M|`, non-members are non-voting, and the proposal `leader_id` is installed as the PBFT primary for that request. This covers the intended reduced-membership recovery without mutating `server.config`. Scenario 15 and 16 use ordinary proposals; the wrapped rollback format remains compatibility code only.
 
-Remaining rollback membership limitations:
+Remaining dynamic-membership limitations:
 
-- Forced-M view-change/new-view is not implemented. Rollback primary silence logs `[ROLLBACK-VC-UNSUPPORTED]` and fails loud.
-- Checkpoint/recovery dynamic membership is deferred; rollback experiments should not rely on checkpoint/recovery during the rollback instance.
-- The bridge validates cancel justification shape, but full emergency CA verification and membership-corroboration Check 12 remain follow-up work.
+- View-change/new-view over a request-scoped dynamic epoch view is not implemented. Reaching that path logs `[ROLLBACK-VC-UNSUPPORTED]` and fails loud.
+- Checkpoint/recovery dynamic membership is deferred; experiments should not rely on checkpoint/recovery during the recovery ORDER instance.
+- Full emergency membership-corroboration Check 12 remains follow-up work. Emergency certificate validation itself is enforced when `enableAmbulanceCertGate=true`.
 
-### Ambulance certificate verification is not fully enforced in the announce path
+### Recovery ORDER leader replacement remains separate from CANCEL failover
 
-`CryptoAuth` supports CA-issued `VehicleCert` verification, but `handleArrivalAnnouncement()` currently trusts `ann.isAmbulance` after TraCI position verification. A Byzantine vehicle can still claim ambulance priority unless the ambulance certificate path is completed.
+CANCEL now has an all-replica deterministic proposer lease: every replica that accepts the same valid CANCEL certificate arms a non-extending timeout, advances the same candidate order on expiry, and lets the newly selected candidate submit. Scenarios 17/18 provide the unguarded/guarded suppression ablation. This fixes silence before CANCEL starts PBFT and applies to both emergency and crash reasons.
+
+The later epoch-`e+1` recovery ORDER still uses its older proposer timer and does not yet have equivalent Byzantine-primary replacement across a request-scoped dynamic view. Complete dynamic-view VIEW_CHANGE/NEW_VIEW support remains the next liveness step before lazy-WAIT or suppressed-recovery-ORDER experiments.
+
+### Ambulance certificate verification is configuration-gated
+
+When `enableAmbulanceCertGate=true`, the echo path rejects an ambulance announcement lacking a valid Emergency_CA `VehicleCert` and payload signature; Scenario 15 enables this gate. Configurations with the gate disabled intentionally preserve the ablation behavior and may trust `ann.isAmbulance` after physical position verification.
 
 ### Java `OrderRequestVerifier` port status
 
@@ -1482,7 +1573,7 @@ Remaining gaps:
 
 ### App-level fallbacks are not PBFT proofs
 
-`stopSignTimeoutSec` and `consensusTimeoutSec` release vehicles for simulation safety. They are not substitutes for PBFT view-change. Byzantine-primary correctness experiments should use the VC logs and type `8` view-change traffic, not fallback release alone.
+On the ordinary non-incident path, `stopSignTimeoutSec` and `consensusTimeoutSec` can release vehicles for simulation safety. Once valid CANCEL/BLOCKING evidence exists, timeout handlers keep affected vehicles stopped until protocol resolution. In neither case are app timers substitutes for PBFT view-change; Byzantine-primary correctness experiments should use the VC logs and type `8` view-change traffic.
 
 ### Transport-level ACKs are intentionally absent
 
@@ -1493,12 +1584,26 @@ The current design does not port Java `ReliableV2VMessaging` sequence maps, ACKs
 3. Type `5` cert retries.
 4. Type `10` announce gossip for witness discovery across topology gaps.
 5. Type `9` decision gossip for post-commit catch-up.
+6. Deterministic authenticated-carrier suppression for type `11`.
+7. Ranked authenticated CLEAR propagation and state-transition hush.
 
 This avoids ACK implosion on broadcast V2V channels, but it means lossy-radio behavior must be evaluated at the PBFT and gossip layers.
 
-### Type 8 radio signatures are not a full replica identity registry
+### Carrier identity binding is not yet uniform
 
-Type `8`, type `9`, and type `10` carrier payloads are signed and verified with the public key embedded in the radio wrapper. That prevents accidental corruption and detects a forged signature for that embedded key, but the current code does not yet check that the embedded key is the expected key for `fromReplicaId`. For type `10`, the original vehicle's announcement remains inside the carrier unchanged; the outer signature authenticates the relayer frame only. A future hardening pass should add a pubkey registry or bind keys through the arrival/cert layer.
+`WitnessKeyRegistry` now binds replica IDs to immutable generated P-256 keys. BLOCKED/CANCEL/CLEAR witness validation, CLEAR carriers, WAIT, and TYPE11 carrier counting use it. Direct type 8, decision gossip type 9, announce gossip type 10, and CANCEL-commit gossip type 14 still verify the key included in the envelope without uniformly checking it against `fromReplicaId`. Type 13 carrier-count suppression also records transport sender IDs without a separately signed carrier envelope. Those paths should be migrated to the same registry-bound carrier helper before adversarial propagation tests.
+
+### ARRIVAL_CERT and stop-zone cert gossip remain blind while collecting
+
+ARRIVAL_CERT source retry is phase/max gated, and each receiver relays a validated cert at most once. The primary's stop-zone cert gossip rebroadcasts every collected certificate until its deadline or discovery transition. Neither path currently stops per semantic certificate after authenticated propagation confirmation. This is the main remaining timer-driven propagation path that does not follow the CLEAR/TYPE11 evidence-driven suppression model.
+
+### Geographic TYPE11 relay selection is not implemented
+
+TYPE11 selection is deterministic and sender-relative, not random, but it does not compute a connected dominating set, multipoint relay set, or perception-derived geographic coverage gain. A future geographic layer should influence relay rank while retaining the counter-based fallback; nominal range alone must not hard-suppress the only radio path.
+
+### ResDB log lines can be corrupted by thread interleaving
+
+ResDB worker threads and the simulation thread write to the same stream without one shared line lock. Concurrent writes can splice numeric fields and produce plausible but false IDs. Use anchored full-line parsing and plausibility filters. `scripts/loglens.sh` provides categorized inspection and `scripts/pbft_matrix.py` provides phase/sequence delivery matrices, retry-arm, quorum, forced-view, and corruption views. In PBFT logs, `self=` and `sender=` are ResDB IDs (`OMNeT id + 1`); `omnet_self=` and `r<N>` are zero-based OMNeT/vehicle IDs.
 
 ---
 
@@ -1529,11 +1634,11 @@ The old architecture is useful for comparison but is not the current hot path.
 
 When continuing work on this system, first identify which layer owns the behavior:
 
-1. **Physical arrival, lane truth, certs, and vehicle movement:** `ResDBIntersectionApp.cc` and `ResDBTraCI.cc`.
-2. **Radio carriage and signed V2V wrappers:** `ResDBIntersectionApp.cc`, `ResdbV2VWire.h`, and `CryptoAuth`.
+1. **Physical arrival, lane truth, certs, and vehicle movement:** `ResDBArrivalProtocol.cc`, `ResDBDecision.cc`, and `ResDBTraCI.cc`.
+2. **Radio carriage and signed V2V wrappers:** `ResDBTransport.cc`, `ResDBIntersectionApp.cc`, `ResdbV2VWire.h`, `WitnessKeyRegistry`, and `CryptoAuth`.
 3. **PBFT integration and socketless ResDB behavior:** `resdb_omnet_bridge.cc`.
 4. **Binary proposal/order ABI:** `resdb_omnet_bridge.h`.
-5. **Rollback / cancel behavior:** `ResDBRollbackProtocol.cc`, rollback state in `ResDBIntersectionApp.h`, and rollback payload parsing in `resdb_omnet_bridge.cc`.
+5. **BLOCKED / CANCEL / CLEAR / WAIT behavior:** `ResDBRollbackProtocol.cc`, incident/rollback state in `ResDBIntersectionApp.h`, and recovery ORDER evidence/view validation in `resdb_omnet_bridge.cc`.
 6. **Post-consensus catch-up:** `ResDBDecisionGossip.h/.cc` plus `handleDecisionGossip()`.
 7. **Consensus time behavior:** `SimTimeProvider` and `ResdbOmnetUpdateSimTimeUs()`.
 8. **Experiment knobs:** `ResDBIntersectionApp.ned` and `fourway/omnetpp.ini`.

@@ -3,6 +3,7 @@
 #include "veins/modules/application/resDB/ResdbV2VWire.h"
 #include "veins/modules/application/resDB/messages/BFTMessage_m.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdint>
 #include <deque>
@@ -369,7 +370,9 @@ void ResDBIntersectionApp::clearConsensusRetries(const char* reason)
                   << " t=" << simTime() << "\n";
     }
     consensus_retry_manager_.clear();
-    if (consensus_retry_timer_->isScheduled()) cancelEvent(consensus_retry_timer_);
+    if (consensus_retry_timer_ && consensus_retry_timer_->isScheduled())
+        cancelEvent(consensus_retry_timer_);
+    cancelPendingConsensusRelays(reason ? reason : "consensus-stop");
 }
 
 // ── sendBFTMessage: cert-protocol radio send (no PBFT crypto) ─────────────────
@@ -692,7 +695,8 @@ void ResDBIntersectionApp::handleResdbConsensusMessage(BFTMessage* bft)
 
     ResdbOmnetDeliverPacket(resdb_server_handle_, bft->getFromReplicaId(),
                             view.resdbBytes, view.resdbLen);
-    maybeRelayResdbConsensusBytes(view.resdbBytes, view.resdbLen, inner, "type8");
+    maybeRelayResdbConsensusBytes(
+        view.resdbBytes, view.resdbLen, inner, "type8", current_epoch_);
 }
 
 bool ResDBIntersectionApp::isConsensusRelayEligible(const ResdbPacketRequestInfo& info) const
@@ -718,9 +722,252 @@ std::string ResDBIntersectionApp::consensusRelayKey(
            sha256Hex(data, len);
 }
 
+int ResDBIntersectionApp::consensusRelayCarrierThreshold() const
+{
+    const int f = tolerated_faults_ >= 0
+        ? tolerated_faults_
+        : std::max(0, (total_vehicles_ - 1) / 3);
+    return std::max(1, std::min(consensus_relay_carrier_cap_, f + 1));
+}
+
+int ResDBIntersectionApp::consensusRelayRank(
+    const ResdbPacketRequestInfo& info) const
+{
+    const int n = std::max(1, total_vehicles_);
+    const int original = info.sender_id > 0 ? info.sender_id - 1 : 0;
+    // Rotate deterministic relay duty around the original PBFT sender. This
+    // avoids both random selection and permanently favoring low replica IDs.
+    return (replicaId_ - original - 1 + n) % n;
+}
+
+bool ResDBIntersectionApp::consensusRelayCarrierIsAuthenticated(
+    int carrier, const uint8_t pubKey[CRYPTO_PUBKEY_BYTES]) const
+{
+    return carrier >= 0 && carrier < total_vehicles_ &&
+        WitnessKeyRegistry::instance().matches(carrier, pubKey);
+}
+
+void ResDBIntersectionApp::observeConsensusRelayCarrier(
+    const std::string& key, int carrier, const ResdbPacketRequestInfo& info)
+{
+    if (key.empty() || carrier < 0) return;
+    auto& carriers = consensus_relay_carriers_[key];
+    if (!carriers.insert(carrier).second) return;
+
+    const int threshold = consensusRelayCarrierThreshold();
+    std::cout << "[TYPE11-CARRIER] r" << replicaId_
+              << " carrier=r" << carrier
+              << " count=" << carriers.size() << "/" << threshold
+              << " inner=" << ResdbOmnetRequestTypeName(info.type)
+              << " view=" << info.current_view
+              << " seq=" << info.seq
+              << " sender=" << info.sender_id
+              << " hash=" << key.substr(key.rfind(':') + 1)
+              << " t=" << simTime() << "\n";
+
+    if ((int)carriers.size() < threshold) return;
+    auto pending = pending_consensus_relays_.find(key);
+    if (pending == pending_consensus_relays_.end()) return;
+
+    std::cout << "[TYPE11-RELAY-CANCEL] r" << replicaId_
+              << " reason=carrier-threshold"
+              << " carriers=" << carriers.size() << "/" << threshold
+              << " rank=" << pending->second.rank
+              << " inner=" << ResdbOmnetRequestTypeName(info.type)
+              << " view=" << info.current_view
+              << " seq=" << info.seq
+              << " sender=" << info.sender_id
+              << " hash=" << key.substr(key.rfind(':') + 1)
+              << " t=" << simTime() << "\n";
+    pending_consensus_relays_.erase(pending);
+    std::cout << "[TYPE11-PROPAGATION-STOP] r" << replicaId_
+              << " reason=authenticated-carriers"
+              << " count=" << carriers.size() << "/" << threshold
+              << " hash=" << key.substr(key.rfind(':') + 1)
+              << " t=" << simTime() << "\n";
+    if (consensus_relay_timer_ && consensus_relay_timer_->isScheduled())
+        cancelEvent(consensus_relay_timer_);
+    scheduleConsensusRelayFlush();
+}
+
+bool ResDBIntersectionApp::consensusRelayPhaseComplete(
+    const std::vector<uint8_t>& raw,
+    const ResdbPacketRequestInfo& info) const
+{
+    const int progressVoteType = info.type == 3 ? 4 :
+        (info.type == 4 ? 5 : -1);
+    if (progressVoteType < 0 || raw.empty()) return false;
+
+    int progressCount = 0;
+    int forcedQuorum = -1;
+    const int rc = ResdbOmnetGetVerifiedVoteProgress(
+        resdb_server_handle_, raw.data(), static_cast<uint32_t>(raw.size()),
+        progressVoteType, &progressCount, &forcedQuorum);
+    const int quorum = forcedQuorum > 0
+        ? forcedQuorum : configured_consensus_quorum_;
+    return rc == 0 && quorum > 0 && progressCount >= quorum;
+}
+
+void ResDBIntersectionApp::scheduleConsensusRelay(
+    const std::string& key, const uint8_t* data, uint32_t len,
+    const ResdbPacketRequestInfo& info, const char* source,
+    uint32_t relayEpoch)
+{
+    if (key.empty() || !data || len == 0 ||
+            pending_consensus_relays_.count(key)) return;
+
+    const int original = info.sender_id > 0 ? info.sender_id - 1 : -1;
+    if (original == replicaId_) {
+        std::cout << "[TYPE11-RELAY-CANCEL] r" << replicaId_
+                  << " reason=original-sender"
+                  << " inner=" << ResdbOmnetRequestTypeName(info.type)
+                  << " view=" << info.current_view
+                  << " seq=" << info.seq
+                  << " hash=" << key.substr(key.rfind(':') + 1)
+                  << " t=" << simTime() << "\n";
+        return;
+    }
+
+    const int threshold = consensusRelayCarrierThreshold();
+    const size_t carriers = consensus_relay_carriers_[key].size();
+    if ((int)carriers >= threshold) {
+        std::cout << "[TYPE11-PROPAGATION-STOP] r" << replicaId_
+                  << " reason=already-confirmed"
+                  << " count=" << carriers << "/" << threshold
+                  << " hash=" << key.substr(key.rfind(':') + 1)
+                  << " t=" << simTime() << "\n";
+        return;
+    }
+
+    PendingConsensusRelay pending;
+    pending.key = key;
+    pending.raw.assign(data, data + len);
+    pending.info = info;
+    pending.source = source ? source : "?";
+    pending.relayEpoch = relayEpoch;
+    pending.rank = consensusRelayRank(info);
+    const double delay = consensus_relay_base_delay_sec_ +
+        pending.rank * consensus_relay_slot_sec_;
+    pending.fireTime = simTime() + SimTime(std::max(0.0, delay));
+    pending_consensus_relays_.emplace(key, std::move(pending));
+
+    const auto& armed = pending_consensus_relays_.at(key);
+    std::cout << "[TYPE11-RELAY-ARM] r" << replicaId_
+              << " rank=" << armed.rank
+              << " target=" << threshold
+              << " carriers=" << carriers
+              << " fire_at=" << armed.fireTime
+              << " inner=" << ResdbOmnetRequestTypeName(info.type)
+              << " view=" << info.current_view
+              << " seq=" << info.seq
+              << " sender=" << info.sender_id
+              << " hash=" << key.substr(key.rfind(':') + 1)
+              << " t=" << simTime() << "\n";
+    scheduleConsensusRelayFlush();
+}
+
+void ResDBIntersectionApp::scheduleConsensusRelayFlush()
+{
+    if (pending_consensus_relays_.empty() || !consensus_relay_timer_) return;
+    simtime_t next = pending_consensus_relays_.begin()->second.fireTime;
+    for (const auto& entry : pending_consensus_relays_) {
+        if (entry.second.fireTime < next) next = entry.second.fireTime;
+    }
+    if (consensus_relay_timer_->isScheduled()) {
+        if (consensus_relay_timer_->getArrivalTime() <= next) return;
+        cancelEvent(consensus_relay_timer_);
+    }
+    scheduleAt(next, consensus_relay_timer_);
+}
+
+void ResDBIntersectionApp::flushDueConsensusRelays()
+{
+    const simtime_t now = simTime();
+    std::vector<PendingConsensusRelay> due;
+    for (auto it = pending_consensus_relays_.begin();
+            it != pending_consensus_relays_.end();) {
+        if (it->second.fireTime <= now) {
+            due.push_back(std::move(it->second));
+            it = pending_consensus_relays_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    for (const auto& pending : due) {
+        const int threshold = consensusRelayCarrierThreshold();
+        const size_t carriers = consensus_relay_carriers_[pending.key].size();
+        const char* stopReason = nullptr;
+        if ((int)carriers >= threshold)
+            stopReason = "carrier-threshold";
+        else if (current_phase_ == ConsensusPhase::DEPARTED || crashCommsDisabled_)
+            stopReason = "inactive";
+        else if (pending.relayEpoch < current_epoch_)
+            stopReason = "stale-epoch";
+        else if (consensusRelayPhaseComplete(pending.raw, pending.info))
+            stopReason = "phase-quorum";
+
+        if (stopReason) {
+            std::cout << "[TYPE11-RELAY-CANCEL] r" << replicaId_
+                      << " reason=" << stopReason
+                      << " carriers=" << carriers << "/" << threshold
+                      << " rank=" << pending.rank
+                      << " inner=" << ResdbOmnetRequestTypeName(pending.info.type)
+                      << " view=" << pending.info.current_view
+                      << " seq=" << pending.info.seq
+                      << " sender=" << pending.info.sender_id
+                      << " hash=" << pending.key.substr(
+                             pending.key.rfind(':') + 1)
+                      << " t=" << now << "\n";
+            continue;
+        }
+
+        auto inner = resdb_gossip::serializeConsensusRelay(
+            pending.relayEpoch, pending.raw);
+        auto signedPayload = resdbwire::packSignedPacket(
+            ec_private_key_, ec_pub_key_, inner.data(),
+            static_cast<uint32_t>(inner.size()));
+        if (signedPayload.empty()) continue;
+
+        // The deterministic holdoff already supplies all staggering. Avoid
+        // sendBFTMessage's random jitter and replica slot a second time.
+        sendBFTMessageNow(-1, signedPayload, kResdbConsensusRelayType);
+        std::cout << "[TYPE11-SEND] r" << replicaId_
+                  << " source=" << pending.source
+                  << " rank=" << pending.rank
+                  << " target=" << threshold
+                  << " carriers=" << carriers
+                  << " inner=" << ResdbOmnetRequestTypeName(pending.info.type)
+                  << " view=" << pending.info.current_view
+                  << " seq=" << pending.info.seq
+                  << " sender=" << pending.info.sender_id
+                  << " hash=" << pending.key.substr(
+                         pending.key.rfind(':') + 1)
+                  << " bytes=" << pending.raw.size()
+                  << " relay_epoch=" << pending.relayEpoch
+                  << " current_epoch=" << current_epoch_
+                  << " t=" << now << "\n";
+    }
+    scheduleConsensusRelayFlush();
+}
+
+void ResDBIntersectionApp::cancelPendingConsensusRelays(const char* reason)
+{
+    const size_t count = pending_consensus_relays_.size();
+    pending_consensus_relays_.clear();
+    if (consensus_relay_timer_ && consensus_relay_timer_->isScheduled())
+        cancelEvent(consensus_relay_timer_);
+    if (count > 0) {
+        std::cout << "[TYPE11-RELAY-CANCEL] r" << replicaId_
+                  << " reason=" << (reason ? reason : "state-transition")
+                  << " pending=" << count
+                  << " t=" << simTime() << "\n";
+    }
+}
+
 void ResDBIntersectionApp::maybeRelayResdbConsensusBytes(
     const uint8_t* data, uint32_t len, const ResdbPacketRequestInfo& info,
-    const char* source)
+    const char* source, uint32_t relayEpoch)
 {
     // NOTE: relay eligibility must track "still present in the sim"
     // (current_phase_ == DEPARTED), not "my own order_applied_" — a replica
@@ -758,27 +1005,7 @@ void ResDBIntersectionApp::maybeRelayResdbConsensusBytes(
         return;
     }
 
-    // Immediate relay (deduped). A prior suppress-on-overhear delay queue was
-    // removed: at N≈10 simultaneous TYPE8 hearers it could not beat the ~3ms
-    // one-hop floor, and discovery-TX cancel is what unblocked ORDER(1).
-    std::vector<uint8_t> raw(data, data + len);
-    auto inner = resdb_gossip::serializeConsensusRelay(current_epoch_, raw);
-    auto signed_payload = resdbwire::packSignedPacket(
-        ec_private_key_, ec_pub_key_, inner.data(), (uint32_t)inner.size());
-    if (signed_payload.empty()) return;
-
-    sendBFTMessage(-1, signed_payload, kResdbConsensusRelayType);
-    std::cout << "[TYPE11-SEND] r" << replicaId_
-              << " source=" << (source ? source : "?")
-              << " inner=" << ResdbOmnetRequestTypeName(info.type)
-              << " view=" << info.current_view
-              << " seq=" << info.seq
-              << " sender=" << info.sender_id
-              << " hash=" << key.substr(key.rfind(':') + 1)
-              << " bytes=" << raw.size()
-              << " order_applied=" << (order_applied_ ? 1 : 0)
-              << " current_epoch=" << current_epoch_
-              << " t=" << simTime() << "\n";
+    scheduleConsensusRelay(key, data, len, info, source, relayEpoch);
 }
 
 void ResDBIntersectionApp::handleResdbConsensusRelay(BFTMessage* bft)
@@ -792,10 +1019,13 @@ void ResDBIntersectionApp::handleResdbConsensusRelay(BFTMessage* bft)
     if (!resdbwire::unpackSignedPacket(buf.data(), (uint32_t)buf.size(), &view)) return;
     if (view.resdbLen == 0) return;
 
-    if (!CryptoAuth::instance().verifyBytes(view.pubKey, view.resdbBytes, view.resdbLen,
-                                            view.sig, view.sigLen)) {
+    const int carrier = bft->getFromReplicaId();
+    if (!consensusRelayCarrierIsAuthenticated(carrier, view.pubKey) ||
+            !CryptoAuth::instance().verifyBytes(
+                view.pubKey, view.resdbBytes, view.resdbLen,
+                view.sig, view.sigLen)) {
         std::cout << "[TYPE11-RECV] r" << replicaId_
-                  << " dropped forged relay from " << bft->getFromReplicaId()
+                  << " dropped unauthenticated relay from " << carrier
                   << "\n";
         return;
     }
@@ -828,7 +1058,7 @@ void ResDBIntersectionApp::handleResdbConsensusRelay(BFTMessage* bft)
 
     if (!isConsensusRelayEligible(info)) {
         std::cout << "[TYPE11-DROP] r" << replicaId_
-                  << " reason=ineligible carrier=" << bft->getFromReplicaId()
+                  << " reason=ineligible carrier=" << carrier
                   << " inner=" << ResdbOmnetRequestTypeName(info.type)
                   << " view=" << info.current_view
                   << " seq=" << info.seq
@@ -837,11 +1067,12 @@ void ResDBIntersectionApp::handleResdbConsensusRelay(BFTMessage* bft)
                   << " t=" << simTime() << "\n";
         return;
     }
+    observeConsensusRelayCarrier(key, carrier, info);
 
     if (consensus_relay_seen_.count(key) != 0) {
         std::cout << "[TYPE11-DROP] r" << replicaId_
                   << " reason=duplicate"
-                  << " carrier=" << bft->getFromReplicaId()
+                  << " carrier=" << carrier
                   << " inner=" << ResdbOmnetRequestTypeName(info.type)
                   << " view=" << info.current_view
                   << " seq=" << info.seq
@@ -852,7 +1083,7 @@ void ResDBIntersectionApp::handleResdbConsensusRelay(BFTMessage* bft)
     }
 
     std::cout << "[TYPE11-RECV] r" << replicaId_
-              << " carrier=" << bft->getFromReplicaId()
+              << " carrier=" << carrier
               << " inner=" << ResdbOmnetRequestTypeName(info.type)
               << " view=" << info.current_view
               << " seq=" << info.seq
@@ -864,10 +1095,11 @@ void ResDBIntersectionApp::handleResdbConsensusRelay(BFTMessage* bft)
               << " current_epoch=" << current_epoch_
               << " t=" << simTime() << "\n";
 
-    int original_from = info.sender_id > 0 ? info.sender_id - 1 : bft->getFromReplicaId();
+    int original_from = info.sender_id > 0 ? info.sender_id - 1 : carrier;
     ResdbOmnetDeliverPacket(resdb_server_handle_, original_from,
                             raw.data(), (uint32_t)raw.size());
-    maybeRelayResdbConsensusBytes(raw.data(), (uint32_t)raw.size(), info, "type11");
+    maybeRelayResdbConsensusBytes(
+        raw.data(), (uint32_t)raw.size(), info, "type11", epoch);
 }
 
 // ── onWSM ─────────────────────────────────────────────────────────────────────

@@ -198,8 +198,13 @@ protected:
     std::vector<std::string> crashWreckIds_;
     std::set<std::string> crashInjected_;
     std::set<std::string> crashTowed_;
+    std::set<std::string> crashConflictOccupantsAtInjection_;
+    std::set<std::string> crashUnsafeEntrants_;
     std::map<std::string, simtime_t> crashPendingInjectAt_;
     std::map<std::string, simtime_t> crashTowAt_;
+    std::map<std::string, char> physicalApproachByVehicle_;
+    std::set<std::pair<std::string, std::string>> unsafeConflictPairs_;
+    std::set<std::string> physicalCollisionVehicles_;
     bool crashSelectDone_;
     cMessage* connectAndStartTrigger; /**< self-message scheduled for when to connect to TraCI server and start running */
     cMessage* executeOneTimestepTrigger; /**< self-message scheduled for when to next call executeOneTimestep */
@@ -211,11 +216,14 @@ protected:
     VehicleObstacleControl* vehicleObstacleControl;
 
     void executeOneTimestep(); /**< read and execute all commands for the next timestep */
+    void pollIntersectionCooccupancy(); /**< TraCI-ground-truth conflicting internal-lane occupants */
 
     /** Same predicate as V2VProxyModule::vehicleHasClearedIntersectionTraCI (four-way C2* departure legs). */
     bool vehiclePastIntersectionDepartureLeg(const std::string& vehicleId);
     void notifyIntersectionDeparture(const std::string& vehicleId);
     void tryShutdownOnIntersectionBatchCleared(const std::string& vehicleId);
+    void tryShutdownOnTerminalVehicleCount(const std::string& latestVehicleId,
+                                           const char* latestOutcome);
     void maybeScheduleR0LateEmergencySpawn(const std::string& vehicleId);
     void tryR0LateEmergencySpawn();
     void onCrashBatch0Started(const std::string& vehicleId);

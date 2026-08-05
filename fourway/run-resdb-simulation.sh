@@ -49,7 +49,23 @@
 #   Scenario 16 Stage 1a harness: 16 vehicles commit ORDER(0), then two
 #   batch-0 vehicles are TraCI-force-frozen in the conflict box with radios
 #   silenced after a MAC grace window, and towed after clearDelaySec.
-#   Uses bft_16veh_crash.sumo.cfg (collision.action=none).
+#   Uses the normal 16-veh launchd; collision.action=none is in bft_16veh.sumo.cfg.
+#
+# --suppress-initial-cancel-leader
+#   Protocol-surface fault injection for Scenario 15/16: the deterministic
+#   round-0 CANCEL proposer withholds the proposal after a valid f+1 cert.
+#
+# --disable-cancel-leader-failover
+#   Ablation paired with the suppression attack. Honest replicas do not arm
+#   the shared proposer lease, demonstrating the unguarded liveness failure.
+#
+# --fabricate-clearance
+#   Scenario-16 Byzantine recovery leader submits ORDER(e+1) while the crash
+#   incident is still BLOCKING, with an invalid zero-echo CLEAR certificate.
+#
+# --disable-recovery-clear-evidence-gate
+#   Ablation paired with --fabricate-clearance. Voters accept the structurally
+#   present CLEAR trailer without validating its threshold signatures.
 #
 # Examples:
 #   ./run-resdb-simulation.sh -u Cmdenv -c FourVehiclesResDB
@@ -69,11 +85,53 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 export VEINS_ROOT="${VEINS_ROOT:-${REPO_ROOT}/veins-veins-5.3.1}"
 export FOURWAY_ROOT="${FOURWAY_ROOT:-${REPO_ROOT}/fourway}"
 
+SIM_PID=""
+_CLEANING_UP=0
+
+# Ctrl-C / TERM must kill ./fourway even when it is wedged in OMNeT's
+# crash signal handler (TERM/INT are ignored there; only KILL works).
 cleanup() {
+  if [[ "${_CLEANING_UP}" -eq 1 ]]; then
+    return
+  fi
+  _CLEANING_UP=1
+  trap - EXIT INT TERM HUP
+
+  # SIM_PID is cleared only after a clean wait(); if it is still set we were
+  # interrupted (or the binary is wedged) — force-kill and sweep leftovers.
+  local tracked="${SIM_PID:-}"
+  if [[ -n "${tracked}" ]]; then
+    if kill -0 "${tracked}" 2>/dev/null; then
+      echo ""
+      echo "Interrupted — force-killing simulation PID ${tracked} (and children)..."
+      pkill -KILL -P "${tracked}" 2>/dev/null || true
+      kill -KILL "${tracked}" 2>/dev/null || true
+    fi
+    if [[ -n "${SIM_DIR:-}" ]]; then
+      pkill -KILL -f "${SIM_DIR}/fourway" 2>/dev/null || true
+      pkill -KILL -f "${SIM_DIR}/veins" 2>/dev/null || true
+    fi
+    pkill -KILL -f '[.]/fourway( |$)' 2>/dev/null || true
+    SIM_PID=""
+  fi
+
   echo ""
   echo "=========================================="
-  echo "Simulation ended (exit/interrupt). Full log: ${LOG_FILE}"
+  echo "Simulation ended (exit/interrupt). Full log: ${LOG_FILE:-/tmp/resdb-simulation.log}"
   echo "=========================================="
+}
+
+# Run sim in background so we own its PID (pipe-to-tee foreground
+# otherwise leaves fourway alive after Ctrl-C).
+run_sim() {
+  "$@" > >(tee -a "${LOG_FILE}") 2>&1 &
+  SIM_PID=$!
+  set +e
+  wait "${SIM_PID}"
+  local rc=$?
+  set -e
+  SIM_PID=""
+  return "${rc}"
 }
 
 
@@ -263,6 +321,18 @@ generate_random_scenario() {
         echo "# Do not edit by hand — regenerated each run."
         echo "[General]"
         echo "*.node[*].appl.ambulanceReplicaId = ${AMB_ID}"
+        local colluder_csv=""
+        if (( follower_byz_type == 1 && pick > 0 )); then
+            local colluder_id
+            for colluder_id in "${BYZ_ARRAY[@]}"; do
+                [[ -n "${colluder_csv}" ]] && colluder_csv+=","
+                colluder_csv+="${colluder_id}"
+            done
+        fi
+        echo "*.node[*].appl.falseLaneColluderIds = \"${colluder_csv}\""
+        if [[ "${DISABLE_ARRIVAL_POSITION_GATE}" -eq 1 ]]; then
+            echo "*.node[*].appl.enableArrivalPositionGate = false"
+        fi
         if [[ -n "${TOLERATED_F:-}" ]]; then
             echo "*.node[*].appl.toleratedFaults = ${TOLERATED_F}"
         fi
@@ -280,7 +350,9 @@ generate_random_scenario() {
                 node_idx="$(replica_to_node_idx "${n}" "${replica_id}")"
                 echo "*.node[${node_idx}].appl.isByzantine = true"
                 echo "*.node[${node_idx}].appl.byzantineType = ${follower_byz_type}   # follower byz type (replica ${replica_id})"
-                echo "*.node[${node_idx}].appl.byzantinePbftSilent = true   # PBFT omission fault (replica ${replica_id})"
+                if (( follower_byz_type != 1 )); then
+                    echo "*.node[${node_idx}].appl.byzantinePbftSilent = true   # PBFT omission fault (replica ${replica_id})"
+                fi
             done
         fi
         # Cert gate override (written when --cert-gate is passed)
@@ -303,6 +375,7 @@ BYZ_LEADER=-1       # -1 = no designated byz leader
 BYZ_LEADER_TYPE=5    # byzantineType for the byz leader (5=bad_proposal, 6=fake_ambulance)
 BYZ_FOLLOWER_TYPE=1  # byzantineType for Byzantine followers (1=false_lane, 7=fake_ambulance_follower)
 CERT_GATE_LINE=""   # set by --cert-gate: adds enableAmbulanceCertGate=true to scenario ini
+DISABLE_ARRIVAL_POSITION_GATE=0
 ALLOW_REPLICA0_BYZ_FOLLOWER=1
 NO_AMBULANCE=0
 INITIAL_LEADER=""   # "" = use default (replica 0)
@@ -310,6 +383,10 @@ CHANNEL_METRICS_DIR=""  # "" = do not override (use omnetpp.ini / NED default)
 BASELINE=0
 ROLLBACK_LATE_EMERGENCY=0
 CRASH_WAIT_CLEAR=0
+SUPPRESS_INITIAL_CANCEL_LEADER=0
+ENABLE_CANCEL_LEADER_FAILOVER=1
+FABRICATE_CLEARANCE=0
+ENABLE_RECOVERY_CLEAR_EVIDENCE_GATE=1
 TOLERATED_F=""
 EXTRA_INI_ARG=()
 
@@ -343,6 +420,9 @@ while [[ $i -lt ${#args[@]} ]]; do
         --cert-gate)
             CERT_GATE_LINE="*.node[*].appl.enableAmbulanceCertGate = true"
             ;;
+        --disable-arrival-position-gate)
+            DISABLE_ARRIVAL_POSITION_GATE=1
+            ;;
         --allow-replica0-byz-follower)
             ALLOW_REPLICA0_BYZ_FOLLOWER=1
             ;;
@@ -370,6 +450,18 @@ while [[ $i -lt ${#args[@]} ]]; do
         --crash-wait-clear)
             CRASH_WAIT_CLEAR=1
             ;;
+        --suppress-initial-cancel-leader)
+            SUPPRESS_INITIAL_CANCEL_LEADER=1
+            ;;
+        --disable-cancel-leader-failover)
+            ENABLE_CANCEL_LEADER_FAILOVER=0
+            ;;
+        --fabricate-clearance)
+            FABRICATE_CLEARANCE=1
+            ;;
+        --disable-recovery-clear-evidence-gate)
+            ENABLE_RECOVERY_CLEAR_EVIDENCE_GATE=0
+            ;;
         *)
             filtered_args+=("${args[$i]}")
             ;;
@@ -386,6 +478,20 @@ fi
 
 if [[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 && "${CRASH_WAIT_CLEAR}" -eq 1 ]]; then
     echo "ERROR: --rollback-late-emergency and --crash-wait-clear are mutually exclusive." >&2
+    exit 1
+fi
+if [[ "${SUPPRESS_INITIAL_CANCEL_LEADER}" -eq 1 &&
+      "${ROLLBACK_LATE_EMERGENCY}" -ne 1 && "${CRASH_WAIT_CLEAR}" -ne 1 ]]; then
+    echo "ERROR: --suppress-initial-cancel-leader requires a rollback/crash scenario." >&2
+    exit 1
+fi
+if [[ "${FABRICATE_CLEARANCE}" -eq 1 && "${CRASH_WAIT_CLEAR}" -ne 1 ]]; then
+    echo "ERROR: --fabricate-clearance requires --crash-wait-clear." >&2
+    exit 1
+fi
+if [[ "${ENABLE_RECOVERY_CLEAR_EVIDENCE_GATE}" -eq 0 &&
+      "${FABRICATE_CLEARANCE}" -ne 1 ]]; then
+    echo "ERROR: --disable-recovery-clear-evidence-gate requires --fabricate-clearance." >&2
     exit 1
 fi
 
@@ -444,6 +550,15 @@ if [[ ! -d "${SIM_DIR}" ]]; then
     exit 1
 fi
 
+# Drop generated overlays this invocation will not recreate, so a prior scenario
+# (e.g. scenario 15's rollback_late_emergency.ini) cannot linger on disk and
+# get re-applied by a later -f chain or a manual opp_run.
+[[ "${RANDOMIZE}" -eq 1 ]] || rm -f "${SIM_DIR}/random_scenario.ini"
+[[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 ]] || rm -f "${SIM_DIR}/rollback_late_emergency.ini"
+[[ "${CRASH_WAIT_CLEAR}" -eq 1 ]] || rm -f "${SIM_DIR}/crash_wait_clear.ini"
+[[ -n "${INITIAL_LEADER}" ]] || rm -f "${SIM_DIR}/leader_override.ini"
+[[ -n "${CHANNEL_METRICS_DIR}" ]] || rm -f "${SIM_DIR}/channel_metrics_override.ini"
+
 # Generate random scenario after SIM_DIR is known
 if [[ "${RANDOMIZE}" -eq 1 ]]; then
     if [[ -z "${RANDOMIZE_N}" || -z "${RANDOMIZE_F}" ]]; then
@@ -466,6 +581,14 @@ if [[ "${RANDOMIZE}" -eq 1 ]]; then
             exit 1
         fi
     fi
+    # Seed bash $RANDOM in this process for generate_random_scenario. Bash only
+    # honors a RANDOM assignment made inside its own running process; an
+    # inherited/exported RANDOM from a parent shell does not reseed a freshly
+    # started bash, so the orchestrator passes the seed via SCENARIO_RANDOM_SEED
+    # and we assign it to RANDOM here, immediately before the draw.
+    if [[ -n "${SCENARIO_RANDOM_SEED:-}" ]]; then
+        RANDOM="${SCENARIO_RANDOM_SEED}"
+    fi
     RANDOM_INI="$(generate_random_scenario "${RANDOMIZE_N}" "${RANDOMIZE_F}" "${SIM_DIR}" "${BYZ_LEADER}" "${ALLOW_REPLICA0_BYZ_FOLLOWER}" "${NO_AMBULANCE}" "${BYZ_LEADER_TYPE}" "${BYZ_FOLLOWER_TYPE}")"
     # When any -f flag is given, OMNeT++ stops auto-loading omnetpp.ini.
     # Explicitly load omnetpp.ini first, then the override file so it wins.
@@ -480,9 +603,25 @@ if [[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 ]]; then
     {
         echo "# Auto-generated by run-resdb-simulation.sh --rollback-late-emergency"
         echo "# Do not edit by hand — regenerated each run."
-        echo "[General]"
+        # This file is loaded while -c EighteenVehiclesResDB is active.  Put
+        # overrides in that named section: its inherited sim-time-limit takes
+        # precedence over the same key in [General].
+        echo "[Config EighteenVehiclesResDB]"
+        # Honest/guarded recovery gets the normal 120s bound. Scenario 17 is a
+        # deliberately stalled liveness ablation, so record a bounded 60s
+        # observation window instead of waiting for its impossible departure
+        # predicate.
+        if [[ "${ENABLE_CANCEL_LEADER_FAILOVER}" -eq 0 ]]; then
+            echo "sim-time-limit = 60s"
+        else
+            echo "sim-time-limit = 120s"
+        fi
         echo "*.manager.launchConfig = xmldoc(\"resdb_bft_18veh_rollback_late.launchd.xml\")"
-        echo "*.manager.intersectionBatchSize = 16"
+        # All 16 original vehicles plus the two dynamically spawned vehicles
+        # must reach a terminal departure.  A target of 16 let the manager end
+        # the run before veh16/veh17 reached the stop zone, so the honest
+        # scenario recorded no CANCEL and no recovery ORDER at all.
+        echo "*.manager.intersectionBatchSize = 18"
         echo "*.manager.enableR0Supervisor = true"
         echo "*.manager.r0SpawnAfterCleared = 1"
         echo "*.manager.lateEmergencyDeltaSec = 0s"
@@ -508,10 +647,16 @@ if [[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 ]]; then
         echo "*.node[*].appl.cancelCertRetryIntervalSec = 0.1s"
         echo "*.node[*].appl.cancelCertRetryMax = 20"
         echo "*.node[*].appl.rollbackVcTimeoutSec = 8s"
+        if [[ "${SUPPRESS_INITIAL_CANCEL_LEADER}" -eq 1 ]]; then
+            echo "*.node[*].appl.injectSuppressInitialCancelLeader = true"
+        fi
+        if [[ "${ENABLE_CANCEL_LEADER_FAILOVER}" -eq 0 ]]; then
+            echo "*.node[*].appl.enableCancelLeaderFailover = false"
+        fi
         echo "*.node[*].appl.brakingDecelMps2 = 4.5"
         echo "*.node[*].appl.processingLatencyMargin = 2.0"
     } > "${ROLLBACK_INI}"
-    echo "  Rollback late-emergency scenario: 16 commit, inject veh16 normal + veh17 ambulance after 2 vehicles clear (rollback_late_emergency.ini)" >&2
+    echo "  Rollback late-emergency scenario: 16 commit, inject veh16 normal + veh17 ambulance after 1 vehicle clears (rollback_late_emergency.ini)" >&2
     if [[ ${#EXTRA_INI_ARG[@]} -gt 0 ]]; then
         EXTRA_INI_ARG+=(-f "${ROLLBACK_INI}")
     else
@@ -527,20 +672,31 @@ if [[ "${CRASH_WAIT_CLEAR}" -eq 1 ]]; then
         echo "#"
         echo "# IMPORTANT: overrides must live under [Config SixteenVehiclesResDB],"
         echo "# not [General]. OMNeT++ gives named config sections higher priority"
-        echo "# than General, so a General launchConfig loses to omnetpp.ini's"
-        echo "# SixteenVehiclesResDB launchConfig (and collision.action=none never loads)."
+        echo "# than General."
         echo "[Config SixteenVehiclesResDB]"
-        echo "*.manager.launchConfig = xmldoc(\"resdb_bft_16veh_crash.launchd.xml\")"
+        echo "sim-time-limit = 120s"
         echo "*.manager.enableCrashSupervisor = true"
         echo "*.manager.crashWreckCount = 2"
         echo "*.manager.crashPollPeriodSec = 0.1s"
-        echo "*.manager.crashOnBoxEntrySec = 0s"
-        echo "*.manager.clearDelaySec = 10s"
+        echo "*.manager.crashOnBoxEntrySec = 1s"
+        echo "*.manager.clearDelaySec = 30s"
         echo "*.node[*].appl.totalVehicles = 16"
         echo "*.node[*].appl.toleratedFaults = 5"
         echo "*.node[*].appl.ambulanceReplicaId = -1"
-        echo "*.node[*].appl.enableRollback = false"
+        echo "*.node[*].appl.enableRollback = true"
         echo "*.node[*].appl.crashMacGraceSec = 0.2s"
+        if [[ "${SUPPRESS_INITIAL_CANCEL_LEADER}" -eq 1 ]]; then
+            echo "*.node[*].appl.injectSuppressInitialCancelLeader = true"
+        fi
+        if [[ "${ENABLE_CANCEL_LEADER_FAILOVER}" -eq 0 ]]; then
+            echo "*.node[*].appl.enableCancelLeaderFailover = false"
+        fi
+        if [[ "${FABRICATE_CLEARANCE}" -eq 1 ]]; then
+            echo "*.node[*].appl.injectFabricatedClearanceLeader = true"
+        fi
+        if [[ "${ENABLE_RECOVERY_CLEAR_EVIDENCE_GATE}" -eq 0 ]]; then
+            echo "*.node[*].appl.enableRecoveryClearEvidenceGate = false"
+        fi
     } > "${CRASH_INI}"
     echo "  Crash wait-clear scenario: 16 commit ORDER(0), freeze two batch-0 wrecks, tow after clearDelaySec (crash_wait_clear.ini)" >&2
     if [[ ${#EXTRA_INI_ARG[@]} -gt 0 ]]; then
@@ -591,7 +747,7 @@ if [[ -n "${CHANNEL_METRICS_DIR}" ]]; then
 fi
 
 LOG_FILE="/tmp/resdb-simulation.log"
-trap cleanup EXIT
+trap cleanup EXIT INT TERM HUP
 
 > "${LOG_FILE}"
 echo "=========================================="
@@ -616,7 +772,7 @@ cd "${SIM_DIR}" || exit 1
 
 if [[ -x "./veins" ]]; then
     echo "Starting simulation..."
-    ./veins "${EXTRA_INI_ARG[@]+"${EXTRA_INI_ARG[@]}"}" "$@" 2>&1 | tee -a "${LOG_FILE}"
+    run_sim ./veins "${EXTRA_INI_ARG[@]+"${EXTRA_INI_ARG[@]}"}" "$@"
 elif [[ -x "./fourway" ]]; then
     echo "Starting simulation..."
     cmd=(./fourway)
@@ -624,8 +780,8 @@ elif [[ -x "./fourway" ]]; then
         cmd+=(-n "${VEINS_ROOT}/src/veins:.")
     fi
     cmd+=("${EXTRA_INI_ARG[@]+"${EXTRA_INI_ARG[@]}"}" "$@")
-    "${cmd[@]}" 2>&1 | tee -a "${LOG_FILE}"
+    run_sim "${cmd[@]}"
 else
     echo "Starting with opp_run..."
-    opp_run "${EXTRA_INI_ARG[@]+"${EXTRA_INI_ARG[@]}"}" "$@" 2>&1 | tee -a "${LOG_FILE}"
+    run_sim opp_run "${EXTRA_INI_ARG[@]+"${EXTRA_INI_ARG[@]}"}" "$@"
 fi

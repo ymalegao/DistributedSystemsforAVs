@@ -337,8 +337,13 @@ void TraCIScenarioManager::initialize(int stage)
     crashWreckIds_.clear();
     crashInjected_.clear();
     crashTowed_.clear();
+    crashConflictOccupantsAtInjection_.clear();
+    crashUnsafeEntrants_.clear();
     crashPendingInjectAt_.clear();
     crashTowAt_.clear();
+    physicalApproachByVehicle_.clear();
+    unsafeConflictPairs_.clear();
+    physicalCollisionVehicles_.clear();
     crashSelectDone_ = false;
 
     world = FindModule<BaseWorldUtility*>::findGlobalModule();
@@ -1011,6 +1016,10 @@ void TraCIScenarioManager::processSimSubscription(std::string objectId, TraCIBuf
             for (uint32_t i = 0; i < count; ++i) {
                 std::string idstring;
                 buf >> idstring;
+                if (physicalCollisionVehicles_.insert(idstring).second) {
+                    std::cout << "[PHYSICAL-COLLISION] vehicle=" << idstring
+                              << " t=" << simTime() << "\n";
+                }
                 cModule* mod = getManagedModule(idstring);
                 if (mod) {
                     auto mobilityModules = getSubmodulesOfType<TraCIMobility>(mod);
@@ -1025,12 +1034,63 @@ void TraCIScenarioManager::processSimSubscription(std::string objectId, TraCIBuf
         }
     }
 
+    pollIntersectionCooccupancy();
+
     // Global, manager-level watchdog:
     // once traffic existed and all vehicles are gone, end the whole simulation.
     if (autoShutdown && hadActiveVehicles && activeVehicleCount == 0 && !autoShutdownTriggered) {
         autoShutdownTriggered = true;
         EV_INFO << "Auto-shutdown: all vehicles departed, ending simulation." << endl;
         endSimulation();
+    }
+}
+
+void TraCIScenarioManager::pollIntersectionCooccupancy()
+{
+    if (!commandIfc) return;
+    std::vector<std::pair<std::string, char>> occupants;
+    for (const auto& id : commandIfc->getVehicleIds()) {
+        try {
+            auto vehicle = commandIfc->vehicle(id);
+            const std::string roadId = vehicle.getRoadId();
+            const std::string laneId = vehicle.getLaneId();
+            if (!roadId.empty()) {
+                const char approach = std::toupper(static_cast<unsigned char>(roadId.front()));
+                if ((approach == 'N' || approach == 'S' || approach == 'E' || approach == 'W') &&
+                        roadId.size() >= 3 && roadId[1] == '2') {
+                    physicalApproachByVehicle_[id] = approach;
+                }
+            }
+            if (!laneId.empty() && laneId.front() == ':') {
+                auto it = physicalApproachByVehicle_.find(id);
+                if (it != physicalApproachByVehicle_.end()) occupants.push_back(*it);
+            }
+        } catch (...) {
+        }
+    }
+
+    auto opposite = [](char a, char b) {
+        return (a == 'N' && b == 'S') || (a == 'S' && b == 'N') ||
+               (a == 'E' && b == 'W') || (a == 'W' && b == 'E');
+    };
+    for (size_t i = 0; i < occupants.size(); ++i) {
+        for (size_t j = i + 1; j < occupants.size(); ++j) {
+            char a = occupants[i].second;
+            char b = occupants[j].second;
+            if (a == b || opposite(a, b)) continue; // all configured routes are straight
+            std::string first = occupants[i].first;
+            std::string second = occupants[j].first;
+            if (second < first) {
+                std::swap(first, second);
+                std::swap(a, b);
+            }
+            if (!unsafeConflictPairs_.insert({first, second}).second) continue;
+            std::cout << "[UNSAFE-CONFLICT-COOCCUPANCY] first=" << first
+                      << " first_approach=" << a
+                      << " second=" << second
+                      << " second_approach=" << b
+                      << " t=" << simTime() << "\n";
+        }
     }
 }
 
@@ -1089,11 +1149,35 @@ void TraCIScenarioManager::tryShutdownOnIntersectionBatchCleared(const std::stri
         return;
     }
     if (inserted.second) {
-        EV_INFO << "Intersection batch: " << vehiclesClearedIntersection.size() << "/" << intersectionBatchSize << " cleared (" << vehicleId << ")" << endl;
+        tryShutdownOnTerminalVehicleCount(vehicleId, "crossed");
     }
-    if ((int) vehiclesClearedIntersection.size() >= intersectionBatchSize) {
+}
+
+void TraCIScenarioManager::tryShutdownOnTerminalVehicleCount(
+    const std::string& latestVehicleId, const char* latestOutcome)
+{
+    if (!shutdownOnIntersectionBatchCleared || autoShutdownTriggered) return;
+
+    // A crash-wait-clear run deliberately vaporizes the wrecks rather than
+    // letting them traverse the departure leg.  They are terminal members of
+    // the experiment nonetheless.  Requiring intersectionBatchSize physical
+    // departures made the completion condition impossible (14 crossings + 2
+    // tows in the 16-car scenario), leaving only periodic timers in the FES.
+    std::set<std::string> terminalVehicles = vehiclesClearedIntersection;
+    if (enableCrashSupervisor) {
+        terminalVehicles.insert(crashTowed_.begin(), crashTowed_.end());
+    }
+    EV_INFO << "Intersection batch: " << terminalVehicles.size() << "/"
+            << intersectionBatchSize << " terminal (crossed="
+            << vehiclesClearedIntersection.size() << ", towed="
+            << (enableCrashSupervisor ? crashTowed_.size() : 0)
+            << ", latest=" << latestVehicleId
+            << ":" << (latestOutcome ? latestOutcome : "unknown") << ")" << endl;
+    if ((int) terminalVehicles.size() >= intersectionBatchSize) {
         autoShutdownTriggered = true;
-        EV_INFO << "Auto-shutdown: " << intersectionBatchSize << " vehicles cleared intersection (global TraCI predicate)." << endl;
+        EV_INFO << "Auto-shutdown: " << intersectionBatchSize
+                << " vehicles reached a terminal intersection outcome (crossed or crash-towed)."
+                << endl;
         endSimulation();
     }
 }
@@ -1264,8 +1348,19 @@ void TraCIScenarioManager::freezeCrashWreck(const std::string& vehicleId)
         // Absolute TraCI hold (speedMode 0). Do not reuse stopVehicle()'s setSpeed(-1).
         v.setSpeedMode(0);
         v.setSpeed(0.0);
+        const bool firstCrashInjection = crashInjected_.empty();
         crashInjected_.insert(vehicleId);
         crashTowAt_[vehicleId] = simTime() + clearDelaySec;
+
+        // Snapshot vehicles already sharing the box at injection. They are
+        // not evidence that a fabricated recovery ORDER admitted new traffic;
+        // only later entrants while a wreck remains are counted below.
+        if (firstCrashInjection) {
+            for (const auto& id : commandIfc->getVehicleIds()) {
+                if (vehicleOnInternalConflictLane(id))
+                    crashConflictOccupantsAtInjection_.insert(id);
+            }
+        }
 
         std::cout << "[CRASH-INJECT] manager " << vehicleId
                   << " t=" << simTime()
@@ -1294,15 +1389,21 @@ void TraCIScenarioManager::towCrashWreck(const std::string& vehicleId)
         std::list<std::string> ids = commandIfc->getVehicleIds();
         if (std::find(ids.begin(), ids.end(), vehicleId) == ids.end()) {
             crashTowed_.insert(vehicleId);
+            subscribedVehicles.erase(vehicleId);
             std::cout << "[TOW] manager " << vehicleId
                       << " already_absent t=" << simTime() << "\n";
             if (getManagedModule(vehicleId)) deleteManagedModule(vehicleId);
+            tryShutdownOnTerminalVehicleCount(vehicleId, "towed");
             return;
         }
 
-        // Prevent ID_LIST path from calling unsubscribe on an already-removed vehicle
-        // (SUMO error 0xd4: "The subscription to remove was not found").
-        subscribedVehicles.erase(vehicleId);
+        // Unsubscribe while the vehicle still exists. Erasing subscribedVehicles
+        // alone (without unsub) leaves SUMO delivering the next 8 variable
+        // updates as CMD_GET 0xa4 "Vehicle is not known". Unsub-after-remove
+        // instead yields 0xd4 "subscription to remove was not found".
+        if (subscribedVehicles.erase(vehicleId) > 0) {
+            unsubscribeFromVehicleVariables(vehicleId);
+        }
         commandIfc->vehicle(vehicleId).remove(/* REMOVE_VAPORIZED */ 0x03);
         crashTowed_.insert(vehicleId);
         std::cout << "[TOW] manager " << vehicleId << " t=" << simTime() << "\n";
@@ -1310,6 +1411,7 @@ void TraCIScenarioManager::towCrashWreck(const std::string& vehicleId)
         if (getManagedModule(vehicleId)) {
             deleteManagedModule(vehicleId);
         }
+        tryShutdownOnTerminalVehicleCount(vehicleId, "towed");
     } catch (const std::exception& e) {
         std::cout << "[TOW-FAIL] manager " << vehicleId
                   << " err=" << e.what() << " t=" << simTime() << "\n";
@@ -1322,6 +1424,27 @@ void TraCIScenarioManager::towCrashWreck(const std::string& vehicleId)
 void TraCIScenarioManager::pollCrashSupervisor()
 {
     if (!enableCrashSupervisor || !commandIfc) return;
+
+    int activeWrecksInConflict = 0;
+    for (const auto& wreckId : crashWreckIds_) {
+        if (crashInjected_.count(wreckId) && !crashTowed_.count(wreckId) &&
+                vehicleOnInternalConflictLane(wreckId)) {
+            ++activeWrecksInConflict;
+        }
+    }
+    if (activeWrecksInConflict > 0) {
+        for (const auto& id : commandIfc->getVehicleIds()) {
+            if (std::find(crashWreckIds_.begin(), crashWreckIds_.end(), id) !=
+                    crashWreckIds_.end()) continue;
+            if (crashConflictOccupantsAtInjection_.count(id)) continue;
+            if (!vehicleOnInternalConflictLane(id)) continue;
+            if (crashUnsafeEntrants_.insert(id).second) {
+                std::cout << "[CRASH-COOCCUPANCY] entrant=" << id
+                          << " active_wrecks=" << activeWrecksInConflict
+                          << " t=" << simTime() << "\n";
+            }
+        }
+    }
 
     bool workRemaining = false;
     for (const auto& vehicleId : crashWreckIds_) {

@@ -73,6 +73,10 @@ SCENARIO_SUBDIR = {
     "FW_ByzLeader_TamperLane": "fw_tamper_lane",
     "Emergency_Preempt_DynamicN": "rollback_emergency_dynamic_n",
     "Crash_Wait_Clear": "crash_wait_clear",
+    "Emergency_SuppressCancel_Unguarded": "rollback_suppress_cancel_unguarded",
+    "Emergency_SuppressCancel_Guarded": "rollback_suppress_cancel_guarded",
+    "Crash_FabricatedClear_Unguarded": "crash_fabricated_clear_unguarded",
+    "Crash_FabricatedClear_Guarded": "crash_fabricated_clear_guarded",
 }
 
 # analyze_log.py --scenario codes (also used by --scenario CLI flag)
@@ -93,6 +97,10 @@ ANALYZE_SCENARIO = {
     "FW_ByzLeader_TamperLane": 5,
     "Emergency_Preempt_DynamicN": 15,
     "Crash_Wait_Clear": 16,
+    "Emergency_SuppressCancel_Unguarded": 15,
+    "Emergency_SuppressCancel_Guarded": 15,
+    "Crash_FabricatedClear_Unguarded": 16,
+    "Crash_FabricatedClear_Guarded": 16,
 }
 SCENARIO_BY_CODE = {
     1: "No_Ambulance_Honest",
@@ -111,9 +119,14 @@ SCENARIO_BY_CODE = {
     14: "FW_ByzLeader_TamperLane",
     15: "Emergency_Preempt_DynamicN",
     16: "Crash_Wait_Clear",
+    17: "Emergency_SuppressCancel_Unguarded",
+    18: "Emergency_SuppressCancel_Guarded",
+    19: "Crash_FabricatedClear_Unguarded",
+    20: "Crash_FabricatedClear_Guarded",
 }
 
 DEFAULT_N_VALUES = (4, 8, 12, 16, 20)
+SUPPORTED_N_VALUES = (4, 8, 12, 16, 18, 20)
 REPETITIONS = 5
 
 SCENARIO_ORDER: Tuple[str, ...] = (
@@ -159,6 +172,7 @@ def benchmark_run_dir(
     *,
     baseline: bool = False,
     tolerated_f: int | None = None,
+    injected_f: int | None = None,
 ) -> Path:
     """Per-run output directory (JSON/logs from analyze_log; channel CSVs from the sim)."""
     sub = SCENARIO_SUBDIR[scenario_name]
@@ -166,6 +180,8 @@ def benchmark_run_dir(
     base = REPO_ROOT / "benchmarks" / f"{family}{n}cars" / sub
     if tolerated_f is not None and not baseline:
         base = base / f"f_{tolerated_f}"
+    if injected_f is not None and not baseline:
+        base = base / f"F_{injected_f}"
     return base / f"run_{rep}"
 
 
@@ -211,10 +227,20 @@ def run_seed(master: int, n: int, scenario_name: str, rep: int) -> int:
 
 
 def clear_stale_random_ini() -> None:
-    """Remove random_scenario.ini before honest/no-ambulance scenarios so the previous run's overrides don't bleed in."""
-    rnd = FOURWAY_DIR / "random_scenario.ini"
-    if rnd.is_file():
-        rnd.unlink()
+    """Remove generated scenario overlays that must not bleed into the next run.
+
+    run-resdb-simulation.sh also deletes overlays it will not recreate; this is
+    a belt-and-suspenders cleanup before honest / scenario-15 / scenario-16 runs.
+    """
+    for name in (
+        "random_scenario.ini",
+        "rollback_late_emergency.ini",
+        "crash_wait_clear.ini",
+        "leader_override.ini",
+    ):
+        path = FOURWAY_DIR / name
+        if path.is_file():
+            path.unlink()
 
 
 def reset_resdb_keys(n: int) -> None:
@@ -281,7 +307,12 @@ def run_key_generation(*, dry_run: bool, scale: int) -> None:
     run_in_bash_with_omnet(f"cd {shlex.quote(str(CONFIG_DIR))} && ./gen_resdb_keys.sh {scale}", dry_run=dry_run)
 
 
-def randomize_args_for_scenario(n: int, scenario_name: str, tolerated_f: int) -> List[str]:
+def randomize_args_for_scenario(
+    n: int,
+    scenario_name: str,
+    tolerated_f: int,
+    injected_f: int | None = None,
+) -> List[str]:
     """
     Returns the extra flags for run-resdb-simulation.sh.
 
@@ -290,12 +321,13 @@ def randomize_args_for_scenario(n: int, scenario_name: str, tolerated_f: int) ->
     even when F=0 and turn one car into an ambulance).
     """
     f = tolerated_f
+    follower_f = f if injected_f is None else injected_f
     if scenario_name == "ByzLeader_Ambulance":
         return ["--randomize", str(n), str(f - 1), "--byzleader", "0"]
     if scenario_name == "ByzFollower_Ambulance":
-        return ["--randomize", str(n), str(f)]
+        return ["--randomize", str(n), str(follower_f)]
     if scenario_name == "ByzFollower_NoAmbulance":
-        return ["--randomize", str(n), str(f), "--no-ambulance"]
+        return ["--randomize", str(n), str(follower_f), "--no-ambulance"]
     if scenario_name == "ByzLeader_NoAmbulance":
         return ["--randomize", str(n), str(f - 1), "--byzleader", "0", "--no-ambulance"]
     if scenario_name == "Honest_Ambulance":
@@ -303,7 +335,10 @@ def randomize_args_for_scenario(n: int, scenario_name: str, tolerated_f: int) ->
     if scenario_name == "No_Ambulance_Honest":
         return []
     if scenario_name == "NoFW_ByzFollower_FalseLane":
-        return ["--randomize", str(n), str(f), "--no-firewall"]
+        return [
+            "--randomize", str(n), str(follower_f),
+            "--disable-arrival-position-gate",
+        ]
     if scenario_name == "NoFW_ByzLeader_BadProposal":
         return ["--randomize", str(n), str(f - 1), "--byzleader", "0", "--no-firewall"]
     if scenario_name == "NoFW_ByzLeader_FakeAmbulance":
@@ -335,6 +370,30 @@ def randomize_args_for_scenario(n: int, scenario_name: str, tolerated_f: int) ->
         if n != 16:
             raise ValueError("Crash_Wait_Clear is currently defined only for N=16")
         return ["--crash-wait-clear"]
+    if scenario_name == "Emergency_SuppressCancel_Unguarded":
+        if n != 18:
+            raise ValueError("Emergency_SuppressCancel_Unguarded is defined only for N=18")
+        return [
+            "--rollback-late-emergency",
+            "--suppress-initial-cancel-leader",
+            "--disable-cancel-leader-failover",
+        ]
+    if scenario_name == "Emergency_SuppressCancel_Guarded":
+        if n != 18:
+            raise ValueError("Emergency_SuppressCancel_Guarded is defined only for N=18")
+        return ["--rollback-late-emergency", "--suppress-initial-cancel-leader"]
+    if scenario_name == "Crash_FabricatedClear_Unguarded":
+        if n != 16:
+            raise ValueError("Crash_FabricatedClear_Unguarded is defined only for N=16")
+        return [
+            "--crash-wait-clear",
+            "--fabricate-clearance",
+            "--disable-recovery-clear-evidence-gate",
+        ]
+    if scenario_name == "Crash_FabricatedClear_Guarded":
+        if n != 16:
+            raise ValueError("Crash_FabricatedClear_Guarded is defined only for N=16")
+        return ["--crash-wait-clear", "--fabricate-clearance"]
     raise ValueError(scenario_name)
 
 def baseline_randomize_args_for_scenario(n: int, scenario_name: str) -> List[str]:
@@ -353,23 +412,29 @@ def run_one_simulation(
     dry_run: bool,
     tolerated_f: int,
     explicit_tolerate: bool,
+    injected_f: int | None = None,
+    paired_false_lane_seed: bool = False,
     randomize_leader: bool = False,
     baseline: bool = False,
 ) -> None:
     cfg = baseline_omnet_config_name(n) if baseline else omnet_config_name(n)
-    extra = baseline_randomize_args_for_scenario(n, scenario_name) if baseline else randomize_args_for_scenario(n, scenario_name, tolerated_f)
+    extra = baseline_randomize_args_for_scenario(n, scenario_name) if baseline else randomize_args_for_scenario(
+        n, scenario_name, tolerated_f, injected_f
+    )
     tolerate_args = (
         ["--tolerated-f", str(tolerated_f)]
         if not baseline and "--randomize" in extra
         else []
     )
-    seed = run_seed(MASTER_SEED, n, scenario_name, rep)
+    seed_name = "FALSE_LANE_PAIRED" if paired_false_lane_seed else scenario_name
+    seed = run_seed(MASTER_SEED, n, seed_name, rep)
     run_dir = benchmark_run_dir(
         n,
         scenario_name,
         rep,
         baseline=baseline,
         tolerated_f=tolerated_f if explicit_tolerate else None,
+        injected_f=injected_f,
     )
     metrics_dir = str(run_dir.resolve())
 
@@ -398,10 +463,16 @@ def run_one_simulation(
         cfg,
     ]
     # Seed bash $RANDOM for generate_random_scenario in run-resdb-simulation.sh.
-    # Harmless when --randomize is omitted (No_Ambulance_Honest).
-    inner = f"export RANDOM={seed} && " + " ".join(shlex.quote(a) for a in argv)
+    # `export RANDOM=<seed>` does not work here: RANDOM only reseeds when
+    # assigned inside the bash process that reads it, not via an inherited/
+    # exported value from a parent shell into a freshly started child bash
+    # (the wrapper script runs as its own process). So we pass the seed through
+    # a normal env var and the wrapper assigns it to RANDOM in its own process
+    # immediately before drawing. Harmless when --randomize is omitted
+    # (No_Ambulance_Honest).
+    inner = f"export SCENARIO_RANDOM_SEED={seed} && " + " ".join(shlex.quote(a) for a in argv)
     if dry_run:
-        print(f"+ simulation (RANDOM={seed})")
+        print(f"+ simulation (SCENARIO_RANDOM_SEED={seed})")
     run_in_bash_with_omnet(inner, dry_run=dry_run)
 
 
@@ -425,6 +496,7 @@ def run_analyze(
     dry_run: bool,
     tolerated_f: int,
     explicit_tolerate: bool,
+    injected_f: int | None = None,
     baseline: bool = False,
 ) -> None:
     save_to = benchmark_run_dir(
@@ -433,6 +505,7 @@ def run_analyze(
         rep,
         baseline=baseline,
         tolerated_f=tolerated_f if explicit_tolerate else None,
+        injected_f=injected_f,
     )
     save_to.mkdir(parents=True, exist_ok=True)
     analyze = REPO_ROOT / "fourway" / "analyze_log.py"
@@ -448,6 +521,8 @@ def run_analyze(
         str(scen),
         "--cars",
         str(n),
+        "--run-index",
+        str(rep),
         "--no-scenario-subdir",
     ]
     if baseline:
@@ -494,7 +569,11 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
              "9=NoFW_ByzLeader_FakeAmbulance, 10=NoCertGate_ByzFollower_FakeAmbu, "
              "11=CertGate_ByzFollower_FakeAmbu, 12=NoFW_ByzLeader_TamperLane, "
              "13=FW_ByzLeader_FakeAmbulance, 14=FW_ByzLeader_TamperLane, "
-             "15=Emergency_Preempt_DynamicN, 16=Crash_Wait_Clear. "
+             "15=Emergency_Preempt_DynamicN, 16=Crash_Wait_Clear, "
+             "17=Emergency_SuppressCancel_Unguarded, "
+             "18=Emergency_SuppressCancel_Guarded, "
+             "19=Crash_FabricatedClear_Unguarded, "
+             "20=Crash_FabricatedClear_Guarded. "
              "Default: all six baseline scenarios in order 1,6,5,2,3,4.",
     )
     p.add_argument(
@@ -520,6 +599,18 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
              "For Byzantine follower scenarios, this also sets the number of follower faults injected.",
     )
     p.add_argument(
+        "--inject-f",
+        type=int,
+        default=None,
+        metavar="F",
+        help="Number of Byzantine followers selected by --randomize N F, independently of --tolerate.",
+    )
+    p.add_argument(
+        "--sweep-f",
+        action="store_true",
+        help="For FALSE_LANE follower scenarios, run injected F=0..tolerated_f+1 using paired nested selections.",
+    )
+    p.add_argument(
         "--baseline",
         action="store_true",
         help="Run SUMO all-way-stop baseline configs for no-priority and priority-vehicle scenarios.",
@@ -536,8 +627,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     n_values = args.config
     for n in n_values:
-        if n not in DEFAULT_N_VALUES:
-            print(f"WARNING: N={n} is outside the usual set {DEFAULT_N_VALUES}; "
+        if n not in SUPPORTED_N_VALUES:
+            print(f"WARNING: N={n} is outside the supported set {SUPPORTED_N_VALUES}; "
                   "omnetpp.ini may not define a matching [Config].", file=sys.stderr)
         tolerate_n = args.tolerate if args.tolerate is not None else bft_f(n)
         if tolerate_n < 0:
@@ -550,18 +641,38 @@ def main(argv: Sequence[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
-        if args.scenario and 15 in args.scenario and n != 18:
-            print("ERROR: scenario 15 Emergency_Preempt_DynamicN is currently defined only for --config 18.", file=sys.stderr)
+        if args.scenario and any(code in args.scenario for code in (15, 17, 18)) and n != 18:
+            print("ERROR: emergency rollback scenarios 15/17/18 require --config 18.", file=sys.stderr)
             return 2
-        if args.scenario and 16 in args.scenario and n != 16:
-            print("ERROR: scenario 16 Crash_Wait_Clear is currently defined only for --config 16.", file=sys.stderr)
+        if args.scenario and any(code in args.scenario for code in (16, 19, 20)) and n != 16:
+            print("ERROR: crash scenarios 16/19/20 require --config 16.", file=sys.stderr)
             return 2
+
+    if args.sweep_f and args.inject_f is not None:
+        print("ERROR: --sweep-f and --inject-f are mutually exclusive.", file=sys.stderr)
+        return 2
+    if args.inject_f is not None and args.inject_f < 0:
+        print("ERROR: --inject-f must be >= 0.", file=sys.stderr)
+        return 2
 
     if args.scenario:
         # Respect user-requested order and de-duplicate aliases that map to the same scenario.
         scenarios = tuple(dict.fromkeys(SCENARIO_BY_CODE[c] for c in args.scenario))
+    elif args.sweep_f:
+        scenarios = ("ByzFollower_Ambulance", "NoFW_ByzFollower_FalseLane")
     else:
         scenarios = SCENARIO_ORDER
+
+    false_lane_scenarios = {
+        "ByzFollower_Ambulance",
+        "ByzFollower_NoAmbulance",
+        "NoFW_ByzFollower_FalseLane",
+    }
+    if (args.sweep_f or args.inject_f is not None) and any(
+        scenario not in false_lane_scenarios for scenario in scenarios
+    ):
+        print("ERROR: --inject-f/--sweep-f apply only to Type-1 FALSE_LANE follower scenarios 3, 6, and 7.", file=sys.stderr)
+        return 2
 
     if args.baseline:
         allowed = ("No_Ambulance_Honest", "Honest_Ambulance")
@@ -583,6 +694,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     for n in n_values:
         tolerated_f = args.tolerate if args.tolerate is not None else bft_f(n)
+        if args.inject_f is not None and args.inject_f > n:
+            print(f"ERROR: --inject-f {args.inject_f} exceeds N={n}.", file=sys.stderr)
+            return 2
         print(f"\n========== Scale N={n} ==========")
         print(f"========== Tolerated f={tolerated_f} (quorum={bft_quorum(n, tolerated_f)}, static N={n}) ==========")
         if not args.dry_run and not args.baseline:
@@ -596,33 +710,51 @@ def main(argv: Sequence[str] | None = None) -> int:
         # build_veins_and_bft(dry_run=args.dry_run)
 
         for scenario_name in scenarios:
-            if scenario_name in ("Honest_Ambulance", "No_Ambulance_Honest", "Emergency_Preempt_DynamicN", "Crash_Wait_Clear"):
+            if scenario_name in (
+                "Honest_Ambulance",
+                "No_Ambulance_Honest",
+                "Emergency_Preempt_DynamicN",
+                "Crash_Wait_Clear",
+                "Emergency_SuppressCancel_Unguarded",
+                "Emergency_SuppressCancel_Guarded",
+                "Crash_FabricatedClear_Unguarded",
+                "Crash_FabricatedClear_Guarded",
+            ):
                 if not args.dry_run:
                     clear_stale_random_ini()
                 else:
                     print(f"[dry-run] would clear_stale_random_ini() before {scenario_name}")
 
-            for i, rep in enumerate(rep_indices, start=1):
-                print(f"\n--- {scenario_name} rep {i}/{args.reps} (run_{rep}) ---")
-                run_one_simulation(
-                    n,
-                    scenario_name,
-                    rep,
-                    dry_run=args.dry_run,
-                    tolerated_f=tolerated_f,
-                    explicit_tolerate=args.tolerate is not None,
-                    randomize_leader=args.randomize_leader,
-                    baseline=args.baseline,
-                )
-                run_analyze(
-                    n,
-                    scenario_name,
-                    rep,
-                    dry_run=args.dry_run,
-                    tolerated_f=tolerated_f,
-                    explicit_tolerate=args.tolerate is not None,
-                    baseline=args.baseline,
-                )
+            injected_values = (
+                list(range(0, tolerated_f + 2)) if args.sweep_f
+                else [args.inject_f]
+            )
+            for injected_f in injected_values:
+                for i, rep in enumerate(rep_indices, start=1):
+                    suffix = f" F={injected_f}" if injected_f is not None else ""
+                    print(f"\n--- {scenario_name}{suffix} rep {i}/{args.reps} (run_{rep}) ---")
+                    run_one_simulation(
+                        n,
+                        scenario_name,
+                        rep,
+                        dry_run=args.dry_run,
+                        tolerated_f=tolerated_f,
+                        explicit_tolerate=args.tolerate is not None,
+                        injected_f=injected_f,
+                        paired_false_lane_seed=injected_f is not None,
+                        randomize_leader=args.randomize_leader,
+                        baseline=args.baseline,
+                    )
+                    run_analyze(
+                        n,
+                        scenario_name,
+                        rep,
+                        dry_run=args.dry_run,
+                        tolerated_f=tolerated_f,
+                        explicit_tolerate=args.tolerate is not None,
+                        injected_f=injected_f,
+                        baseline=args.baseline,
+                    )
 
     return 0
 

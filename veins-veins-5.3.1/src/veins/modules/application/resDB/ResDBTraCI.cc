@@ -131,6 +131,53 @@ bool ResDBIntersectionApp::vehicleHasClearedIntersectionTraCI(const std::string&
     }
 }
 
+bool ResDBIntersectionApp::vehicleInConflictBoxTraCI(const std::string& carId) const
+{
+    if (!mobility || !mobility->getCommandInterface()) return false;
+    TraCICommandInterface* traci = mobility->getCommandInterface();
+    try {
+        // Existence precheck first — see vehicleHasClearedIntersectionTraCI for why
+        // (debug-on-errors=true would otherwise SIGINT before the catch runs).
+        std::list<std::string> active = traci->getVehicleIds();
+        if (std::find(active.begin(), active.end(), carId) == active.end()) return false;
+
+        std::string laneId = traci->vehicle(carId).getLaneId();
+        return !laneId.empty() && laneId.front() == ':';
+    } catch (...) {
+        return false;
+    }
+}
+
+bool ResDBIntersectionApp::anyVehicleInConflictBoxTraCI() const
+{
+    if (!mobility || !mobility->getCommandInterface()) return false;
+    TraCICommandInterface* traci = mobility->getCommandInterface();
+    try {
+        for (const auto& vid : traci->getVehicleIds()) {
+            const std::string laneId = traci->vehicle(vid).getLaneId();
+            if (!laneId.empty() && laneId.front() == ':') return true;
+        }
+        return false;
+    } catch (...) {
+        // Unknown box occupancy must not be mistaken for "clear".
+        return true;
+    }
+}
+
+double ResDBIntersectionApp::vehicleSpeedTraCI(const std::string& carId) const
+{
+    if (!mobility || !mobility->getCommandInterface()) return std::numeric_limits<double>::infinity();
+    TraCICommandInterface* traci = mobility->getCommandInterface();
+    try {
+        std::list<std::string> active = traci->getVehicleIds();
+        if (std::find(active.begin(), active.end(), carId) == active.end())
+            return std::numeric_limits<double>::infinity();
+        return traci->vehicle(carId).getSpeed();
+    } catch (...) {
+        return std::numeric_limits<double>::infinity();
+    }
+}
+
 bool ResDBIntersectionApp::isApproachingIntersection()
 {
     double distance = getDistanceToIntersection();
@@ -306,6 +353,12 @@ int ResDBIntersectionApp::extractReplicaId(const std::string& carId) const
 
 void ResDBIntersectionApp::disableCrashComms(const char* reason)
 {
+    // Called cross-module from TraCIScenarioManager::freezeCrashWreck(); this
+    // method schedules/cancels events owned by *this* module, so we must
+    // switch simulation context or scheduleAt()/cancelEvent() below abort
+    // with "lacks Enter_Method()".
+    Enter_Method_Silent("disableCrashComms");
+
     if (crashCommsDisabled_) return;
     crashCommsDisabled_ = true;
 
@@ -324,6 +377,9 @@ void ResDBIntersectionApp::disableCrashComms(const char* reason)
 
     stopCertBroadcastRetries();
     stopCancelCertRetries();
+    stopClearCertRetries();
+    cancelClearCertCandidate("crash");
+    cancelClearCertRelay("crash");
     clearConsensusRetries(reason ? reason : "crash");
 
     if (gossip_timer_ && gossip_timer_->isScheduled()) cancelEvent(gossip_timer_);
@@ -335,8 +391,8 @@ void ResDBIntersectionApp::disableCrashComms(const char* reason)
             broadcastArrivalAnnouncement_timer_->isScheduled())
         cancelEvent(broadcastArrivalAnnouncement_timer_);
     if (resume_msg_ && resume_msg_->isScheduled()) cancelEvent(resume_msg_);
-    if (clearance_poll_msg_ && clearance_poll_msg_->isScheduled())
-        cancelEvent(clearance_poll_msg_);
+    if (preceding_batch_poll_msg_ && preceding_batch_poll_msg_->isScheduled())
+        cancelEvent(preceding_batch_poll_msg_);
 
     if (resdb_server_handle_)
         ResdbOmnetSetPbftSilent(resdb_server_handle_, 1);
