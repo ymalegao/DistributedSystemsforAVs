@@ -88,7 +88,11 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         bool   byzantinePbftSilent = default(false);  // when true, Byzantine replica drops PBFT outbound messages
         bool   enableAmbulanceCertGate = default(false); // when true, rejects ambulance claims with empty ambulanceCertBytes (ablation toggle)
         string falseLaneColluderIds = default(""); // comma-separated replica IDs selected by --randomize N F
-        bool   enableArrivalPositionGate = default(true); // physical lane/position witness gate; false only for D3
+        double approachSigmaM = default(0);
+        string approachConfusionMatrix = default("1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1");
+        double signalObservationError = default(0);
+        int perceptionRngIndex = default(1);
+        double directionEligibilityCollectionWindowSec @unit(s) = default(0.25s);
 
         // ── Post-consensus order gossip (Type 9) ──────────────────────────────
         bool   enableDecisionGossip                        = default(true);

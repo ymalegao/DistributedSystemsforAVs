@@ -52,6 +52,7 @@ std::string dirToStr(ResDBIntersectionApp::Direction d)
     switch (d) {
         case ResDBIntersectionApp::DIR_LEFT:  return "L";
         case ResDBIntersectionApp::DIR_RIGHT: return "R";
+        case ResDBIntersectionApp::DIR_UNKNOWN: return "U";
         default:                              return "S";
     }
 }
@@ -60,6 +61,7 @@ ResDBIntersectionApp::Direction strToDir(const std::string& s)
 {
     if (s == "L") return ResDBIntersectionApp::DIR_LEFT;
     if (s == "R") return ResDBIntersectionApp::DIR_RIGHT;
+    if (s == "U") return ResDBIntersectionApp::DIR_UNKNOWN;
     return ResDBIntersectionApp::DIR_STRAIGHT;
 }
 
@@ -88,6 +90,7 @@ uint8_t directionCode(ResDBIntersectionApp::Direction direction)
 {
     if (direction == ResDBIntersectionApp::DIR_LEFT) return 1;
     if (direction == ResDBIntersectionApp::DIR_RIGHT) return 2;
+    if (direction == ResDBIntersectionApp::DIR_UNKNOWN) return 3;
     return 0;
 }
 

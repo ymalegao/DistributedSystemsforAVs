@@ -330,9 +330,6 @@ generate_random_scenario() {
             done
         fi
         echo "*.node[*].appl.falseLaneColluderIds = \"${colluder_csv}\""
-        if [[ "${DISABLE_ARRIVAL_POSITION_GATE}" -eq 1 ]]; then
-            echo "*.node[*].appl.enableArrivalPositionGate = false"
-        fi
         if [[ -n "${TOLERATED_F:-}" ]]; then
             echo "*.node[*].appl.toleratedFaults = ${TOLERATED_F}"
         fi
@@ -375,7 +372,6 @@ BYZ_LEADER=-1       # -1 = no designated byz leader
 BYZ_LEADER_TYPE=5    # byzantineType for the byz leader (5=bad_proposal, 6=fake_ambulance)
 BYZ_FOLLOWER_TYPE=1  # byzantineType for Byzantine followers (1=false_lane, 7=fake_ambulance_follower)
 CERT_GATE_LINE=""   # set by --cert-gate: adds enableAmbulanceCertGate=true to scenario ini
-DISABLE_ARRIVAL_POSITION_GATE=0
 ALLOW_REPLICA0_BYZ_FOLLOWER=1
 NO_AMBULANCE=0
 INITIAL_LEADER=""   # "" = use default (replica 0)
@@ -388,6 +384,10 @@ ENABLE_CANCEL_LEADER_FAILOVER=1
 FABRICATE_CLEARANCE=0
 ENABLE_RECOVERY_CLEAR_EVIDENCE_GATE=1
 TOLERATED_F=""
+APPROACH_SIGMA=""
+SIGNAL_ERROR=""
+DIRECTION_COLLECTION_WINDOW=""
+SIMULATION_SEED=""
 EXTRA_INI_ARG=()
 
 args=("$@")
@@ -420,8 +420,17 @@ while [[ $i -lt ${#args[@]} ]]; do
         --cert-gate)
             CERT_GATE_LINE="*.node[*].appl.enableAmbulanceCertGate = true"
             ;;
-        --disable-arrival-position-gate)
-            DISABLE_ARRIVAL_POSITION_GATE=1
+        --approach-sigma)
+            i=$(( i + 1 )); APPROACH_SIGMA="${args[$i]}"
+            ;;
+        --signal-error)
+            i=$(( i + 1 )); SIGNAL_ERROR="${args[$i]}"
+            ;;
+        --direction-collection-window)
+            i=$(( i + 1 )); DIRECTION_COLLECTION_WINDOW="${args[$i]}"
+            ;;
+        --simulation-seed)
+            i=$(( i + 1 )); SIMULATION_SEED="${args[$i]}"
             ;;
         --allow-replica0-byz-follower)
             ALLOW_REPLICA0_BYZ_FOLLOWER=1
@@ -469,6 +478,14 @@ while [[ $i -lt ${#args[@]} ]]; do
     i=$(( i + 1 ))
 done
 set -- "${filtered_args[@]+"${filtered_args[@]}"}"
+
+ACTIVE_CONFIG=""
+for ((i=1; i<=$#; ++i)); do
+    if [[ "${!i}" == "-c" ]]; then
+        j=$((i + 1))
+        [[ ${j} -le $# ]] && ACTIVE_CONFIG="${!j}"
+    fi
+done
 
 if [[ "${BASELINE}" -eq 1 ]]; then
     BYZ_LEADER=-1
@@ -549,6 +566,7 @@ if [[ ! -d "${SIM_DIR}" ]]; then
     echo "ERROR: Simulation directory not found: ${SIM_DIR}" >&2
     exit 1
 fi
+SIM_DIR="$(cd "${SIM_DIR}" && pwd)"
 
 # Drop generated overlays this invocation will not recreate, so a prior scenario
 # (e.g. scenario 15's rollback_late_emergency.ini) cannot linger on disk and
@@ -558,6 +576,9 @@ fi
 [[ "${CRASH_WAIT_CLEAR}" -eq 1 ]] || rm -f "${SIM_DIR}/crash_wait_clear.ini"
 [[ -n "${INITIAL_LEADER}" ]] || rm -f "${SIM_DIR}/leader_override.ini"
 [[ -n "${CHANNEL_METRICS_DIR}" ]] || rm -f "${SIM_DIR}/channel_metrics_override.ini"
+if [[ -z "${APPROACH_SIGMA}${SIGNAL_ERROR}${DIRECTION_COLLECTION_WINDOW}${SIMULATION_SEED}" ]]; then
+    rm -f "${SIM_DIR}/perception_override.ini"
+fi
 
 # Generate random scenario after SIM_DIR is known
 if [[ "${RANDOMIZE}" -eq 1 ]]; then
@@ -725,6 +746,56 @@ if [[ -n "${INITIAL_LEADER}" ]]; then
         EXTRA_INI_ARG+=(-f "${LEADER_INI}")
     else
         EXTRA_INI_ARG=(-f "omnetpp.ini" -f "${LEADER_INI}")
+    fi
+fi
+
+# Perception parameters are applied under the active named config so they also
+# override values inherited through OMNeT++ config extension chains.
+if [[ -n "${APPROACH_SIGMA}${SIGNAL_ERROR}${DIRECTION_COLLECTION_WINDOW}${SIMULATION_SEED}" ]]; then
+    if [[ -z "${APPROACH_SIGMA}" || -z "${SIGNAL_ERROR}" ||
+          -z "${DIRECTION_COLLECTION_WINDOW}" || -z "${SIMULATION_SEED}" ]]; then
+        echo "ERROR: perception overrides require --approach-sigma, --signal-error, --direction-collection-window, and --simulation-seed together." >&2
+        exit 1
+    fi
+    if [[ -z "${ACTIVE_CONFIG}" ]]; then
+        echo "ERROR: perception overrides require a forwarded -c <ConfigName>." >&2
+        exit 1
+    fi
+    if ! [[ "${SIMULATION_SEED}" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: --simulation-seed must be a non-negative integer." >&2
+        exit 1
+    fi
+    if ! python3 -c 'import sys; x=float(sys.argv[1]); assert 0.0 <= x <= 1.0' "${SIGNAL_ERROR}" 2>/dev/null; then
+        echo "ERROR: --signal-error must be numeric and in [0,1]." >&2
+        exit 1
+    fi
+    if ! python3 -c 'import sys; x=float(sys.argv[1]); assert x >= 0.0' "${DIRECTION_COLLECTION_WINDOW}" 2>/dev/null; then
+        echo "ERROR: --direction-collection-window must be nonnegative." >&2
+        exit 1
+    fi
+    if ! PERCEPTION_MATRIX="$(python3 "${SIM_DIR}/generate_perception_matrices.py" --lookup "${APPROACH_SIGMA}" 2>/dev/null)"; then
+        echo "ERROR: unsupported --approach-sigma ${APPROACH_SIGMA}; see perception_matrices.csv." >&2
+        exit 1
+    fi
+    PERCEPTION_INI="${SIM_DIR}/perception_override.ini"
+    {
+        echo "# Auto-generated by run-resdb-simulation.sh perception options"
+        echo "# Matrix order is N,S,E,W by rows and columns."
+        echo "[Config ${ACTIVE_CONFIG}]"
+        echo "seed-set = ${SIMULATION_SEED}"
+        echo "num-rngs = 2"
+        echo "*.node[*].appl.rng-1 = 1"
+        echo "*.node[*].appl.perceptionRngIndex = 1"
+        echo "*.node[*].appl.approachSigmaM = ${APPROACH_SIGMA}"
+        echo "*.node[*].appl.approachConfusionMatrix = \"${PERCEPTION_MATRIX}\""
+        echo "*.node[*].appl.signalObservationError = ${SIGNAL_ERROR}"
+        echo "*.node[*].appl.directionEligibilityCollectionWindowSec = ${DIRECTION_COLLECTION_WINDOW}s"
+    } > "${PERCEPTION_INI}"
+    echo "  Perception: sigma=${APPROACH_SIGMA}m matrix=sigma_${APPROACH_SIGMA} signal_error=${SIGNAL_ERROR} collection_window=${DIRECTION_COLLECTION_WINDOW}s seed=${SIMULATION_SEED}" >&2
+    if [[ ${#EXTRA_INI_ARG[@]} -gt 0 ]]; then
+        EXTRA_INI_ARG+=(-f "${PERCEPTION_INI}")
+    else
+        EXTRA_INI_ARG=(-f "omnetpp.ini" -f "${PERCEPTION_INI}")
     fi
 fi
 

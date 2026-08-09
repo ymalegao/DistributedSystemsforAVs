@@ -361,6 +361,7 @@ void ResDBIntersectionApp::disableCrashComms(const char* reason)
 
     if (crashCommsDisabled_) return;
     crashCommsDisabled_ = true;
+    cancelArrivalCertFinalizeTimer();
 
     {
         std::lock_guard<std::mutex> lk(outbound_mutex_);

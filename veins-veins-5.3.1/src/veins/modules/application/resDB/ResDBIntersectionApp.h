@@ -18,6 +18,7 @@
 #include "veins/modules/application/resDB/crypto/CryptoAuth.h"
 #include "veins/modules/application/resDB/ResDBDecisionGossip.h"
 #include "veins/modules/application/resDB/ResDBPropagationTracker.h"
+#include "veins/modules/application/resDB/ResDBPerception.h"
 #include "veins/modules/application/resDB/ResDBWitnessCert.h"
 #include "integration/omnet/resdb_omnet_bridge.h"
 
@@ -31,7 +32,7 @@ class VEINS_API ResDBIntersectionApp : public DemoBaseApplLayer {
 
 public:
     ~ResDBIntersectionApp() override;
-    enum Direction { DIR_STRAIGHT = 0, DIR_LEFT = 1, DIR_RIGHT = 2 };
+    enum Direction { DIR_STRAIGHT = 0, DIR_LEFT = 1, DIR_RIGHT = 2, DIR_UNKNOWN = 3 };
     void recordIntersectionDeparture(simtime_t departedAt);
     /** Mute this replica after manager-side crash freeze (Scenario 16). */
     void disableCrashComms(const char* reason);
@@ -154,6 +155,8 @@ private:
         std::string lane;
         int         positionInLane = 1;
         Direction   direction      = DIR_STRAIGHT;
+        ObservedCue observedCue    = ObservedCue::UNKNOWN;
+        std::array<uint8_t, 32> claimHash{};
         bool        isAmbulance    = false;
         int         epoch          = 0;
         uint8_t     signerPubKey[CRYPTO_PUBKEY_BYTES] = {};
@@ -166,6 +169,7 @@ private:
         std::string              lane;
         int                      positionInLane = 1;
         Direction                direction      = DIR_STRAIGHT;
+        std::array<uint8_t, 32>  claimHash{};
         bool                     isAmbulance    = false;
         int                      epoch          = 0;
         std::vector<ArrivalEcho> echoes;
@@ -447,6 +451,18 @@ private:
     void handleArrivalAnnouncementGossip(BFTMessage* msg);
     void sendArrivalEcho(const ArrivalAnnouncement& ann);
     void collectArrivalEcho(const ArrivalEcho& echo, const char* source);
+    void armArrivalCertFinalizeTimer(const std::string& carId, int required);
+    bool finalizeLocalArrivalCert(const char* reason);
+    void cancelArrivalCertFinalizeTimer();
+    Direction eligibleDirection(const ArrivalCert& cert) const;
+    int directionSupport(const ArrivalCert& cert) const;
+    bool isValidArrivalEchoForCert(const ArrivalEcho& echo,
+                                   const ArrivalCert& cert) const;
+    std::string canonicalArrivalAnnouncementPayload(const ArrivalAnnouncement& ann) const;
+    std::array<uint8_t, 32> arrivalAnnouncementHash(const ArrivalAnnouncement& ann) const;
+    bool verifyArrivalAnnouncementOrigin(const ArrivalAnnouncement& ann) const;
+    std::string arrivalEchoSigningPayload(const ArrivalEcho& echo) const;
+    static std::string hashHex(const std::array<uint8_t, 32>& hash);
     bool isExactFalseLaneClaim(const ArrivalAnnouncement& ann) const;
     bool shouldColludeOnFalseLane(const ArrivalAnnouncement& ann) const;
     bool isArrivalSignerEligible(int replicaId) const;
@@ -614,7 +630,7 @@ private:
     // Cancels both WAIT timers and clears follower state. Idempotent.
     void stopWait(const char* reason);
 
-    std::vector<uint8_t> serializeArrivalAnnouncement(const ArrivalAnnouncement& ann);
+    std::vector<uint8_t> serializeArrivalAnnouncement(const ArrivalAnnouncement& ann) const;
     ArrivalAnnouncement  deserializeArrivalAnnouncement(BFTMessage* msg);
     std::vector<uint8_t> serializeArrivalEcho(const ArrivalEcho& echo);
     ArrivalEcho          deserializeArrivalEcho(BFTMessage* msg);
@@ -660,6 +676,7 @@ private:
     // ── State ─────────────────────────────────────────────────────────────────
     void*  resdb_server_handle_ = nullptr;
     std::unique_ptr<IV2VTransport> transport_;
+    std::unique_ptr<ResDBPerception> perception_;
 
     cMessage* smoke_test_msg_          = nullptr;
     cMessage* transport_poll_msg_      = nullptr;
@@ -668,6 +685,7 @@ private:
     cMessage* discovery_deadline_msg_  = nullptr;
     cMessage* discovery_settle_msg_    = nullptr;
     cMessage* cert_retry_timer_        = nullptr;
+    cMessage* arrival_cert_finalize_timer_ = nullptr;
     cMessage* cert_gossip_timer_       = nullptr;
     cMessage* initial_announce_msg_    = nullptr;
     cMessage* stop_sign_timeout_msg_   = nullptr;
@@ -782,6 +800,14 @@ private:
     std::map<std::string, VehicleState>             local_vehicle_states_;
     std::map<std::string, ArrivalCert>              collected_certs_;
     std::map<std::string, std::vector<ArrivalEcho>> my_received_echoes_;
+    std::map<std::string, ArrivalPerceptionSample>  arrival_perception_samples_;
+    std::map<std::string, ArrivalEcho>              cached_arrival_echoes_;
+    // Periodic retransmissions in one epoch must be byte-identical.  In
+    // particular, claimedArrivalTime, the origin signature, and claimHash may
+    // not change merely because the announcement timer fired again.
+    std::map<std::string, ArrivalAnnouncement>      cached_local_announcements_;
+    std::set<std::string>                           cached_arrival_rejections_;
+    std::map<std::string, std::array<uint8_t, 32>>  local_claim_hashes_;
     std::set<std::string>                           observed_intent_cars_;
     std::set<std::string>                           arrival_announcements_received_;
     std::set<std::string>                           echoed_cars_;  // cars we actually sent an echo to (not FALSE_LANE)
@@ -795,6 +821,8 @@ private:
     ArrivalCert cert_pending_retries_{};
     int    cert_retry_count_         = 0;
     bool cert_broadcast_          = false;
+    simtime_t arrival_cert_threshold_reached_at_ = -1;
+    double direction_eligibility_collection_window_sec_ = 0.25;
     simtime_t cert_gossip_deadline_ = -1;
 
     // ── Post-consensus order gossip (Type 9) ──────────────────────────────────
@@ -876,7 +904,6 @@ private:
     ByzantineType byzantine_type_        = BYZANTINE_HONEST;
     bool          byzantine_pbft_silent_ = false;
     bool          enableAmbulanceCertGate_ = false;  // when true, rejects ambulance claims with no ambulanceCertBytes
-    bool          enable_arrival_position_gate_ = true;
     std::set<int> false_lane_colluder_ids_;
     int           last_known_primary_ = 0;
     bool          bad_proposal_injected_ = false;

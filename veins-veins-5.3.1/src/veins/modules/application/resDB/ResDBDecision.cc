@@ -4,14 +4,49 @@
 
 
 #include <algorithm>
+#include <cerrno>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <mutex>
 #include <set>
+#include <sstream>
+
+#include <unistd.h>
 
 using namespace veins;
 using namespace veins::resdb_app_util;
+
+namespace {
+
+void writeAtomicLogLine(const std::string& line)
+{
+    const std::string record = line + "\n";
+    const char* data = record.data();
+    size_t remaining = record.size();
+    while (remaining > 0) {
+        const ssize_t written = ::write(STDOUT_FILENO, data, remaining);
+        if (written < 0 && errno == EINTR) continue;
+        if (written <= 0) return;
+        data += written;
+        remaining -= static_cast<size_t>(written);
+    }
+}
+
+void logConsensusAttackOutcome(int replicaId, uint32_t epoch,
+                               const char* fault, const char* outcome,
+                               const std::string& detail = {})
+{
+    std::ostringstream line;
+    line << "[CONSENSUS_ATTACK_OUTCOME] r" << replicaId
+         << " epoch=" << epoch
+         << " fault=" << fault
+         << " outcome=" << outcome;
+    if (!detail.empty()) line << " " << detail;
+    writeAtomicLogLine(line.str());
+}
+
+}  // namespace
 
 bool ResDBIntersectionApp::isReplicaConfiguredByzantine(int replicaId) const
 {
@@ -88,6 +123,7 @@ void ResDBIntersectionApp::proposeAll()
     }
     stopCertBroadcastRetries();
     stopStopZoneCertGossip();
+    cancelArrivalCertFinalizeTimer();
     propose_submitted_ = true;
     propose_time_ = simTime();
     current_phase_ = ConsensusPhase::WAITING_FOR_CLEARANCE;
@@ -135,20 +171,17 @@ void ResDBIntersectionApp::proposeAll()
         e.replica_id   = rid;
         e.is_ambulance = kv.second.isAmbulance ? 1 : 0;
         e.cyber_status = 1;  // SIGNED — has a valid cert with f+1 echoes
+        // Check 10 authenticates these scheduling fields against the arrival
+        // certificate snapshot. Never pack a witness's noisy VehicleState lane
+        // into a SIGNED entry: perception decides whether the declared lane is
+        // certified, but it does not replace the certified declaration.
+        const ArrivalCert& cert = kv.second;
+        e.lane             = laneCode(cert.lane);
+        e.direction        = directionCode(eligibleDirection(cert));
+        e.position_in_lane = static_cast<uint8_t>(std::min(cert.positionInLane, 255));
         if (candidate.vehicleStates.count(kv.first)) {
             const VehicleState& vs = candidate.vehicleStates.at(kv.first);
             e.sim_time_us      = vs.arrival_time_us;
-            e.lane             = laneCode(vs.lane);
-            e.direction        = directionCode(vs.direction);
-            e.position_in_lane = static_cast<uint8_t>(
-                std::min(vs.positionInLane, 255));
-        } else {
-            // ResDB executor keys batching on lane/direction; leaving lane=0
-            // makes every car look like North and forces singleton batches.
-            const ArrivalCert& c = kv.second;
-            e.lane             = laneCode(c.lane);
-            e.direction        = directionCode(c.direction);
-            e.position_in_lane = static_cast<uint8_t>(std::min(c.positionInLane, 255));
         }
         if (e.sim_time_us == 0)
             e.sim_time_us = (uint64_t)simTime().inUnit(SIMTIME_US);
@@ -156,6 +189,7 @@ void ResDBIntersectionApp::proposeAll()
                   << " entry rid=" << e.replica_id
                   << " lane=" << (int)e.lane
                   << " pos=" << (int)e.position_in_lane
+                  << " direction=" << (int)e.direction
                   << " ambu=" << (int)e.is_ambulance
                   << " cert.isAmbu=" << (kv.second.isAmbulance ? 1 : 0) << "\n";
         entries.push_back(e);
@@ -164,8 +198,9 @@ void ResDBIntersectionApp::proposeAll()
     // Add QUIET entries only for observed intents that missed certification.
     // Lane and position_in_lane are physically observable (sensors catch a lie)
     // so we use the primary's observed announcement state directly.
-    // direction is intentional cyber-state and requires f+1 cert signatures —
-    // it stays 0 (unknown) for QUIET entries.
+    // Direction is irrelevant for QUIET entries because cyber_status=0 and
+    // sim_time_us=UINT64_MAX force the existing singleton path.  Sentinel 3
+    // is reserved for SIGNED entries whose cue support is insufficient.
     uint64_t proposal_honest_opportunities = 0;
     auto appendQuiet = [&](int rid, const VehicleState* vs) {
         const bool target_is_byzantine = isReplicaConfiguredByzantine(rid);
@@ -176,7 +211,7 @@ void ResDBIntersectionApp::proposeAll()
             quiet.replica_id   = rid;
             quiet.sim_time_us  = UINT64_MAX;  // QUIET sentinel
             quiet.is_ambulance = 0;
-            quiet.direction    = 0;  // cert-only — unknown without f+1 echoes
+            quiet.direction    = 0;  // undefined for QUIET; ignored by IsQuietEntry
             quiet.cyber_status = 0;  // QUIET — no f+1 echoes by timeout
             if (vs) {
                 quiet.lane             = laneCode(vs->lane);
@@ -196,6 +231,9 @@ void ResDBIntersectionApp::proposeAll()
                       << " pos=" << (int)quiet.position_in_lane
                       << " target_is_byzantine=" << (target_is_byzantine ? 1 : 0)
                       << "\n";
+            std::cout << "[TRUST-TIER] target=veh" << rid
+                      << " epoch=" << current_epoch_
+                      << " tier=QUIET\n";
         }
     };
     if (rollbackOrderEpoch) {
@@ -376,12 +414,10 @@ bool ResDBIntersectionApp::detectFalsePriorityGrant(
 {
     if (fake_ambulance_proposal_replica_id_ < 0) return false;
     if (ResdbOmnetGetPrimary(resdb_server_handle_) != replicaId_) {
-        std::cout << "[CONSENSUS_ATTACK_OUTCOME] r" << replicaId_
-                  << " epoch=" << current_epoch_
-                  << " fault=FAKE_AMBULANCE"
-                  << " outcome=PREVERIFY_BLOCKED_OR_VIEW_CHANGE_RECOVERED"
-                  << " target=veh" << fake_ambulance_proposal_replica_id_
-                  << "\n";
+        logConsensusAttackOutcome(
+            replicaId_, current_epoch_, "FAKE_AMBULANCE",
+            "PREVERIFY_BLOCKED_OR_VIEW_CHANGE_RECOVERED",
+            "target=veh" + std::to_string(fake_ambulance_proposal_replica_id_));
         fake_ambulance_proposal_replica_id_ = -1;
         return false;
     }
@@ -416,12 +452,7 @@ void ResDBIntersectionApp::detectConsensusAttackOutcome(
     const bool false_priority = detectFalsePriorityGrant(decisions, n);
 
     auto logOutcome = [&](const char* fault, const char* outcome, const std::string& detail) {
-        std::cout << "[CONSENSUS_ATTACK_OUTCOME] r" << replicaId_
-                  << " epoch=" << current_epoch_
-                  << " fault=" << fault
-                  << " outcome=" << outcome;
-        if (!detail.empty()) std::cout << " " << detail;
-        std::cout << "\n";
+        logConsensusAttackOutcome(replicaId_, current_epoch_, fault, outcome, detail);
     };
 
     if (!is_byzantine_) {
@@ -615,7 +646,7 @@ void ResDBIntersectionApp::applyByzantineTamperLane(uint8_t* base, uint32_t n)
                 out[i].lane             = laneCode(cert.lane);
                 out[i].position_in_lane = static_cast<uint8_t>(
                     std::min(cert.positionInLane, 255));
-                out[i].direction        = directionCode(cert.direction);
+                out[i].direction        = directionCode(app->eligibleDirection(cert));
                 out[i].is_ambulance     = cert.isAmbulance ? 1 : 0;
                 ++i;
             } catch (...) {}

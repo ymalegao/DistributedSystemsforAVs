@@ -369,6 +369,19 @@ RE_ROUND_METRIC_CAR = re.compile(
     r'\[ROUND-METRICS\] Epoch (\d+) Arrival_To_Resume_Time (veh\d+):\s*([\d.]+) seconds')
 RE_ROUND_METRIC_KEY = re.compile(
     r'\[ROUND-METRICS\] Epoch (\d+) ([A-Za-z_][\w_]*):\s*([-\d.]+)')
+RE_PERC_EVAL = re.compile(
+    r'\[PERC-EVAL\]\s+witness=(\d+)\s+target=(\S+)\s+epoch=(\d+)\s+'
+    r'claimHash=([0-9a-fA-F]+)\s+laneVerdict=(ACCEPT|REJECT).*?'
+    r'observedCue=(\S+)\s+knownCueSamples=(\d+)')
+RE_CERT_ASSEMBLE_PERCEPTION = re.compile(
+    r'\[CERT-ASSEMBLE\]\s+target=(\S+)\s+epoch=(\d+)\s+echoCount=(\d+)\s+'
+    r'threshold=(\d+)\s+reason=(\S+)')
+RE_DIR_ELIGIBILITY = re.compile(
+    r'\[DIR-ELIGIBILITY\]\s+target=(\S+)\s+epoch=(\d+)\s+declared=(\S+)\s+'
+    r'support=(\d+)\s+threshold=(\d+)\s+echoCount=(\d+)\s+b_sig=(\d+)\s+'
+    r'derivedDirection=(\S+)')
+RE_TRUST_TIER = re.compile(
+    r'\[TRUST-TIER\]\s+target=(\S+)\s+epoch=(\d+)\s+tier=(\S+)')
 
 # ── Data stores ─────────────────────────────────────────────────────────────
 round_metrics = defaultdict(dict)      # epoch → {metric_name: value}
@@ -455,6 +468,11 @@ false_lane_commits = {}               # target -> {claimed, actual, epoch}
 malformed_proposal_reject_count = 0
 unsafe_conflict_pairs = {}            # (first,second) -> ground-truth approaches/time
 physical_collision_vehicles = {}      # vehicle -> first collision time
+perception_evaluations = {}           # (witness,target,epoch,hash) -> parsed evaluation
+perception_duplicate_evaluations = 0
+cert_assembly_perception = {}         # (target,epoch) -> collection outcome
+direction_eligibility = {}            # (target,epoch) -> support/derived outcome
+trust_tiers = {}                      # (target,epoch) -> final tier
 
 # Per-replica message counts and fallback tracking
 replica_messages_sent    = {}   # replica -> messages_sent count (last value seen)
@@ -705,6 +723,35 @@ else:
         _log_lines = list(f)
 
 for line in _log_lines:
+        m_perc = RE_PERC_EVAL.search(line)
+        if m_perc:
+            key = (int(m_perc.group(1)), m_perc.group(2), int(m_perc.group(3)), m_perc.group(4))
+            if key in perception_evaluations:
+                perception_duplicate_evaluations += 1
+            else:
+                perception_evaluations[key] = {
+                    "witness": key[0], "target": key[1], "epoch": key[2],
+                    "claim_hash": key[3], "lane_accept": m_perc.group(5) == "ACCEPT",
+                    "observed_cue": m_perc.group(6),
+                    "known_cue_samples": int(m_perc.group(7)),
+                }
+        m_perc = RE_CERT_ASSEMBLE_PERCEPTION.search(line)
+        if m_perc:
+            cert_assembly_perception[(m_perc.group(1), int(m_perc.group(2)))] = {
+                "echo_count": int(m_perc.group(3)), "threshold": int(m_perc.group(4)),
+                "reason": m_perc.group(5),
+            }
+        m_perc = RE_DIR_ELIGIBILITY.search(line)
+        if m_perc:
+            direction_eligibility[(m_perc.group(1), int(m_perc.group(2)))] = {
+                "declared": m_perc.group(3), "support": int(m_perc.group(4)),
+                "threshold": int(m_perc.group(5)), "echo_count": int(m_perc.group(6)),
+                "b_sig": int(m_perc.group(7)), "derived": m_perc.group(8),
+            }
+        m_perc = RE_TRUST_TIER.search(line)
+        if m_perc:
+            trust_tiers[(m_perc.group(1), int(m_perc.group(2)))] = m_perc.group(3)
+
         # Crash/recovery timeline extraction is deliberately non-consuming:
         # the same lines must remain available to the existing rollback and
         # Byzantine metric parsers below.
@@ -1848,6 +1895,56 @@ def _epoch_cert_collection_duration_ms(epoch: int):
         return (t_prop - t_start) * 1000.0
     return None
 
+def _perception_summary():
+    evaluations = list(perception_evaluations.values())
+    configured_byzantine = set(replica_byzantine_types)
+    measured_h = defaultdict(set)
+    cue_counts = defaultdict(int)
+    for row in evaluations:
+        cue_counts[row["observed_cue"]] += 1
+        if row["witness"] not in configured_byzantine:
+            measured_h[f"{row['target']}@{row['epoch']}"].add(row["witness"])
+    accepted = sum(1 for row in evaluations if row["lane_accept"])
+    tier_counts = defaultdict(int)
+    for tier in trust_tiers.values():
+        tier_counts[tier] += 1
+    signed_direction = sum(
+        count for tier, count in tier_counts.items() if tier == "SIGNED-DIRECTION"
+    )
+    left_singletons = sum(
+        1 for row in direction_eligibility.values() if row["derived"] == "L"
+    )
+    return {
+        "lane_evaluation_count": len(evaluations),
+        "lane_accept_count": accepted,
+        "lane_accept_rate": accepted / len(evaluations) if evaluations else None,
+        "cue_distribution": dict(sorted(cue_counts.items())),
+        "cue_unknown_rate": cue_counts.get("UNKNOWN", 0) / len(evaluations) if evaluations else None,
+        "duplicate_evaluation_count": perception_duplicate_evaluations,
+        "single_evaluation_invariant_ok": perception_duplicate_evaluations == 0,
+        "measured_h": {key: len(value) for key, value in sorted(measured_h.items())},
+        "certificates": {
+            f"{target}@{epoch}": row
+            for (target, epoch), row in sorted(cert_assembly_perception.items())
+        },
+        "direction_eligibility": {
+            f"{target}@{epoch}": row
+            for (target, epoch), row in sorted(direction_eligibility.items())
+        },
+        # Prefer the explicit three-tier record.  The fallback preserves
+        # compatibility with older logs that emitted tiers only for signed
+        # certificates and represented QUIET as an absent record.
+        "quiet_count": (
+            tier_counts.get("QUIET", 0)
+            if tier_counts.get("QUIET", 0) > 0
+            else (max(0, CARS - len(trust_tiers)) if trust_tiers else None)
+        ),
+        "signed_unknown_count": tier_counts.get("SIGNED-UNKNOWN", 0),
+        "signed_direction_count": signed_direction,
+        "left_table_forced_singleton_count": left_singletons,
+        "signed_unknown_singleton_count": tier_counts.get("SIGNED-UNKNOWN", 0),
+    }
+
 def write_metrics_json(path):
     """Write all extracted metrics to a structured JSON file for downstream plotting."""
     import json
@@ -2241,6 +2338,7 @@ def write_metrics_json(path):
                     "quiet_honest_vehicles": replica_quiet_honest_vehicles.get(rep),
                     "quiet_honest_opportunities": replica_quiet_honest_opportunities.get(rep),
                     "quiet_honest_rate_percent": replica_quiet_honest_rate.get(rep),
+                    "perception": _perception_summary(),
                     "attack_outcomes_replica": [
                         row for row in attack_outcomes if row["replica"] == rep
                     ] or None,
@@ -2875,6 +2973,19 @@ if SAVE_TO:
         f.write(f"[RUN-METRICS] Quiet_Honest_Opportunities: {quiet_honest_opportunities}\n")
         if quiet_honest_rate is not None:
             f.write(f"[RUN-METRICS] Quiet_Honest_Rate: {quiet_honest_rate:.6f}\n")
+        perception_summary = _perception_summary()
+        f.write(f"[RUN-METRICS] Lane_Evaluation_Count: {perception_summary['lane_evaluation_count']}\n")
+        f.write(f"[RUN-METRICS] Lane_Accept_Count: {perception_summary['lane_accept_count']}\n")
+        if perception_summary["lane_accept_rate"] is not None:
+            f.write(f"[RUN-METRICS] Lane_Accept_Rate: {perception_summary['lane_accept_rate']:.6f}\n")
+        if perception_summary["cue_unknown_rate"] is not None:
+            f.write(f"[RUN-METRICS] Cue_UNKNOWN_Rate: {perception_summary['cue_unknown_rate']:.6f}\n")
+        f.write(f"[RUN-METRICS] Perception_Duplicate_Evaluations: {perception_summary['duplicate_evaluation_count']}\n")
+        f.write(f"[RUN-METRICS] QUIET_Count: {perception_summary['quiet_count'] or 0}\n")
+        f.write(f"[RUN-METRICS] SIGNED_UNKNOWN_Count: {perception_summary['signed_unknown_count']}\n")
+        f.write(f"[RUN-METRICS] SIGNED_Direction_Count: {perception_summary['signed_direction_count']}\n")
+        f.write(f"[RUN-METRICS] Singleton_SIGNED_UNKNOWN_Count: {perception_summary['signed_unknown_singleton_count']}\n")
+        f.write(f"[RUN-METRICS] Singleton_LEFT_Table_Forced_Count: {perception_summary['left_table_forced_singleton_count']}\n")
 
         # Per-epoch throughput and wait
         for ep in range(N_EPOCHS):

@@ -1497,7 +1497,7 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
       }
     }
     // Check 5+6: non-zero timestamps (UINT64_MAX allowed as QUIET sentinel),
-    //           boolean is_ambulance, and valid cyber_status.
+    //           boolean is_ambulance, valid cyber_status, and direction code.
     {
       const uint8_t* ep = view.data + sizeof(ResdbProposeHdr);
       for (uint32_t i = 0; i < hdr.n_vehicles; ++i) {
@@ -1518,6 +1518,12 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
         if (e.cyber_status > 1) {
           LOG(ERROR) << "[OMNET-PREVERIFY] reject: invalid cyber_status"
                      << " value=" << static_cast<int>(e.cyber_status)
+                     << " replica_id=" << e.replica_id;
+          return false;
+        }
+        if (e.direction > 3) {
+          LOG(ERROR) << "[OMNET-PREVERIFY] reject: invalid direction"
+                     << " value=" << static_cast<int>(e.direction)
                      << " replica_id=" << e.replica_id;
           return false;
         }
@@ -1716,20 +1722,26 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
     // Installation is deliberately last: malformed membership, missing CLEAR,
     // cert mismatch, or any other guarded rejection above must have no effect
     // on the request-specific/pending view or current primary.
-    if (!view.is_rollback() && has_active_view) {
+    if (!view.is_rollback()) {
       if (req.type() == resdb::Request::TYPE_PRE_PREPARE) {
-        std::cout << "[EPOCH-VIEW]"
-                  << " type=" << req.type()
-                  << " hash=" << req.hash()
-                  << " seq=" << req.seq()
-                  << " action=install-request-after-validation\n";
-        if (!service_ptr->InstallOmnetForcedViewForRequest(req, active_view)) {
-          LOG(ERROR) << "[OMNET-PREVERIFY] reject: active view install failed"
-                     << " epoch=" << hdr.epoch
-                     << " seq=" << req.seq()
-                     << " hash=" << req.hash();
-          return false;
+        if (has_active_view) {
+          std::cout << "[EPOCH-VIEW]"
+                    << " type=" << req.type()
+                    << " hash=" << req.hash()
+                    << " seq=" << req.seq()
+                    << " action=install-request-after-validation\n";
+          if (!service_ptr->InstallOmnetForcedViewForRequest(req, active_view)) {
+            LOG(ERROR) << "[OMNET-PREVERIFY] reject: active view install failed"
+                       << " epoch=" << hdr.epoch
+                       << " seq=" << req.seq()
+                       << " hash=" << req.hash();
+            return false;
+          }
         }
+        // Normal epoch 0 has no forced/reconfiguration view.  The certified
+        // leader handoff is nevertheless required when the configured PBFT
+        // primary is QUIET: all guarded proposal checks above have already
+        // authenticated leader_id and proved it is a SIGNED cert-primary.
         if (normal_leader_is_cert_primary && !normal_leader_is_pbft_primary) {
           const uint64_t incoming_view = req.current_view();
           service_ptr->SetPrimary(static_cast<uint32_t>(hdr.leader_id + 1),
@@ -1740,7 +1752,7 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
                     << " view=" << incoming_view
                     << " epoch=" << hdr.epoch;
         }
-      } else if (req.type() == resdb::Request::TYPE_NEW_TXNS) {
+      } else if (req.type() == resdb::Request::TYPE_NEW_TXNS && has_active_view) {
         std::cout << "[EPOCH-VIEW]"
                   << " type=" << req.type()
                   << " hash=" << req.hash()

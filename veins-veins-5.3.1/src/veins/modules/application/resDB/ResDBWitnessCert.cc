@@ -34,6 +34,15 @@ bool WitnessKeyRegistry::matches(int replicaId, const uint8_t pubKey[CRYPTO_PUBK
     return std::memcmp(it->second.data(), pubKey, CRYPTO_PUBKEY_BYTES) == 0;
 }
 
+bool WitnessKeyRegistry::copyKey(int replicaId, uint8_t out[CRYPTO_PUBKEY_BYTES]) const
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    auto it = keys_.find(replicaId);
+    if (it == keys_.end() || !out) return false;
+    std::memcpy(out, it->second.data(), CRYPTO_PUBKEY_BYTES);
+    return true;
+}
+
 bool WitnessKeyRegistry::known(int replicaId) const
 {
     std::lock_guard<std::mutex> lk(mtx_);

@@ -88,7 +88,7 @@ int ResdbOmnetUpdateSimTimeUs(void* server_handle, int64_t now_us);
 /* One vehicle's arrival state.  17 bytes, no padding.
  * Appears in the ProposeAll payload (Veins → ResDB bridge).
  * lane:     0=N, 1=S, 2=E, 3=W
- * direction: 0=Straight, 1=Left, 2=Right
+ * direction: 0=Straight, 1=Left, 2=Right, 3=Unknown (signed singleton)
  * position_in_lane: 1=front, 2=second, …
  * cyber_status: 0=QUIET (no f+1 echoes), 1=SIGNED */
 #pragma pack(push, 1)
@@ -97,7 +97,7 @@ typedef struct ResdbVehicleEntry {
     uint64_t sim_time_us;       /* 8 bytes — simTime() at stop-zone entry; UINT64_MAX = QUIET */
     uint8_t  is_ambulance;      /* 1 byte  — non-zero means emergency priority */
     uint8_t  lane;              /* 1 byte  — 0=N,1=S,2=E,3=W */
-    uint8_t  direction;         /* 1 byte  — 0=Straight,1=Left,2=Right */
+    uint8_t  direction;         /* 1 byte  — 0=Straight,1=Left,2=Right,3=Unknown */
     uint8_t  position_in_lane;  /* 1 byte  — 1=front,2=second,… */
     uint8_t  cyber_status;      /* 1 byte  — 0=QUIET,1=SIGNED */
 } ResdbVehicleEntry;            /* 17 bytes total */
@@ -335,7 +335,7 @@ typedef struct ResdbCertEntry {
     int32_t replica_id;
     uint8_t lane;             /* 0=N,1=S,2=E,3=W — same encoding as ResdbVehicleEntry */
     uint8_t position_in_lane; /* 1=front, 2=second, … */
-    uint8_t direction;        /* 0=Straight,1=Left,2=Right */
+    uint8_t direction;        /* 0=Straight,1=Left,2=Right,3=Unknown */
     uint8_t is_ambulance;     /* 0 or 1 */
 } ResdbCertEntry;             /* 8 bytes */
 #pragma pack(pop)

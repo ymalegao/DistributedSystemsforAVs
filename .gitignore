@@ -10,6 +10,8 @@ incubator-resilientdb/bazel.gpg
 veins-veins-5.3.1/configure
 fourway/out/
 fourway/results/
+fourway/perception_override.ini
+veins-veins-5.3.1/examples/fourway/out/
 
 # Generated experiment output
 benchmarks/

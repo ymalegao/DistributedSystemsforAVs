@@ -19,6 +19,7 @@ sourced OMNeT++, set ORCHESTRATOR_SKIP_OMNET_SOURCE=1 to skip re-sourcing.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import random
 import re
@@ -27,7 +28,7 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 # --- Fixed in-repo (not CLI): reproducible draws for bash $RANDOM in run-resdb-simulation.sh ---
 MASTER_SEED = 0xC0FFEE42
@@ -138,6 +139,13 @@ SCENARIO_ORDER: Tuple[str, ...] = (
     "ByzLeader_Ambulance",
 )
 
+PHASE1_VALIDATION_CELLS: Tuple[Dict[str, Any], ...] = (
+    {"name": "e0_n4", "n": 4, "sigma": 0.0, "signal_error": 0.0, "kind": "e0"},
+    {"name": "signal_error_n4", "n": 4, "sigma": 0.0, "signal_error": 1.0, "kind": "signal"},
+    {"name": "lane_error_n4", "n": 4, "sigma": 2.0, "signal_error": 0.0, "kind": "lane"},
+    {"name": "e0_n16", "n": 16, "sigma": 0.0, "signal_error": 0.0, "kind": "e0"},
+)
+
 
 def bft_f(n: int) -> int:
     return (n - 1) // 3
@@ -173,6 +181,8 @@ def benchmark_run_dir(
     baseline: bool = False,
     tolerated_f: int | None = None,
     injected_f: int | None = None,
+    approach_sigma: float = 0.0,
+    signal_error: float = 0.0,
 ) -> Path:
     """Per-run output directory (JSON/logs from analyze_log; channel CSVs from the sim)."""
     sub = SCENARIO_SUBDIR[scenario_name]
@@ -182,6 +192,10 @@ def benchmark_run_dir(
         base = base / f"f_{tolerated_f}"
     if injected_f is not None and not baseline:
         base = base / f"F_{injected_f}"
+    if not baseline:
+        sigma_label = format(approach_sigma, "g").replace(".", "p")
+        signal_label = format(signal_error, "g").replace(".", "p")
+        base = base / f"sigma_{sigma_label}_signal_{signal_label}"
     return base / f"run_{rep}"
 
 
@@ -237,6 +251,7 @@ def clear_stale_random_ini() -> None:
         "rollback_late_emergency.ini",
         "crash_wait_clear.ini",
         "leader_override.ini",
+        "perception_override.ini",
     ):
         path = FOURWAY_DIR / name
         if path.is_file():
@@ -335,10 +350,7 @@ def randomize_args_for_scenario(
     if scenario_name == "No_Ambulance_Honest":
         return []
     if scenario_name == "NoFW_ByzFollower_FalseLane":
-        return [
-            "--randomize", str(n), str(follower_f),
-            "--disable-arrival-position-gate",
-        ]
+        return ["--randomize", str(n), str(follower_f)]
     if scenario_name == "NoFW_ByzLeader_BadProposal":
         return ["--randomize", str(n), str(f - 1), "--byzleader", "0", "--no-firewall"]
     if scenario_name == "NoFW_ByzLeader_FakeAmbulance":
@@ -416,6 +428,9 @@ def run_one_simulation(
     paired_false_lane_seed: bool = False,
     randomize_leader: bool = False,
     baseline: bool = False,
+    approach_sigma: float = 0.0,
+    signal_error: float = 0.0,
+    direction_collection_window: float = 0.25,
 ) -> None:
     cfg = baseline_omnet_config_name(n) if baseline else omnet_config_name(n)
     extra = baseline_randomize_args_for_scenario(n, scenario_name) if baseline else randomize_args_for_scenario(
@@ -435,6 +450,8 @@ def run_one_simulation(
         baseline=baseline,
         tolerated_f=tolerated_f if explicit_tolerate else None,
         injected_f=injected_f,
+        approach_sigma=approach_sigma,
+        signal_error=signal_error,
     )
     metrics_dir = str(run_dir.resolve())
 
@@ -448,12 +465,28 @@ def run_one_simulation(
 
     if not dry_run:
         run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "perception_run_metadata.json").write_text(
+            json.dumps({
+                "simulation_seed": seed,
+                "approach_sigma_m": approach_sigma,
+                "signal_observation_error": signal_error,
+                "direction_collection_window_sec": direction_collection_window,
+                "config": cfg,
+                "scenario": scenario_name,
+                "rep": rep,
+                "n": n,
+            }, indent=2, sort_keys=True) + "\n"
+        )
 
     argv = [
         str(RUN_SCRIPT),
         str(FOURWAY_DIR),
         "--channel-metrics-dir",
         metrics_dir,
+        "--approach-sigma", str(approach_sigma),
+        "--signal-error", str(signal_error),
+        "--direction-collection-window", str(direction_collection_window),
+        "--simulation-seed", str(seed),
         *leader_args,
         *tolerate_args,
         *extra,
@@ -472,7 +505,7 @@ def run_one_simulation(
     # (No_Ambulance_Honest).
     inner = f"export SCENARIO_RANDOM_SEED={seed} && " + " ".join(shlex.quote(a) for a in argv)
     if dry_run:
-        print(f"+ simulation (SCENARIO_RANDOM_SEED={seed})")
+        print(f"+ {inner}")
     run_in_bash_with_omnet(inner, dry_run=dry_run)
 
 
@@ -498,6 +531,8 @@ def run_analyze(
     explicit_tolerate: bool,
     injected_f: int | None = None,
     baseline: bool = False,
+    approach_sigma: float = 0.0,
+    signal_error: float = 0.0,
 ) -> None:
     save_to = benchmark_run_dir(
         n,
@@ -506,8 +541,11 @@ def run_analyze(
         baseline=baseline,
         tolerated_f=tolerated_f if explicit_tolerate else None,
         injected_f=injected_f,
+        approach_sigma=approach_sigma,
+        signal_error=signal_error,
     )
-    save_to.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        save_to.mkdir(parents=True, exist_ok=True)
     analyze = REPO_ROOT / "fourway" / "analyze_log.py"
     scen = ANALYZE_SCENARIO[scenario_name]
     tripinfo = collect_baseline_sumo_outputs(n, save_to, dry_run=dry_run) if baseline else None
@@ -540,6 +578,261 @@ def run_analyze(
     subprocess.run(cmd, cwd=REPO_ROOT, check=True)
 
 
+def _load_perception_summary(json_path: Path) -> Dict[str, Any]:
+    """Load the run-level perception block repeated in each analyzer row."""
+    records = json.loads(json_path.read_text())
+    if not isinstance(records, list) or not records:
+        raise ValueError(f"expected a nonempty analyzer record list in {json_path}")
+    perception = records[0].get("bft_stats", {}).get("perception")
+    if not isinstance(perception, dict):
+        raise ValueError(f"missing bft_stats.perception in {json_path}")
+    return perception
+
+
+def _validate_phase1_run(
+    cell: Dict[str, Any],
+    rep: int,
+    run_dir: Path,
+    log_text: str,
+) -> Dict[str, Any]:
+    """Evaluate the Phase 1 exit invariants for one completed run."""
+    n = int(cell["n"])
+    json_path = run_dir / f"{n}veh_{rep}.json"
+    checks: List[Dict[str, Any]] = []
+
+    def check(name: str, passed: bool, detail: str) -> None:
+        checks.append({"name": name, "passed": bool(passed), "detail": detail})
+
+    try:
+        perception = _load_perception_summary(json_path)
+        analyzer_records = json.loads(json_path.read_text())
+        run_safety = analyzer_records[0].get("run_safety", {})
+        run_safety = run_safety if isinstance(run_safety, dict) else {}
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        check("analyzer output", False, str(exc))
+        perception = {}
+        run_safety = {}
+
+    lane_evals = int(perception.get("lane_evaluation_count", 0))
+    lane_accepts = int(perception.get("lane_accept_count", 0))
+    certificates = perception.get("certificates", {})
+    eligibility = perception.get("direction_eligibility", {})
+    certificates = certificates if isinstance(certificates, dict) else {}
+    eligibility = eligibility if isinstance(eligibility, dict) else {}
+
+    check("perception evaluated", lane_evals > 0, f"lane evaluations={lane_evals}")
+    duplicate_count = int(perception.get("duplicate_evaluation_count", -1))
+    invariant_ok = perception.get("single_evaluation_invariant_ok") is True
+    check(
+        "single-shot cache",
+        duplicate_count == 0 and invariant_ok,
+        f"duplicates={duplicate_count}, analyzer_invariant={invariant_ok}",
+    )
+    perception_pairs = re.findall(
+        r"\[PERC-EVAL\] witness=(\d+) target=veh(\d+)\b", log_text
+    )
+    self_evaluations = sum(witness == target for witness, target in perception_pairs)
+    check(
+        "no self witnesses",
+        self_evaluations == 0,
+        f"self evaluations={self_evaluations}",
+    )
+
+    bad_validation_lines = log_text.count("[CERT-INVALID]") + log_text.count("verify FAIL")
+    check("certificate validation", bad_validation_lines == 0, f"failure markers={bad_validation_lines}")
+    timer_leaks = sum(
+        log_text.count(name)
+        for name in ("undisposed object: (omnetpp::cMessage) resdbArrivalCertFinalize",
+                     "undisposed object: (omnetpp::cMessage) resdbDiscoveryTxFlush")
+    )
+    check("perception timers disposed", timer_leaks == 0, f"matching undisposed timers={timer_leaks}")
+
+    departed = set(re.findall(r"\[DEPARTED\] Replica (\d+)\b", log_text))
+    check("vehicles departed", len(departed) == n, f"unique departed={len(departed)}/{n}")
+    unsafe_pairs = int(run_safety.get("unsafe_conflict_cooccupancy_pair_count", -1))
+    collision_vehicles = int(run_safety.get("physical_collision_vehicle_count", -1))
+    check(
+        "physical safety",
+        unsafe_pairs == 0 and collision_vehicles == 0,
+        f"unsafe conflict pairs={unsafe_pairs}, collision vehicles={collision_vehicles}",
+    )
+
+    kind = str(cell["kind"])
+    if kind == "e0":
+        check("lane certificates", len(certificates) == n, f"certificates={len(certificates)}/{n}")
+        signed = int(perception.get("signed_direction_count", -1))
+        unknown = int(perception.get("signed_unknown_count", -1))
+        quiet = int(perception.get("quiet_count", -1))
+        check("E0 trust tiers", signed == n and unknown == 0 and quiet == 0,
+              f"SIGNED-dir={signed}, SIGNED-UNKNOWN={unknown}, QUIET={quiet}")
+        derived = [entry.get("derived") for entry in eligibility.values() if isinstance(entry, dict)]
+        check("E0 direction", len(derived) == n and all(value == "S" for value in derived),
+              f"STRAIGHT={derived.count('S')}/{n}")
+        rng_rows = re.findall(r"\[PERCEPTION-RNG\] replica=(\d+) draws=(\d+)\b", log_text)
+        zero_rng_ids = {replica for replica, draws in rng_rows if int(draws) == 0}
+        check("E0 perception RNG", len(zero_rng_ids) == n,
+              f"zero-draw replicas={len(zero_rng_ids)}/{n}")
+        if n == 16:
+            extra_echo_certs = sum(
+                1 for entry in certificates.values()
+                if isinstance(entry, dict) and int(entry.get("echo_count", 0)) > int(entry.get("threshold", 0))
+            )
+            check("collect beyond f+1", extra_echo_certs > 0,
+                  f"certificates above threshold={extra_echo_certs}")
+    elif kind == "signal":
+        signed = int(perception.get("signed_direction_count", -1))
+        unknown = int(perception.get("signed_unknown_count", -1))
+        quiet = int(perception.get("quiet_count", -1))
+        derived = [entry.get("derived") for entry in eligibility.values() if isinstance(entry, dict)]
+        check("lane certificates survive cue noise", len(certificates) == n,
+              f"certificates={len(certificates)}/{n}")
+        check("signal-error trust tiers", signed == 0 and unknown == n and quiet == 0,
+              f"SIGNED-dir={signed}, SIGNED-UNKNOWN={unknown}, QUIET={quiet}")
+        check("signal-error direction", len(derived) == n and all(value == "U" for value in derived),
+              f"UNKNOWN={derived.count('U')}/{n}")
+    elif kind == "lane":
+        lane_rate = perception.get("lane_accept_rate")
+        rate_is_nontrivial = isinstance(lane_rate, (int, float)) and 0.0 <= float(lane_rate) < 1.0
+        check("lane noise exercised", rate_is_nontrivial and lane_accepts < lane_evals,
+              f"accepted={lane_accepts}/{lane_evals}, rate={lane_rate}")
+    else:
+        check("known validation cell", False, f"unknown kind={kind}")
+
+    failures = [item for item in checks if not item["passed"]]
+    return {
+        "cell": cell["name"],
+        "kind": kind,
+        "n": n,
+        "rep": rep,
+        "result_dir": str(run_dir),
+        "passed": not failures,
+        "checks": checks,
+        "failures": failures,
+    }
+
+
+def run_phase1_validation(args: argparse.Namespace, repetitions: int) -> int:
+    """Run and self-check the fixed E0 plus nonzero Phase 1 smoke suite."""
+    rep_indices = list(range(args.start_rep, args.start_rep + repetitions))
+    scenario_name = "No_Ambulance_Honest"
+    results: List[Dict[str, Any]] = []
+    active_n: int | None = None
+
+    print("Phase 1 validation: E0 N=4, signal-error N=4, lane-error N=4, E0 N=16")
+    print(f"Reps: run_{rep_indices[0]}..run_{rep_indices[-1]}")
+    for cell in PHASE1_VALIDATION_CELLS:
+        n = int(cell["n"])
+        if n != active_n:
+            if args.dry_run:
+                print(f"[dry-run] would run_key_generation({n})")
+            else:
+                run_key_generation(dry_run=False, scale=n)
+            active_n = n
+
+        tolerated_f = bft_f(n)
+        for i, rep in enumerate(rep_indices, start=1):
+            print(
+                f"\n--- Phase 1 {cell['name']} rep {i}/{repetitions} (run_{rep}) "
+                f"sigma={cell['sigma']} signal_error={cell['signal_error']} ---"
+            )
+            if args.dry_run:
+                print("[dry-run] would clear_stale_random_ini()")
+            else:
+                clear_stale_random_ini()
+            run_dir = benchmark_run_dir(
+                n,
+                scenario_name,
+                rep,
+                approach_sigma=float(cell["sigma"]),
+                signal_error=float(cell["signal_error"]),
+            )
+            try:
+                run_one_simulation(
+                    n,
+                    scenario_name,
+                    rep,
+                    dry_run=args.dry_run,
+                    tolerated_f=tolerated_f,
+                    explicit_tolerate=False,
+                    approach_sigma=float(cell["sigma"]),
+                    signal_error=float(cell["signal_error"]),
+                    direction_collection_window=args.direction_collection_window,
+                )
+                if not args.dry_run and LOG_FILE.is_file():
+                    run_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(LOG_FILE, run_dir / "raw_simulation.log")
+                run_analyze(
+                    n,
+                    scenario_name,
+                    rep,
+                    dry_run=args.dry_run,
+                    tolerated_f=tolerated_f,
+                    explicit_tolerate=False,
+                    approach_sigma=float(cell["sigma"]),
+                    signal_error=float(cell["signal_error"]),
+                )
+            except subprocess.CalledProcessError as exc:
+                if LOG_FILE.is_file():
+                    run_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(LOG_FILE, run_dir / "raw_simulation.log")
+                result = {
+                    "cell": cell["name"],
+                    "kind": cell["kind"],
+                    "n": n,
+                    "rep": rep,
+                    "result_dir": str(run_dir),
+                    "passed": False,
+                    "checks": [{
+                        "name": "simulation and analysis",
+                        "passed": False,
+                        "detail": f"command exited with status {exc.returncode}",
+                    }],
+                    "failures": [{
+                        "name": "simulation and analysis",
+                        "passed": False,
+                        "detail": f"command exited with status {exc.returncode}",
+                    }],
+                }
+                results.append(result)
+                print(f"[FAIL] {cell['name']} run_{rep}: simulation/analysis exit status {exc.returncode}")
+                continue
+            if args.dry_run:
+                print(f"[dry-run] would validate {run_dir}")
+                continue
+            result = _validate_phase1_run(cell, rep, run_dir, LOG_FILE.read_text(errors="replace"))
+            (run_dir / "phase1_validation.json").write_text(
+                json.dumps(result, indent=2, sort_keys=True) + "\n"
+            )
+            results.append(result)
+            status = "PASS" if result["passed"] else "FAIL"
+            print(f"[{status}] {cell['name']} run_{rep}")
+            for item in result["checks"]:
+                marker = "PASS" if item["passed"] else "FAIL"
+                print(f"  {marker:4} {item['name']}: {item['detail']}")
+
+    if args.dry_run:
+        print("\n[dry-run] Phase 1 suite contains four fixed parameter cells; no validation was executed.")
+        return 0
+
+    summary_dir = REPO_ROOT / "benchmarks" / "Phase1Validation"
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = summary_dir / "phase1_validation_summary.json"
+    overall_passed = bool(results) and all(result["passed"] for result in results)
+    summary_path.write_text(json.dumps({
+        "passed": overall_passed,
+        "repetitions": repetitions,
+        "start_rep": args.start_rep,
+        "results": results,
+    }, indent=2, sort_keys=True) + "\n")
+
+    print("\n========== PHASE 1 VALIDATION SUMMARY ==========")
+    for result in results:
+        print(f"{'PASS' if result['passed'] else 'FAIL'}  {result['cell']} run_{result['rep']}  {result['result_dir']}")
+    print(f"Overall: {'PASS' if overall_passed else 'FAIL'}")
+    print(f"Machine-readable summary: {summary_path}")
+    return 0 if overall_passed else 1
+
+
 def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
@@ -553,8 +846,8 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     p.add_argument(
         "--reps",
         type=int,
-        default=REPETITIONS,
-        help=f"Repetitions per scenario (default: {REPETITIONS}).",
+        default=None,
+        help=f"Repetitions per scenario (default: {REPETITIONS}; default with --phase1-validation: 1).",
     )
     p.add_argument(
         "--scenario",
@@ -616,6 +909,30 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help="Run SUMO all-way-stop baseline configs for no-priority and priority-vehicle scenarios.",
     )
     p.add_argument(
+        "--approach-sigma",
+        type=float,
+        default=0.0,
+        choices=(0.0, 0.25, 0.5, 1.0, 2.0),
+        help="Approach-observation sigma in metres from the checked-in matrix catalog.",
+    )
+    p.add_argument(
+        "--signal-error",
+        type=float,
+        default=0.0,
+        help="Maneuver-cue categorical error probability in [0,1].",
+    )
+    p.add_argument(
+        "--direction-collection-window",
+        type=float,
+        default=0.25,
+        help="Seconds to collect additional echoes after first reaching f+1.",
+    )
+    p.add_argument(
+        "--phase1-validation",
+        action="store_true",
+        help="Run and self-check the fixed Phase 1 suite: E0 at N=4/N=16 plus signal- and lane-error N=4 smokes.",
+    )
+    p.add_argument(
         "--dry-run",
         action="store_true",
         help="Print commands only.",
@@ -625,6 +942,16 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
+    repetitions = args.reps if args.reps is not None else (1 if args.phase1_validation else REPETITIONS)
+    if repetitions <= 0:
+        print("ERROR: --reps must be >= 1.", file=sys.stderr)
+        return 2
+    if not 0.0 <= args.signal_error <= 1.0:
+        print("ERROR: --signal-error must be in [0,1].", file=sys.stderr)
+        return 2
+    if args.direction_collection_window < 0.0:
+        print("ERROR: --direction-collection-window must be nonnegative.", file=sys.stderr)
+        return 2
     n_values = args.config
     for n in n_values:
         if n not in SUPPORTED_N_VALUES:
@@ -685,7 +1012,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("ERROR: --start-rep must be >= 0", file=sys.stderr)
         return 2
 
-    rep_indices = list(range(args.start_rep, args.start_rep + args.reps))
+    if args.phase1_validation:
+        incompatible = []
+        if args.baseline:
+            incompatible.append("--baseline")
+        if args.scenario:
+            incompatible.append("--scenario")
+        if args.sweep_f:
+            incompatible.append("--sweep-f")
+        if args.inject_f is not None:
+            incompatible.append("--inject-f")
+        if args.tolerate is not None:
+            incompatible.append("--tolerate")
+        if args.randomize_leader:
+            incompatible.append("--randomize-leader")
+        if incompatible:
+            print(
+                "ERROR: --phase1-validation owns its honest scenarios and fault settings; incompatible with "
+                + ", ".join(incompatible),
+                file=sys.stderr,
+            )
+            return 2
+        return run_phase1_validation(args, repetitions)
+
+    rep_indices = list(range(args.start_rep, args.start_rep + repetitions))
 
     print(f"Scenarios: {', '.join(scenarios)}")
     print(f"N values:  {n_values}")
@@ -732,7 +1082,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             for injected_f in injected_values:
                 for i, rep in enumerate(rep_indices, start=1):
                     suffix = f" F={injected_f}" if injected_f is not None else ""
-                    print(f"\n--- {scenario_name}{suffix} rep {i}/{args.reps} (run_{rep}) ---")
+                    print(f"\n--- {scenario_name}{suffix} rep {i}/{repetitions} (run_{rep}) ---")
                     run_one_simulation(
                         n,
                         scenario_name,
@@ -744,6 +1094,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                         paired_false_lane_seed=injected_f is not None,
                         randomize_leader=args.randomize_leader,
                         baseline=args.baseline,
+                        approach_sigma=args.approach_sigma,
+                        signal_error=args.signal_error,
+                        direction_collection_window=args.direction_collection_window,
                     )
                     run_analyze(
                         n,
@@ -754,6 +1107,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         explicit_tolerate=args.tolerate is not None,
                         injected_f=injected_f,
                         baseline=args.baseline,
+                        approach_sigma=args.approach_sigma,
+                        signal_error=args.signal_error,
                     )
 
     return 0

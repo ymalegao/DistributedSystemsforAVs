@@ -1476,6 +1476,7 @@ void ResDBIntersectionApp::beginPostCancelDiscovery(
     propose_submitted_ = false;
     order_applied_ = false;
     cert_broadcast_ = false;
+    cancelArrivalCertFinalizeTimer();
     stopCertBroadcastRetries();
     // Drop any leftover epoch-0 discovery frames still waiting on the stagger
     // queue before epoch-1 discovery starts filling it again.
@@ -1488,6 +1489,11 @@ void ResDBIntersectionApp::beginPostCancelDiscovery(
         observed_intent_cars_.clear();
     }
     my_received_echoes_.clear();
+    arrival_perception_samples_.clear();
+    cached_arrival_echoes_.clear();
+    cached_local_announcements_.clear();
+    cached_arrival_rejections_.clear();
+    local_claim_hashes_.clear();
     arrival_announcements_received_.clear();
     echoed_cars_.clear();
     announcement_relay_tracker_.reset();
@@ -2285,6 +2291,18 @@ void ResDBIntersectionApp::evaluateOrderReadiness(const char* reason)
         logBlocked("membership-too-small");
         if (replicaId_ == designatedRollbackUnavailableReporter())
             logDiscoveryDiagnostics(trigger);
+        return;
+    }
+    // Every replica freezes the same normal ORDER candidate before any radio
+    // PRE_PREPARE arrives. Install its certified primary locally now, including
+    // followers. Waiting for follower PreVerify is too late: ResDB's dispatcher
+    // checks the PRE_PREPARE sender against SystemInfo before the guarded
+    // proposal callback can repair a stale configured primary (for example r0
+    // becoming QUIET while r1 is the first SIGNED candidate).
+    if (!order_vc_authoritative_ &&
+            ResdbOmnetSetPrimaryFromCert(resdb_server_handle_,
+                                         order_candidate_->initialPrimary) != 0) {
+        logBlocked("cert-primary-install-failed");
         return;
     }
     const int primary = currentOrderPrimary();

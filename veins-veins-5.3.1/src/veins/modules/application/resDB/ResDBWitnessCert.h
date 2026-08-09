@@ -34,6 +34,7 @@ public:
     // and logs [WITNESS-KEY-CONFLICT].
     bool registerKey(int replicaId, const uint8_t pubKey[CRYPTO_PUBKEY_BYTES]);
     bool matches(int replicaId, const uint8_t pubKey[CRYPTO_PUBKEY_BYTES]) const;
+    bool copyKey(int replicaId, uint8_t out[CRYPTO_PUBKEY_BYTES]) const;
     bool known(int replicaId) const;
 
     // Clears all bindings. Must be called once at the start of each simulation

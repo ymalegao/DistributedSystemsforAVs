@@ -74,6 +74,7 @@ ResDBIntersectionApp::~ResDBIntersectionApp()
     deleteTimer(discovery_deadline_msg_);
     deleteTimer(discovery_settle_msg_);
     deleteTimer(cert_retry_timer_);
+    deleteTimer(arrival_cert_finalize_timer_);
     deleteTimer(cert_gossip_timer_);
     deleteTimer(gossip_timer_);
     deleteTimer(discovery_tx_flush_timer_);
@@ -214,7 +215,10 @@ void ResDBIntersectionApp::initialize(int stage)
         byzantine_type_          = static_cast<ByzantineType>(par("byzantineType").intValue());
         byzantine_pbft_silent_   = par("byzantinePbftSilent").boolValue();
         enableAmbulanceCertGate_ = par("enableAmbulanceCertGate").boolValue();
-        enable_arrival_position_gate_ = par("enableArrivalPositionGate").boolValue();
+        direction_eligibility_collection_window_sec_ =
+            par("directionEligibilityCollectionWindowSec").doubleValue();
+        if (direction_eligibility_collection_window_sec_ < 0.0)
+            throw cRuntimeError("directionEligibilityCollectionWindowSec must be non-negative");
         for (const auto& token : splitStr(par("falseLaneColluderIds").stdstringValue(), ',')) {
             if (token.empty()) continue;
             try {
@@ -235,8 +239,7 @@ void ResDBIntersectionApp::initialize(int stage)
             std::cout << id;
             firstColluder = false;
         }
-        std::cout << " position_gate=" << (enable_arrival_position_gate_ ? 1 : 0)
-                  << "\n";
+        std::cout << " perception_gate=1\n";
         enableRollback_ = par("enableRollback").boolValue();
         crash_mac_grace_sec_ = par("crashMacGraceSec").doubleValue();
         crash_dwell_sec_ = par("crashDwellSec").doubleValue();
@@ -430,11 +433,25 @@ void ResDBIntersectionApp::initialize(int stage)
 
         discovery_deadline_msg_ = new cMessage("resdbDiscoveryDeadline");
         discovery_settle_msg_ = new cMessage("resdbDiscoverySettle");
+        arrival_cert_finalize_timer_ = new cMessage("resdbArrivalCertFinalize");
         consensus_retry_timer_ = new cMessage("resdbConsensusRetry");
         consensus_relay_timer_ = new cMessage("resdbConsensusRelay");
     }
 
     if (stage == 1) {
+        perception_ = std::make_unique<ResDBPerception>();
+        perception_->configure(
+            mobility,
+            getRNG(par("perceptionRngIndex").intValue()),
+            par("approachConfusionMatrix").stdstringValue(),
+            par("approachSigmaM").doubleValue(),
+            par("signalObservationError").doubleValue());
+        std::cout << "[PERCEPTION-CONFIG] r" << replicaId_
+                  << " sigma=" << par("approachSigmaM").doubleValue()
+                  << " signal_error=" << par("signalObservationError").doubleValue()
+                  << " rng=" << par("perceptionRngIndex").intValue()
+                  << " collection_window=" << direction_eligibility_collection_window_sec_
+                  << "\n";
         startDiscoveryRound("initial-approach");
         if (par("smokeTestBroadcast").boolValue()) {
             smoke_test_msg_ = new cMessage("resdbSmokeTest");
@@ -637,6 +654,11 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
             return;
         }
         scheduleNextCertRetry();
+        return;
+    }
+
+    if (msg == arrival_cert_finalize_timer_) {
+        finalizeLocalArrivalCert("post-threshold-window");
         return;
     }
 
@@ -1257,6 +1279,10 @@ void ResDBIntersectionApp::finish()
                          static_cast<double>(quietHonestOpportunities_))
                       : 0.0)
               << "\n";
+    if (perception_) {
+        std::cout << "[PERCEPTION-RNG] replica=" << replicaId_
+                  << " draws=" << perception_->randomDrawCount() << "\n";
+    }
     
     std::cerr << "[FINISH-PROBE] r" << replicaId_
     << " handle=" << resdb_server_handle_ << std::endl;
@@ -1289,6 +1315,12 @@ void ResDBIntersectionApp::finish()
         delete timer;
         timer = nullptr;
     };
+    // A cancelled discovery timer may be owned by the TraCI scenario manager.
+    // Retake it while finish() still has a valid manager/module context; waiting
+    // for the C++ destructor can touch torn-down ownership state during network
+    // deletion (notably when lane noise leaves a vehicle QUIET).
+    deleteFinishedTimer(arrival_cert_finalize_timer_);
+    deleteFinishedTimer(discovery_tx_flush_timer_);
     deleteFinishedTimer(consensus_retry_timer_);
     deleteFinishedTimer(consensus_relay_timer_);
 
