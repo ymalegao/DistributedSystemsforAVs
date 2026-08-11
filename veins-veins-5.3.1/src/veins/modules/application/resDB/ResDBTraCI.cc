@@ -5,12 +5,129 @@
 
 #include "veins/modules/application/resDB/ResDBIntersectionApp.h"
 #include "veins/modules/mobility/traci/TraCIScenarioManager.h"
+#include "veins/modules/mobility/traci/VehicleSignal.h"
 #include <algorithm>
 #include <cctype>
 #include <limits>
 #include <cmath>
+#include <sstream>
 
 using namespace veins;
+
+void ResDBIntersectionApp::applyPhase2ControlledCue()
+{
+    if (!enable_phase2_controlled_cue_ || !mobility ||
+            !mobility->getCommandInterface() ||
+            discovery_.state != DiscoveryState::COLLECTING) return;
+
+    const std::string carId = "veh" + std::to_string(replicaId_);
+    try {
+        TraCICommandInterface::Vehicle vehicle =
+            mobility->getCommandInterface()->vehicle(carId);
+        const std::string roadId = vehicle.getRoadId();
+        if (roadId.size() != 3 || roadId[1] != '2' || roadId[2] != 'C') return;
+
+        VehicleSignalSet signals;
+        try {
+            signals = mobility->getSignals();
+        } catch (...) {
+        }
+        signals.set(VehicleSignal::blinker_left, false);
+        signals.set(VehicleSignal::blinker_right, false);
+        signals.set(VehicleSignal::blinker_emergency, false);
+        if (intended_direction_ == "L")
+            signals.set(VehicleSignal::blinker_left);
+        else if (intended_direction_ == "R")
+            signals.set(VehicleSignal::blinker_right);
+
+        // SUMO applies a TraCI signal override for one simulation step, so this
+        // is intentionally refreshed from the normal mobility update while the
+        // physical-evidence discovery window is open.
+        vehicle.setSignals(static_cast<int32_t>(signals.to_ulong()));
+        if (!phase2_controlled_cue_logged_) {
+            phase2_controlled_cue_logged_ = true;
+            std::cout << "[PHASE2-CUE-CONTROL] vehicle=" << carId
+                      << " source=controlled"
+                      << " declaredDirection=" << intended_direction_
+                      << " start=" << simTime() << "\n";
+        }
+    } catch (...) {
+        std::cout << "[PHASE2-CUE-CONTROL-ERROR] vehicle=" << carId
+                  << " t=" << simTime() << "\n";
+    }
+}
+
+void ResDBIntersectionApp::logPhase2CueTrace()
+{
+    if (!enable_phase2_cue_trace_ || !mobility || !mobility->getCommandInterface()) return;
+
+    const std::string carId = "veh" + std::to_string(replicaId_);
+    try {
+        TraCICommandInterface::Vehicle vehicle =
+            mobility->getCommandInterface()->vehicle(carId);
+        const std::string roadId = vehicle.getRoadId();
+        const std::string laneId = vehicle.getLaneId();
+
+        if (roadId.size() == 3 && roadId[1] == '2' && roadId[2] == 'C') {
+            const char approach = static_cast<char>(
+                std::toupper(static_cast<unsigned char>(roadId[0])));
+            if (approach == 'N' || approach == 'S' || approach == 'E' || approach == 'W')
+                phase2_trace_ingress_edge_ = roadId;
+        }
+        if (roadId.size() == 3 && roadId[0] == 'C' && roadId[1] == '2') {
+            const char exit = static_cast<char>(
+                std::toupper(static_cast<unsigned char>(roadId[2])));
+            if (exit == 'N' || exit == 'S' || exit == 'E' || exit == 'W')
+                phase2_trace_egress_edge_ = roadId;
+        }
+
+        const VehicleSignalSet signals = mobility->getSignals();
+        const bool left = signals.test(VehicleSignal::blinker_left);
+        const bool right = signals.test(VehicleSignal::blinker_right);
+        const bool emergency = signals.test(VehicleSignal::blinker_emergency);
+        const ObservedCue cue = ResDBPerception::readNativeCue(mobility);
+        const bool echoWindow = discovery_.state == DiscoveryState::COLLECTING;
+
+        std::ostringstream state;
+        state << roadId << '|' << laneId << '|'
+              << phase2_trace_ingress_edge_ << '|' << phase2_trace_egress_edge_ << '|'
+              << left << '|' << right << '|' << emergency << '|'
+              << static_cast<int>(cue) << '|' << echoWindow;
+        if (!echoWindow && state.str() == phase2_trace_last_state_) return;
+        phase2_trace_last_state_ = state.str();
+
+        const int nodeIndex = getParentModule() ? getParentModule()->getIndex() : -1;
+        std::cout << "[PHASE2-CUE-TRACE] vehicle=" << carId
+                  << " replica=" << replicaId_
+                  << " nodeIndex=" << nodeIndex
+                  << " t=" << simTime()
+                  << " road=" << (roadId.empty() ? "-" : roadId)
+                  << " lane=" << (laneId.empty() ? "-" : laneId)
+                  << " ingress=" << (phase2_trace_ingress_edge_.empty() ? "-" : phase2_trace_ingress_edge_)
+                  << " egress=" << (phase2_trace_egress_edge_.empty() ? "-" : phase2_trace_egress_edge_)
+                  << " declaredLane=" << (intended_lane_.empty() ? "-" : intended_lane_)
+                  << " declaredDirection=" << (intended_direction_.empty() ? "-" : intended_direction_)
+                  << " signalLeft=" << (left ? 1 : 0)
+                  << " signalRight=" << (right ? 1 : 0)
+                  << " signalEmergency=" << (emergency ? 1 : 0)
+                  << " derivedCue=" << ResDBPerception::cueName(cue)
+                  << " cueSource=" << (enable_phase2_controlled_cue_ ? "controlled" : "native")
+                  << " echoWindow=" << (echoWindow ? 1 : 0) << "\n";
+    } catch (...) {
+        std::cout << "[PHASE2-CUE-TRACE] vehicle=" << carId
+                  << " replica=" << replicaId_
+                  << " nodeIndex=" << (getParentModule() ? getParentModule()->getIndex() : -1)
+                  << " t=" << simTime()
+                  << " road=- lane=- ingress=- egress=-"
+                  << " declaredLane=" << (intended_lane_.empty() ? "-" : intended_lane_)
+                  << " declaredDirection=" << (intended_direction_.empty() ? "-" : intended_direction_)
+                  << " signalLeft=0 signalRight=0 signalEmergency=0"
+                  << " derivedCue=UNKNOWN cueSource="
+                  << (enable_phase2_controlled_cue_ ? "controlled" : "native")
+                  << " echoWindow="
+                  << (discovery_.state == DiscoveryState::COLLECTING ? 1 : 0) << "\n";
+    }
+}
 
 double ResDBIntersectionApp::getDistanceToIntersection()
 {

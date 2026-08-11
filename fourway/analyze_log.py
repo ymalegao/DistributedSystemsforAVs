@@ -25,6 +25,7 @@ import sys
 import re
 import os
 import argparse
+import math
 import statistics
 import xml.etree.ElementTree as ET
 from collections import defaultdict
@@ -225,6 +226,31 @@ RE_UNSAFE_CONFLICT_COOCCUPANCY = re.compile(
     r'\[UNSAFE-CONFLICT-COOCCUPANCY\]\s+first=(veh\d+)\s+first_approach=([NSEW])\s+'
     r'second=(veh\d+)\s+second_approach=([NSEW])\s+t=([\d.]+)'
 )
+RE_MOVEMENT_GROUND_TRUTH = re.compile(
+    r'\[MOVEMENT-GROUND-TRUTH\]\s+vehicle=(veh\d+)\s+plannedIngress=(\S+)\s+'
+    r'plannedEgress=(\S+)\s+movement=([NSEW]-[SLR])\s+t=([\d.]+)'
+)
+RE_CONFLICT_ZONE = re.compile(
+    r'\[CONFLICT-ZONE\]\s+vehicle=(veh\d+)\s+movement=(\S+)\s+'
+    r'event=(ENTER|EXIT)\s+road=(\S*)\s+lane=(\S*)\s+t=([\d.]+)'
+)
+RE_MOVEMENT_ACTUAL_EGRESS = re.compile(
+    r'\[MOVEMENT-ACTUAL-EGRESS\]\s+vehicle=(veh\d+)\s+plannedEgress=(\S+)\s+'
+    r'actualEgress=(\S+)\s+match=(\d+)\s+t=([\d.]+)'
+)
+RE_CONFLICTING_COOCCUPANCY = re.compile(
+    r'\[CONFLICTING-COOCCUPANCY\]\s+first=(veh\d+)\s+firstMovement=(\S+)\s+'
+    r'second=(veh\d+)\s+secondMovement=(\S+)\s+t=([\d.]+)'
+)
+RE_METROLOGY_CONFIG = re.compile(
+    r'\[METROLOGY-CONFIG\]\s+speedMode=(-?\d+)\s+speedMps=([\d.]+)\s+'
+    r'jmIgnoreFoeProb=([\d.]+)\s+collisionCheckJunctions=(\d+)\s+'
+    r'collisionAction=(\S+)\s+timeToTeleport=(-?[\d.]+)\s+vehicles=(\S+)'
+)
+RE_METROLOGY_RELEASE = re.compile(
+    r'\[METROLOGY-RELEASE\]\s+vehicle=(veh\d+)\s+speedMode=(-?\d+)\s+'
+    r'speedMps=([\d.]+)\s+t=([\d.]+)'
+)
 RE_PHYSICAL_COLLISION = re.compile(
     r'\[PHYSICAL-COLLISION\]\s+vehicle=(veh\d+)\s+t=([\d.]+)'
 )
@@ -380,6 +406,30 @@ RE_DIR_ELIGIBILITY = re.compile(
     r'\[DIR-ELIGIBILITY\]\s+target=(\S+)\s+epoch=(\d+)\s+declared=(\S+)\s+'
     r'support=(\d+)\s+threshold=(\d+)\s+echoCount=(\d+)\s+b_sig=(\d+)\s+'
     r'derivedDirection=(\S+)')
+RE_DIR_ELIGIBILITY_SELF = re.compile(
+    r'\[DIR-ELIGIBILITY\]\s+target=(\S+)\s+epoch=(\d+)\s+declared=(\S+)\s+'
+    r'support=(\d+)\s+threshold=(\d+)\s+echoCount=(\d+)\s+'
+    r'selfAttestations=(\d+)\s+b_sig=(\d+)\s+derivedDirection=(\S+)')
+RE_SELF_ATTEST = re.compile(
+    r'\[SELF-ATTEST\]\s+target=(\S+)\s+epoch=(\d+)\s+signer=(\d+)\s+'
+    r'claimHash=([0-9a-fA-F]+)\s+observedCue=(\S+)\s+status=(\S+)')
+RE_CERT_EVIDENCE = re.compile(
+    r'\[CERT-EVIDENCE\]\s+target=(\S+)\s+epoch=(\d+)\s+signer=(\d+)\s+'
+    r'cue=(\S+)\s+self=(\d+)\s+byzantine=(\d+)\s+supporting=(\d+)')
+RE_PHASE2_ATTACK_CONFIG = re.compile(
+    r'\[PHASE2-ATTACK-CONFIG\]\s+replica=(\d+)\s+kind=(\S+)\s+'
+    r'target=(-?\d+)\s+actualB=(\d+)\s+colluders=([^\s]*)')
+RE_PHASE2_ATTACK_DECLARE = re.compile(
+    r'\[PHASE2-ATTACK-DECLARE\]\s+target=(\S+)\s+epoch=(\d+)\s+kind=(\S+)\s+'
+    r'actualLane=(\S+)\s+claimedLane=(\S+)\s+actualDirection=(\S+)\s+'
+    r'claimedDirection=(\S+)')
+RE_PHASE2_COLLUSION_ECHO = re.compile(
+    r'\[PHASE2-COLLUSION-ECHO\]\s+target=(\S+)\s+epoch=(\d+)\s+'
+    r'signer=(\d+)\s+kind=(\S+)\s+claimedLane=(\S+)\s+cue=(\S+)')
+RE_PHASE2_ATTACK_OUTCOME = re.compile(
+    r'\[PHASE2-ATTACK-OUTCOME\]\s+target=(\S+)\s+epoch=(\d+)\s+kind=(\S+)\s+'
+    r'laneCertified=(\d+)\s+falseLaneCert=(\d+)\s+falseEligibility=(\d+)\s+'
+    r'support=(\d+)\s+threshold=(\d+)\s+b_sig=(\d+)')
 RE_TRUST_TIER = re.compile(
     r'\[TRUST-TIER\]\s+target=(\S+)\s+epoch=(\d+)\s+tier=(\S+)')
 
@@ -468,11 +518,26 @@ false_lane_commits = {}               # target -> {claimed, actual, epoch}
 malformed_proposal_reject_count = 0
 unsafe_conflict_pairs = {}            # (first,second) -> ground-truth approaches/time
 physical_collision_vehicles = {}      # vehicle -> first collision time
+movement_ground_truth = {}            # vehicle -> planned ingress/egress and movement
+movement_actual_egress = {}            # vehicle -> observed egress and agreement
+conflict_zone_events = []              # entry/exit movement trace
+movement_conflict_pairs = {}           # pair -> movement-ground-truth conflict
+metrology_config = None
+metrology_releases = {}
 perception_evaluations = {}           # (witness,target,epoch,hash) -> parsed evaluation
 perception_duplicate_evaluations = 0
 cert_assembly_perception = {}         # (target,epoch) -> collection outcome
 direction_eligibility = {}            # (target,epoch) -> support/derived outcome
 trust_tiers = {}                      # (target,epoch) -> final tier
+self_attestations = {}                 # (target,epoch,signer,hash) -> signed local declaration
+self_attestation_duplicates = 0
+cert_evidence = defaultdict(dict)      # (target,epoch) -> signer -> cue/accounting
+phase2_attack_config = None
+phase2_attack_config_replicas = set()
+phase2_attack_config_mismatches = 0
+phase2_attack_declarations = {}
+phase2_collusion_echoes = defaultdict(set)
+phase2_attack_outcomes = {}
 
 # Per-replica message counts and fallback tracking
 replica_messages_sent    = {}   # replica -> messages_sent count (last value seen)
@@ -741,12 +806,72 @@ for line in _log_lines:
                 "echo_count": int(m_perc.group(3)), "threshold": int(m_perc.group(4)),
                 "reason": m_perc.group(5),
             }
-        m_perc = RE_DIR_ELIGIBILITY.search(line)
+        m_perc = RE_DIR_ELIGIBILITY_SELF.search(line)
         if m_perc:
             direction_eligibility[(m_perc.group(1), int(m_perc.group(2)))] = {
                 "declared": m_perc.group(3), "support": int(m_perc.group(4)),
                 "threshold": int(m_perc.group(5)), "echo_count": int(m_perc.group(6)),
-                "b_sig": int(m_perc.group(7)), "derived": m_perc.group(8),
+                "self_attestations": int(m_perc.group(7)),
+                "b_sig": int(m_perc.group(8)), "derived": m_perc.group(9),
+            }
+        else:
+            m_perc = RE_DIR_ELIGIBILITY.search(line)
+            if m_perc:
+                direction_eligibility[(m_perc.group(1), int(m_perc.group(2)))] = {
+                    "declared": m_perc.group(3), "support": int(m_perc.group(4)),
+                    "threshold": int(m_perc.group(5)), "echo_count": int(m_perc.group(6)),
+                    "self_attestations": 0,
+                    "b_sig": int(m_perc.group(7)), "derived": m_perc.group(8),
+                }
+        m_perc = RE_SELF_ATTEST.search(line)
+        if m_perc:
+            key = (m_perc.group(1), int(m_perc.group(2)), int(m_perc.group(3)), m_perc.group(4))
+            if key in self_attestations:
+                self_attestation_duplicates += 1
+            else:
+                self_attestations[key] = {
+                    "target": key[0], "epoch": key[1], "signer": key[2],
+                    "claim_hash": key[3], "observed_cue": m_perc.group(5),
+                    "status": m_perc.group(6),
+                }
+        m_perc = RE_CERT_EVIDENCE.search(line)
+        if m_perc:
+            cert_evidence[(m_perc.group(1), int(m_perc.group(2)))][int(m_perc.group(3))] = {
+                "cue": m_perc.group(4), "self": bool(int(m_perc.group(5))),
+                "byzantine": bool(int(m_perc.group(6))),
+                "supporting": bool(int(m_perc.group(7))),
+            }
+        m_perc = RE_PHASE2_ATTACK_CONFIG.search(line)
+        if m_perc:
+            candidate = {
+                "kind": m_perc.group(2),
+                "target_replica_id": int(m_perc.group(3)),
+                "actual_b": int(m_perc.group(4)),
+                "colluder_ids": [int(value) for value in m_perc.group(5).split(",") if value],
+            }
+            phase2_attack_config_replicas.add(int(m_perc.group(1)))
+            if phase2_attack_config is None:
+                phase2_attack_config = candidate
+            elif phase2_attack_config != candidate:
+                phase2_attack_config_mismatches += 1
+        m_perc = RE_PHASE2_ATTACK_DECLARE.search(line)
+        if m_perc:
+            phase2_attack_declarations[(m_perc.group(1), int(m_perc.group(2)))] = {
+                "kind": m_perc.group(3), "actual_lane": m_perc.group(4),
+                "claimed_lane": m_perc.group(5), "actual_direction": m_perc.group(6),
+                "claimed_direction": m_perc.group(7),
+            }
+        m_perc = RE_PHASE2_COLLUSION_ECHO.search(line)
+        if m_perc:
+            phase2_collusion_echoes[(m_perc.group(1), int(m_perc.group(2)))].add(int(m_perc.group(3)))
+        m_perc = RE_PHASE2_ATTACK_OUTCOME.search(line)
+        if m_perc:
+            phase2_attack_outcomes[(m_perc.group(1), int(m_perc.group(2)))] = {
+                "kind": m_perc.group(3), "lane_certified": bool(int(m_perc.group(4))),
+                "false_lane_certificate": bool(int(m_perc.group(5))),
+                "false_eligibility": bool(int(m_perc.group(6))),
+                "support": int(m_perc.group(7)), "threshold": int(m_perc.group(8)),
+                "b_sig_logged": int(m_perc.group(9)),
             }
         m_perc = RE_TRUST_TIER.search(line)
         if m_perc:
@@ -1011,6 +1136,74 @@ for line in _log_lines:
             malformed_proposal_reject_count += 1
             continue
 
+        m = RE_MOVEMENT_GROUND_TRUTH.search(line)
+        if m:
+            movement_ground_truth[m.group(1)] = {
+                "vehicle": m.group(1),
+                "planned_ingress": m.group(2),
+                "planned_egress": m.group(3),
+                "movement": m.group(4),
+                "observed_at_ms": float(m.group(5)) * 1000.0,
+            }
+            continue
+
+        m = RE_CONFLICT_ZONE.search(line)
+        if m:
+            conflict_zone_events.append({
+                "vehicle": m.group(1),
+                "movement": m.group(2),
+                "event": m.group(3),
+                "road": m.group(4),
+                "lane": m.group(5),
+                "time_ms": float(m.group(6)) * 1000.0,
+            })
+            continue
+
+        m = RE_MOVEMENT_ACTUAL_EGRESS.search(line)
+        if m:
+            movement_actual_egress[m.group(1)] = {
+                "vehicle": m.group(1),
+                "planned_egress": m.group(2),
+                "actual_egress": m.group(3),
+                "match": bool(int(m.group(4))),
+                "observed_at_ms": float(m.group(5)) * 1000.0,
+            }
+            continue
+
+        m = RE_CONFLICTING_COOCCUPANCY.search(line)
+        if m:
+            movement_conflict_pairs[(m.group(1), m.group(3))] = {
+                "first": m.group(1),
+                "first_movement": m.group(2),
+                "second": m.group(3),
+                "second_movement": m.group(4),
+                "time_ms": float(m.group(5)) * 1000.0,
+            }
+            continue
+
+        m = RE_METROLOGY_CONFIG.search(line)
+        if m:
+            metrology_config = {
+                "speed_mode": int(m.group(1)),
+                "speed_mps": float(m.group(2)),
+                "jm_ignore_foe_probability": float(m.group(3)),
+                "collision_check_junctions": bool(int(m.group(4))),
+                "collision_action": m.group(5),
+                "time_to_teleport_s": float(m.group(6)),
+                "vehicles": m.group(7).split(","),
+            }
+            continue
+
+        m = RE_METROLOGY_RELEASE.search(line)
+        if m:
+            metrology_releases[m.group(1)] = {
+                "vehicle": m.group(1),
+                "speed_mode": int(m.group(2)),
+                "speed_mps": float(m.group(3)),
+                "time_ms": float(m.group(4)) * 1000.0,
+            }
+            continue
+
         m = RE_UNSAFE_CONFLICT_COOCCUPANCY.search(line)
         if m:
             unsafe_conflict_pairs[(m.group(1), m.group(3))] = {
@@ -1020,13 +1213,21 @@ for line in _log_lines:
                 "second_approach": m.group(4),
                 "time_ms": float(m.group(5)) * 1000.0,
             }
-            record_attack_outcome(
-                -1,
-                current_gossip_epoch,
-                "FALSE_LANE",
-                "UNSAFE_PHYSICAL_COOCCUPANCY",
-                f"pair={m.group(1)}+{m.group(3)}",
+            phase2_wrong_approach = (
+                phase2_attack_config is not None and
+                phase2_attack_config.get("kind") == "WRONG_APPROACH"
             )
+            legacy_false_lane = bool(
+                false_lane_colluder_config and false_lane_colluder_config.get("F", 0) > 0
+            )
+            if phase2_wrong_approach or legacy_false_lane:
+                record_attack_outcome(
+                    -1,
+                    current_gossip_epoch,
+                    "FALSE_LANE",
+                    "UNSAFE_PHYSICAL_COOCCUPANCY",
+                    f"pair={m.group(1)}+{m.group(3)}",
+                )
             continue
 
         m = RE_PHYSICAL_COLLISION.search(line)
@@ -1895,15 +2096,162 @@ def _epoch_cert_collection_duration_ms(epoch: int):
         return (t_prop - t_start) * 1000.0
     return None
 
+def _binomial_tail(n, probability, required):
+    if probability is None:
+        return None
+    required = max(0, int(required))
+    if required <= 0:
+        return 1.0
+    if required > n:
+        return 0.0
+    return sum(
+        math.comb(n, k) * (probability ** k) * ((1.0 - probability) ** (n - k))
+        for k in range(required, n + 1)
+    )
+
+
+def _phase2_attack_summary():
+    if phase2_attack_config is None:
+        return None
+    config = dict(phase2_attack_config)
+    target = f"veh{config['target_replica_id']}"
+    epoch = 0
+    key = (target, epoch)
+    key_text = f"{target}@{epoch}"
+    byzantine_ids = set(config["colluder_ids"])
+    if config["kind"] != "NONE" and config["target_replica_id"] >= 0:
+        byzantine_ids.add(config["target_replica_id"])
+
+    lane_rows = [
+        row for row in perception_evaluations.values()
+        if row["target"] == target and row["epoch"] == epoch and
+           row["witness"] not in byzantine_ids
+    ]
+    h_lane = len({row["witness"] for row in lane_rows})
+    honest_lane_accepts = len({
+        row["witness"] for row in lane_rows if row["lane_accept"]
+    })
+    q0_lane = honest_lane_accepts / h_lane if h_lane else None
+
+    evidence = cert_evidence.get(key, {})
+    honest_external = {
+        signer: row for signer, row in evidence.items()
+        if signer not in byzantine_ids and not row["self"]
+    }
+    h_dir = len(honest_external)
+    honest_direction_support = sum(1 for row in honest_external.values() if row["supporting"])
+    q0_dir = honest_direction_support / h_dir if h_dir else None
+    b_sig_lane = sum(1 for signer in evidence if signer in byzantine_ids)
+    b_sig_dir = sum(
+        1 for signer, row in evidence.items()
+        if signer in byzantine_ids and row["supporting"]
+    )
+    self_count = sum(1 for row in evidence.values() if row["self"])
+    eligibility = direction_eligibility.get(key, {})
+    # A rejected false-lane claim has no target certificate and therefore no
+    # target DIR-ELIGIBILITY row.  The f+1 threshold is nevertheless defined
+    # for the attempted outcome.  Recover it from any same-run certificate
+    # before falling back to the run-level fault metadata.
+    observed_threshold = next(
+        (row.get("threshold") for row in direction_eligibility.values()
+         if row.get("threshold") is not None),
+        None,
+    )
+    threshold = int(
+        eligibility.get("threshold")
+        or observed_threshold
+        or experiment_fault_tolerance.get("cert_threshold")
+        or 0
+    )
+    kind = config["kind"]
+    if kind == "WRONG_APPROACH":
+        h_used, q_used, b_used = h_lane, q0_lane, b_sig_lane
+    elif kind == "FALSE_DIRECTION":
+        h_used, q_used, b_used = h_dir, q0_dir, b_sig_dir
+    else:
+        h_used, q_used, b_used = 0, None, 0
+    required_honest = max(0, threshold - b_used)
+    outcome = phase2_attack_outcomes.get(key, {})
+    return {
+        **config,
+        "config_replica_count": len(phase2_attack_config_replicas),
+        "config_mismatch_count": phase2_attack_config_mismatches,
+        "target": target,
+        "epoch": epoch,
+        "configured_byzantine_ids": sorted(byzantine_ids),
+        "declaration": phase2_attack_declarations.get(key),
+        "collusion_echo_signers": sorted(phase2_collusion_echoes.get(key, set())),
+        "certificate_signers": sorted(evidence),
+        "self_attestation_count": self_count,
+        "h_lane": h_lane,
+        "h_dir": h_dir,
+        "h_lane_signers": sorted({row["witness"] for row in lane_rows}),
+        "h_dir_signers": sorted(honest_external),
+        "honest_lane_accepts": honest_lane_accepts,
+        "honest_direction_support": honest_direction_support,
+        "q0_lane": q0_lane,
+        "q0_dir": q0_dir,
+        "b_sig_lane": b_sig_lane,
+        "b_sig_dir": b_sig_dir,
+        "threshold": threshold,
+        "required_honest_support": required_honest,
+        "binomial_tail_prediction": _binomial_tail(h_used, q_used, required_honest),
+        "lane_certified": key_text in {
+            f"{cert_target}@{cert_epoch}" for cert_target, cert_epoch in cert_assembly_perception
+        },
+        "outcome": outcome,
+    }
+
+
+def _movement_metrology_summary():
+    entry_counts = defaultdict(int)
+    exit_counts = defaultdict(int)
+    for row in conflict_zone_events:
+        (entry_counts if row["event"] == "ENTER" else exit_counts)[row["vehicle"]] += 1
+    mismatch = sorted(
+        vehicle for vehicle, row in movement_actual_egress.items() if not row["match"]
+    )
+    return {
+        "ground_truth": dict(sorted(movement_ground_truth.items())),
+        "actual_egress": dict(sorted(movement_actual_egress.items())),
+        "planned_actual_mismatch_vehicles": mismatch,
+        "conflict_zone_events": conflict_zone_events,
+        "entry_count_by_vehicle": dict(sorted(entry_counts.items())),
+        "exit_count_by_vehicle": dict(sorted(exit_counts.items())),
+        "conflicting_cooccupancy_pairs": list(movement_conflict_pairs.values()),
+        "conflicting_cooccupancy_pair_count": len(movement_conflict_pairs),
+        "sumo_collision_vehicles": physical_collision_vehicles,
+        "sumo_collision_vehicle_count": len(physical_collision_vehicles),
+        "calibration_config": metrology_config,
+        "calibration_releases": dict(sorted(metrology_releases.items())),
+    }
+
+
 def _perception_summary():
     evaluations = list(perception_evaluations.values())
     configured_byzantine = set(replica_byzantine_types)
-    measured_h = defaultdict(set)
+    measured_h_lane = defaultdict(set)
+    measured_h_dir = defaultdict(set)
+    measured_b_sig = defaultdict(set)
     cue_counts = defaultdict(int)
+    cue_support_count = 0
+    cue_support_opportunities = 0
     for row in evaluations:
         cue_counts[row["observed_cue"]] += 1
+        eligibility = direction_eligibility.get((row["target"], row["epoch"]))
+        if eligibility is not None and row["observed_cue"] != "UNKNOWN":
+            cue_support_opportunities += 1
+            if row["observed_cue"] == eligibility["declared"]:
+                cue_support_count += 1
         if row["witness"] not in configured_byzantine:
-            measured_h[f"{row['target']}@{row['epoch']}"].add(row["witness"])
+            measured_h_lane[f"{row['target']}@{row['epoch']}"].add(row["witness"])
+    for (target, epoch), signers in cert_evidence.items():
+        key = f"{target}@{epoch}"
+        for signer, row in signers.items():
+            if row["byzantine"] and row["supporting"]:
+                measured_b_sig[key].add(signer)
+            elif not row["byzantine"] and not row["self"]:
+                measured_h_dir[key].add(signer)
     accepted = sum(1 for row in evaluations if row["lane_accept"])
     tier_counts = defaultdict(int)
     for tier in trust_tiers.values():
@@ -1920,9 +2268,39 @@ def _perception_summary():
         "lane_accept_rate": accepted / len(evaluations) if evaluations else None,
         "cue_distribution": dict(sorted(cue_counts.items())),
         "cue_unknown_rate": cue_counts.get("UNKNOWN", 0) / len(evaluations) if evaluations else None,
+        "cue_support_count": cue_support_count,
+        "cue_support_opportunities": cue_support_opportunities,
+        "cue_support_rate": (
+            cue_support_count / cue_support_opportunities
+            if cue_support_opportunities else None
+        ),
         "duplicate_evaluation_count": perception_duplicate_evaluations,
         "single_evaluation_invariant_ok": perception_duplicate_evaluations == 0,
-        "measured_h": {key: len(value) for key, value in sorted(measured_h.items())},
+        # measured_h is retained as the lane-channel compatibility alias.
+        "measured_h": {key: len(value) for key, value in sorted(measured_h_lane.items())},
+        "measured_h_lane": {
+            key: len(value) for key, value in sorted(measured_h_lane.items())
+        },
+        "measured_h_dir": {
+            key: len(value) for key, value in sorted(measured_h_dir.items())
+        },
+        "measured_b_sig": {
+            key: len(value) for key, value in sorted(measured_b_sig.items())
+        },
+        "self_attestation_count": len(self_attestations),
+        "self_attestation_duplicate_count": self_attestation_duplicates,
+        "self_attestation_invariant_ok": self_attestation_duplicates == 0,
+        "self_attestations": {
+            f"{target}@{epoch}@r{signer}@{claim_hash}": row
+            for (target, epoch, signer, claim_hash), row in sorted(self_attestations.items())
+        },
+        "certificate_evidence": {
+            f"{target}@{epoch}": {
+                str(signer): row for signer, row in sorted(signers.items())
+            }
+            for (target, epoch), signers in sorted(cert_evidence.items())
+        },
+        "phase2_attack": _phase2_attack_summary(),
         "certificates": {
             f"{target}@{epoch}": row
             for (target, epoch), row in sorted(cert_assembly_perception.items())
@@ -2140,6 +2518,7 @@ def write_metrics_json(path):
         "unsafe_conflict_cooccupancy_pair_count": len(unsafe_conflict_pairs),
         "physical_collision_vehicles": physical_collision_vehicles,
         "physical_collision_vehicle_count": len(physical_collision_vehicles),
+        "movement_metrology": _movement_metrology_summary(),
         "stop_to_resume_s": _stat(stop_to_resume_all),
         "resume_to_depart_s": _stat(resume_to_depart_all),
         # Delivery and fallback metrics (same definitions as RAFT counterpart)
@@ -2220,6 +2599,7 @@ def write_metrics_json(path):
 
             vehicles_out.append({
                 "vehicle_id": rep,
+                "run_metrics": overall,
                 # Partner field name; we map our ambulance role to priority.
                 "is_priority_vehicle": (m.get("role") == "ambulance"),
                 "coordination_method": _args.coordination_method,
@@ -2300,6 +2680,7 @@ def write_metrics_json(path):
                     "physical_collision_vehicle_count": len(physical_collision_vehicles),
                 },
                 "bft_stats": {
+                    "batch_index": m.get("batch_index"),
                     "tolerated_f": experiment_fault_tolerance["tolerated_f"],
                     "static_replicas": experiment_fault_tolerance["static_replicas"],
                     "consensus_quorum": experiment_fault_tolerance["consensus_quorum"],
@@ -2339,6 +2720,7 @@ def write_metrics_json(path):
                     "quiet_honest_opportunities": replica_quiet_honest_opportunities.get(rep),
                     "quiet_honest_rate_percent": replica_quiet_honest_rate.get(rep),
                     "perception": _perception_summary(),
+                    "movement_metrology": _movement_metrology_summary(),
                     "attack_outcomes_replica": [
                         row for row in attack_outcomes if row["replica"] == rep
                     ] or None,

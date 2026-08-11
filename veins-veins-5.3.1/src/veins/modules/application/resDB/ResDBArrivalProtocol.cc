@@ -624,6 +624,11 @@ void ResDBIntersectionApp::broadcastArrivalAnnouncement()
         ann.lane   = "X";
         std::cout << "[BYZANTINE] r" << replicaId_ << " FALSE_LANE: laneId=BYZANTINE_FAKE_LANE\n";
     }
+    if (phase2_attack_kind_ == Phase2AttackKind::WRONG_APPROACH &&
+            replicaId_ == phase2_attack_target_replica_id_) {
+        ann.laneId = "PHASE2_CLAIM_E";
+        ann.lane = "E";
+    }
 
     // {
     //     // Use TraCI lane position: higher lanePos = closer to intersection.
@@ -642,6 +647,20 @@ void ResDBIntersectionApp::broadcastArrivalAnnouncement()
     std::cout << "[ANN-BROADCAST] Replica " << replicaId_ << " positionInLane: " << rank << "\n";
 
     ann.direction          = strToDir(intended_direction_);
+    if (phase2_attack_kind_ == Phase2AttackKind::FALSE_DIRECTION &&
+            replicaId_ == phase2_attack_target_replica_id_) {
+        ann.direction = DIR_RIGHT;
+    }
+    if (phase2_attack_kind_ != Phase2AttackKind::NONE &&
+            replicaId_ == phase2_attack_target_replica_id_) {
+        std::cout << "[PHASE2-ATTACK-DECLARE] target=" << myCarId
+                  << " epoch=" << current_epoch_
+                  << " kind=" << phase2AttackKindName()
+                  << " actualLane=" << intended_lane_
+                  << " claimedLane=" << ann.lane
+                  << " actualDirection=" << intended_direction_
+                  << " claimedDirection=" << dirToStr(ann.direction) << "\n";
+    }
     ann.isAmbulance        = is_ambulance_;
     if (is_byzantine_ && byzantine_type_ == BYZANTINE_FAKE_AMBULANCE_FOLLOWER) {
         ann.isAmbulance = true;  // lie: claim ambulance without valid cert
@@ -684,6 +703,12 @@ void ResDBIntersectionApp::broadcastArrivalAnnouncement()
         if (newIntent) noteDiscoveryIntent(myCarId, "self-announce");
     }
 
+    // One declaration-bound claimant signature is inserted locally. It is not
+    // a perception observation and never enters the Type-4 radio path.
+    // Re-announcement firings use cached_local_announcements_, so this creation
+    // path executes only once for a claim.
+    addLocalSelfAttestation(ann);
+
     if (is_byzantine_ && byzantine_type_ == BYZANTINE_EQUIVOCATOR) {
         int n = total_vehicles_;
         for (int peerId = 0; peerId < n; ++peerId) {
@@ -704,8 +729,6 @@ void ResDBIntersectionApp::broadcastArrivalAnnouncement()
                   << simTime() << " lane=" << ann.lane << "\n";
     }
 
-    // Claimants never echo their own arrival claim.  The f+1 threshold counts
-    // distinct other replicas, so b_sig excludes the claimant by construction.
 }
 
 // ── handleArrivalAnnouncement ─────────────────────────────────────────────────
@@ -798,8 +821,10 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
                   << " target=" << ann.carId << " epoch=" << ann.epoch << "\n";
         return;
     }
-    // Announcement gossip can carry our own declaration back through a peer.
-    // The claimant is not a witness and must never contribute a self echo.
+    // Announcement gossip can carry our declaration back through a peer. Its
+    // single self-attestation was inserted locally at claim creation; replaying
+    // it through the witness path would invoke perception and offer a second
+    // signing opportunity.
     if (extractReplicaId(ann.carId) == replicaId_) return;
     const auto claimHash = arrivalAnnouncementHash(ann);
     const std::string claimHashHex = hashHex(claimHash);
@@ -827,12 +852,14 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
     if (cached_arrival_rejections_.count(cacheKey)) return;
 
     const bool colludingFalseLane = shouldColludeOnFalseLane(ann);
+    const bool phase2Collusion = shouldPhase2Collude(ann);
     VerificationResult result;
     const std::string sampleKey = cacheKey;
     ArrivalPerceptionSample sample;
-    if (colludingFalseLane) {
+    if (colludingFalseLane ||
+            (phase2Collusion && phase2_attack_kind_ == Phase2AttackKind::WRONG_APPROACH)) {
         result = {true,
-                  "BYZANTINE_COLLUSION",
+                  phase2Collusion ? "PHASE2_COLLUSION" : "BYZANTINE_COLLUSION",
                   ann.laneId,
                   static_cast<double>(ann.positionInLane)};
         sample.detected = true;
@@ -851,6 +878,12 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
             arrival_perception_samples_[sampleKey] = sample;
         } else {
             sample = sampleIt->second;
+        }
+        if (phase2Collusion &&
+                phase2_attack_kind_ == Phase2AttackKind::FALSE_DIRECTION) {
+            sample.observedCue = ObservedCue::RIGHT;
+            sample.knownCueSamples = 1;
+            arrival_perception_samples_[sampleKey] = sample;
         }
         const bool laneMatch = sample.detected && ann.lane.size() == 1 &&
             sample.observedApproach == ann.lane.front();
@@ -959,6 +992,16 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
 
     maybeTriggerEmergencyRollbackFromAnnouncement(ann);
     sendArrivalEcho(ann);
+    if (phase2Collusion) {
+        std::cout << "[PHASE2-COLLUSION-ECHO] target=" << ann.carId
+                  << " epoch=" << ann.epoch
+                  << " signer=" << replicaId_
+                  << " kind=" << phase2AttackKindName()
+                  << " claimedLane=" << ann.lane
+                  << " cue=" << ResDBPerception::cueName(
+                         arrival_perception_samples_[sampleKey].observedCue)
+                  << "\n";
+    }
     gossipArrivalAnnouncement(ann, announceBytes);
 
     std::cout << "[ANN-RECV] Replica " << replicaId_ << " stored VehicleState for "
@@ -971,6 +1014,46 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
 }
 
 // ── sendArrivalEcho ───────────────────────────────────────────────────────────
+
+void ResDBIntersectionApp::addLocalSelfAttestation(const ArrivalAnnouncement& ann)
+{
+    if (!ec_private_key_ || ann.carId != "veh" + std::to_string(replicaId_) ||
+            discovery_.state != DiscoveryState::COLLECTING || propose_submitted_ ||
+            order_applied_ || crashCommsDisabled_ ||
+            current_phase_ == ConsensusPhase::DEPARTED) return;
+
+    ArrivalEcho echo;
+    echo.echoingReplicaId = replicaId_;
+    echo.targetCarId      = ann.carId;
+    echo.lane             = ann.lane;
+    echo.positionInLane   = ann.positionInLane;
+    echo.direction        = ann.direction;
+    echo.observedCue      = static_cast<ObservedCue>(ann.direction);
+    echo.claimHash        = arrivalAnnouncementHash(ann);
+    echo.isAmbulance      = ann.isAmbulance;
+    echo.epoch            = ann.epoch;
+    std::memcpy(echo.signerPubKey, ec_pub_key_, CRYPTO_PUBKEY_BYTES);
+    std::memset(echo.signature, 0, CRYPTO_SIG_MAX_BYTES);
+    echo.signatureLen = 0;
+
+    const std::string toSign = arrivalEchoSigningPayload(echo);
+    if (!CryptoAuth::instance().signBytes(ec_private_key_,
+            reinterpret_cast<const uint8_t*>(toSign.data()), toSign.size(),
+            echo.signature, echo.signatureLen)) {
+        std::cerr << "[SELF-ATTEST] target=" << ann.carId
+                  << " epoch=" << ann.epoch << " signer=" << replicaId_
+                  << " status=SIGN_FAILED\n";
+        return;
+    }
+
+    std::cout << "[SELF-ATTEST] target=" << ann.carId
+              << " epoch=" << ann.epoch
+              << " signer=" << replicaId_
+              << " claimHash=" << hashHex(echo.claimHash)
+              << " observedCue=" << ResDBPerception::cueName(echo.observedCue)
+              << " status=VALID\n";
+    collectArrivalEcho(echo, "self-attest");
+}
 
 void ResDBIntersectionApp::sendArrivalEcho(const ArrivalAnnouncement& ann)
 {
@@ -1075,6 +1158,29 @@ bool ResDBIntersectionApp::shouldColludeOnFalseLane(const ArrivalAnnouncement& a
         false_lane_colluder_ids_.count(target) > 0;
 }
 
+const char* ResDBIntersectionApp::phase2AttackKindName() const
+{
+    switch (phase2_attack_kind_) {
+    case Phase2AttackKind::WRONG_APPROACH: return "WRONG_APPROACH";
+    case Phase2AttackKind::FALSE_DIRECTION: return "FALSE_DIRECTION";
+    case Phase2AttackKind::NONE: return "NONE";
+    }
+    return "NONE";
+}
+
+bool ResDBIntersectionApp::isPhase2AttackTarget(const ArrivalAnnouncement& ann) const
+{
+    return phase2_attack_kind_ != Phase2AttackKind::NONE &&
+        extractReplicaId(ann.carId) == phase2_attack_target_replica_id_ &&
+        ann.epoch == static_cast<int>(current_epoch_);
+}
+
+bool ResDBIntersectionApp::shouldPhase2Collude(const ArrivalAnnouncement& ann) const
+{
+    return isPhase2AttackTarget(ann) &&
+        phase2_evidence_colluder_ids_.count(replicaId_) > 0;
+}
+
 bool ResDBIntersectionApp::isArrivalSignerEligible(int signerId) const
 {
     // ARRIVAL certificates establish the next ORDER electorate, so late
@@ -1115,7 +1221,7 @@ void ResDBIntersectionApp::collectArrivalEcho(const ArrivalEcho& echo, const cha
     auto& echoes = my_received_echoes_[myCarId];
     for (const auto& existing : echoes)
         if (existing.echoingReplicaId == echo.echoingReplicaId) return;
-    if (echoes.size() >= static_cast<size_t>(std::max(0, total_vehicles_ - 1))) return;
+    if (echoes.size() >= static_cast<size_t>(std::max(0, total_vehicles_))) return;
     echoes.push_back(echo);
 
     const int f = tolerated_faults_ >= 0 ? tolerated_faults_ : (total_vehicles_ - 1) / 3;
@@ -1200,10 +1306,22 @@ bool ResDBIntersectionApp::finalizeLocalArrivalCert(const char* reason)
     const int support = directionSupport(cert);
     const Direction derived = eligibleDirection(cert);
     int bSig = 0;
+    int selfAttestations = 0;
     for (const auto& echo : cert.echoes) {
-        if (isValidArrivalEchoForCert(echo, cert) &&
-                echo.observedCue == static_cast<ObservedCue>(cert.direction) &&
-                isReplicaConfiguredByzantine(echo.echoingReplicaId)) ++bSig;
+        if (!isValidArrivalEchoForCert(echo, cert)) continue;
+        const bool self = echo.echoingReplicaId == extractReplicaId(cert.carId);
+        const bool supporting =
+            echo.observedCue == static_cast<ObservedCue>(cert.direction);
+        const bool byzantine = isReplicaConfiguredByzantine(echo.echoingReplicaId);
+        if (self) ++selfAttestations;
+        if (supporting && byzantine) ++bSig;
+        std::cout << "[CERT-EVIDENCE] target=" << cert.carId
+                  << " epoch=" << cert.epoch
+                  << " signer=" << echo.echoingReplicaId
+                  << " cue=" << ResDBPerception::cueName(echo.observedCue)
+                  << " self=" << (self ? 1 : 0)
+                  << " byzantine=" << (byzantine ? 1 : 0)
+                  << " supporting=" << (supporting ? 1 : 0) << "\n";
     }
     std::cout << "[DIR-ELIGIBILITY] target=" << cert.carId
               << " epoch=" << cert.epoch
@@ -1211,12 +1329,31 @@ bool ResDBIntersectionApp::finalizeLocalArrivalCert(const char* reason)
               << " support=" << support
               << " threshold=" << required
               << " echoCount=" << cert.echoes.size()
+              << " selfAttestations=" << selfAttestations
               << " b_sig=" << bSig
               << " derivedDirection=" << dirToStr(derived) << "\n";
     std::cout << "[TRUST-TIER] target=" << cert.carId
               << " epoch=" << cert.epoch
               << " tier=" << (derived == DIR_UNKNOWN ? "SIGNED-UNKNOWN" : "SIGNED-DIRECTION")
               << "\n";
+    if (replicaId_ == phase2_attack_target_replica_id_ &&
+            phase2_attack_kind_ != Phase2AttackKind::NONE) {
+        const bool falseLaneCert =
+            phase2_attack_kind_ == Phase2AttackKind::WRONG_APPROACH &&
+            cert.lane != intended_lane_;
+        const bool falseEligibility =
+            phase2_attack_kind_ == Phase2AttackKind::FALSE_DIRECTION &&
+            derived == cert.direction;
+        std::cout << "[PHASE2-ATTACK-OUTCOME] target=" << cert.carId
+                  << " epoch=" << cert.epoch
+                  << " kind=" << phase2AttackKindName()
+                  << " laneCertified=1"
+                  << " falseLaneCert=" << (falseLaneCert ? 1 : 0)
+                  << " falseEligibility=" << (falseEligibility ? 1 : 0)
+                  << " support=" << support
+                  << " threshold=" << required
+                  << " b_sig=" << bSig << "\n";
+    }
     if (state.lane == "X") {
         std::cout << "[FALSE-LANE-COLLUSION-CERT] target=" << myCarId
                   << " signers=";
@@ -1479,6 +1616,13 @@ bool ResDBIntersectionApp::validateArrivalCert(const ArrivalCert& cert)
                       << " echo_count=" << cert.echoes.size() << " need>=" << required << "\n";
         return false;
     }
+    if (cert.echoes.size() > static_cast<size_t>(std::max(0, total_vehicles_))) {
+        if (debug_cert_protocol_)
+            std::cout << "[CERT-DEBUG] validateArrivalCert fail: carId=" << cert.carId
+                      << " echo_count=" << cert.echoes.size() << " exceeds N="
+                      << total_vehicles_ << "\n";
+        return false;
+    }
 
     std::set<int> seen;
     int valid = 0;
@@ -1491,9 +1635,9 @@ bool ResDBIntersectionApp::validateArrivalCert(const ArrivalCert& cert)
         }
         if (!seen.insert(echo.echoingReplicaId).second) {
             if (debug_cert_protocol_)
-                std::cout << "[CERT-DEBUG] validateArrivalCert skip duplicate signer r"
+                std::cout << "[CERT-DEBUG] validateArrivalCert reject duplicate signer r"
                           << echo.echoingReplicaId << " carId=" << cert.carId << "\n";
-            continue;
+            return false;
         }
         if (echo.signatureLen == 0) {
             if (debug_cert_protocol_)

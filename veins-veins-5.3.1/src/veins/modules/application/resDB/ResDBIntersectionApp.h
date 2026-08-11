@@ -62,6 +62,13 @@ private:
         BYZANTINE_FAKE_AMBULANCE          = 6,  // Primary flips is_ambulance 0→1 for non-ambulance car — PreVerify Check 10 rejects
         BYZANTINE_FAKE_AMBULANCE_FOLLOWER = 7,  // Follower claims isAmbulance=true without cert — cert gate catches this
         BYZANTINE_TAMPER_LANE             = 8,  // Primary: quiet real S car + reassign E car's lane to S → scheduler batches N+E simultaneously → CRASH
+        BYZANTINE_UPGRADE_UNKNOWN_DIRECTION = 9, // Primary changes SIGNED-UNKNOWN to declared STRAIGHT — Check 10 rejects
+    };
+
+    enum class Phase2AttackKind {
+        NONE,
+        WRONG_APPROACH,
+        FALSE_DIRECTION,
     };
 
     // Consensus phases
@@ -449,6 +456,7 @@ private:
                                              const std::vector<uint8_t>& announceBytes,
                                              const char* reason);
     void handleArrivalAnnouncementGossip(BFTMessage* msg);
+    void addLocalSelfAttestation(const ArrivalAnnouncement& ann);
     void sendArrivalEcho(const ArrivalAnnouncement& ann);
     void collectArrivalEcho(const ArrivalEcho& echo, const char* source);
     void armArrivalCertFinalizeTimer(const std::string& carId, int required);
@@ -465,6 +473,9 @@ private:
     static std::string hashHex(const std::array<uint8_t, 32>& hash);
     bool isExactFalseLaneClaim(const ArrivalAnnouncement& ann) const;
     bool shouldColludeOnFalseLane(const ArrivalAnnouncement& ann) const;
+    bool isPhase2AttackTarget(const ArrivalAnnouncement& ann) const;
+    bool shouldPhase2Collude(const ArrivalAnnouncement& ann) const;
+    const char* phase2AttackKindName() const;
     bool isArrivalSignerEligible(int replicaId) const;
     void handleArrivalEcho(BFTMessage* msg);
     void broadcastArrivalCert(const ArrivalCert& cert);
@@ -652,6 +663,7 @@ private:
     void applyByzantineBadProposal(ResdbProposeHdr& hdr, std::vector<uint8_t>& buf);
     void applyByzantineFakeAmbulance(uint8_t* base, uint32_t n);
     void applyByzantineTamperLane(uint8_t* base, uint32_t n);
+    void applyByzantineUpgradeUnknownDirection(uint8_t* base, uint32_t n);
     int countStaticCollectedCerts() const;
     int CertPrimary() const;
 
@@ -668,6 +680,8 @@ private:
     void   resumeVehicle(int position_in_order);
     bool   isApproachingIntersection();
     bool checkIfDeparted();
+    void applyPhase2ControlledCue();
+    void logPhase2CueTrace();
     VerificationResult verifyCarPosition(const std::string& carId,
                                          const std::string& claimedLane,
                                          double claimedPosition, double tolerance);
@@ -874,6 +888,12 @@ private:
     double stop_distance_;
     double car_ahead_stop_pos = -1.0;
     std::string myLaneTriggerCar;
+    bool        enable_phase2_cue_trace_ = false;
+    bool        enable_phase2_controlled_cue_ = false;
+    bool        phase2_controlled_cue_logged_ = false;
+    std::string phase2_trace_ingress_edge_;
+    std::string phase2_trace_egress_edge_;
+    std::string phase2_trace_last_state_;
 
     //metrics
     simtime_t stopTime = -1;          // When the car physically entered the stop zone
@@ -905,10 +925,16 @@ private:
     bool          byzantine_pbft_silent_ = false;
     bool          enableAmbulanceCertGate_ = false;  // when true, rejects ambulance claims with no ambulanceCertBytes
     std::set<int> false_lane_colluder_ids_;
+    Phase2AttackKind phase2_attack_kind_ = Phase2AttackKind::NONE;
+    int phase2_attack_target_replica_id_ = -1;
+    int phase2_actual_byzantine_count_ = 0;
+    std::set<int> phase2_evidence_colluder_ids_;
+    std::set<int> phase2_byzantine_replica_ids_;
     int           last_known_primary_ = 0;
     bool          bad_proposal_injected_ = false;
     int           fake_ambulance_proposal_replica_id_ = -1;
     int           tamper_lane_proposal_replica_id_ = -1;
+    int           upgraded_unknown_proposal_replica_id_ = -1;
     double        pbft_vc_timeout_sec_ = 3.0;
     bool          enableRollback_ = false;
     double        cancel_cert_retry_interval_sec_ = 0.1;

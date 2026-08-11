@@ -29,7 +29,9 @@ std::vector<double> parseMatrix(const std::string& spec)
     return values;
 }
 
-ObservedCue readCue(TraCIMobility* target)
+} // namespace
+
+ObservedCue ResDBPerception::readNativeCue(TraCIMobility* target)
 {
     if (!target) return ObservedCue::UNKNOWN;
     try {
@@ -45,8 +47,6 @@ ObservedCue readCue(TraCIMobility* target)
         return ObservedCue::UNKNOWN;
     }
 }
-
-} // namespace
 
 void ResDBPerception::configure(TraCIMobility* mobility,
                                 cRNG* rng,
@@ -108,7 +108,7 @@ ArrivalPerceptionSample ResDBPerception::observeArrival(const std::string& targe
         sample.detected = true;
         sample.trueApproach = approach;
         sample.observedApproach = sampleApproach(approach);
-        sample.trueCue = readCue(targetMobility);
+        sample.trueCue = readNativeCue(targetMobility);
         sample.observedCue = sampleCue(sample.trueCue);
         sample.knownCueSamples = sample.observedCue == ObservedCue::UNKNOWN ? 0 : 1;
         return sample;

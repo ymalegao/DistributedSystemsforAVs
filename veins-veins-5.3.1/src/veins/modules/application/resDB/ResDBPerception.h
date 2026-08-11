@@ -46,6 +46,7 @@ public:
 
     static ObservedCue cueFromCode(uint8_t code);
     static const char* cueName(ObservedCue cue);
+    static ObservedCue readNativeCue(TraCIMobility* target);
 
 private:
     static int approachIndex(char approach);

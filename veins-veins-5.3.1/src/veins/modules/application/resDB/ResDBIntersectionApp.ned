@@ -84,15 +84,21 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         bool   isAmbulance         = default(false);  // ambulance gets top priority in schedule
         int    ambulanceReplicaId  = default(-1);     // if >=0, marks veh<id> as ambulance after SUMO identity binding
         bool   isByzantine         = default(false);  // enables Byzantine fault injection
-        int    byzantineType       = default(0);      // 0=honest 1=false_lane 2=invalid_sig 3=equivocator 4=silent_primary 5=bad_proposal 6=fake_ambulance 7=fake_ambulance_follower 8=tamper_lane
+        int    byzantineType       = default(0);      // 0=honest 1=false_lane 2=invalid_sig 3=equivocator 4=silent_primary 5=bad_proposal 6=fake_ambulance 7=fake_ambulance_follower 8=tamper_lane 9=upgrade_unknown_direction
         bool   byzantinePbftSilent = default(false);  // when true, Byzantine replica drops PBFT outbound messages
         bool   enableAmbulanceCertGate = default(false); // when true, rejects ambulance claims with empty ambulanceCertBytes (ablation toggle)
         string falseLaneColluderIds = default(""); // comma-separated replica IDs selected by --randomize N F
+        string phase2AttackKind = default("NONE"); // NONE, WRONG_APPROACH, FALSE_DIRECTION
+        int phase2AttackTargetReplicaId = default(-1);
+        string phase2EvidenceColluderIds = default(""); // excludes claimant
+        int phase2ActualByzantineCount = default(0); // claimant plus evidence colluders
         double approachSigmaM = default(0);
         string approachConfusionMatrix = default("1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1");
         double signalObservationError = default(0);
         int perceptionRngIndex = default(1);
         double directionEligibilityCollectionWindowSec @unit(s) = default(0.25s);
+        bool enablePhase2CueTrace = default(false); // observation-only mixed-route/cue trace
+        bool enablePhase2ControlledCue = default(false); // deterministic route-consistent TraCI blinkers during discovery
 
         // ── Post-consensus order gossip (Type 9) ──────────────────────────────
         bool   enableDecisionGossip                        = default(true);

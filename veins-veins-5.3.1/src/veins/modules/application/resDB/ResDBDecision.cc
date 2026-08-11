@@ -50,6 +50,8 @@ void logConsensusAttackOutcome(int replicaId, uint32_t epoch,
 
 bool ResDBIntersectionApp::isReplicaConfiguredByzantine(int replicaId) const
 {
+    if (phase2_byzantine_replica_ids_.count(replicaId) > 0)
+        return true;
     if (replicaId == replicaId_)
         return is_byzantine_;
 
@@ -332,6 +334,8 @@ void ResDBIntersectionApp::proposeAll()
     if (is_byzantine_ && byzantine_type_ == BYZANTINE_BAD_PROPOSAL)   applyByzantineBadProposal(hdr, buf);
     if (is_byzantine_ && byzantine_type_ == BYZANTINE_FAKE_AMBULANCE)  applyByzantineFakeAmbulance(buf.data() + sizeof(ResdbProposeHdr), n);
     if (is_byzantine_ && byzantine_type_ == BYZANTINE_TAMPER_LANE)     applyByzantineTamperLane(buf.data() + sizeof(ResdbProposeHdr), n);
+    if (is_byzantine_ && byzantine_type_ == BYZANTINE_UPGRADE_UNKNOWN_DIRECTION)
+        applyByzantineUpgradeUnknownDirection(buf.data() + sizeof(ResdbProposeHdr), n);
 
     int rc = ResdbOmnetTriggerConsensus(resdb_server_handle_, buf.data(), (uint32_t)buf.size());
     if (rollbackOrderEpoch) {
@@ -547,6 +551,13 @@ void ResDBIntersectionApp::detectConsensusAttackOutcome(
                            : "");
         }
         break;
+    case BYZANTINE_UPGRADE_UNKNOWN_DIRECTION:
+        if (upgraded_unknown_proposal_replica_id_ >= 0) {
+            logOutcome("UPGRADE_UNKNOWN_DIRECTION",
+                       "STATE_FIELD_MISMATCH_REJECTED_AND_RECOVERED",
+                       "target=veh" + std::to_string(upgraded_unknown_proposal_replica_id_));
+        }
+        break;
     case BYZANTINE_HONEST:
         break;
     }
@@ -623,6 +634,23 @@ void ResDBIntersectionApp::applyByzantineTamperLane(uint8_t* base, uint32_t n)
         std::cout << "[BYZANTINE] r" << replicaId_
                   << " TAMPER_LANE: replica " << e.replica_id
                   << " lane " << (int)orig << "→S(1) — N+E batch → CRASH\n";
+    }
+}
+
+void ResDBIntersectionApp::applyByzantineUpgradeUnknownDirection(uint8_t* base, uint32_t n)
+{
+    for (uint32_t i = 0; i < n; ++i) {
+        ResdbVehicleEntry e;
+        std::memcpy(&e, base + i * sizeof(e), sizeof(e));
+        if (e.cyber_status == 1 && e.direction == directionCode(DIR_UNKNOWN)) {
+            e.direction = directionCode(DIR_STRAIGHT);
+            std::memcpy(base + i * sizeof(e), &e, sizeof(e));
+            upgraded_unknown_proposal_replica_id_ = e.replica_id;
+            std::cout << "[BYZANTINE] r" << replicaId_
+                      << " UPGRADE_UNKNOWN_DIRECTION: replica " << e.replica_id
+                      << " direction UNKNOWN->STRAIGHT at " << simTime() << "\n";
+            return;
+        }
     }
 }
 

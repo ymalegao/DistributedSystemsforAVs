@@ -150,6 +150,16 @@ void TraCICommandInterface::Vehicle::setSpeed(double speed)
     ASSERT(buf.eof());
 }
 
+void TraCICommandInterface::Vehicle::setSignals(int32_t bitset)
+{
+    uint8_t variableId = VAR_SIGNALS;
+    uint8_t variableType = TYPE_INTEGER;
+    TraCIBuffer buf = traci->connection.query(
+        CMD_SET_VEHICLE_VARIABLE,
+        TraCIBuffer() << variableId << nodeId << variableType << bitset);
+    ASSERT(buf.eof());
+}
+
 void TraCICommandInterface::Vehicle::remove(uint8_t reason)
 {
     uint8_t variableId = REMOVE;

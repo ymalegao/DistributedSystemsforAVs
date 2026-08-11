@@ -27,7 +27,7 @@ There is no Java or JNI consensus path on the current hot path. Archived migrati
 
 4. **OMNeT++ simulation APIs are used only on the simulation thread.** ResDB worker threads enqueue outbound packets and committed orders. `ResDBIntersectionApp` drains those queues from self-messages.
 
-5. **Discovery completes locally before ORDER consensus.** Every replica runs the same view-based discovery state machine. Physical arrival, lane verification, echo collection, and `ARRIVAL_CERT` validation happen in Veins C++ before the elected discovery primary submits `ResdbProposeHdr + ResdbVehicleEntry[]` to PBFT.
+5. **Discovery completes locally before ORDER consensus.** Every replica runs the same view-based discovery state machine. Noisy lane observation, lane-qualified echo collection, maneuver-cue aggregation, and `ARRIVAL_CERT` validation happen in Veins C++ before the elected discovery primary submits `ResdbProposeHdr + ResdbVehicleEntry[]` to PBFT.
 
 6. **Consensus decides an order, not movement directly.** ResDB commits binary order bytes. `ResDBIntersectionApp::processOrders()` applies the order, waits for preceding batches to clear through TraCI, and then resumes the vehicle.
 
@@ -38,6 +38,10 @@ There is no Java or JNI consensus path on the current hot path. Archived migrati
 9. **Crash recovery separates decisions, evidence, and liveness advice.** ORDER and CANCEL are committed PBFT decisions. BLOCKED and CLEAR are `f+1` physical-evidence certificates. WAIT is a signed, leader-only advisory heartbeat that can delay a local suspicion timer but cannot authorize motion, change membership, or validate an ORDER.
 
 10. **Propagation is state-aware where implemented.** Decision/CANCEL gossip and CANCEL/CLEAR certificate paths stop on peer propagation or owning state transitions. CLEAR and TYPE11 count registry-bound carriers; TYPE11 uses deterministic, cancellable suppression rather than immediate all-replica flooding. Remaining blind paths are listed in Section 22.
+
+11. **Arrival evidence and co-batching authority are separate.** Honest external witnesses emit an echo when their noisy observed approach matches the declared approach; maneuver cues never veto that echo. A valid lane certificate with fewer than `f+1` matching cues is SIGNED-UNKNOWN and remains a singleton. Only `f+1` positive cue signatures unlock the declared direction for the existing `kSafe` scheduler.
+
+12. **PBFT agrees on a deterministic certificate-derived value.** Proposal packing, received-certificate validation, and `certSnapshotCallback()` all derive the scheduler-facing direction from the same authenticated certificate bytes. Check 10 rejects a leader that upgrades UNKNOWN to the declaration. PBFT does not turn the declaration or cue evidence into physical ground truth.
 
 ---
 
@@ -51,16 +55,22 @@ Vehicle node i
 +-- ResDBIntersectionApp
 |   |
 |   +-- TraCI helpers
-|   |   +-- lane discovery
+|   |   +-- hidden lane/signal truth supplied to the sensor model
 |   |   +-- stop-line distance
 |   |   +-- stop / resume vehicle
 |   |   +-- intersection-clearance checks
 |   |
+|   +-- ResDBPerception (witness-local)
+|   |   +-- 4x4 approach confusion matrix
+|   |   +-- noisy turn-signal cue
+|   |   +-- dedicated RNG stream and zero-error no-draw path
+|   |
 |   +-- Arrival certificate protocol
 |   |   +-- ARRIVAL_ANNOUNCE type 1
 |   |   +-- ARRIVAL_ANNOUNCE_GOSSIP type 10
-|   |   +-- ARRIVAL_ECHO type 4
-|   |   +-- ARRIVAL_CERT type 5
+|   |   +-- lane-qualified ARRIVAL_ECHO type 4 with signed observedCue
+|   |   +-- local claimant self-attestation
+|   |   +-- ARRIVAL_CERT type 5 and derived direction eligibility
 |   |
 |   +-- ResDB bridge handle
 |   |   +-- socketless ServiceNetwork
@@ -101,6 +111,7 @@ The ResDB library still runs internal worker threads, but all interaction with V
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBWitnessCert.h/.cc` | Shared `f+1` witness statement/certificate validation and immutable replica-id-to-P-256-key registry. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBPropagationTracker.h` | Generic semantic-keyed distinct-carrier tracker. Authentication and membership checks remain at the caller; currently used by CLEAR propagation. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBTraCI.cc` | TraCI helpers extracted from the legacy V2V module: distance-to-lane-end, lane queue discovery, vehicle stop/resume helpers, and clearance detection. |
+| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBPerception.h/.cc` | Witness-local imperfect-perception adapter. Reads target approach and signal state as hidden simulator truth, applies configured categorical corruption using a dedicated RNG stream, and returns `ArrivalPerceptionSample` without exposing uncorrupted truth to the admission rule. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/crypto/CryptoAuth.h/.cc` | OpenSSL ECDSA P-256 helper. Generates per-vehicle EC keys, signs arbitrary byte buffers, verifies signatures, and contains CA certificate helpers. |
 | `incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h` | C ABI between Veins and ResDB. Defines lifecycle, transport callback registration, sim-time update, consensus trigger, order callback, cert-primary/PBFT primary alignment, view-change hooks, and shared packed structs. |
 | `incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc` | ResDB-side integration. Builds socketless PBFT service, installs OMNeT communicator, registers pre-verify function, hosts `IntersectionExecutor`, injects inbound packets, and exposes the C API. |
@@ -120,11 +131,15 @@ sequenceDiagram
     participant Exec as IntersectionExecutor
     participant TraCI as SUMO_TraCI
 
+    App->>App: sign declaration and add one local self-attestation
     App->>Radio: ARRIVAL_ANNOUNCE_type1
     Radio->>App: ARRIVAL_ANNOUNCE_GOSSIP_type10
-    Radio->>App: ARRIVAL_ECHO_type4
+    App->>TraCI: read target approach and signal as hidden truth
+    App->>App: corrupt perception; echo iff observed lane matches claim
+    App->>Radio: ARRIVAL_ECHO_type4 with observedCue and claimHash
+    Radio->>App: collect distinct signed echoes through finalize window
     App->>Radio: ARRIVAL_CERT_type5
-    App->>App: validateArrivalCert_and_store
+    App->>App: validate cert and derive direction or UNKNOWN
 
     App->>TraCI: stopVehicle_at_stop_zone
     App->>App: all_replicas_close_stable_certified_intent_view
@@ -192,9 +207,9 @@ All inter-vehicle traffic is carried in `BFTMessage` packets over the Veins 802.
 
 | Type | Name | Current meaning | Payload |
 |------|------|-----------------|---------|
-| `1` | `ARRIVAL_ANNOUNCE` | Vehicle announces physical arrival, lane, position, direction, ambulance flag, epoch, and self-signature. | Text/pipe encoded arrival announcement plus signature bytes. |
-| `4` | `ARRIVAL_ECHO` | Witness echo for a target car after TraCI verification. Currently broadcast at the MAC layer and filtered logically. | Text/pipe encoded echo with signer's compressed P-256 pubkey and ECDSA signature. |
-| `5` | `ARRIVAL_CERT` | Vehicle broadcasts f+1 collected echoes as a participation certificate. | Text/pipe encoded cert with echo signer ids, pubkeys, and signatures. |
+| `1` | `ARRIVAL_ANNOUNCE` | Vehicle declares arrival, approach, queue-rank field, maneuver, ambulance flag, time, and epoch under an origin signature. The declaration is not itself independent physical evidence. | Text/pipe encoded authenticated arrival announcement. |
+| `4` | `ARRIVAL_ECHO` | External witness's lane-qualified evidence for one authenticated claim. Carries the declared maneuver separately from the witness's noisy maneuver cue. Re-announcements may retransmit the same cached logical echo but never create a new perception trial. | Text/pipe encoded echo with `observedCue`, `claimHash`, signer id, registered P-256 pubkey, and ECDSA signature. |
+| `5` | `ARRIVAL_CERT` | Claimant broadcasts at least `f+1` and at most `N` distinct valid signatures collected through the post-threshold window. Certificate bytes deterministically yield SIGNED-UNKNOWN or an eligible declared direction. | Text/pipe encoded claim plus per-echo signer ids, cues, claim hash, pubkeys, and signatures. |
 | `8` | ResDB PBFT bytes | ResDB PRE_PREPARE, PREPARE, COMMIT, VIEW_CHANGE, NEW_VIEW, and related PBFT traffic. | `resdbwire` signed wrapper around serialized ResDB bytes. |
 | `9` | Decision gossip | Post-consensus order dissemination for stragglers that missed PBFT delivery. | `resdbwire` signed wrapper around `epoch || order_bytes`. |
 | `10` | Arrival announce gossip | Relay of an already-signed `ARRIVAL_ANNOUNCE` by a witness or carrier replica. | `resdbwire` signed wrapper around `epoch || original ARRIVAL_ANNOUNCE bytes`. |
@@ -331,9 +346,14 @@ The original announce bytes are copied unchanged from the type `1` payload. `Res
 
 ---
 
-## 8. Arrival Certificate Protocol
+## 8. Imperfect-Perception Arrival Certificate Protocol
 
-The arrival-cert protocol is the physical-world firewall before PBFT. It proves that a vehicle was observed by enough independent replicas before the cert-primary can schedule it as SIGNED.
+The arrival protocol is an evidence gate before PBFT, not a proof of perfect
+physical state or future maneuver. Noisy approach evidence controls whether an
+external witness signs the arrival claim. Signed maneuver cues control only
+whether the resulting certificate unlocks the declared direction for
+co-batching. This creates three scheduler-visible trust tiers: QUIET,
+SIGNED-UNKNOWN, and SIGNED with an eligible direction.
 
 ### Discovery round state machine
 
@@ -377,32 +397,58 @@ ambulanceSigBytes
 self signature
 ```
 
-The self-signature covers:
+The origin signature covers the canonical declaration:
 
 ```text
-carId:laneId:positionInLane:claimedArrivalTime:epoch
+carId | epoch | laneId | cardinal lane | positionInLane | declared direction |
+isAmbulance | claimedArrivalTime | ambulanceCertBytes | ambulanceSigBytes
 ```
 
-The current wire format carries this self-signature, but the receive path does not use it as the main admission check. Witnesses decide whether to echo based on TraCI lane verification.
+The receiver verifies this signature using the origin replica's immutable
+registered public key. `claimHash` is SHA-256 over the authenticated serialized
+announcement and binds every witness signature to that exact claim variant.
+The carried `positionInLane` remains a queue-order field; the imperfect-
+perception gate does not claim to verify a continuous position measurement.
+
+When the claimant creates the announcement, it also creates exactly one signed
+local self-attestation with `observedCue=declaredDirection`. This signature is
+inserted through the normal echo validation/collection path, consumes no
+perception sample or RNG draw, and is never sent as Type 4 traffic. The origin
+signature and self-attestation are distinct signatures with different roles.
 
 ### Phase B: Witness echo
 
-When a replica receives an announcement:
+When an honest external replica receives an authenticated announcement:
 
-1. It ignores departed/zombie vehicles.
-2. It parses the announcement.
-3. It checks whether it has already verified and echoed the car.
-4. It calls `verifyCarPosition(carId, laneId, positionInLane, tolerance)` using TraCI.
-5. If the car is physically present but lying about lane, the receiver records the car but does not echo.
-6. If verification passes, it stores a `VehicleState`, records observed intent, stores the original announce bytes for possible custody relay, broadcasts an `ARRIVAL_ECHO`, and may gossip the announcement.
+1. It rejects traffic outside `DiscoveryState::COLLECTING`, after proposal/order,
+   after departure, or while crash communication is muted.
+2. It uses `ResDBPerception` to take one witness-local sample. TraCI approach
+   and signal state are hidden truth inputs to configured categorical corruption,
+   not values compared directly with the declaration.
+3. It accepts the lane claim only when the target is detected and
+   `observedApproach == ann.lane`, plus the existing ambulance checks.
+4. Signal evidence never vetoes the lane echo. The sampled cue is carried as
+   `observedCue in {STRAIGHT,LEFT,RIGHT,UNKNOWN}`.
+5. On lane acceptance, it stores the intent and original announcement, signs
+   and broadcasts an echo, and may gossip the original announcement. On lane
+   rejection it records the verdict but sends no echo.
 
 The echo signature covers:
 
 ```text
-carId:lane:positionInLane:direction:isAmbulance:echoingReplicaId
+targetCarId : lane : positionInLane : declaredDirection : observedCue :
+claimHash : isAmbulance : epoch : echoingReplicaId
 ```
 
-Each echo includes the signer's compressed P-256 public key and DER ECDSA signature.
+Each echo includes the signer's compressed P-256 public key and DER ECDSA
+signature. The key must match the immutable replica-key registry.
+
+Perception and the complete signed result are cached by
+`(witness,target,epoch,claimHash)`. A re-announcement reuses the cached accept
+or reject verdict; an accepted replay can retransmit the byte-identical logical
+echo for radio reliability but cannot resample the sensor or add another
+distinct signer. Phase 1 uses `K=1`; the buffer/cache is the substrate for the
+deferred repeated-sampling experiment.
 
 ### Announce gossip and custody relay
 
@@ -412,13 +458,13 @@ The flow is:
 
 ```text
 veh18 -> ARRIVAL_ANNOUNCE type 1
-replica 4 verifies with TraCI
+replica 4 runs its cached noisy lane/cue evaluation
 replica 4 -> ARRIVAL_ECHO for veh18
 replica 4 -> ARRIVAL_ANNOUNCE_GOSSIP type 10 carrying veh18's original announce bytes
 replica 9 receives type 10
 replica 9 reconstructs a synthetic ARRIVAL_ANNOUNCE message
 replica 9 runs the normal handleArrivalAnnouncement path
-replica 9 verifies with TraCI
+replica 9 runs its cached noisy lane/cue evaluation
 replica 9 -> ARRIVAL_ECHO for veh18
 ```
 
@@ -427,7 +473,7 @@ Security boundary:
 - The relayer signs only the outer type `10` carrier frame.
 - The inner announcement bytes remain the exact type `1` payload from the origin vehicle.
 - A Byzantine carrier can drop, delay, or replay within dedup limits, but cannot modify the original announcement and still preserve the origin vehicle's self-signature.
-- Honest recipients still run `verifyCarPosition()` before echoing, so a relayed announce is not accepted merely because a carrier gossiped it.
+- Honest recipients still run the same cached imperfect-perception lane gate before echoing, so a relayed announce is not accepted merely because a carrier gossiped it.
 
 Implementation:
 
@@ -439,18 +485,41 @@ Implementation:
 
 This relay is intentionally not a new consensus rule. It only improves witness discovery before cert assembly. Echo dedup still prevents repeated echoes from the same replica for the same car.
 
-### Phase C: Arrival certificate
+### Phase C: Collection, certificate, and direction eligibility
 
-The target vehicle collects echoes for itself. Once it has at least `f + 1` distinct echoes, where `f = (N - 1) / 3`, it assembles and broadcasts an `ARRIVAL_CERT` (`messageType = 5`).
+The target collects echoes for itself, including its one local
+self-attestation. At the first `f+1` distinct valid signatures, where
+`f=(N-1)/3`, it arms the one-shot `arrivalCertFinalizeTimer` for
+`directionEligibilityCollectionWindowSec` (default `0.25 s`). It continues
+passively accepting distinct echoes up to `N`; the window adds no announcement,
+gossip, polling, or periodic transmission source. If discovery drains first, a
+threshold-satisfying certificate is finalized immediately and placed on the
+existing pending-CERT drain path.
 
-Every receiver validates the cert before storing it:
+Every receiver validates the certificate before storing it:
 
 1. The cert must contain at least `f + 1` echoes.
-2. Echo signers must be distinct.
-3. Each echo signature must verify against the embedded signer pubkey.
-4. The signed string must match the cert's car, lane, position, direction, ambulance flag, and echoing replica id.
+2. It may contain no more than `N` echoes, and echo signers must be distinct.
+3. Each signer public key must match the registry and each signature must verify.
+4. Every echo must match the cert's target, epoch, lane, queue-rank field,
+   declared direction, ambulance flag, and common `claimHash`; `observedCue`
+   values may differ.
 
 If validation passes, the receiver stores `collected_certs_[carId] = cert`.
+
+The scheduler-facing direction is a pure function of the validated certificate:
+
+```text
+support = number of distinct valid echoes with observedCue == cert.direction
+eligibleDirection(cert) = cert.direction  if support >= f+1
+                          UNKNOWN (3)     otherwise
+```
+
+UNKNOWN cues neither support nor contradict the declaration. A turn signal is
+a noisy, target-controlled consistency cue; `f+1` matching cues do not prove
+future execution. The same function is called during local/proposal packing,
+received-cert handling, and `certSnapshotCallback()` so Check 10 compares two
+independent derivations from identical certificate bytes.
 
 ### Certificate retries
 
@@ -478,9 +547,18 @@ The acceptance rule differs from decision gossip. Decision gossip requires `f + 
 
 Source retries (`enableArrivalCertRetries`) are kept. Relay is additive: it covers the case where the original sender's retry window closes before a straggler node gets coverage.
 
-### QUIET entries
+### Three trust tiers
 
-If the hard discovery deadline is reached with an observed intent lacking a valid cert, the primary includes that observed vehicle as QUIET:
+The proposal/executor mapping is:
+
+| Tier | Evidence | Proposal entry | Scheduling |
+|------|----------|----------------|------------|
+| QUIET | No valid `f+1` arrival certificate | `cyber_status=0`, `sim_time_us=UINT64_MAX` | Singleton through `IsQuietEntry()` |
+| SIGNED-UNKNOWN | Valid arrival certificate, but cue support `< f+1` | `cyber_status=1`, `direction=3` | Singleton through `kSafe` fallthrough |
+| SIGNED-direction | Valid arrival certificate and cue support `>= f+1` | `cyber_status=1`, `direction=0/1/2` | Existing `kSafe` behavior; LEFT remains table-forced singleton |
+
+If the hard discovery deadline is reached with an observed intent lacking a
+valid cert, the primary includes that observed vehicle as QUIET:
 
 ```text
 sim_time_us = UINT64_MAX
@@ -489,7 +567,10 @@ is_ambulance = 0
 direction = 0
 ```
 
-Lane and position come from the locally verified `VehicleState`; direction remains unknown because it is cert-only cyber state. Unobserved configured replicas are excluded. QUIET vehicles are isolated by the executor into singleton batches.
+Lane and queue rank come from the locally observed `VehicleState`; unobserved
+configured replicas are excluded. QUIET must not be overloaded to represent
+direction uncertainty: a valid arrival certificate with insufficient cue
+support is SIGNED-UNKNOWN.
 
 ### Cert-primary selection
 
@@ -631,7 +712,7 @@ These verify the binary proposal is well-formed for this cluster:
 7. All `replica_id` values are unique.
 8. All `replica_id` values are in `[0, expected)`.
 
-Per-entry field sanity (part of the above gate): `sim_time_us ≠ 0` (UINT64_MAX is the QUIET sentinel), `is_ambulance ∈ {0,1}`, `cyber_status ∈ {0,1}`, `leader_id ∈ [0, expected)`. The leader must also be a member of the request's proposed entry set.
+Per-entry field sanity (part of the above gate): `sim_time_us ≠ 0` (UINT64_MAX is the QUIET sentinel), `is_ambulance ∈ {0,1}`, `cyber_status ∈ {0,1}`, `direction ∈ {0,1,2,3}`, and `leader_id ∈ [0, expected)`. Direction `3` is the signed UNKNOWN sentinel. The leader must also be a member of the request's proposed entry set.
 
 For normal proposals, the bridge also enforces cert-primary leadership before PBFT accepts the PRE_PREPARE:
 
@@ -651,7 +732,7 @@ For every cert in the local snapshot, if the corresponding proposal entry has `c
 
 **Check 10 — state-field verification**:
 
-For every SIGNED proposal entry (`cyber_status == 1`) whose cert the follower holds, the proposal's `lane`, `position_in_lane`, `direction`, and `is_ambulance` must exactly match the cert-attested values. Any mismatch means the leader falsified that car's physical state in the proposal. Threshold is zero — the cert is ground truth (f+1 ECDSA echo signatures).
+For every SIGNED proposal entry (`cyber_status == 1`) whose cert the follower holds, the proposal's `lane`, `position_in_lane`, **derived scheduler-facing direction**, and `is_ambulance` must exactly match `ResdbCertEntry` from the local cert snapshot. The snapshot recomputes `eligibleDirection(cert)` rather than copying the declaration. Any mismatch—including a Byzantine leader's UNKNOWN-to-declared-direction upgrade—is rejected at threshold zero. The certificate is authenticated evidence, not perfect physical ground truth or proof of future execution.
 
 Check 8 (deterministic schedule re-execution in Java) is not needed in C++ because the proposal contains only raw vehicle entries, no pre-computed schedule. The schedule is computed post-consensus by `IntersectionExecutor::ExecuteData()` identically on every replica. A Byzantine leader cannot submit a wrong schedule because the schedule is not part of the proposal.
 
@@ -701,12 +782,12 @@ replicaId_ == CertPrimary()
 3. Records `ProposeAll_Submit_Time`.
 4. Converts each collected eligible cert into a SIGNED `ResdbVehicleEntry`.
 5. Adds QUIET entries only for locally observed eligible intents that lack certs at the hard deadline.
-6. Submits the resulting view; it does not fabricate a self certificate or pad unobserved configured replica IDs.
+6. Submits the resulting view; it does not fabricate a missing arrival certificate or pad unobserved configured replica IDs. This is separate from the one permitted claimant self-attestation inside a real certificate.
 7. Builds `ResdbProposeHdr + ResdbVehicleEntry[]`.
 8. Applies Byzantine primary corruption if enabled.
 9. Calls `ResdbOmnetTriggerConsensus()`.
 
-For SIGNED entries, lane, direction, position, ambulance flag, and vehicle identity come from the stored cert and local vehicle state. For QUIET entries, the app uses locally observed lane/position if available and marks the cyber fields as unknown/quiet.
+For SIGNED entries, lane, queue-rank field, ambulance flag, and vehicle identity come from the stored cert and local vehicle state; direction is recomputed with `eligibleDirection(cert)` and may therefore be `3=UNKNOWN` even though the certificate retains a declared maneuver in `{0,1,2}`. For QUIET entries, the app uses locally observed lane/position if available and marks the cyber fields as unknown/quiet.
 
 `ResdbOmnetTriggerConsensus()` wraps the proposal as a ResDB client request, then injects it into the local socketless `ServiceNetwork` as `TYPE_NEW_TXNS`.
 
@@ -724,7 +805,7 @@ Execution steps:
 4. Build a work queue with ambulance-lane priority and lane-order constraints.
 5. Repeatedly choose a schedulable head vehicle.
 6. Grow the current batch with vehicles that are safe with every vehicle already in the batch.
-7. Isolate QUIET entries as singleton batches.
+7. Isolate QUIET entries as singleton batches; SIGNED-UNKNOWN and LEFT entries also become singletons through the unchanged safe-table lookup.
 8. Emit `ResdbOrderHdr + ResdbVehicleDecision[]`.
 9. Invoke the registered `ResdbOrderDecidedFn` callback.
 
@@ -741,6 +822,13 @@ cyber_status == 0 || sim_time_us == UINT64_MAX
 ```
 
 QUIET entries never join another vehicle's batch and never accept another vehicle into their own batch. They become singleton batches.
+
+`IsSafeToBatch()` rejects same-approach pairs before consulting `kSafe`, so a
+false `positionInLane` can affect same-lane work-queue order but cannot create a
+conflicting co-batch. The safe table contains only STRAIGHT (`0`) and RIGHT
+(`2`) entries. UNKNOWN (`3`) requires no executor change: as a batch head no
+candidate can join it, and as a candidate `SafeWithWholeBatch()` fails. LEFT
+(`1`) remains a conservative singleton for the same table-fallthrough reason.
 
 ### Ambulance behavior
 
@@ -1367,6 +1455,22 @@ Defined in `ResDBIntersectionApp.ned`.
 | `enableArrivalCertRetries` | Enables repeated type 5 cert broadcasts. |
 | `arrivalCertRetryIntervalSec` | Cert retry interval. |
 | `arrivalCertRetryMax` | Number of extra cert retries; `0` means unlimited until stopped by another condition. |
+| `directionEligibilityCollectionWindowSec` | One-shot passive collection window after the first `f+1` echoes; default `0.25s`. Discovery drain finalizes immediately when the threshold is already met. |
+
+### Imperfect perception and Phase 2 evidence
+
+| Parameter | Meaning |
+|-----------|---------|
+| `approachSigmaM` | Geometry-calibrated approach-noise operating point. The runner maps it to a checked-in 4x4 categorical confusion matrix. |
+| `approachConfusionMatrix` | Row-major approach confusion matrix over `N,S,E,W`. Runtime sampling uses this matrix rather than a symmetric unitless lane-error channel. |
+| `signalObservationError` | Categorical maneuver-cue corruption probability in `[0,1]`. It changes signed cue support but never vetoes lane-qualified echo admission. |
+| `perceptionRngIndex` | Module-local RNG stream used only by `ResDBPerception`; generated overrides map stream 1 to global RNG 1. Zero-error observations consume no draw. |
+| `enablePhase2ControlledCue` | Mixed-fixture-only deterministic TraCI signal control during the ingress/discovery window. Native SUMO blinkers remain characterization data because they appeared too late for the one-verdict echo window. |
+| `enablePhase2CueTrace` | Emits observation-only route, native signal, derived cue, cue-source, and echo-window characterization records. |
+| `phase2AttackKind` | Experiment-only `NONE`, `WRONG_APPROACH` (E2), or `FALSE_DIRECTION` (E4). The legacy `X` fault scenario is unchanged. |
+| `phase2AttackTargetReplicaId` | Claimant whose authenticated declaration is changed for E2/E4; pilots use `veh0`. |
+| `phase2EvidenceColluderIds` | Deterministic comma-separated external colluder set. Colluders remain honest for their own claims and sign false support only for the target. |
+| `phase2ActualByzantineCount` | Total configured Byzantine evidence identities, including the target. Analysis uses certificate-local `b_sig`, not this nominal count, in probability predictions. |
 
 ### Crossing behavior
 
@@ -1432,6 +1536,14 @@ Common log markers used by benchmark scripts and debugging:
 | `[METRICS r] Resume_Time` | Vehicle resumed movement. |
 | `[CAR-METRICS]` | Per-car wait/departure summary. |
 | `[ANN-RECV]` | Arrival announcement received. Includes `via=direct` or `via=gossip`; gossiped messages also log the carrier replica. |
+| `[PERC-EVAL]` | The single cached external perception evaluation for `(witness,target,epoch,claimHash)`, including true/claimed/observed approach and derived cue. The analyzer rejects duplicate evaluations for the same key. |
+| `[SELF-ATTEST]` | Claimant's one local signed echo. It consumes no perception draw and produces no Type-4 transmission. |
+| `[CERT-COLLECT]`, `[CERT-ASSEMBLE]` | First-threshold/finalize timing and the final distinct echo count, including why the one-shot collection window closed. |
+| `[CERT-EVIDENCE]` | Per-signature certificate accounting: signer, cue, self flag, Byzantine flag, and whether the cue supports the declaration. |
+| `[DIR-ELIGIBILITY]` | Certificate-local positive support, threshold, echo count, self-attestation count, measured `b_sig`, and derived scheduler direction. |
+| `[TRUST-TIER]` | Final QUIET, SIGNED-UNKNOWN, or SIGNED-DIRECTION classification used by experiment analysis. |
+| `[PHASE2-ATTACK-CONFIG]`, `[PHASE2-ATTACK-DECLARE]`, `[PHASE2-COLLUSION-ECHO]`, `[PHASE2-ATTACK-OUTCOME]` | Authenticated E2/E4 setup, forged declaration, colluder support, and false-certificate/false-eligibility outcome. |
+| `[MOVEMENT-GROUND-TRUTH]`, `[CONFLICT-ZONE-ENTER]`, `[CONFLICT-ZONE-EXIT]`, `[CONFLICT-COOCCUPANCY]` | Physical metrology derived from actual SUMO ingress/egress and the checked-in 12x12 movement table. Claimed lane/direction are not oracle inputs. |
 | `[DISCOVERY-BEGIN]`, `[DISCOVERY-VIEW]` | Discovery round start and newly accepted intent. |
 | `[DISCOVERY-DEADLINE]`, `[DISCOVERY-DRAIN]`, `[DISCOVERY-COMPLETE]` | Hard deadline, certificate drain, and local completion, including intent/cert counts, missing IDs, and local-CERT-air state. |
 | `[TYPE8-DRAIN]` | Outbound signed PBFT bytes sent to radio. |
@@ -1481,28 +1593,53 @@ Common log markers used by benchmark scripts and debugging:
 
 ## 21. Build and Run Handoff
 
-When changing the bridge, rebuild ResDB first, then Veins.
+When changing the bridge, rebuild ResDB first, then Veins. Use the checked-in
+environment wrapper; do not build ResDB or Veins from a bare host shell.
 
 Typical sequence:
 
 ```bash
-cd incubator-resilientdb
-bazel build //integration/omnet:resdb_omnet_bridge
-
-cd ../veins-veins-5.3.1
-make
-
-cd ../fourway
-runomnetnogui -c BFTOverV2VWithResilientDB
-```
-
-Some local environments use a custom Bazel output root, for example:
-
-```bash
-bazel --output_user_root=/tmp/bazel build //integration/omnet:resdb_omnet_bridge
+~/.codex/skills/v2v-opp-env/scripts/activate_v2v_env.sh makeres
+~/.codex/skills/v2v-opp-env/scripts/activate_v2v_env.sh makeveins
+~/.codex/skills/v2v-opp-env/scripts/activate_v2v_env.sh run 'cd fourway && make'
 ```
 
 Use the scenario configs in `fourway/omnetpp.ini` for honest, ambulance, batch, Byzantine follower, and Byzantine primary experiments.
+
+Phase 2 validation and pilots are orchestrator-owned presets. All current
+Phase 2 experiments use `N=16` (`f=5`, evidence threshold `6`):
+
+```bash
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py --phase2-fixture-validation
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py --phase2-self-attestation-validation
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py --phase2-attack-validation
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py --phase2-metrology-validation
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py --phase2-pilots --phase2-pilot-profile grid
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py --phase2-pilots --phase2-pilot-profile full
+```
+
+The grid profile is one repetition per E1-E4 parameter cell (88 sequential,
+resumable runs). The full profile has 384 unique cells/repetitions and reuses
+the completed grid `run_0` artifacts. Only the full profile supports shoulder
+and prediction-versus-empirical claims.
+
+### Imperfect-perception validation status (2026-08-10)
+
+The checked summaries report PASS for Phase 1, the N=16 mixed fixture (2A),
+self-attestation and Check 10 recovery (2B), authenticated E2/E4 attacks (2C),
+actual-movement metrology/calibration (2D), and all 88 runs in the one-seed
+grid. The 384-run `full` profile is the remaining Phase 2 exit gate. Phase 2 is
+complete only when `benchmarks/Phase2Pilots/phase2_pilot_summary.json` records
+`profile=full`, all 384 runs completed, `passed=true`, and
+`theory_consistent=true`.
+
+The paper-facing interpretation is prediction and calibration, not simply
+"noise causes errors": empirical false-certification/false-eligibility
+intervals are compared with a Binomial tail parameterized by the honest
+opportunities and Byzantine supporting signatures found in each finalized
+certificate. Configured Byzantine count does not substitute for measured
+`b_sig`, because the fixed collection window may close before every configured
+colluder contributes.
 
 ### Orchestrator scenario codes (`experiment_orchestrator.py --scenario N`)
 
@@ -1531,6 +1668,31 @@ Use the scenario configs in `fourway/omnetpp.ini` for honest, ambulance, batch, 
 
 ## 22. Known Limitations and Technical Debt
 
+### Deferred imperfect-perception experiments
+
+The implemented Phase 1/2 baseline remains `K=1` with independent categorical
+errors. Follow-on work is deliberately separated from the current Phase 2 exit
+gate:
+
+- E5 repeated sampling over `K in {1,3,5}` and `tau_lane`, using the existing
+  per-target sample cache;
+- perception-gate-off, direction-eligibility-off, firewall-off, and
+  all-singleton ablations, plus fixed-time TLS/all-way-stop performance anchors;
+- E6 measurement-only conformance for a consistent claim/cue followed by a
+  different executed maneuver;
+- one correlated/common-mode error episode to expose the limits of the
+  independent Binomial model;
+- final paper-scale repetitions and plotting after pilot confidence intervals
+  are inspected; and
+- richer sensing such as occlusion, latency, continuous pose, noisy queue rank,
+  asymmetric signal channels, Bayesian direction distributions, or
+  CARLA/hardware-calibrated channels.
+
+CANCEL/tow mitigation for E6, repeated live intersection rounds, and complete
+dynamic-membership recovery are not part of this perception experiment. They
+remain blocked on the multi-epoch reset and membership/view-change limitations
+below.
+
 ### General repeated multi-epoch reset remains incomplete
 
 Scenario 15 and 16 implement the intended CANCEL-to-epoch-`e+1` transition, including fresh discovery, tombstones, incident state, and request-scoped membership. A long-lived scenario with multiple independent cancellation/recovery cycles still lacks full `resetForNextRound()` parity and needs a dedicated soak test.
@@ -1557,7 +1719,7 @@ The later epoch-`e+1` recovery ORDER still uses its older proposer timer and doe
 
 ### Ambulance certificate verification is configuration-gated
 
-When `enableAmbulanceCertGate=true`, the echo path rejects an ambulance announcement lacking a valid Emergency_CA `VehicleCert` and payload signature; Scenario 15 enables this gate. Configurations with the gate disabled intentionally preserve the ablation behavior and may trust `ann.isAmbulance` after physical position verification.
+When `enableAmbulanceCertGate=true`, the echo path rejects an ambulance announcement lacking a valid Emergency_CA `VehicleCert` and payload signature; Scenario 15 enables this gate. Configurations with the gate disabled intentionally preserve the ablation behavior and may trust `ann.isAmbulance` after lane-qualified perception rather than independent ambulance-role authentication.
 
 ### Java `OrderRequestVerifier` port status
 

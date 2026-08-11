@@ -217,6 +217,8 @@ void ResDBIntersectionApp::initialize(int stage)
         enableAmbulanceCertGate_ = par("enableAmbulanceCertGate").boolValue();
         direction_eligibility_collection_window_sec_ =
             par("directionEligibilityCollectionWindowSec").doubleValue();
+        enable_phase2_cue_trace_ = par("enablePhase2CueTrace").boolValue();
+        enable_phase2_controlled_cue_ = par("enablePhase2ControlledCue").boolValue();
         if (direction_eligibility_collection_window_sec_ < 0.0)
             throw cRuntimeError("directionEligibilityCollectionWindowSec must be non-negative");
         for (const auto& token : splitStr(par("falseLaneColluderIds").stdstringValue(), ',')) {
@@ -240,6 +242,59 @@ void ResDBIntersectionApp::initialize(int stage)
             firstColluder = false;
         }
         std::cout << " perception_gate=1\n";
+        const std::string phase2AttackKind = par("phase2AttackKind").stdstringValue();
+        if (phase2AttackKind == "NONE") {
+            phase2_attack_kind_ = Phase2AttackKind::NONE;
+        } else if (phase2AttackKind == "WRONG_APPROACH") {
+            phase2_attack_kind_ = Phase2AttackKind::WRONG_APPROACH;
+        } else if (phase2AttackKind == "FALSE_DIRECTION") {
+            phase2_attack_kind_ = Phase2AttackKind::FALSE_DIRECTION;
+        } else {
+            throw cRuntimeError("invalid phase2AttackKind '%s'", phase2AttackKind.c_str());
+        }
+        phase2_attack_target_replica_id_ = par("phase2AttackTargetReplicaId").intValue();
+        phase2_actual_byzantine_count_ = par("phase2ActualByzantineCount").intValue();
+        for (const auto& token : splitStr(par("phase2EvidenceColluderIds").stdstringValue(), ',')) {
+            if (token.empty()) continue;
+            try {
+                const int id = std::stoi(token);
+                if (id < 0 || id >= total_vehicles_ ||
+                        id == phase2_attack_target_replica_id_)
+                    throw cRuntimeError("invalid Phase 2 evidence colluder id %d", id);
+                phase2_evidence_colluder_ids_.insert(id);
+            } catch (const cRuntimeError&) {
+                throw;
+            } catch (...) {
+                throw cRuntimeError("invalid phase2EvidenceColluderIds token '%s'", token.c_str());
+            }
+        }
+        if (phase2_attack_kind_ == Phase2AttackKind::NONE) {
+            if (phase2_actual_byzantine_count_ != 0 ||
+                    !phase2_evidence_colluder_ids_.empty())
+                throw cRuntimeError("Phase 2 NONE attack requires b=0 and no colluders");
+        } else {
+            if (phase2_attack_target_replica_id_ < 0 ||
+                    phase2_attack_target_replica_id_ >= total_vehicles_)
+                throw cRuntimeError("Phase 2 attack target is outside configured replicas");
+            phase2_byzantine_replica_ids_.insert(phase2_attack_target_replica_id_);
+            phase2_byzantine_replica_ids_.insert(
+                phase2_evidence_colluder_ids_.begin(), phase2_evidence_colluder_ids_.end());
+            if (phase2_actual_byzantine_count_ !=
+                    static_cast<int>(phase2_byzantine_replica_ids_.size()))
+                throw cRuntimeError("Phase 2 actual Byzantine count does not match target+colluders");
+        }
+        std::cout << "[PHASE2-ATTACK-CONFIG] replica=" << replicaId_
+                  << " kind=" << phase2AttackKindName()
+                  << " target=" << phase2_attack_target_replica_id_
+                  << " actualB=" << phase2_actual_byzantine_count_
+                  << " colluders=";
+        bool firstPhase2Colluder = true;
+        for (int id : phase2_evidence_colluder_ids_) {
+            if (!firstPhase2Colluder) std::cout << ",";
+            std::cout << id;
+            firstPhase2Colluder = false;
+        }
+        std::cout << "\n";
         enableRollback_ = par("enableRollback").boolValue();
         crash_mac_grace_sec_ = par("crashMacGraceSec").doubleValue();
         crash_dwell_sec_ = par("crashDwellSec").doubleValue();
@@ -1178,6 +1233,8 @@ void ResDBIntersectionApp::handlePositionUpdate(cObject* obj)
     }
 
     discoverLane();
+    applyPhase2ControlledCue();
+    logPhase2CueTrace();
 
     if (order_applied_) return;
 
