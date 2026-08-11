@@ -133,13 +133,30 @@ ablation5() {
   done
 }
 
+# ── Ablation 6: vanilla BFT (no f+1 firewall) vs our BFT — normal, cost ───────
+# Option A vanilla = --no-firewall (disables the f+1 pre-verification, per the
+# project's definition of vanilla BFT). Same scenario both arms; only difference is
+# the firewall. Normal operation (no attack) -> isolates the COST of the addition
+# (latency of the verification step); the SAFETY benefit is Ablation 2.
+ablation6() {
+  echo "### Ablation 6: vanilla BFT vs our BFT (normal, cost) ###"
+  for r in $(seq 1 "$REPS"); do
+    local ini="$RES/_a6.ini"; common_ini "$ini"
+    rc=$(run "ab6_ours_rep${r}.log"    FourVehiclesResDB -f "$ini")                # firewall ON (ours)
+    echo "  ours    rep=$r rc=$rc"
+    rc=$(run "ab6_vanilla_rep${r}.log" FourVehiclesResDB -f "$ini" --no-firewall)  # firewall OFF (vanilla)
+    echo "  vanilla rep=$r rc=$rc"
+  done
+}
+
 case "$WHICH" in
   1) ablation1 ;;
   2) ablation2 ;;
   3) ablation3 ;;
   4) ablation4 ;;
   5) ablation5 ;;
-  all) ablation1; ablation3; ablation4; ablation2; ablation5 ;;
-  *) echo "usage: run_ablations.sh <1|2|3|4|5|all> [reps]"; exit 1 ;;
+  6) ablation6 ;;
+  all) ablation1; ablation3; ablation4; ablation2; ablation6; ablation5 ;;
+  *) echo "usage: run_ablations.sh <1|2|3|4|5|6|all> [reps]"; exit 1 ;;
 esac
 echo "ABLATION_${WHICH}_DONE results in $RES"

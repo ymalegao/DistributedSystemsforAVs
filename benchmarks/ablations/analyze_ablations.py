@@ -225,16 +225,72 @@ def ablation5(plt):
     return arm
 
 
+def cert_latency(path):
+    v = [float(m) for m in re.findall(r"Cert_Creation_Latency:\s+([\d.]+)", open(path, errors='ignore').read())]
+    return statistics.mean(v) if v else None
+
+def pbft_latency(path):
+    m = re.search(r"PROPOSE_ALL_BFT\(sim\)=([\d.]+)s", open(path, errors='ignore').read())
+    return float(m.group(1)) if m else None
+
+
+def ablation6(plt):
+    # vanilla BFT (--no-firewall) vs ours (firewall) — normal operation, msg + latency.
+    # In normal ops the firewall passes everything, so it is verification-only: expect
+    # ~identical msgs/latency (the addition is FREE here; its payoff is Ablation 2).
+    def arm_stats(arm):
+        fs = glob.glob(os.path.join(RES, f"ab6_{arm}_rep*.log"))
+        if not fs: return None
+        msgs = statistics.mean(total_msgs(p) for p in fs)
+        lat = [pbft_latency(p) for p in fs if pbft_latency(p) is not None]
+        return msgs, (statistics.mean(lat) if lat else 0), len(fs)
+    ov, va = arm_stats("ours"), arm_stats("vanilla")
+    if not ov or not va: return None
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(10, 4.2))
+    for ax, idx, lab, unit in ((a1,0,"messages per run",""),(a2,1,"consensus latency (s)","")):
+        ax.bar(0, va[idx], .5, color=RED, label="vanilla BFT (no f+1)")
+        ax.bar(1, ov[idx], .5, color=GRN, label="our BFT (f+1 firewall)")
+        ax.set_xticks([0,1]); ax.set_xticklabels(["vanilla","ours"]); ax.set_ylabel(lab)
+        ax.grid(alpha=.3, axis="y")
+    a1.set_title("messages", fontsize=11); a2.set_title("consensus latency", fontsize=11)
+    a1.legend(fontsize=8)
+    fig.suptitle("Vanilla BFT vs our BFT (normal operation): the f+1 firewall is ~free\n"
+                 "identical msgs & latency — its cost is only paid rejecting attacks (Ablation 2)", fontsize=11)
+    fig.tight_layout(); fig.savefig(os.path.join(FIGS,"ab6_vanilla_vs_ours.png"), dpi=130)
+    return {"vanilla":(va[0],va[1]), "ours":(ov[0],ov[1])}
+
+
+def decomposition(plt):
+    # where our end-to-end consensus time goes: arrival-cert formation (ours) + PBFT
+    # ordering (vanilla core). Decomposition for understanding (from ab6 'ours' logs).
+    fs = glob.glob(os.path.join(RES, "ab6_ours_rep*.log")) or glob.glob(os.path.join(RES, "ab1_ON_k0_rep*.log"))
+    if not fs: return None
+    cert = statistics.mean([c for c in (cert_latency(p) for p in fs) if c])
+    pbft = statistics.mean([c for c in (pbft_latency(p) for p in fs) if c])
+    fig, ax = plt.subplots(figsize=(5.5, 5))
+    ax.bar(0, pbft*1000, .55, color="#5b8fd1", label="PBFT ordering (vanilla core)")
+    ax.bar(0, cert*1000, .55, bottom=pbft*1000, color=GRN, label="arrival-cert f+1 (our addition)")
+    ax.text(0, pbft*1000/2, f"{pbft*1000:.0f} ms", ha="center", va="center", color="white", fontsize=10)
+    ax.text(0, pbft*1000+cert*1000/2, f"+{cert*1000:.0f} ms", ha="center", va="center", color="white", fontsize=10)
+    ax.set_xticks([0]); ax.set_xticklabels(["our protocol"]); ax.set_xlim(-.8,.8)
+    ax.set_ylabel("consensus latency (ms)")
+    ax.set_title("Latency decomposition: what our arrival-cert layer\nadds on top of vanilla PBFT ordering", fontsize=10)
+    ax.legend(fontsize=8); ax.grid(alpha=.3, axis="y")
+    fig.tight_layout(); fig.savefig(os.path.join(FIGS,"decomposition.png"), dpi=130)
+    return {"pbft_ms": pbft*1000, "cert_ms": cert*1000}
+
+
 def main():
     plt = plt_setup()
     out = {}
-    for name, fn in (("1",ablation1),("2",ablation2),("3",ablation3),("4",ablation4),("5",ablation5)):
+    for name, fn in (("1",ablation1),("2",ablation2),("3",ablation3),("4",ablation4),
+                     ("5",ablation5),("6-vanilla",ablation6),("decomposition",decomposition)):
         try:
             r = fn(plt)
             out[name] = r
-            print(f"Ablation {name}: {'OK -> figure written' if r else 'no logs yet'}  {r if r else ''}")
+            print(f"{name}: {'OK -> figure written' if r else 'no logs'}  {r if r else ''}")
         except Exception as e:
-            print(f"Ablation {name}: ERROR {e}")
+            print(f"{name}: ERROR {e}")
     print(f"\nFigures in {FIGS}")
 
 
