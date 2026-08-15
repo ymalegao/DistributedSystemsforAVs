@@ -214,12 +214,12 @@ ResDBIntersectionApp::deserializeArrivalCert(BFTMessage* msg)
 int ResDBIntersectionApp::countStaticCollectedCerts() const
 {
     int count = 0;
-    for (const auto& kv : collected_certs_) {
+    for (const auto& kv : ctx_.collected_certs_) {
         const int rid = extractReplicaId(kv.first);
-        if (cancel_pending_) {
+        if (ctx_.cancel_pending_) {
             if (shouldIncludeInRollbackMembership(rid))
                 ++count;
-        } else if (rid >= 0 && rid < total_vehicles_) {
+        } else if (rid >= 0 && rid < ctx_.total_vehicles_) {
             ++count;
         }
     }
@@ -229,11 +229,11 @@ int ResDBIntersectionApp::countStaticCollectedCerts() const
 int ResDBIntersectionApp::CertPrimary() const
 {
     int primary = -1;
-    for (const auto& kv : collected_certs_) {
+    for (const auto& kv : ctx_.collected_certs_) {
         const int rid = extractReplicaId(kv.first);
-        const bool eligible = cancel_pending_
+        const bool eligible = ctx_.cancel_pending_
             ? shouldIncludeInRollbackMembership(rid)
-            : (rid >= 0 && rid < total_vehicles_);
+            : (rid >= 0 && rid < ctx_.total_vehicles_);
         if (eligible && (primary < 0 || rid < primary)) {
             primary = rid;
         }
@@ -243,7 +243,7 @@ int ResDBIntersectionApp::CertPrimary() const
 
 const char* ResDBIntersectionApp::discoveryStateName() const
 {
-    switch (discovery_.state) {
+    switch (ctx_.discovery_.state) {
     case DiscoveryState::INACTIVE: return "INACTIVE";
     case DiscoveryState::COLLECTING: return "COLLECTING";
     case DiscoveryState::DRAINING_CERTS: return "DRAINING_CERTS";
@@ -254,13 +254,13 @@ const char* ResDBIntersectionApp::discoveryStateName() const
 
 void ResDBIntersectionApp::startDiscoveryRound(const char* reason)
 {
-    if (current_phase_ == ConsensusPhase::DEPARTED || is_departed_) return;
+    if (ctx_.current_phase_ == ConsensusPhase::DEPARTED || ctx_.is_departed_) return;
     if (discovery_deadline_msg_->isScheduled()) cancelEvent(discovery_deadline_msg_);
     if (discovery_settle_msg_->isScheduled()) cancelEvent(discovery_settle_msg_);
-    discovery_.reset(current_epoch_, simTime());
+    ctx_.discovery_.reset(ctx_.current_epoch_, simTime());
     resetOrderCandidate(reason ? reason : "discovery-start");
-    std::cout << "[DISCOVERY-BEGIN] r" << replicaId_
-              << " epoch=" << discovery_.epoch
+    std::cout << "[DISCOVERY-BEGIN] r" << ctx_.replicaId_
+              << " epoch=" << ctx_.discovery_.epoch
               << " reason=" << (reason ? reason : "start")
               << " stop_zone=" << (entered_stop_zone_ ? 1 : 0)
               << " t=" << simTime() << "\n";
@@ -269,17 +269,17 @@ void ResDBIntersectionApp::startDiscoveryRound(const char* reason)
 
 void ResDBIntersectionApp::armDiscoveryTimers(const char* reason)
 {
-    if (!entered_stop_zone_ || discovery_.state != DiscoveryState::COLLECTING ||
-            propose_submitted_ || order_applied_) return;
+    if (!entered_stop_zone_ || ctx_.discovery_.state != DiscoveryState::COLLECTING ||
+            ctx_.propose_submitted_ || ctx_.order_applied_) return;
     if (!discovery_deadline_msg_->isScheduled()) {
         scheduleAt(simTime() + cert_collection_timeout_, discovery_deadline_msg_);
-        discovery_.collectionStartedAt = simTime();
-        std::cout << "[DISCOVERY-DEADLINE] r" << replicaId_
-                  << " epoch=" << discovery_.epoch
+        ctx_.discovery_.collectionStartedAt = simTime();
+        std::cout << "[DISCOVERY-DEADLINE] r" << ctx_.replicaId_
+                  << " epoch=" << ctx_.discovery_.epoch
                   << " armed_for=" << simTime() + cert_collection_timeout_
                   << " reason=" << (reason ? reason : "arm") << "\n";
     }
-    simtime_t settleAt = discovery_.lastNewIntentAt + discovery_intent_settle_;
+    simtime_t settleAt = ctx_.discovery_.lastNewIntentAt + discovery_intent_settle_;
     if (settleAt < simTime()) settleAt = simTime();
     if (discovery_settle_msg_->isScheduled()) cancelEvent(discovery_settle_msg_);
     scheduleAt(settleAt, discovery_settle_msg_);
@@ -287,13 +287,13 @@ void ResDBIntersectionApp::armDiscoveryTimers(const char* reason)
 
 void ResDBIntersectionApp::noteDiscoveryIntent(const std::string& carId, const char* source)
 {
-    if (carId.empty() || propose_submitted_ || order_applied_ ||
-            current_phase_ == ConsensusPhase::DEPARTED) return;
-    if (discovery_.state == DiscoveryState::DRAINING_CERTS ||
-            discovery_.state == DiscoveryState::COMPLETE) {
+    if (carId.empty() || ctx_.propose_submitted_ || ctx_.order_applied_ ||
+            ctx_.current_phase_ == ConsensusPhase::DEPARTED) return;
+    if (ctx_.discovery_.state == DiscoveryState::DRAINING_CERTS ||
+            ctx_.discovery_.state == DiscoveryState::COMPLETE) {
         resetOrderCandidate("discovery-reopened");
-        discovery_.state = DiscoveryState::COLLECTING;
-        discovery_.closeReason = DiscoveryCloseReason::NONE;
+        ctx_.discovery_.state = DiscoveryState::COLLECTING;
+        ctx_.discovery_.closeReason = DiscoveryCloseReason::NONE;
         if (vc_trigger_msg_) {
             if (vc_trigger_msg_->isScheduled()) cancelEvent(vc_trigger_msg_);
             delete vc_trigger_msg_;
@@ -306,13 +306,13 @@ void ResDBIntersectionApp::noteDiscoveryIntent(const std::string& carId, const c
                        broadcastArrivalAnnouncement_timer_);
         }
     }
-    discovery_.lastNewIntentAt = simTime();
-    std::cout << "[DISCOVERY-VIEW] r" << replicaId_
-              << " epoch=" << discovery_.epoch
+    ctx_.discovery_.lastNewIntentAt = simTime();
+    std::cout << "[DISCOVERY-VIEW] r" << ctx_.replicaId_
+              << " epoch=" << ctx_.discovery_.epoch
               << " new_intent=" << carId
               << " source=" << (source ? source : "announce")
               << " intents=" << observed_intent_cars_.size()
-              << " certs=" << collected_certs_.size()
+              << " certs=" << ctx_.collected_certs_.size()
               << " t=" << simTime() << "\n";
     armDiscoveryTimers("new-intent");
 }
@@ -320,15 +320,15 @@ void ResDBIntersectionApp::noteDiscoveryIntent(const std::string& carId, const c
 bool ResDBIntersectionApp::discoveryViewCertified(std::vector<int>* missing) const
 {
     bool hasEligibleIntent = false;
-    bool hasLocalIntent = !cancel_pending_ || !rollback_local_recallable_;
-    const std::string localCarId = "veh" + std::to_string(replicaId_);
+    bool hasLocalIntent = !ctx_.cancel_pending_ || !rollback_local_recallable_;
+    const std::string localCarId = "veh" + std::to_string(ctx_.replicaId_);
     std::lock_guard<std::mutex> lk(certs_mutex_);
     for (const auto& carId : observed_intent_cars_) {
         const int rid = extractReplicaId(carId);
-        if (cancel_pending_ && !shouldIncludeInRollbackMembership(rid)) continue;
+        if (ctx_.cancel_pending_ && !shouldIncludeInRollbackMembership(rid)) continue;
         hasEligibleIntent = true;
         if (carId == localCarId) hasLocalIntent = true;
-        if (!collected_certs_.count(carId)) {
+        if (!ctx_.collected_certs_.count(carId)) {
             if (missing) missing->push_back(rid);
             else return false;
         }
@@ -338,13 +338,13 @@ bool ResDBIntersectionApp::discoveryViewCertified(std::vector<int>* missing) con
 
 void ResDBIntersectionApp::maybeAdvanceDiscovery(const char* reason, bool deadline)
 {
-    if (discovery_.state != DiscoveryState::COLLECTING || !entered_stop_zone_ ||
-            propose_submitted_ || order_applied_) return;
+    if (ctx_.discovery_.state != DiscoveryState::COLLECTING || !entered_stop_zone_ ||
+            ctx_.propose_submitted_ || ctx_.order_applied_) return;
     if (deadline) {
         beginDiscoveryDrain(reason, true);
         return;
     }
-    if (simTime() < discovery_.lastNewIntentAt + discovery_intent_settle_) {
+    if (simTime() < ctx_.discovery_.lastNewIntentAt + discovery_intent_settle_) {
         armDiscoveryTimers("view-not-stable");
         return;
     }
@@ -354,16 +354,16 @@ void ResDBIntersectionApp::maybeAdvanceDiscovery(const char* reason, bool deadli
     // Only the hard per-round deadline may close epoch 0 early. Later
     // epochs (post-CANCEL reconvergence) keep the eager path below, since
     // by then the topology is already established.
-    if (discovery_.epoch == 0) return;
+    if (ctx_.discovery_.epoch == 0) return;
     if (!discoveryViewCertified()) return;
     beginDiscoveryDrain(reason, false);
 }
 
 void ResDBIntersectionApp::beginDiscoveryDrain(const char* reason, bool deadline)
 {
-    if (discovery_.state != DiscoveryState::COLLECTING) return;
-    discovery_.state = DiscoveryState::DRAINING_CERTS;
-    discovery_.closeReason = deadline
+    if (ctx_.discovery_.state != DiscoveryState::COLLECTING) return;
+    ctx_.discovery_.state = DiscoveryState::DRAINING_CERTS;
+    ctx_.discovery_.closeReason = deadline
         ? DiscoveryCloseReason::DEADLINE
         : DiscoveryCloseReason::STABILIZED;
     if (discovery_deadline_msg_ && discovery_deadline_msg_->isScheduled())
@@ -379,43 +379,43 @@ void ResDBIntersectionApp::beginDiscoveryDrain(const char* reason, bool deadline
     stopStopZoneCertGossip();
     discardPendingDiscoveryNonCerts(reason ? reason : "view-closed");
     logDiscoveryDiagnostics(reason ? reason : "view-closed");
-    std::cout << "[DISCOVERY-DRAIN] r" << replicaId_
-              << " epoch=" << discovery_.epoch
+    std::cout << "[DISCOVERY-DRAIN] r" << ctx_.replicaId_
+              << " epoch=" << ctx_.discovery_.epoch
               << " reason=" << (reason ? reason : "view-closed")
               << " deadline=" << (deadline ? 1 : 0)
-              << " local_cert_assembled=" << (discovery_.localCertAssembled() ? 1 : 0)
-              << " local_cert_aired=" << (discovery_.localCertAired() ? 1 : 0)
+              << " local_cert_assembled=" << (ctx_.discovery_.localCertAssembled() ? 1 : 0)
+              << " local_cert_aired=" << (ctx_.discovery_.localCertAired() ? 1 : 0)
               << " t=" << simTime() << "\n";
     maybeCompleteDiscoveryDrain(reason);
 }
 
 void ResDBIntersectionApp::maybeCompleteDiscoveryDrain(const char* reason)
 {
-    if (discovery_.state != DiscoveryState::DRAINING_CERTS) return;
-    if (discovery_.localCertAssembled() && !discovery_.localCertAired()) return;
-    if (hasPendingDiscoveryCerts(discovery_.epoch)) return;
+    if (ctx_.discovery_.state != DiscoveryState::DRAINING_CERTS) return;
+    if (ctx_.discovery_.localCertAssembled() && !ctx_.discovery_.localCertAired()) return;
+    if (hasPendingDiscoveryCerts(ctx_.discovery_.epoch)) return;
     finishDiscoveryRound(reason);
 }
 
 void ResDBIntersectionApp::finishDiscoveryRound(const char* reason)
 {
-    if (discovery_.state != DiscoveryState::DRAINING_CERTS) return;
-    discovery_.state = DiscoveryState::COMPLETE;
+    if (ctx_.discovery_.state != DiscoveryState::DRAINING_CERTS) return;
+    ctx_.discovery_.state = DiscoveryState::COMPLETE;
     stopCertBroadcastRetries();
     stopStopZoneCertGossip();
     std::vector<int> missing;
     discoveryViewCertified(&missing);
-    std::cout << "[DISCOVERY-COMPLETE] r" << replicaId_
-              << " epoch=" << discovery_.epoch
+    std::cout << "[DISCOVERY-COMPLETE] r" << ctx_.replicaId_
+              << " epoch=" << ctx_.discovery_.epoch
               << " reason=" << (reason ? reason : "drained")
               << " intents=" << observed_intent_cars_.size()
-              << " certs=" << collected_certs_.size()
+              << " certs=" << ctx_.collected_certs_.size()
               << " missing=";
     for (size_t i = 0; i < missing.size(); ++i) {
         if (i) std::cout << ",";
         std::cout << "r" << missing[i];
     }
-    std::cout << " local_cert_aired=" << (discovery_.localCertAired() ? 1 : 0)
+    std::cout << " local_cert_aired=" << (ctx_.discovery_.localCertAired() ? 1 : 0)
               << " t=" << simTime() << "\n";
 
     evaluateOrderReadiness("discovery-complete");
@@ -430,7 +430,7 @@ void ResDBIntersectionApp::deactivateDiscovery(const char* reason)
     stopCertBroadcastRetries();
     stopStopZoneCertGossip();
     cancelPendingDiscoveryTxs(reason ? reason : "inactive");
-    discovery_.state = DiscoveryState::INACTIVE;
+    ctx_.discovery_.state = DiscoveryState::INACTIVE;
 }
 
 // ── attachAmbulanceCryptoToAnnouncement (ported from legacy arrival path) ────
@@ -447,7 +447,7 @@ void ResDBIntersectionApp::attachAmbulanceCryptoToAnnouncement(ArrivalAnnounceme
     ann.ambulanceCertBytes = my_ambulance_cert_bytes_;
     if (!ambulance_private_key_ ||
             my_ambulance_cert_bytes_.size() != sizeof(VehicleCert)) {
-        std::cerr << "[AMBULANCE] r" << replicaId_
+        std::cerr << "[AMBULANCE] r" << ctx_.replicaId_
                   << " attach failed: key="
                   << (ambulance_private_key_ ? "ok" : "null")
                   << " certBytes=" << my_ambulance_cert_bytes_.size()
@@ -464,7 +464,7 @@ void ResDBIntersectionApp::attachAmbulanceCryptoToAnnouncement(ArrivalAnnounceme
             ambulance_private_key_,
             reinterpret_cast<const uint8_t*>(ambPayload.c_str()), ambPayload.size(),
             sigOut, sigLen)) {
-        std::cerr << "[AMBULANCE] r" << replicaId_
+        std::cerr << "[AMBULANCE] r" << ctx_.replicaId_
                   << " signBytes failed for payload=" << ambPayload << "\n";
         return;
     }
@@ -475,16 +475,16 @@ void ResDBIntersectionApp::attachAmbulanceCryptoToAnnouncement(ArrivalAnnounceme
 
 void ResDBIntersectionApp::broadcastArrivalAnnouncement(bool forceEmergency)
 {
-    // forceEmergency lets a late ambulance keep announcing after order_applied_ so peers
+    // forceEmergency lets a late ambulance keep announcing after ctx_.order_applied_ so peers
     // witness it and echo a CANCEL (the rollback trigger). Never override DEPARTED / no mobility.
-    if (current_phase_ == ConsensusPhase::DEPARTED) return;
-    if (order_applied_ && !forceEmergency) return;
+    if (ctx_.current_phase_ == ConsensusPhase::DEPARTED) return;
+    if (ctx_.order_applied_ && !forceEmergency) return;
     if (!mobility) return;
 
     TraCICommandInterface* traci = mobility->getCommandInterface();
     if (!traci) return;
 
-    std::string myCarId = "veh" + std::to_string(replicaId_);
+    std::string myCarId = "veh" + std::to_string(ctx_.replicaId_);
     ArrivalAnnouncement ann;
     ann.carId = myCarId;
 
@@ -510,7 +510,7 @@ void ResDBIntersectionApp::broadcastArrivalAnnouncement(bool forceEmergency)
     if (is_byzantine_ && byzantine_type_ == BYZANTINE_FALSE_LANE) {
         ann.laneId = "BYZANTINE_FAKE_LANE";
         ann.lane   = "X";
-        std::cout << "[BYZANTINE] r" << replicaId_ << " FALSE_LANE: laneId=BYZANTINE_FAKE_LANE\n";
+        std::cout << "[BYZANTINE] r" << ctx_.replicaId_ << " FALSE_LANE: laneId=BYZANTINE_FAKE_LANE\n";
     }
 
     // {
@@ -527,29 +527,29 @@ void ResDBIntersectionApp::broadcastArrivalAnnouncement(bool forceEmergency)
         rank = std::distance(lane_queue_.begin(), it) + 1;
     }
     ann.positionInLane = rank;
-    std::cout << "[ANN-BROADCAST] Replica " << replicaId_ << " positionInLane: " << rank << "\n";
+    std::cout << "[ANN-BROADCAST] Replica " << ctx_.replicaId_ << " positionInLane: " << rank << "\n";
 
     ann.direction          = strToDir(intended_direction_);
     ann.isAmbulance        = is_ambulance_;
     if (is_byzantine_ && byzantine_type_ == BYZANTINE_FAKE_AMBULANCE_FOLLOWER) {
         ann.isAmbulance = true;  // lie: claim ambulance without valid cert
         // ambulanceCertBytes intentionally left empty — cert gate catches this
-        std::cout << "[BYZANTINE] r" << replicaId_
+        std::cout << "[BYZANTINE] r" << ctx_.replicaId_
                   << " FAKE_AMBULANCE_FOLLOWER: claiming ambulance without cert\n";
     } else if (is_ambulance_) {
         attachAmbulanceCryptoToAnnouncement(ann);
     }
     ann.claimedArrivalTime = simTime().dbl();
-    ann.epoch              = (int)current_epoch_;
+    ann.epoch              = (int)ctx_.current_epoch_;
 
     // ECDSA P-256 self-signed claim.
-    if (ec_private_key_) {
+    if (ctx_.ec_private_key_) {
         std::string toSign = ann.carId + ":" + ann.laneId + ":" +
                              std::to_string(ann.positionInLane) + ":" +
                              std::to_string(ann.claimedArrivalTime) + ":" +
                              std::to_string(ann.epoch);
         uint8_t sigOut[CRYPTO_SIG_MAX_BYTES]; uint8_t sigLen = 0;
-        if (CryptoAuth::instance().signBytes(ec_private_key_,
+        if (CryptoAuth::instance().signBytes(ctx_.ec_private_key_,
                 reinterpret_cast<const uint8_t*>(toSign.c_str()), toSign.size(),
                 sigOut, sigLen))
             ann.signature.assign(sigOut, sigOut + sigLen);
@@ -571,19 +571,19 @@ void ResDBIntersectionApp::broadcastArrivalAnnouncement(bool forceEmergency)
     }
 
     if (is_byzantine_ && byzantine_type_ == BYZANTINE_EQUIVOCATOR) {
-        int n = total_vehicles_;
+        int n = ctx_.total_vehicles_;
         for (int peerId = 0; peerId < n; ++peerId) {
-            if (peerId == replicaId_) continue;
+            if (peerId == ctx_.replicaId_) continue;
             ArrivalAnnouncement annByz = ann;
             annByz.direction = (peerId < n / 2) ? DIR_LEFT : DIR_RIGHT;
-            std::cout << "[BYZANTINE] r" << replicaId_ << " EQUIVOCATOR: peer "
+            std::cout << "[BYZANTINE] r" << ctx_.replicaId_ << " EQUIVOCATOR: peer "
                       << peerId << " dir=" << (peerId < n/2 ? "L" : "R") << "\n";
             sendBFTMessage(peerId, serializeArrivalAnnouncement(annByz), kArrivalAnnounceType);
         }
     } else {
         std::vector<uint8_t> payload = serializeArrivalAnnouncement(ann);
         sendBFTMessage(-1, payload, kArrivalAnnounceType);
-        std::cout << "[ANN-BROADCAST] Replica " << replicaId_ << " broadcast ARRIVAL_ANNOUNCE at t="
+        std::cout << "[ANN-BROADCAST] Replica " << ctx_.replicaId_ << " broadcast ARRIVAL_ANNOUNCE at t="
                   << simTime() << " lane=" << ann.lane << "\n";
     }
 
@@ -603,15 +603,15 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg)
 void ResDBIntersectionApp::gossipArrivalAnnouncement(const ArrivalAnnouncement& ann,
                                                      const std::vector<uint8_t>& announceBytes)
 {
-    if (!gossip_enabled_ || announceBytes.empty() || ann.carId.empty()) return;
+    if (!ctx_.gossip_enabled_ || announceBytes.empty() || ann.carId.empty()) return;
     // A late ambulance excluded from the committed order is an emergency that must keep
     // propagating post-commit: replicas out of its radio range (notably the static units)
     // otherwise never witness it, so the CANCEL can't reach f+1 echoes. This mirrors the
     // in-flight-consensus case where gossip already floods the announcement to everyone.
-    const bool ambulanceEmergency = enableRollback_ && ann.isAmbulance &&
-        has_committed_order_ && !isEpochTombstoned((uint32_t)ann.epoch) &&
-        !committed_order_vehicle_ids_.count(extractReplicaId(ann.carId));
-    if ((propose_submitted_ || order_applied_) && !ambulanceEmergency) return;
+    const bool ambulanceEmergency = ctx_.enableRollback_ && ann.isAmbulance &&
+        ctx_.has_committed_order_ && !isEpochTombstoned((uint32_t)ann.epoch) &&
+        !ctx_.committed_order_vehicle_ids_.count(extractReplicaId(ann.carId));
+    if ((ctx_.propose_submitted_ || ctx_.order_applied_) && !ambulanceEmergency) return;
     if (!announcement_relay_tracker_.tryRelay((uint32_t)ann.epoch, ann.carId)) return;
 
     sendArrivalAnnouncementGossipPayload(
@@ -626,16 +626,16 @@ void ResDBIntersectionApp::sendArrivalAnnouncementGossipPayload(
     const char* reason,
     bool forceEmergency)
 {
-    if (!gossip_enabled_ || announceBytes.empty() || carId.empty()) return;
-    if ((propose_submitted_ || order_applied_) && !forceEmergency) return;
+    if (!ctx_.gossip_enabled_ || announceBytes.empty() || carId.empty()) return;
+    if ((ctx_.propose_submitted_ || ctx_.order_applied_) && !forceEmergency) return;
 
     auto inner = resdb_gossip::serializeAnnouncement(epoch, announceBytes);
     auto signedPayload = resdbwire::packSignedPacket(
-        ec_private_key_, ec_pub_key_, inner.data(), (uint32_t)inner.size());
+        ctx_.ec_private_key_, ctx_.ec_pub_key_, inner.data(), (uint32_t)inner.size());
     if (signedPayload.empty()) return;
 
     sendBFTMessage(-1, signedPayload, kArrivalAnnounceGossipType);
-    std::cout << "[ANN-GOSSIP-SEND] r" << replicaId_
+    std::cout << "[ANN-GOSSIP-SEND] r" << ctx_.replicaId_
               << " car=" << carId
               << " epoch=" << epoch
               << " bytes=" << announceBytes.size()
@@ -655,7 +655,7 @@ void ResDBIntersectionApp::handleArrivalAnnouncementGossip(BFTMessage* msg)
     if (view.resdbLen == 0) return;
     if (!CryptoAuth::instance().verifyBytes(view.pubKey, view.resdbBytes, view.resdbLen,
                                             view.sig, view.sigLen)) {
-        std::cout << "[ANN-GOSSIP-RECV] r" << replicaId_
+        std::cout << "[ANN-GOSSIP-RECV] r" << ctx_.replicaId_
                   << " dropped forged announce gossip from r"
                   << msg->getFromReplicaId() << "\n";
         return;
@@ -667,17 +667,17 @@ void ResDBIntersectionApp::handleArrivalAnnouncementGossip(BFTMessage* msg)
                                          epoch, announceBytes)) return;
 
     BFTMessage* announceMsg = makeArrivalAnnouncementMessage(
-        announceBytes, msg->getFromReplicaId(), replicaId_);
+        announceBytes, msg->getFromReplicaId(), ctx_.replicaId_);
     // Peek at the announcement: a late ambulance excluded from the committed order must
     // bypass the post-commit suppression below, otherwise its arrival for the (already
     // committed) epoch is dropped and out-of-range replicas never witness it to CANCEL.
     ArrivalAnnouncement peek = deserializeArrivalAnnouncement(announceMsg);
-    const bool ambulanceEmergency = enableRollback_ && peek.isAmbulance &&
-        has_committed_order_ && !isEpochTombstoned(epoch) &&
-        !committed_order_vehicle_ids_.count(extractReplicaId(peek.carId));
+    const bool ambulanceEmergency = ctx_.enableRollback_ && peek.isAmbulance &&
+        ctx_.has_committed_order_ && !isEpochTombstoned(epoch) &&
+        !ctx_.committed_order_vehicle_ids_.count(extractReplicaId(peek.carId));
     if (!ambulanceEmergency) {
-        if (has_committed_order_ && epoch <= last_committed_epoch_) { delete announceMsg; return; }
-        if ((int)epoch < (int)current_epoch_) { delete announceMsg; return; }
+        if (ctx_.has_committed_order_ && epoch <= ctx_.last_committed_epoch_) { delete announceMsg; return; }
+        if ((int)epoch < (int)ctx_.current_epoch_) { delete announceMsg; return; }
     }
     handleArrivalAnnouncement(announceMsg, true, msg->getFromReplicaId());
     delete announceMsg;
@@ -690,7 +690,7 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
     std::vector<uint8_t> announceBytes = payloadBytes(msg);
     ArrivalAnnouncement ann = deserializeArrivalAnnouncement(msg);
     if (ann.carId.empty()) return;
-    std::cout << "[ANN-RECV] Replica " << replicaId_ << " received ARRIVAL_ANNOUNCE from "
+    std::cout << "[ANN-RECV] Replica " << ctx_.replicaId_ << " received ARRIVAL_ANNOUNCE from "
               << ann.carId << " frameFrom=" << msg->getFromReplicaId()
               << " via=" << (viaGossip ? "gossip" : "direct");
     if (viaGossip) std::cout << " carrier=" << carrierReplicaId;
@@ -701,12 +701,12 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
     // cars stored in local_vehicle_states_ are never re-echoed here.
     if (local_vehicle_states_.count(ann.carId)) {
         // Re-echo if we verified this car before but haven't received its cert yet.
-        // Use !collected_certs_.count(ann.carId), NOT !cert_broadcast_: the latter
+        // Use !ctx_.collected_certs_.count(ann.carId), NOT !cert_broadcast_: the latter
         // is this replica's own flag and would incorrectly suppress re-echoes after
         // this replica assembles its own cert.
         if (echoed_cars_.count(ann.carId)
-                && !collected_certs_.count(ann.carId)
-                && !propose_submitted_ && !order_applied_) {
+                && !ctx_.collected_certs_.count(ann.carId)
+                && !ctx_.propose_submitted_ && !ctx_.order_applied_) {
             pending_relays_[std::make_pair((uint32_t)ann.epoch, ann.carId)] = {
                 ann.carId, (uint32_t)ann.epoch, announceBytes, simTime().dbl(), 0};
             sendArrivalEcho(ann);
@@ -743,7 +743,7 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
         arrival_announcements_received_.insert(ann.carId);
         const bool newIntent = observed_intent_cars_.insert(ann.carId).second;
         if (newIntent) noteDiscoveryIntent(ann.carId, "invalid-lane-announce");
-        std::cout << "[ANN-RECV] Replica " << replicaId_ << " FALSE_LANE from "
+        std::cout << "[ANN-RECV] Replica " << ctx_.replicaId_ << " FALSE_LANE from "
                   << ann.carId
                   << " via=" << (viaGossip ? "gossip" : "direct")
                   << " — no echo\n";
@@ -757,7 +757,7 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
         std::memcpy(&cert, ann.ambulanceCertBytes.data(), sizeof(VehicleCert));
         std::string role = CryptoAuth::instance().verifyCert(cert);
         if (role != "ambulance") {
-            std::cerr << "[ANN-RECV] r" << replicaId_
+            std::cerr << "[ANN-RECV] r" << ctx_.replicaId_
                       << " DOWNGRADE: cert role='" << role << "' for " << ann.carId << "\n";
             effectiveIsAmbulance = false;
         } else if (!ann.ambulanceSigBytes.empty() &&
@@ -770,7 +770,7 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
                     reinterpret_cast<const uint8_t*>(payload.c_str()), payload.size(),
                     ann.ambulanceSigBytes.data(),
                     static_cast<uint8_t>(ann.ambulanceSigBytes.size()))) {
-                std::cerr << "[ANN-RECV] r" << replicaId_
+                std::cerr << "[ANN-RECV] r" << ctx_.replicaId_
                           << " DOWNGRADE: ambulance sig invalid for " << ann.carId << "\n";
                 effectiveIsAmbulance = false;
             }
@@ -778,7 +778,7 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
             effectiveIsAmbulance = false;
         }
     } else if (ann.isAmbulance && !ann.ambulanceCertBytes.empty()) {
-        std::cerr << "[ANN-RECV] r" << replicaId_
+        std::cerr << "[ANN-RECV] r" << ctx_.replicaId_
                   << " DOWNGRADE: ambulance cert wrong size ("
                   << ann.ambulanceCertBytes.size() << " vs " << sizeof(VehicleCert)
                   << ") for " << ann.carId << "\n";
@@ -792,7 +792,7 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
     }
     if (enableAmbulanceCertGate_ && claimedAmbulance && !effectiveIsAmbulance) {
         cert_gate_rejected_ambulance_claimers_.insert(ann.carId);
-        std::cout << "[CERT-GATE] r" << replicaId_
+        std::cout << "[CERT-GATE] r" << ctx_.replicaId_
                   << " rejected uncertified ambulance claim from " << ann.carId << "\n";
         ann.isAmbulance = false;
     }
@@ -816,20 +816,20 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
     sendArrivalEcho(ann);
     gossipArrivalAnnouncement(ann, announceBytes);
 
-    std::cout << "[ANN-RECV] Replica " << replicaId_ << " stored VehicleState for "
+    std::cout << "[ANN-RECV] Replica " << ctx_.replicaId_ << " stored VehicleState for "
               << ann.carId << " via=" << (viaGossip ? "gossip" : "direct")
               << " (" << observed_intent_cars_.size()
-              << "/" << total_vehicles_ << " observed)\n";
+              << "/" << ctx_.total_vehicles_ << " observed)\n";
     if (newIntent) noteDiscoveryIntent(ann.carId, viaGossip ? "announce-gossip" : "announce-direct");
-    if (discovery_.state != DiscoveryState::INACTIVE)
-        current_phase_ = ConsensusPhase::COLLECTING_CERTS;
+    if (ctx_.discovery_.state != DiscoveryState::INACTIVE)
+        ctx_.current_phase_ = ConsensusPhase::COLLECTING_CERTS;
 }
 
 // ── sendArrivalEcho ───────────────────────────────────────────────────────────
 
 void ResDBIntersectionApp::sendArrivalEcho(const ArrivalAnnouncement& ann)
 {
-    if (!ec_private_key_) return;
+    if (!ctx_.ec_private_key_) return;
     const bool collusionEcho = shouldColludeOnFalseLane(ann);
     // Do not dedup/suppress radio (re)transmission here: repeated/gossiped
     // forged announcements must be able to trigger a retransmit of this same
@@ -843,24 +843,24 @@ void ResDBIntersectionApp::sendArrivalEcho(const ArrivalAnnouncement& ann)
         std::to_string(ann.positionInLane) + ":" +
         (ann.direction == DIR_LEFT ? "L" : ann.direction == DIR_RIGHT ? "R" : "S") +
         ":" + (ann.isAmbulance ? "1" : "0") +
-        ":" + std::to_string(replicaId_);
+        ":" + std::to_string(ctx_.replicaId_);
 
     ArrivalEcho echo;
-    echo.echoingReplicaId = replicaId_;
+    echo.echoingReplicaId = ctx_.replicaId_;
     echo.targetCarId      = ann.carId;
     echo.lane             = ann.lane;
     echo.positionInLane   = ann.positionInLane;
     echo.direction        = ann.direction;
     echo.isAmbulance      = ann.isAmbulance;
     echo.epoch            = ann.epoch;
-    std::memcpy(echo.signerPubKey, ec_pub_key_, CRYPTO_PUBKEY_BYTES);
+    std::memcpy(echo.signerPubKey, ctx_.ec_pub_key_, CRYPTO_PUBKEY_BYTES);
     std::memset(echo.signature, 0, CRYPTO_SIG_MAX_BYTES);
     echo.signatureLen = 0;
 
-    if (!CryptoAuth::instance().signBytes(ec_private_key_,
+    if (!CryptoAuth::instance().signBytes(ctx_.ec_private_key_,
             reinterpret_cast<const uint8_t*>(toSign.c_str()), toSign.size(),
             echo.signature, echo.signatureLen)) {
-        std::cerr << "[ECHO-SEND] Replica " << replicaId_ << " sign failed for echo of "
+        std::cerr << "[ECHO-SEND] Replica " << ctx_.replicaId_ << " sign failed for echo of "
                   << ann.carId << "\n";
         return;
     }
@@ -869,27 +869,27 @@ void ResDBIntersectionApp::sendArrivalEcho(const ArrivalAnnouncement& ann)
         echo.signature[0] = echo.signature[1] =
         echo.signature[2] = echo.signature[3] = 0xDE;
         echo.signatureLen = 4;
-        std::cout << "[BYZANTINE] r" << replicaId_ << " INVALID_SIG: corrupted echo for "
+        std::cout << "[BYZANTINE] r" << ctx_.replicaId_ << " INVALID_SIG: corrupted echo for "
                   << ann.carId << "\n";
     }
 
     int targetId = extractReplicaId(ann.carId);
     sendBFTMessage(-1, serializeArrivalEcho(echo), kArrivalEchoType,
                    false, true);
-    std::cout << "[ECHO-SEND] Replica " << replicaId_ << " → " << ann.carId
+    std::cout << "[ECHO-SEND] Replica " << ctx_.replicaId_ << " → " << ann.carId
               << " ARRIVAL_ECHO sigLen=" << (int)echo.signatureLen << "\n";
     if (collusionEcho) {
         std::cout << "[FALSE-LANE-COLLUSION-ECHO] target=" << ann.carId
-                  << " signer=" << replicaId_
+                  << " signer=" << ctx_.replicaId_
                   << " epoch=" << ann.epoch
-                  << " source=" << (extractReplicaId(ann.carId) == replicaId_ ? "self" : "peer")
+                  << " source=" << (extractReplicaId(ann.carId) == ctx_.replicaId_ ? "self" : "peer")
                   << "\n";
-        if (extractReplicaId(ann.carId) == replicaId_) {
+        if (extractReplicaId(ann.carId) == ctx_.replicaId_) {
             collectArrivalEcho(echo, "collusion-self");
         }
     }
     if (debug_cert_protocol_) {
-        std::cout << "[CERT-DEBUG] sendArrivalEcho r" << replicaId_ << " targetReplicaId=-1"
+        std::cout << "[CERT-DEBUG] sendArrivalEcho r" << ctx_.replicaId_ << " targetReplicaId=-1"
                   << " signPayload=\"" << toSign << "\"\n";
     }
 }
@@ -897,8 +897,8 @@ void ResDBIntersectionApp::sendArrivalEcho(const ArrivalAnnouncement& ann)
 bool ResDBIntersectionApp::isExactFalseLaneClaim(const ArrivalAnnouncement& ann) const
 {
     const int target = extractReplicaId(ann.carId);
-    return target >= 0 && target < total_vehicles_ &&
-        ann.epoch == static_cast<int>(current_epoch_) &&
+    return target >= 0 && target < ctx_.total_vehicles_ &&
+        ann.epoch == static_cast<int>(ctx_.current_epoch_) &&
         ann.laneId == "BYZANTINE_FAKE_LANE" && ann.lane == "X";
 }
 
@@ -907,7 +907,7 @@ bool ResDBIntersectionApp::shouldColludeOnFalseLane(const ArrivalAnnouncement& a
     if (!is_byzantine_ || byzantine_type_ != BYZANTINE_FALSE_LANE) return false;
     const int target = extractReplicaId(ann.carId);
     return isExactFalseLaneClaim(ann) &&
-        false_lane_colluder_ids_.count(replicaId_) > 0 &&
+        false_lane_colluder_ids_.count(ctx_.replicaId_) > 0 &&
         false_lane_colluder_ids_.count(target) > 0;
 }
 
@@ -916,12 +916,12 @@ bool ResDBIntersectionApp::isArrivalSignerEligible(int signerId) const
     // ARRIVAL certificates establish the next ORDER electorate, so late
     // configured replicas may witness before that ORDER is committed. The
     // configured replica range is therefore the correct active discovery set.
-    return signerId >= 0 && signerId < total_vehicles_;
+    return signerId >= 0 && signerId < ctx_.total_vehicles_;
 }
 
 void ResDBIntersectionApp::collectArrivalEcho(const ArrivalEcho& echo, const char* source)
 {
-    const std::string myCarId = "veh" + std::to_string(replicaId_);
+    const std::string myCarId = "veh" + std::to_string(ctx_.replicaId_);
     if (echo.targetCarId != myCarId || cert_broadcast_) return;
     if (!isArrivalSignerEligible(echo.echoingReplicaId) || echo.signatureLen == 0) return;
     if (!WitnessKeyRegistry::instance().matches(echo.echoingReplicaId, echo.signerPubKey)) return;
@@ -929,7 +929,7 @@ void ResDBIntersectionApp::collectArrivalEcho(const ArrivalEcho& echo, const cha
     auto stateIt = local_vehicle_states_.find(myCarId);
     if (stateIt == local_vehicle_states_.end()) return;
     const VehicleState& state = stateIt->second;
-    if (echo.epoch != static_cast<int>(current_epoch_) ||
+    if (echo.epoch != static_cast<int>(ctx_.current_epoch_) ||
             echo.lane != state.lane || echo.positionInLane != state.positionInLane ||
             echo.direction != state.direction || echo.isAmbulance != state.isAmbulance) {
         return;
@@ -951,9 +951,9 @@ void ResDBIntersectionApp::collectArrivalEcho(const ArrivalEcho& echo, const cha
         if (existing.echoingReplicaId == echo.echoingReplicaId) return;
     echoes.push_back(echo);
 
-    const int f = tolerated_faults_ >= 0 ? tolerated_faults_ : (total_vehicles_ - 1) / 3;
+    const int f = ctx_.tolerated_faults_ >= 0 ? ctx_.tolerated_faults_ : (ctx_.total_vehicles_ - 1) / 3;
     const int required = f + 1;
-    std::cout << "[ECHO-RECV] Replica " << replicaId_ << " received echo from "
+    std::cout << "[ECHO-RECV] Replica " << ctx_.replicaId_ << " received echo from "
               << echo.echoingReplicaId << " (" << echoes.size() << " so far)\n";
     if (state.lane == "X") {
         std::cout << "[FALSE-LANE-COLLUSION-ECHO] target=" << myCarId
@@ -970,18 +970,18 @@ void ResDBIntersectionApp::collectArrivalEcho(const ArrivalEcho& echo, const cha
     cert.positionInLane = state.positionInLane;
     cert.direction = state.direction;
     cert.isAmbulance = state.isAmbulance;
-    cert.epoch = static_cast<int>(current_epoch_);
+    cert.epoch = static_cast<int>(ctx_.current_epoch_);
     cert.echoes = echoes;
     if (state.arrival_time_us > 0) {
         const double announceTimeSec = static_cast<double>(state.arrival_time_us) / 1000000.0;
         const double latencySec = simTime().dbl() - announceTimeSec;
-        std::cout << "[METRICS " << replicaId_ << "] Cert_Created_Time: " << simTime()
+        std::cout << "[METRICS " << ctx_.replicaId_ << "] Cert_Created_Time: " << simTime()
                   << " car=" << myCarId << " announce_time=" << announceTimeSec
                   << " latency=" << latencySec << "s\n";
-        std::cout << "[METRICS " << replicaId_
+        std::cout << "[METRICS " << ctx_.replicaId_
                   << "] Cert_Creation_Latency: " << latencySec << "s\n";
     }
-    std::cout << "[CERT-ASSEMBLE] Replica " << replicaId_
+    std::cout << "[CERT-ASSEMBLE] Replica " << ctx_.replicaId_
               << " assembled ARRIVAL_CERT with " << cert.echoes.size()
               << " echoes — broadcasting\n";
     if (state.lane == "X") {
@@ -1002,21 +1002,21 @@ void ResDBIntersectionApp::handleArrivalEcho(BFTMessage* msg)
 {
     ArrivalEcho echo = deserializeArrivalEcho(msg);
     if (debug_cert_protocol_)
-        std::cout << "[CERT-DEBUG] handleArrivalEcho r" << replicaId_
+        std::cout << "[CERT-DEBUG] handleArrivalEcho r" << ctx_.replicaId_
                   << " frameFrom=r" << msg->getFromReplicaId()
                   << " echo.target=" << echo.targetCarId
                   << " echo.signer=r" << echo.echoingReplicaId << "\n";
-    std::string myCarId = "veh" + std::to_string(replicaId_);
+    std::string myCarId = "veh" + std::to_string(ctx_.replicaId_);
     if (echo.targetCarId != myCarId) {
         if (debug_cert_protocol_)
-            std::cout << "[CERT-DEBUG] handleArrivalEcho r" << replicaId_
+            std::cout << "[CERT-DEBUG] handleArrivalEcho r" << ctx_.replicaId_
                       << " wrong target: echo for " << echo.targetCarId
                       << " (my " << myCarId << ") from r" << echo.echoingReplicaId << "\n";
         return;
     }
     if (cert_broadcast_) {
         if (debug_cert_protocol_)
-            std::cout << "[CERT-DEBUG] handleArrivalEcho r" << replicaId_
+            std::cout << "[CERT-DEBUG] handleArrivalEcho r" << ctx_.replicaId_
                       << " drop echo from r" << echo.echoingReplicaId
                       << " (cert_broadcast_ already true)\n";
         return;
@@ -1030,7 +1030,7 @@ void ResDBIntersectionApp::handleArrivalEcho(BFTMessage* msg)
 void ResDBIntersectionApp::scheduleNextCertRetry()
 {
     if (!enable_cert_retries_ || cert_pending_retries_.carId.empty()) return;
-    if (propose_submitted_ || order_applied_) {
+    if (ctx_.propose_submitted_ || ctx_.order_applied_) {
         stopCertBroadcastRetries();
         return;
     }
@@ -1057,8 +1057,8 @@ void ResDBIntersectionApp::broadcastCollectedCerts(const char* reason)
     std::vector<ArrivalCert> certs;
     {
         std::lock_guard<std::mutex> lk(certs_mutex_);
-        certs.reserve(collected_certs_.size());
-        for (const auto& kv : collected_certs_) {
+        certs.reserve(ctx_.collected_certs_.size());
+        for (const auto& kv : ctx_.collected_certs_) {
             certs.push_back(kv.second);
         }
     }
@@ -1067,7 +1067,7 @@ void ResDBIntersectionApp::broadcastCollectedCerts(const char* reason)
     for (const auto& cert : certs) {
         sendBFTMessage(-1, serializeArrivalCert(cert), kArrivalCertType);
     }
-    std::cout << "[CERT-GOSSIP] r" << replicaId_
+    std::cout << "[CERT-GOSSIP] r" << ctx_.replicaId_
               << " broadcast collected certs count=" << certs.size()
               << " reason=" << (reason ? reason : "stop-zone")
               << " t=" << simTime() << "\n";
@@ -1075,7 +1075,7 @@ void ResDBIntersectionApp::broadcastCollectedCerts(const char* reason)
 
 void ResDBIntersectionApp::startStopZoneCertGossip(const char* reason, bool immediate)
 {
-    if (discovery_.state != DiscoveryState::COLLECTING)
+    if (ctx_.discovery_.state != DiscoveryState::COLLECTING)
         return;
 
     const simtime_t newDeadline = simTime() + cert_collection_timeout_;
@@ -1089,9 +1089,9 @@ void ResDBIntersectionApp::startStopZoneCertGossip(const char* reason, bool imme
 
 void ResDBIntersectionApp::scheduleNextStopZoneCertGossip()
 {
-    if (discovery_.state != DiscoveryState::COLLECTING)
+    if (ctx_.discovery_.state != DiscoveryState::COLLECTING)
         return;
-    if (CertPrimary() != replicaId_)
+    if (CertPrimary() != ctx_.replicaId_)
         return;
     if (cert_gossip_deadline_ >= SIMTIME_ZERO && simTime() >= cert_gossip_deadline_)
         return;
@@ -1123,9 +1123,9 @@ void ResDBIntersectionApp::stopStopZoneCertGossip()
 
 void ResDBIntersectionApp::broadcastArrivalCert(const ArrivalCert& cert)
 {
-    discovery_.localCert = LocalCertState::QUEUED;
+    ctx_.discovery_.localCert = LocalCertState::QUEUED;
     sendBFTMessage(-1, serializeArrivalCert(cert), kArrivalCertType, true);
-    std::cout << "[CERT-BROADCAST] Replica " << replicaId_ << " broadcast ARRIVAL_CERT for "
+    std::cout << "[CERT-BROADCAST] Replica " << ctx_.replicaId_ << " broadcast ARRIVAL_CERT for "
               << cert.carId << "\n";
 
     if (enable_cert_retries_) {
@@ -1142,23 +1142,23 @@ void ResDBIntersectionApp::broadcastArrivalCert(const ArrivalCert& cert)
 
     // OMNeT++ modules don't receive their own channel broadcasts — self-store.
     int certPrimary = -1;
-    if (!collected_certs_.count(cert.carId)) {
+    if (!ctx_.collected_certs_.count(cert.carId)) {
         int staticCerts = 0;
         int allCerts = 0;
         std::lock_guard<std::mutex> lk(certs_mutex_);
-        collected_certs_[cert.carId] = cert;
+        ctx_.collected_certs_[cert.carId] = cert;
         staticCerts = countStaticCollectedCerts();
-        allCerts = (int)collected_certs_.size();
+        allCerts = (int)ctx_.collected_certs_.size();
         certPrimary = CertPrimary();
-        std::cout << "[CERT-STORED-SELF] Replica " << replicaId_ << " self-stored cert for "
-                  << cert.carId << " static=(" << staticCerts << "/" << total_vehicles_
+        std::cout << "[CERT-STORED-SELF] Replica " << ctx_.replicaId_ << " self-stored cert for "
+                  << cert.carId << " static=(" << staticCerts << "/" << ctx_.total_vehicles_
                   << ") all=" << allCerts
                   << " cert_primary=" << certPrimary << "\n";
         const bool emergencyCancelStarted = maybeTriggerEmergencyRollbackFromCert(cert);
         (void)emergencyCancelStarted;
     }
-    if (entered_stop_zone_ && discovery_.state == DiscoveryState::COLLECTING) {
-        startStopZoneCertGossip("self-cert-stored", replicaId_ == certPrimary);
+    if (entered_stop_zone_ && ctx_.discovery_.state == DiscoveryState::COLLECTING) {
+        startStopZoneCertGossip("self-cert-stored", ctx_.replicaId_ == certPrimary);
     }
     maybeAdvanceDiscovery("self-cert");
 }
@@ -1170,15 +1170,15 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
     ArrivalCert cert = deserializeArrivalCert(msg);
     if (cert.carId.empty()) return;
     if (!validateArrivalCert(cert)) {
-        std::cout << "[CERT-INVALID] Replica " << replicaId_ << " dropped ARRIVAL_CERT from "
+        std::cout << "[CERT-INVALID] Replica " << ctx_.replicaId_ << " dropped ARRIVAL_CERT from "
                   << cert.carId << "\n";
         return;
     }
-    if (collected_certs_.count(cert.carId)) return;  // dedup
+    if (ctx_.collected_certs_.count(cert.carId)) return;  // dedup
 
     {
         std::lock_guard<std::mutex> lk(certs_mutex_);
-        collected_certs_[cert.carId] = cert;
+        ctx_.collected_certs_[cert.carId] = cert;
     }
     int staticCerts = 0;
     int allCerts = 0;
@@ -1186,11 +1186,11 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
     {
         std::lock_guard<std::mutex> lk(certs_mutex_);
         staticCerts = countStaticCollectedCerts();
-        allCerts = (int)collected_certs_.size();
+        allCerts = (int)ctx_.collected_certs_.size();
         certPrimary = CertPrimary();
     }
-    std::cout << "[CERT-STORED] Replica " << replicaId_ << " stored ARRIVAL_CERT for "
-              << cert.carId << " static=(" << staticCerts << "/" << total_vehicles_
+    std::cout << "[CERT-STORED] Replica " << ctx_.replicaId_ << " stored ARRIVAL_CERT for "
+              << cert.carId << " static=(" << staticCerts << "/" << ctx_.total_vehicles_
               << ") all=" << allCerts
               << " cert_primary=" << certPrimary << "\n";
 
@@ -1210,19 +1210,19 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
     // Epidemic relay: each node forwards each validated cert once.
     // cert already carries f+1 signatures so recipients can verify without
     // re-accumulating votes.  cert_relay_tracker_ deduplicates per carId.
-    if (discovery_.state != DiscoveryState::COLLECTING) {
-        std::cout << "[CERT-RELAY-STOP] r" << replicaId_ << " suppressed relay for "
-                  << cert.carId << " order_applied=" << (order_applied_ ? 1 : 0)
-                  << " propose_submitted=" << (propose_submitted_ ? 1 : 0)
+    if (ctx_.discovery_.state != DiscoveryState::COLLECTING) {
+        std::cout << "[CERT-RELAY-STOP] r" << ctx_.replicaId_ << " suppressed relay for "
+                  << cert.carId << " order_applied=" << (ctx_.order_applied_ ? 1 : 0)
+                  << " propose_submitted=" << (ctx_.propose_submitted_ ? 1 : 0)
                   << " discovery_state=" << discoveryStateName()
                   << " t=" << simTime() << "\n";
     } else if (cert_relay_tracker_.tryRelay(cert.carId)) {
         sendBFTMessage(-1, serializeArrivalCert(cert), kArrivalCertType);
-        std::cout << "[CERT-RELAY] r" << replicaId_ << " relayed cert for "
+        std::cout << "[CERT-RELAY] r" << ctx_.replicaId_ << " relayed cert for "
                   << cert.carId << " t=" << simTime() << "\n";
     }
-    if (entered_stop_zone_ && discovery_.state == DiscoveryState::COLLECTING) {
-        startStopZoneCertGossip("cert-stored", replicaId_ == certPrimary);
+    if (entered_stop_zone_ && ctx_.discovery_.state == DiscoveryState::COLLECTING) {
+        startStopZoneCertGossip("cert-stored", ctx_.replicaId_ == certPrimary);
     }
 
     const bool emergencyCancelStarted = maybeTriggerEmergencyRollbackFromCert(cert);

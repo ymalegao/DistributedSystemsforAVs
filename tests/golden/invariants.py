@@ -108,10 +108,25 @@ class Cell:
         }
 
 
+# Recorded for human context but NOT compared, because measurement showed them
+# to be unstable run-to-run on an unchanged binary. Two consecutive checks of
+# the same build gave units_4veh committing_replicas [5,6] then [7], and
+# reporting_replicas [8] then [8,9]. Both count how many replicas had logged a
+# decision or reached finish() by the time the run ended, which depends on the
+# same worker-thread scheduling that makes timings unreproducible.
+#
+# Comparing them produces failures that look exactly like real regressions,
+# which is worse than not comparing them at all: a safety net nobody trusts is
+# not a safety net. commit_rate, n_batches, quorum and vote_n were constant
+# across a baseline and two independent checks, so those carry the signal.
+UNSTABLE_FIELDS = frozenset({"reps", "committing_replicas", "reporting_replicas"})
+
+
 def compare(before: Dict[str, Dict], after: Dict[str, Dict]) -> List[str]:
     """Differences between two signature sets, as human-readable lines.
 
     Empty result means the refactor preserved every structural invariant.
+    Fields in UNSTABLE_FIELDS are skipped -- see the note there.
     """
     diffs = []
     for name in sorted(set(before) | set(after)):
@@ -122,9 +137,9 @@ def compare(before: Dict[str, Dict], after: Dict[str, Dict]) -> List[str]:
             diffs.append(f"{name}: MISSING cell (present before)")
             continue
         for k in sorted(set(before[name]) | set(after[name])):
+            if k in UNSTABLE_FIELDS:
+                continue
             b, a = before[name].get(k), after[name].get(k)
-            # Repetition count differing is not a regression in itself; it only
-            # weakens the comparison, so report it separately from a real diff.
-            if b != a and k != "reps":
+            if b != a:
                 diffs.append(f"{name}.{k}: {b!r} -> {a!r}")
     return diffs

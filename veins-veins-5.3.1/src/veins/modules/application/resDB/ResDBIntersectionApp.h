@@ -17,6 +17,7 @@
 #include "veins/modules/mobility/traci/IIntersectionApp.h"
 #include "veins/modules/application/resDB/IV2VTransport.h"
 #include "veins/modules/application/resDB/crypto/CryptoAuth.h"
+#include "veins/modules/application/resDB/protocol/ConsensusContext.h"
 #include "veins/modules/application/resDB/protocol/Primitives.h"
 #include "veins/modules/application/resDB/protocol/ArrivalTypes.h"
 #include "veins/modules/application/resDB/protocol/RollbackTypes.h"
@@ -60,7 +61,10 @@ private:
     // RollbackTypes.h and OrderCandidate.h. They were private nested types here,
     // which meant no component could name a shared type without naming this class.
 
-    ConsensusPhase current_phase_ = IDLE;
+    // The state shared by four or more of this class's implementation files.
+    // See protocol/ConsensusContext.h for how the membership was decided.
+    ConsensusContext ctx_;
+
 
     // ── Transport ─────────────────────────────────────────────────────────────
     class LoggingTransport : public IV2VTransport {
@@ -413,7 +417,7 @@ private:
     // derived from the PBFT membership size N (num_replicas_), so f scales when
     // static intersection units join the quorum.
     int toleratedF() const;
-    // Replica IDs of the static intersection units: [total_vehicles_, num_replicas_).
+    // Replica IDs of the static intersection units: [ctx_.total_vehicles_, num_replicas_).
     // Units are permanent PBFT members, so they are injected into every forced-view
     // membership (ORDER entries as QUIET, CANCEL electorate, rollback membership) so
     // they vote in the rollback path exactly like cars — but are never scheduled to cross.
@@ -443,7 +447,6 @@ private:
     int    extractReplicaId(const std::string& carId) const;
 
     // ── State ─────────────────────────────────────────────────────────────────
-    void*  resdb_server_handle_ = nullptr;
     std::unique_ptr<IV2VTransport> transport_;
 
     cMessage* smoke_test_msg_          = nullptr;
@@ -490,7 +493,7 @@ private:
     double                   crash_mac_grace_sec_      = 0.2;
 
     // Scenario 16: crash-dwell perception, scanned inside preceding_batch_poll_msg_
-    // (see handleSelfMsg). Gated purely on enableRollback_ — no separate flag.
+    // (see handleSelfMsg). Gated purely on ctx_.enableRollback_ — no separate flag.
     std::map<std::string, simtime_t> crash_dwell_since_;   // veh id -> first-qualified time
     std::set<std::string>            crash_echoed_targets_; // one echo per incident, local guard
     double                           crash_dwell_sec_     = 2.0;
@@ -527,12 +530,10 @@ private:
     simtime_t discovery_intent_settle_  = 1.5;
     bool      enable_sim_time_provider_ = true;
 
-    int      replicaId_         = 0;
     uint32_t sequenceNumber_    = 0;
     bool     useRadioTransport_ = false;
     bool moduleIsAmbulance = false;
     bool ambulanceColorSet = false;
-    int      tolerated_faults_ = -1;
     int      configured_consensus_quorum_ = -1;
     int      configured_cert_threshold_ = -1;
 
@@ -551,10 +552,8 @@ private:
     std::mutex outbound_mutex_;
     std::deque<PendingOutboundPacket> outbound_queue_;
 
-    EVP_PKEY* ec_private_key_ = nullptr;
     EVP_PKEY* ambulance_private_key_ = nullptr;
     std::vector<uint8_t> my_ambulance_cert_bytes_;
-    uint8_t   ec_pub_key_[CRYPTO_PUBKEY_BYTES] = {};
 
     std::string config_file_;
     std::string private_key_file_;
@@ -562,17 +561,15 @@ private:
     std::string log_dir_;
 
     // ── Cert protocol state ───────────────────────────────────────────────────
-    // Guards collected_certs_ against concurrent access from ResDB pre-verify threads.
+    // Guards ctx_.collected_certs_ against concurrent access from ResDB pre-verify threads.
     mutable std::mutex                              certs_mutex_;
     std::map<std::string, VehicleState>             local_vehicle_states_;
-    std::map<std::string, ArrivalCert>              collected_certs_;
     std::map<std::string, std::vector<ArrivalEcho>> my_received_echoes_;
     std::set<std::string>                           observed_intent_cars_;
     std::set<std::string>                           arrival_announcements_received_;
     std::set<std::string>                           echoed_cars_;  // cars we actually sent an echo to (not FALSE_LANE)
     std::set<std::string>                           uncertified_ambulance_claimers_;
     std::set<std::string>                           cert_gate_rejected_ambulance_claimers_;
-    DiscoveryRound discovery_;
 
     bool   enable_cert_retries_      = true;
     double cert_retry_interval_      = 0.1;
@@ -607,24 +604,19 @@ private:
     int                  gossip_retry_count_        = 0;
     uint32_t             gossip_epoch_              = 0;
     std::vector<uint8_t> gossip_order_bytes_;
-    uint32_t             last_committed_epoch_      = 0;
-    bool                 has_committed_order_       = false;
     std::vector<uint8_t> committed_order_bytes_;
-    // Guards committed_order_vehicle_ids_: written on the sim thread inside
+    // Guards ctx_.committed_order_vehicle_ids_: written on the sim thread inside
     // processOrders(), but also read from a ResDB worker thread by the CLEAR
     // evidence-validation callback (invoked from PBFT PreVerify).
     mutable std::mutex   committed_view_mutex_;
-    std::set<int>        committed_order_vehicle_ids_;
     std::vector<std::vector<int>> committed_order_batches_;
     std::set<uint32_t>   tombstoned_epochs_;
-    bool                 gossip_enabled_            = false;
     double               gossip_initial_interval_   = 0.5;
     int                  gossip_max_retries_        = 5;
 
     // ── TraCI lane state ──────────────────────────────────────────────────────
     bool        lane_discovered_ = false;
     bool        is_stopped_      = false;
-    bool        is_departed_ = false;
     std::string my_lane_id_;
     std::string car_ahead_;
     std::vector<std::string> lane_queue_;
@@ -646,17 +638,13 @@ private:
     bool      debug_order_delivery_ = false;
 
     bool      entered_stop_zone_ = false;
-    bool      propose_submitted_ = false;
-    bool      order_applied_     = false;
-    uint32_t  current_epoch_     = 0;
     simtime_t stop_time_         = -1;
     simtime_t cleared_time_    = -1;
     simtime_t propose_time_      = -1;
 
     // ── Params ────────────────────────────────────────────────────────────────
-    int    total_vehicles_        = 4;
     // PBFT membership size N = vehicles + static intersection units. Defaults to
-    // total_vehicles_ when no units are configured (totalReplicas = -1).
+    // ctx_.total_vehicles_ when no units are configured (totalReplicas = -1).
     int    num_replicas_          = 4;
     // Number of static intersection units (the top num_units_ replica IDs are units).
     int    num_units_             = 0;
@@ -676,7 +664,6 @@ private:
     int           fake_ambulance_proposal_replica_id_ = -1;
     int           tamper_lane_proposal_replica_id_ = -1;
     double        pbft_vc_timeout_sec_ = 3.0;
-    bool          enableRollback_ = false;
     double        cancel_cert_retry_interval_sec_ = 0.1;
     double        evidence_retry_base_sec_ = 0.1;
     double        evidence_retry_factor_ = 2.0;
@@ -719,7 +706,6 @@ private:
     int cancel_gossip_retry_count_ = 0;
     uint32_t cancel_gossip_epoch_ = 0;
     std::vector<uint8_t> cancel_gossip_bytes_;
-    bool          cancel_pending_ = false;
     bool          rollback_cancel_initiated_ = false;
     uint32_t      cancelled_epoch_ = 0;
     uint32_t      rollback_new_epoch_ = 0;

@@ -32,7 +32,7 @@ double ResDBIntersectionApp::getDistanceToIntersection()
     }
 
     try {
-        std::string myId = "veh" + std::to_string(replicaId_);
+        std::string myId = "veh" + std::to_string(ctx_.replicaId_);
         std::string myLaneId = mobility->getCommandInterface()->vehicle(myId).getLaneId();
         
         // If we are on an internal lane (inside the intersection, typical starts with ':')
@@ -63,11 +63,11 @@ double ResDBIntersectionApp::getDistanceToIntersection()
 
 bool ResDBIntersectionApp::isInOrPastConflictBox()
 {
-    if (is_departed_ || current_phase_ == ConsensusPhase::DEPARTED) return true;
+    if (ctx_.is_departed_ || ctx_.current_phase_ == ConsensusPhase::DEPARTED) return true;
     if (!mobility || !mobility->getCommandInterface()) return true;
 
     try {
-        std::string myId = "veh" + std::to_string(replicaId_);
+        std::string myId = "veh" + std::to_string(ctx_.replicaId_);
         TraCICommandInterface::Vehicle v =
             mobility->getCommandInterface()->vehicle(myId);
         std::string laneId = v.getLaneId();
@@ -85,7 +85,7 @@ bool ResDBIntersectionApp::isInOrPastConflictBox()
 
 int ResDBIntersectionApp::countRollbackPerceivedVehicles() const
 {
-    if (!mobility || !mobility->getCommandInterface()) return total_vehicles_;
+    if (!mobility || !mobility->getCommandInterface()) return ctx_.total_vehicles_;
     TraCICommandInterface* traci = mobility->getCommandInterface();
     try {
         int count = 0;
@@ -103,9 +103,9 @@ int ResDBIntersectionApp::countRollbackPerceivedVehicles() const
 
             ++count;
         }
-        return count > 0 ? count : total_vehicles_;
+        return count > 0 ? count : ctx_.total_vehicles_;
     } catch (...) {
-        return total_vehicles_;
+        return ctx_.total_vehicles_;
     }
 }
 
@@ -204,9 +204,9 @@ void ResDBIntersectionApp::stopVehicle()
         mobility->getVehicleCommandInterface()->setSpeed(-1);  // release override; SUMO holds at red light
         is_stopped_ = true;
         discoverLane();
-        std::cout << "[ResDBIntersection " << replicaId_ << "] Vehicle STOPPED at intersection (distance=" << getDistanceToIntersection() << "m)" << "\n";
+        std::cout << "[ResDBIntersection " << ctx_.replicaId_ << "] Vehicle STOPPED at intersection (distance=" << getDistanceToIntersection() << "m)" << "\n";
     } else {
-        std::cout << "[ResDBIntersection " << replicaId_ << "] Vehicle already stopped" << "\n";
+        std::cout << "[ResDBIntersection " << ctx_.replicaId_ << "] Vehicle already stopped" << "\n";
         is_stopped_ = true;
         discoverLane();
     }
@@ -221,7 +221,7 @@ void ResDBIntersectionApp::discoverLane() {
     auto* traci = mobility->getVehicleCommandInterface();
     TraCICommandInterface* traciCmd = mobility->getCommandInterface();
     if (!traci) return;
-    std::string myId = "veh" + std::to_string(replicaId_);
+    std::string myId = "veh" + std::to_string(ctx_.replicaId_);
     my_lane_id_ = traciCmd->vehicle(myId).getLaneId();
     double mypos = traciCmd->vehicle(myId).getLanePosition();
 
@@ -257,7 +257,7 @@ void ResDBIntersectionApp::discoverLane() {
     for (const auto& [pos, id] : inLane) {
         lane_queue_.push_back(id);
     }
-    std::cout << "[ResDBIntersection " << replicaId_ << "] Lane queue: ";
+    std::cout << "[ResDBIntersection " << ctx_.replicaId_ << "] Lane queue: ";
     std::cout << "My position: " << mypos << "\n";
     for (const auto& id : lane_queue_) {
         std::cout << id << " ";
@@ -265,15 +265,15 @@ void ResDBIntersectionApp::discoverLane() {
 
     std::cout << "\n";
     lane_discovered_ = true;
-    std::cout << "[ResDBIntersection " << replicaId_ << "] Lane discovered: " << my_lane_id_ << "\n";
-    std::cout << "[ResDBIntersection " << replicaId_ << "] Car ahead: " << car_ahead_ << "\n";
-    std::cout << "[ResDBIntersection " << replicaId_ << "] Car ahead stop pos: " << car_ahead_stop_pos << "\n";
+    std::cout << "[ResDBIntersection " << ctx_.replicaId_ << "] Lane discovered: " << my_lane_id_ << "\n";
+    std::cout << "[ResDBIntersection " << ctx_.replicaId_ << "] Car ahead: " << car_ahead_ << "\n";
+    std::cout << "[ResDBIntersection " << ctx_.replicaId_ << "] Car ahead stop pos: " << car_ahead_stop_pos << "\n";
 
 }
 
 bool ResDBIntersectionApp::checkIfDeparted()
 {
-    if (is_departed_) return true;  // Already departed
+    if (ctx_.is_departed_) return true;  // Already departed
 
     if (!mobility || !traciVehicle) return false;
 
@@ -282,9 +282,9 @@ bool ResDBIntersectionApp::checkIfDeparted()
 
     // Negative distance means we've passed the intersection
     // Or if distance > 100m on the far side (well past intersection)
-    if (dist < -15.0 || (current_phase_ == ConsensusPhase::EXECUTING && dist > 15.0)) {
-        is_departed_ = true;
-        current_phase_ = ConsensusPhase::DEPARTED;
+    if (dist < -15.0 || (ctx_.current_phase_ == ConsensusPhase::EXECUTING && dist > 15.0)) {
+        ctx_.is_departed_ = true;
+        ctx_.current_phase_ = ConsensusPhase::DEPARTED;
         clearConsensusRetries("departed");
         const double departTimeSec = simTime().dbl();
         const double stopTimeSec = (stopTime >= SIMTIME_ZERO) ? stopTime.dbl() : -1.0;
@@ -292,22 +292,22 @@ bool ResDBIntersectionApp::checkIfDeparted()
             (stopTime >= SIMTIME_ZERO) ? (departTimeSec - stopTimeSec) : -1.0;
         const char* vehicleRole = moduleIsAmbulance ? "ambulance" : "normal";
 
-        std::cout << "[ResDBIntersection " << replicaId_ << "] ===== VEHICLE DEPARTED =====" << "\n";
-        std::cout << "[ResDBIntersection " << replicaId_ << "] Distance: " << dist << "m" << "\n";
-        std::cout << "[ResDBIntersection " << replicaId_ << "] Entering departed mode (no more V2V)" << "\n";
-        std::cout << "[ResDBIntersection " << replicaId_ << "] Phase: " << current_phase_ << "\n";
-        std::cout << "[CAR-METRICS] veh" << replicaId_
+        std::cout << "[ResDBIntersection " << ctx_.replicaId_ << "] ===== VEHICLE DEPARTED =====" << "\n";
+        std::cout << "[ResDBIntersection " << ctx_.replicaId_ << "] Distance: " << dist << "m" << "\n";
+        std::cout << "[ResDBIntersection " << ctx_.replicaId_ << "] Entering departed mode (no more V2V)" << "\n";
+        std::cout << "[ResDBIntersection " << ctx_.replicaId_ << "] Phase: " << ctx_.current_phase_ << "\n";
+        std::cout << "[CAR-METRICS] veh" << ctx_.replicaId_
                   << " role=" << vehicleRole
-                  << " epoch=" << current_epoch_
+                  << " epoch=" << ctx_.current_epoch_
                   << " stop_time=" << stopTimeSec
                   << " depart_time=" << departTimeSec
                   << " wait_stop_to_departure_sec=" << waitStopToDepartureSec
                   << "\n";
 
         if (moduleIsAmbulance && stopTime > 0) {
-            std::cout << "[AMBULANCE_METRICS] veh" << replicaId_
+            std::cout << "[AMBULANCE_METRICS] veh" << ctx_.replicaId_
                       << " sim_wait_stop_to_departure_sec=" << (simTime() - stopTime).dbl()
-                      << " epoch=" << current_epoch_ << "\n";
+                      << " epoch=" << ctx_.current_epoch_ << "\n";
         }
 
         return true;
@@ -321,14 +321,14 @@ void ResDBIntersectionApp::resumeVehicle(int position_in_order)
     TraCICommandInterface::Vehicle* vc = mobility ? mobility->getVehicleCommandInterface() : nullptr;
     if (!vc) return;
     is_stopped_ = false;
-    std::cout << "[V2VResDB r" << replicaId_ << "] resumeVehicle position=" << position_in_order
+    std::cout << "[V2VResDB r" << ctx_.replicaId_ << "] resumeVehicle position=" << position_in_order
               << " speed=" << cruise_speed_mps_ << " t=" << simTime() << "\n";
     vc->setSpeedMode(0);        // re-enable SUMO safety checks (mirrors stopVehicle)
 
     vc->setSpeed(cruise_speed_mps_);
     if (position_in_order == 0) {
         if (auto* manager = TraCIScenarioManagerAccess().get()) {
-            manager->notifyR0BatchStarted("veh" + std::to_string(replicaId_), 0);
+            manager->notifyR0BatchStarted("veh" + std::to_string(ctx_.replicaId_), 0);
         }
     }
 }
@@ -382,7 +382,7 @@ void ResDBIntersectionApp::disableCrashComms(const char* reason)
     {
         std::lock_guard<std::mutex> lk(outbound_mutex_);
         if (!outbound_queue_.empty()) {
-            std::cout << "[CRASH-TX-CLEAR] r" << replicaId_
+            std::cout << "[CRASH-TX-CLEAR] r" << ctx_.replicaId_
                       << " outbound_queue=" << outbound_queue_.size()
                       << " reason=" << (reason ? reason : "crash") << "\n";
             outbound_queue_.clear();
@@ -411,10 +411,10 @@ void ResDBIntersectionApp::disableCrashComms(const char* reason)
     if (preceding_batch_poll_msg_ && preceding_batch_poll_msg_->isScheduled())
         cancelEvent(preceding_batch_poll_msg_);
 
-    if (resdb_server_handle_)
-        ResdbOmnetSetPbftSilent(resdb_server_handle_, 1);
+    if (ctx_.resdb_server_handle_)
+        ResdbOmnetSetPbftSilent(ctx_.resdb_server_handle_, 1);
 
-    std::cout << "[CRASH-COMMS-DISABLE] r" << replicaId_
+    std::cout << "[CRASH-COMMS-DISABLE] r" << ctx_.replicaId_
               << " reason=" << (reason ? reason : "crash")
               << " t=" << simTime() << "\n";
 

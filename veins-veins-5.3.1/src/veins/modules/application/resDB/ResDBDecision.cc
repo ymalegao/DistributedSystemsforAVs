@@ -15,7 +15,7 @@ using namespace veins::resdb_app_util;
 
 bool ResDBIntersectionApp::isReplicaConfiguredByzantine(int replicaId) const
 {
-    if (replicaId == replicaId_)
+    if (replicaId == ctx_.replicaId_)
         return is_byzantine_;
 
     cModule* system = getSimulation() ? getSimulation()->getSystemModule() : nullptr;
@@ -36,90 +36,90 @@ void ResDBIntersectionApp::proposeAll()
     // never originate a proposal (no arrival state, never cert-primary). Hard
     // chokepoint so no path (cert-store, timeout, view-change) can make a unit propose.
     if (is_intersection_unit_) {
-        std::cout << "[UNIT] r" << replicaId_
+        std::cout << "[UNIT] r" << ctx_.replicaId_
                   << " proposeAll suppressed (intersection unit never proposes)\n";
         return;
     }
     const bool rollbackOrderEpoch =
-        cancel_pending_ && discovery_.state == DiscoveryState::COMPLETE &&
-        current_epoch_ == rollback_new_epoch_;
+        ctx_.cancel_pending_ && ctx_.discovery_.state == DiscoveryState::COMPLETE &&
+        ctx_.current_epoch_ == rollback_new_epoch_;
     if (cancel_consensus_pending_) {
-        std::cout << "[CANCEL-PROPOSE] r" << replicaId_
+        std::cout << "[CANCEL-PROPOSE] r" << ctx_.replicaId_
                   << " proposeAll redirected while cancel_consensus_pending\n";
         trySubmitCancelProposal("proposeAll-redirect");
         return;
     }
-    if (cancel_pending_ && !rollbackOrderEpoch) {
-        std::cout << "[ROLLBACK-PROPOSE] r" << replicaId_
+    if (ctx_.cancel_pending_ && !rollbackOrderEpoch) {
+        std::cout << "[ROLLBACK-PROPOSE] r" << ctx_.replicaId_
                   << " proposeAll blocked outside recovery ORDER epoch\n";
         return;
     }
     if (rollback_cancel_initiated_ && !rollbackOrderEpoch) {
-        std::cout << "[CANCEL-PROPOSE] r" << replicaId_
+        std::cout << "[CANCEL-PROPOSE] r" << ctx_.replicaId_
                   << " normal propose suppressed while cancel in progress\n";
         return;
     }
-    if (propose_submitted_) {
-        std::cout << "[VC-DEBUG] r" << replicaId_
+    if (ctx_.propose_submitted_) {
+        std::cout << "[VC-DEBUG] r" << ctx_.replicaId_
                   << " proposeAll skipped: already submitted at " << propose_time_ << "\n";
         return;
     }
-    if (discovery_.state != DiscoveryState::COMPLETE) {
-        std::cout << "[DISCOVERY-PROPOSE-WAIT] r" << replicaId_
+    if (ctx_.discovery_.state != DiscoveryState::COMPLETE) {
+        std::cout << "[DISCOVERY-PROPOSE-WAIT] r" << ctx_.replicaId_
                   << " state=" << discoveryStateName()
-                  << " epoch=" << discovery_.epoch << "\n";
+                  << " epoch=" << ctx_.discovery_.epoch << "\n";
         return;
     }
-    if (!order_candidate_ || order_candidate_->epoch != current_epoch_) {
+    if (!order_candidate_ || order_candidate_->epoch != ctx_.current_epoch_) {
         evaluateOrderReadiness("proposeAll-candidate-missing");
         return;
     }
     const OrderCandidate& candidate = *order_candidate_;
     const int orderPrimary = currentOrderPrimary();
     if (orderPrimary < 0) {
-        std::cout << "[CERT-PRIMARY] r" << replicaId_
+        std::cout << "[CERT-PRIMARY] r" << ctx_.replicaId_
                   << " proposeAll skipped: no ORDER primary yet\n";
         return;
     }
-    if (orderPrimary != replicaId_) {
-        std::cout << "[CERT-PRIMARY] r" << replicaId_
+    if (orderPrimary != ctx_.replicaId_) {
+        std::cout << "[CERT-PRIMARY] r" << ctx_.replicaId_
                   << " proposeAll skipped: order_primary=" << orderPrimary << "\n";
         return;
     }
     if (!order_vc_authoritative_ &&
-            ResdbOmnetSetPrimaryFromCert(resdb_server_handle_,
+            ResdbOmnetSetPrimaryFromCert(ctx_.resdb_server_handle_,
                                          candidate.initialPrimary) != 0) {
-        std::cout << "[CERT-PRIMARY] r" << replicaId_
+        std::cout << "[CERT-PRIMARY] r" << ctx_.replicaId_
                   << " proposeAll skipped: failed to install PBFT primary"
                   << " cert_primary=" << candidate.initialPrimary << "\n";
         return;
     }
     stopCertBroadcastRetries();
     stopStopZoneCertGossip();
-    propose_submitted_ = true;
+    ctx_.propose_submitted_ = true;
     propose_time_ = simTime();
-    current_phase_ = ConsensusPhase::WAITING_FOR_CLEARANCE;
-    std::cout << "[METRICS " << replicaId_ << "] ProposeAll_Submit_Time: " << propose_time_ << "\n";
-    if (discovery_.collectionStartedAt > SIMTIME_ZERO &&
-            propose_time_ >= discovery_.collectionStartedAt) {
-        std::cout << "[METRICS " << replicaId_ << "] Cert_Collection_Duration: "
-                  << (propose_time_ - discovery_.collectionStartedAt).dbl() << "s\n";
+    ctx_.current_phase_ = ConsensusPhase::WAITING_FOR_CLEARANCE;
+    std::cout << "[METRICS " << ctx_.replicaId_ << "] ProposeAll_Submit_Time: " << propose_time_ << "\n";
+    if (ctx_.discovery_.collectionStartedAt > SIMTIME_ZERO &&
+            propose_time_ >= ctx_.discovery_.collectionStartedAt) {
+        std::cout << "[METRICS " << ctx_.replicaId_ << "] Cert_Collection_Duration: "
+                  << (propose_time_ - ctx_.discovery_.collectionStartedAt).dbl() << "s\n";
     }
-    std::cout << "[VC-TRACE] r" << replicaId_
-              << " proposeAll context phase=" << phaseToStr(current_phase_)
+    std::cout << "[VC-TRACE] r" << ctx_.replicaId_
+              << " proposeAll context phase=" << phaseToStr(ctx_.current_phase_)
               << " static_certs=" << candidate.voterIds.size() << "/"
-              << (rollbackOrderEpoch ? minRollbackMembershipSize() : total_vehicles_)
+              << (rollbackOrderEpoch ? minRollbackMembershipSize() : ctx_.total_vehicles_)
               << " all_certs=" << candidate.certs.size()
               << " observed=" << candidate.observedIntents.size()
               << " cert_primary=" << candidate.initialPrimary
               << " order_primary=" << orderPrimary
               << " authority=" << (order_vc_authoritative_ ? "pbft-vc" : "cert")
-              << " pbft_primary=" << ResdbOmnetGetPrimary(resdb_server_handle_);
+              << " pbft_primary=" << ResdbOmnetGetPrimary(ctx_.resdb_server_handle_);
     if (stop_time_ >= SIMTIME_ZERO)
         std::cout << " stop_to_propose_sec=" << (simTime() - stop_time_).dbl();
     std::cout << "\n";
 
-    std::string myCarId = "veh" + std::to_string(replicaId_);
+    std::string myCarId = "veh" + std::to_string(ctx_.replicaId_);
     // Ensure own arrival_time_us is set if missing.
     // Pack ResdbProposeHdr + ResdbVehicleEntry per collected cert.
     // Vehicles that have a cert → SIGNED (cyber_status=1).
@@ -130,13 +130,13 @@ void ResDBIntersectionApp::proposeAll()
         const int rid = extractReplicaId(kv.first);
         const bool eligible = rollbackOrderEpoch
             ? shouldIncludeInRollbackMembership(rid)
-            : (rid >= 0 && (rid < total_vehicles_ || kv.second.isAmbulance));
+            : (rid >= 0 && (rid < ctx_.total_vehicles_ || kv.second.isAmbulance));
         if (!eligible) {
-            std::cout << "[PROPOSE-PACK] r" << replicaId_
+            std::cout << "[PROPOSE-PACK] r" << ctx_.replicaId_
                       << " skip regular late/static-external cert rid=" << rid
                       << " car=" << kv.first
-                      << " totalVehicles=" << total_vehicles_
-                      << " epoch=" << current_epoch_ << "\n";
+                      << " totalVehicles=" << ctx_.total_vehicles_
+                      << " epoch=" << ctx_.current_epoch_ << "\n";
             continue;
         }
         ResdbVehicleEntry e{};
@@ -160,7 +160,7 @@ void ResDBIntersectionApp::proposeAll()
         }
         if (e.sim_time_us == 0)
             e.sim_time_us = (uint64_t)simTime().inUnit(SIMTIME_US);
-        std::cout << "[PROPOSE-PACK] r" << replicaId_
+        std::cout << "[PROPOSE-PACK] r" << ctx_.replicaId_
                   << " entry rid=" << e.replica_id
                   << " lane=" << (int)e.lane
                   << " pos=" << (int)e.position_in_lane
@@ -198,7 +198,7 @@ void ResDBIntersectionApp::proposeAll()
             if (!target_is_byzantine) {
                 quietHonestVehicles_++;
             }
-            std::cout << "[ResDB r" << replicaId_
+            std::cout << "[ResDB r" << ctx_.replicaId_
                       << "] proposeAll: QUIET entry for replica " << rid
                       << " lane=" << (int)quiet.lane
                       << " pos=" << (int)quiet.position_in_lane
@@ -215,17 +215,17 @@ void ResDBIntersectionApp::proposeAll()
     } else {
         for (const auto& kv : candidate.vehicleStates) {
             const int rid = extractReplicaId(kv.first);
-            if (rid >= 0 && (rid < total_vehicles_ || kv.second.isAmbulance))
+            if (rid >= 0 && (rid < ctx_.total_vehicles_ || kv.second.isAmbulance))
                 appendQuiet(rid, &kv.second);
         }
     }
-    // In anchored/forced-view mode (tolerated_faults_ >= 0, i.e. the rollback path)
+    // In anchored/forced-view mode (ctx_.tolerated_faults_ >= 0, i.e. the rollback path)
     // the bridge derives the ORDER active-voter view from the proposal entries. Add
     // the static units as QUIET entries so they land in that view and vote like cars.
     // They are never scheduled to cross: QUIET → singleton batch, non-existent SUMO id
     // clears immediately, and processOrders() routes units to execute-without-cross.
     // (Normal mode uses the full server.config quorum, so units already vote there.)
-    if (tolerated_faults_ >= 0) {
+    if (ctx_.tolerated_faults_ >= 0) {
         for (int uid : staticUnitReplicaIds()) {
             if (present_ids.count(uid)) continue;
             ResdbVehicleEntry unit{};
@@ -238,9 +238,9 @@ void ResDBIntersectionApp::proposeAll()
             unit.position_in_lane = 255;         // sort after all real vehicles
             entries.push_back(unit);
             present_ids.insert(uid);
-            std::cout << "[UNIT] r" << replicaId_
+            std::cout << "[UNIT] r" << ctx_.replicaId_
                       << " proposeAll: QUIET unit entry replica " << uid
-                      << " (forced-view voter, not scheduled) epoch=" << current_epoch_
+                      << " (forced-view voter, not scheduled) epoch=" << ctx_.current_epoch_
                       << "\n";
         }
     }
@@ -250,17 +250,17 @@ void ResDBIntersectionApp::proposeAll()
             ? (100.0 * static_cast<double>(quietHonestVehicles_) /
                static_cast<double>(quietHonestOpportunities_))
             : 0.0;
-    std::cout << "[METRICS " << replicaId_ << "] Quiet_Honest_Vehicles: "
+    std::cout << "[METRICS " << ctx_.replicaId_ << "] Quiet_Honest_Vehicles: "
               << quietHonestVehicles_ << "\n";
-    std::cout << "[METRICS " << replicaId_ << "] Quiet_Honest_Opportunities: "
+    std::cout << "[METRICS " << ctx_.replicaId_ << "] Quiet_Honest_Opportunities: "
               << quietHonestOpportunities_ << "\n";
-    std::cout << "[METRICS " << replicaId_ << "] Quiet_Honest_Rate: "
+    std::cout << "[METRICS " << ctx_.replicaId_ << "] Quiet_Honest_Rate: "
               << quiet_honest_rate << "\n";
 
     uint32_t n = (uint32_t)entries.size();
     if (n == 0) {
-        std::cout << "[ResDB r" << replicaId_ << "] proposeAll: no entries, aborting\n";
-        propose_submitted_ = false;
+        std::cout << "[ResDB r" << ctx_.replicaId_ << "] proposeAll: no entries, aborting\n";
+        ctx_.propose_submitted_ = false;
         return;
     }
 
@@ -282,9 +282,9 @@ void ResDBIntersectionApp::proposeAll()
                 break;
             }
             clearCerts.push_back(serializeClearCert(forged));
-            std::cout << "[BYZANTINE-FABRICATED-CLEARANCE] r" << replicaId_
+            std::cout << "[BYZANTINE-FABRICATED-CLEARANCE] r" << ctx_.replicaId_
                       << " cancelled_epoch=" << forged.cancelledEpoch
-                      << " new_epoch=" << current_epoch_
+                      << " new_epoch=" << ctx_.current_epoch_
                       << " batch=" << forged.executingBatch
                       << " forged_echoes=0"
                       << " action=attach-invalid-clear\n";
@@ -301,8 +301,8 @@ void ResDBIntersectionApp::proposeAll()
     uint8_t* p = buf.data();
 
     ResdbProposeHdr hdr;
-    hdr.epoch               = current_epoch_;
-    hdr.leader_id           = replicaId_;
+    hdr.epoch               = ctx_.current_epoch_;
+    hdr.leader_id           = ctx_.replicaId_;
     hdr.propose_sim_time_us = (uint64_t)simTime().inUnit(SIMTIME_US);
     hdr.n_vehicles          = n;
     std::memcpy(p, &hdr, sizeof(hdr)); p += sizeof(hdr);
@@ -328,15 +328,15 @@ void ResDBIntersectionApp::proposeAll()
     if (is_byzantine_ && byzantine_type_ == BYZANTINE_FAKE_AMBULANCE)  applyByzantineFakeAmbulance(buf.data() + sizeof(ResdbProposeHdr), n);
     if (is_byzantine_ && byzantine_type_ == BYZANTINE_TAMPER_LANE)     applyByzantineTamperLane(buf.data() + sizeof(ResdbProposeHdr), n);
 
-    int rc = ResdbOmnetTriggerConsensus(resdb_server_handle_, buf.data(), (uint32_t)buf.size());
+    int rc = ResdbOmnetTriggerConsensus(ctx_.resdb_server_handle_, buf.data(), (uint32_t)buf.size());
     if (rollbackOrderEpoch) {
-        std::cout << "[ROLLBACK-PROPOSE] r" << replicaId_
+        std::cout << "[ROLLBACK-PROPOSE] r" << ctx_.replicaId_
                   << " rc=" << rc
                   << " cancelled_epoch=" << cancelled_epoch_
                   << " new_epoch=" << rollback_new_epoch_
                   << " normal_proposeAll=1 vehicles=" << n << "\n";
     }
-    std::cout << "[ResDB r" << replicaId_ << "] TriggerConsensus rc=" << rc
+    std::cout << "[ResDB r" << ctx_.replicaId_ << "] TriggerConsensus rc=" << rc
               << " vehicles=" << n << "\n";
 }
 
@@ -373,23 +373,23 @@ bool ResDBIntersectionApp::detectUnsafeBatch(
         const auto& members = batches[b];
         if (members.size() < 2) continue;
         for (size_t i = 0; i < members.size(); ++i) {
-            auto itA = collected_certs_.find("veh" + std::to_string(members[i]));
-            if (itA == collected_certs_.end()) continue;
+            auto itA = ctx_.collected_certs_.find("veh" + std::to_string(members[i]));
+            if (itA == ctx_.collected_certs_.end()) continue;
             uint8_t la = laneCode(itA->second.lane);
             uint8_t da = directionCode(itA->second.direction);
             for (size_t j = i + 1; j < members.size(); ++j) {
-                auto itB = collected_certs_.find("veh" + std::to_string(members[j]));
-                if (itB == collected_certs_.end()) continue;
+                auto itB = ctx_.collected_certs_.find("veh" + std::to_string(members[j]));
+                if (itB == ctx_.collected_certs_.end()) continue;
                 uint8_t lb = laneCode(itB->second.lane);
                 uint8_t db = directionCode(itB->second.direction);
                 if (!isSafe(la, da, lb, db)) {
                     detected = true;
-                    std::string crashRef = "unsafe_batch:" + std::to_string(current_epoch_) +
+                    std::string crashRef = "unsafe_batch:" + std::to_string(ctx_.current_epoch_) +
                         ":" + std::to_string(b) +
                         ":veh" + std::to_string(std::min(members[i], members[j])) +
                         "+veh" + std::to_string(std::max(members[i], members[j]));
-                    std::cout << "[CRASH_DETECTED] r" << replicaId_
-                              << " epoch=" << current_epoch_
+                    std::cout << "[CRASH_DETECTED] r" << ctx_.replicaId_
+                              << " epoch=" << ctx_.current_epoch_
                               << " batch=" << b
                               << " veh" << members[i]
                               << "(cert lane=" << itA->second.lane << ")"
@@ -408,9 +408,9 @@ bool ResDBIntersectionApp::detectFalsePriorityGrant(
     const ResdbVehicleDecision* decisions, uint32_t n)
 {
     if (fake_ambulance_proposal_replica_id_ < 0) return false;
-    if (ResdbOmnetGetPrimary(resdb_server_handle_) != replicaId_) {
-        std::cout << "[CONSENSUS_ATTACK_OUTCOME] r" << replicaId_
-                  << " epoch=" << current_epoch_
+    if (ResdbOmnetGetPrimary(ctx_.resdb_server_handle_) != ctx_.replicaId_) {
+        std::cout << "[CONSENSUS_ATTACK_OUTCOME] r" << ctx_.replicaId_
+                  << " epoch=" << ctx_.current_epoch_
                   << " fault=FAKE_AMBULANCE"
                   << " outcome=PREVERIFY_BLOCKED_OR_VIEW_CHANGE_RECOVERED"
                   << " target=veh" << fake_ambulance_proposal_replica_id_
@@ -429,12 +429,12 @@ bool ResDBIntersectionApp::detectFalsePriorityGrant(
     if (batch == UINT32_MAX) return false;
 
     std::lock_guard<std::mutex> lk(certs_mutex_);
-    auto it = collected_certs_.find(
+    auto it = ctx_.collected_certs_.find(
         "veh" + std::to_string(fake_ambulance_proposal_replica_id_));
-    if (it == collected_certs_.end() || it->second.isAmbulance) return false;
+    if (it == ctx_.collected_certs_.end() || it->second.isAmbulance) return false;
 
-    std::cout << "[FALSE_PRIORITY_GRANTED] r" << replicaId_
-              << " epoch=" << current_epoch_
+    std::cout << "[FALSE_PRIORITY_GRANTED] r" << ctx_.replicaId_
+              << " epoch=" << ctx_.current_epoch_
               << " veh" << fake_ambulance_proposal_replica_id_
               << " committed_batch=" << batch
               << " proposal_ambulance=1 cert_ambulance=0"
@@ -449,8 +449,8 @@ void ResDBIntersectionApp::detectConsensusAttackOutcome(
     const bool false_priority = detectFalsePriorityGrant(decisions, n);
 
     auto logOutcome = [&](const char* fault, const char* outcome, const std::string& detail) {
-        std::cout << "[CONSENSUS_ATTACK_OUTCOME] r" << replicaId_
-                  << " epoch=" << current_epoch_
+        std::cout << "[CONSENSUS_ATTACK_OUTCOME] r" << ctx_.replicaId_
+                  << " epoch=" << ctx_.current_epoch_
                   << " fault=" << fault
                   << " outcome=" << outcome;
         if (!detail.empty()) std::cout << " " << detail;
@@ -464,8 +464,8 @@ void ResDBIntersectionApp::detectConsensusAttackOutcome(
         }
         std::lock_guard<std::mutex> lk(certs_mutex_);
         for (const auto& carId : uncertified_ambulance_claimers_) {
-            auto it = collected_certs_.find(carId);
-            if (it == collected_certs_.end()) continue;
+            auto it = ctx_.collected_certs_.find(carId);
+            if (it == ctx_.collected_certs_.end()) continue;
             if (it->second.isAmbulance &&
                 !cert_gate_rejected_ambulance_claimers_.count(carId)) {
                 logOutcome("FAKE_AMBULANCE_FOLLOWER",
@@ -484,13 +484,13 @@ void ResDBIntersectionApp::detectConsensusAttackOutcome(
     switch (byzantine_type_) {
     case BYZANTINE_FALSE_LANE: {
         std::lock_guard<std::mutex> lk(certs_mutex_);
-        auto it = collected_certs_.find("veh" + std::to_string(replicaId_));
-        if (it == collected_certs_.end()) {
-            const std::string carId = "veh" + std::to_string(replicaId_);
+        auto it = ctx_.collected_certs_.find("veh" + std::to_string(ctx_.replicaId_));
+        if (it == ctx_.collected_certs_.end()) {
+            const std::string carId = "veh" + std::to_string(ctx_.replicaId_);
             const size_t signerCount = my_received_echoes_.count(carId)
                 ? my_received_echoes_.at(carId).size() : 0;
-            const int threshold = (tolerated_faults_ >= 0
-                ? tolerated_faults_ : (total_vehicles_ - 1) / 3) + 1;
+            const int threshold = (ctx_.tolerated_faults_ >= 0
+                ? ctx_.tolerated_faults_ : (ctx_.total_vehicles_ - 1) / 3) + 1;
             std::cout << "[FALSE-LANE-COLLUSION-BLOCK] target=" << carId
                       << " signers=" << signerCount
                       << " threshold=" << threshold
@@ -499,10 +499,10 @@ void ResDBIntersectionApp::detectConsensusAttackOutcome(
                        "malicious_input=fake_lane");
         } else if (it->second.lane != "N" && it->second.lane != "S" &&
                    it->second.lane != "E" && it->second.lane != "W") {
-            std::cout << "[FALSE-LANE-COLLUSION-COMMIT] target=veh" << replicaId_
+            std::cout << "[FALSE-LANE-COLLUSION-COMMIT] target=veh" << ctx_.replicaId_
                       << " claimed=" << it->second.lane
                       << " actual=" << intended_lane_
-                      << " epoch=" << current_epoch_ << "\n";
+                      << " epoch=" << ctx_.current_epoch_ << "\n";
             logOutcome("FALSE_LANE", "MALICIOUS_INPUT_COMMITTED",
                        "cert_lane=" + it->second.lane);
         } else {
@@ -558,7 +558,7 @@ void ResDBIntersectionApp::detectConsensusAttackOutcome(
 
 void ResDBIntersectionApp::applyByzantineSilentPrimary()
 {
-    std::cout << "[BYZANTINE] r" << replicaId_
+    std::cout << "[BYZANTINE] r" << ctx_.replicaId_
               << " SILENT_PRIMARY: suppressing propose at " << simTime() << "\n";
 }
 
@@ -567,7 +567,7 @@ void ResDBIntersectionApp::applyByzantineBadProposal(ResdbProposeHdr& hdr, std::
     bad_proposal_injected_ = true;
     hdr.n_vehicles = hdr.n_vehicles + 1;  // fails PreVerify check 2
     std::memcpy(buf.data(), &hdr, sizeof(hdr));
-    std::cout << "[BYZANTINE] r" << replicaId_
+    std::cout << "[BYZANTINE] r" << ctx_.replicaId_
               << " BAD_PROPOSAL: corrupted n_vehicles=" << hdr.n_vehicles
               << " at " << simTime() << "\n";
 }
@@ -584,7 +584,7 @@ void ResDBIntersectionApp::applyByzantineFakeAmbulance(uint8_t* base, uint32_t n
             e.is_ambulance = 1;
             std::memcpy(base + i * sizeof(e), &e, sizeof(e));
             fake_ambulance_proposal_replica_id_ = e.replica_id;
-            std::cout << "[BYZANTINE] r" << replicaId_
+            std::cout << "[BYZANTINE] r" << ctx_.replicaId_
                       << " FAKE_AMBULANCE: marked replica " << e.replica_id
                       << " as ambulance in proposal at " << simTime() << "\n";
             return;
@@ -622,7 +622,7 @@ void ResDBIntersectionApp::applyByzantineTamperLane(uint8_t* base, uint32_t n)
         e.position_in_lane = 0;
         std::memcpy(base + best_i * sizeof(e), &e, sizeof(e));
         tamper_lane_proposal_replica_id_ = e.replica_id;
-        std::cout << "[BYZANTINE] r" << replicaId_
+        std::cout << "[BYZANTINE] r" << ctx_.replicaId_
                   << " TAMPER_LANE: replica " << e.replica_id
                   << " lane " << (int)orig << "→S(1) — N+E batch → CRASH\n";
     }
@@ -638,7 +638,7 @@ void ResDBIntersectionApp::applyByzantineTamperLane(uint8_t* base, uint32_t n)
     std::lock_guard<std::mutex> lk(app->certs_mutex_);
     uint32_t capacity = *cnt;
     uint32_t i = 0;
-    for (const auto& kv : app->collected_certs_) {
+    for (const auto& kv : app->ctx_.collected_certs_) {
         if (i >= capacity) break;
         const std::string& carId = kv.first;
         if (carId.size() > 3) {
@@ -671,10 +671,10 @@ void ResDBIntersectionApp::applyByzantineTamperLane(uint8_t* base, uint32_t n)
         app->pending_orders_.push_back(std::move(copy));
         pending_after = app->pending_orders_.size();
     }
-    std::cout << "[ORDER-ENQ] r" << app->replicaId_ << " len=" << len
+    std::cout << "[ORDER-ENQ] r" << app->ctx_.replicaId_ << " len=" << len
               << " pending_after=" << pending_after
-              << " order_applied=" << app->order_applied_
-              << " phase=" << phaseToStr(static_cast<int>(app->current_phase_)) << std::endl;
+              << " order_applied=" << app->ctx_.order_applied_
+              << " phase=" << phaseToStr(static_cast<int>(app->ctx_.current_phase_)) << std::endl;
 }
 
 // ── processOrders (simulation thread, called from transport poll) ─────────────
@@ -689,9 +689,9 @@ void ResDBIntersectionApp::processOrders()
     }
 
     if (debug_order_delivery_) {
-        std::cout << "[ORDER-DEQ] r" << replicaId_ << " n=" << local.size()
-                  << " order_applied=" << order_applied_
-                  << " phase=" << phaseToStr(current_phase_) << "\n";
+        std::cout << "[ORDER-DEQ] r" << ctx_.replicaId_ << " n=" << local.size()
+                  << " order_applied=" << ctx_.order_applied_
+                  << " phase=" << phaseToStr(ctx_.current_phase_) << "\n";
     }
 
     size_t ord_idx = 0;
@@ -707,7 +707,7 @@ void ResDBIntersectionApp::processOrders()
         }
         if (dec.size() < sizeof(ResdbOrderHdr)) {
             if (debug_order_delivery_) {
-                std::cout << "[ORDER-SKIP] r" << replicaId_
+                std::cout << "[ORDER-SKIP] r" << ctx_.replicaId_
                           << " reason=short_hdr len=" << dec.size() << "\n";
             }
             continue;
@@ -715,22 +715,22 @@ void ResDBIntersectionApp::processOrders()
 
         ResdbOrderHdr ohdr;
         std::memcpy(&ohdr, dec.data(), sizeof(ohdr));
-        if (hasCompletedReplicaEpoch(replicaId_, ohdr.epoch)) {
-            std::cout << "[ORDER-TAIL-DROP] r" << replicaId_
+        if (hasCompletedReplicaEpoch(ctx_.replicaId_, ohdr.epoch)) {
+            std::cout << "[ORDER-TAIL-DROP] r" << ctx_.replicaId_
                       << " skipping epoch=" << ohdr.epoch
                       << " reason=replica-already-departed\n";
             continue;
         }
         if (tombstoned_epochs_.count(ohdr.epoch) || isEpochTombstoned(ohdr.epoch)) {
-            std::cout << "[ORDER-SKIP] r" << replicaId_
+            std::cout << "[ORDER-SKIP] r" << ctx_.replicaId_
                       << " reason=tombstoned epoch=" << ohdr.epoch << "\n";
             continue;
         }
-        if (order_applied_ && ohdr.epoch <= current_epoch_) {
+        if (ctx_.order_applied_ && ohdr.epoch <= ctx_.current_epoch_) {
             if (debug_order_delivery_) {
-                std::cout << "[ORDER-TAIL-DROP] r" << replicaId_
+                std::cout << "[ORDER-TAIL-DROP] r" << ctx_.replicaId_
                           << " skipping epoch=" << ohdr.epoch
-                          << " current_epoch=" << current_epoch_
+                          << " current_epoch=" << ctx_.current_epoch_
                           << " (order_applied already)\n";
             }
             continue;
@@ -739,7 +739,7 @@ void ResDBIntersectionApp::processOrders()
         if (dec.size() < sizeof(ResdbOrderHdr) +
                          ohdr.n_vehicles * sizeof(ResdbVehicleDecision)) {
             if (debug_order_delivery_) {
-                std::cout << "[ORDER-SKIP] r" << replicaId_ << " reason=short_body len="
+                std::cout << "[ORDER-SKIP] r" << ctx_.replicaId_ << " reason=short_body len="
                           << dec.size() << " n_vehicles=" << ohdr.n_vehicles << "\n";
             }
             continue;
@@ -752,9 +752,9 @@ void ResDBIntersectionApp::processOrders()
         committed_order_batches_.assign(ohdr.n_batches, {});
         {
             std::lock_guard<std::mutex> lk(committed_view_mutex_);
-            committed_order_vehicle_ids_.clear();
+            ctx_.committed_order_vehicle_ids_.clear();
             for (uint32_t i = 0; i < ohdr.n_vehicles; ++i)
-                committed_order_vehicle_ids_.insert(decisions[i].replica_id);
+                ctx_.committed_order_vehicle_ids_.insert(decisions[i].replica_id);
         }
         for (uint32_t i = 0; i < ohdr.n_vehicles; ++i) {
             if (decisions[i].batch_index < ohdr.n_batches)
@@ -790,10 +790,10 @@ void ResDBIntersectionApp::processOrders()
             }
         }
 
-        if (cancel_pending_ && ohdr.epoch == rollback_new_epoch_ &&
+        if (ctx_.cancel_pending_ && ohdr.epoch == rollback_new_epoch_ &&
                 hasBlockingIncidentForEpoch(cancelled_epoch_)) {
             const bool boxOccupied = anyVehicleInConflictBoxTraCI();
-            std::cout << "[UNSAFE-RECOVERY-ORDER] r" << replicaId_
+            std::cout << "[UNSAFE-RECOVERY-ORDER] r" << ctx_.replicaId_
                       << " cancelled_epoch=" << cancelled_epoch_
                       << " new_epoch=" << ohdr.epoch
                       << " incident_state=BLOCKING"
@@ -801,8 +801,8 @@ void ResDBIntersectionApp::processOrders()
                       << " action=accepted-without-valid-clear\n";
         }
 
-        if (cancel_pending_ && ohdr.epoch == rollback_new_epoch_) {
-            cancel_pending_ = false;
+        if (ctx_.cancel_pending_ && ohdr.epoch == rollback_new_epoch_) {
+            ctx_.cancel_pending_ = false;
             cancel_state_ = CancelState::INACTIVE;
             cancel_active_batch_ = -1;
             cancel_primary_ = -1;
@@ -816,14 +816,14 @@ void ResDBIntersectionApp::processOrders()
             // CLEAR does — clear local WAIT state before continuing.
             stopWait("order-applied");
             resetOrderCandidate("order-applied");
-            std::cout << "[ROLLBACK-COMMIT] r" << replicaId_
+            std::cout << "[ROLLBACK-COMMIT] r" << ctx_.replicaId_
                       << " cancelled_epoch=" << cancelled_epoch_
                       << " new_epoch=" << ohdr.epoch
                       << " t=" << simTime() << "\n";
         }
 
-        if (cancel_pending_ && ohdr.epoch == cancelled_epoch_) {
-            std::cout << "[ORDER-SKIP] r" << replicaId_
+        if (ctx_.cancel_pending_ && ohdr.epoch == cancelled_epoch_) {
+            std::cout << "[ORDER-SKIP] r" << ctx_.replicaId_
                       << " reason=cancel_pending cancelled_epoch="
                       << cancelled_epoch_ << "\n";
             continue;
@@ -831,20 +831,20 @@ void ResDBIntersectionApp::processOrders()
 
         detectConsensusAttackOutcome(decisions, ohdr.n_vehicles, ohdr.n_batches);
 
-        std::cout << "[METRICS " << replicaId_ << "] Order_Decided_Time: " << simTime()
+        std::cout << "[METRICS " << ctx_.replicaId_ << "] Order_Decided_Time: " << simTime()
                   << " n_batches=" << ohdr.n_batches << "\n";
         
-        has_committed_order_ = true;
+        ctx_.has_committed_order_ = true;
         deactivateDiscovery("order-applied");
-        last_committed_epoch_ = ohdr.epoch;
+        ctx_.last_committed_epoch_ = ohdr.epoch;
         committed_order_bytes_ = dec;
         if (propose_time_ >= SIMTIME_ZERO) {
             double bft_sim  = (simTime() - propose_time_).dbl();
             double stop_dec = (stop_time_ >= SIMTIME_ZERO) ? (simTime() - stop_time_).dbl() : -1.0;
-            std::cout << "[VC-TRACE] r" << replicaId_
+            std::cout << "[VC-TRACE] r" << ctx_.replicaId_
                       << " propose_to_order_sec=" << bft_sim
                       << " stop_to_order_sec=" << stop_dec << "\n";
-            std::cout << "[PHASE_SUMMARY " << replicaId_ << "] epoch=" << current_epoch_
+            std::cout << "[PHASE_SUMMARY " << ctx_.replicaId_ << "] epoch=" << ctx_.current_epoch_
                       << " PROPOSE_ALL_BFT(sim)=" << std::to_string(bft_sim) << "s"
                       << " stop_to_decision(sim)="
                       << (stop_dec >= 0.0 ? std::to_string(stop_dec) + "s" : "N/A") << "\n";
@@ -869,10 +869,10 @@ void ResDBIntersectionApp::processOrders()
         // stragglers, then stop — no batch / clearance / resume. This is the intended
         // terminal path, distinct from the vehicle [ORDER-WARN] "no slot" case below.
         if (is_intersection_unit_) {
-            order_applied_ = true;
-            if (gossip_enabled_ && gossip_order_bytes_.empty())
+            ctx_.order_applied_ = true;
+            if (ctx_.gossip_enabled_ && gossip_order_bytes_.empty())
                 triggerGossip(ohdr.epoch, dec);
-            std::cout << "[UNIT] r" << replicaId_
+            std::cout << "[UNIT] r" << ctx_.replicaId_
                       << " executed committed order epoch=" << ohdr.epoch
                       << " n_batches=" << ohdr.n_batches
                       << " (records order, does not cross)\n";
@@ -882,30 +882,30 @@ void ResDBIntersectionApp::processOrders()
         // Find own batch index.
         int my_batch = -1;
         for (uint32_t i = 0; i < ohdr.n_vehicles; ++i)
-            if (decisions[i].replica_id == replicaId_)
+            if (decisions[i].replica_id == ctx_.replicaId_)
                 { my_batch = (int)decisions[i].batch_index; break; }
         if (my_batch < 0) {
-            std::cout << "[ORDER-WARN] r" << replicaId_
+            std::cout << "[ORDER-WARN] r" << ctx_.replicaId_
                       << " committed order has no slot for this replica_id (n_vehicles="
                       << ohdr.n_vehicles << ")\n";
             if (debug_order_delivery_) {
-                std::cout << "[ORDER-WARN] r" << replicaId_ << " decision_ids:";
+                std::cout << "[ORDER-WARN] r" << ctx_.replicaId_ << " decision_ids:";
                 for (uint32_t i = 0; i < ohdr.n_vehicles; ++i)
                     std::cout << " " << decisions[i].replica_id;
                 std::cout << "\n";
             }
-            if (ohdr.epoch == current_epoch_) {
-                order_applied_ = true;
-                std::cout << "[ORDER-WARN] r" << replicaId_
+            if (ohdr.epoch == ctx_.current_epoch_) {
+                ctx_.order_applied_ = true;
+                std::cout << "[ORDER-WARN] r" << ctx_.replicaId_
                           << " no slot in current epoch; staying stopped/excluded\n";
                 // A late ambulance excluded from the just-committed order must force a
                 // rollback: broadcast its emergency arrival (peers witness it → each echoes
                 // a CANCEL, forming the f+1 CANCEL cert) and (re)arm the announce timer to
                 // keep re-broadcasting until it is admitted to a committed order. Without
-                // this, deactivateDiscovery("order-applied") + the order_applied_ guard
+                // this, deactivateDiscovery("order-applied") + the ctx_.order_applied_ guard
                 // silence the ambulance and no rollback is ever triggered.
-                if (is_ambulance_ && enableRollback_) {
-                    std::cout << "[AMBULANCE-EXCLUDED] r" << replicaId_
+                if (is_ambulance_ && ctx_.enableRollback_) {
+                    std::cout << "[AMBULANCE-EXCLUDED] r" << ctx_.replicaId_
                               << " ambulance not in committed epoch=" << ohdr.epoch
                               << " (n_vehicles=" << ohdr.n_vehicles
                               << "); forcing emergency arrival to trigger rollback\n";
@@ -921,18 +921,18 @@ void ResDBIntersectionApp::processOrders()
             continue;
         }
 
-        order_applied_ = true;
+        ctx_.order_applied_ = true;
         if (stop_time_ < SIMTIME_ZERO)
             stop_time_ = simTime();  // car was en-route when order arrived; use order time as fallback
         stopCertBroadcastRetries();
 
         // Trigger post-consensus gossip so stragglers can catch up.
-        if (gossip_enabled_) {
-            has_committed_order_  = true;
+        if (ctx_.gossip_enabled_) {
+            ctx_.has_committed_order_  = true;
             if (gossip_order_bytes_.empty())
                 triggerGossip(ohdr.epoch, dec);
         }
-        current_phase_ = ConsensusPhase::EXECUTING;
+        ctx_.current_phase_ = ConsensusPhase::EXECUTING;
         my_batch_index_ = my_batch;
 
         // Collect vehicles in the preceding batch (needed for clearance gating).
@@ -943,19 +943,19 @@ void ResDBIntersectionApp::processOrders()
                     preceding_batch_cars_.push_back(decisions[i].replica_id);
         }
 
-        std::cout << "[METRICS " << replicaId_ << "] Batch_Assignment: batch="
+        std::cout << "[METRICS " << ctx_.replicaId_ << "] Batch_Assignment: batch="
                   << my_batch << " preceding_count=" << preceding_batch_cars_.size() << "\n";
 
         if (my_batch == 0) {
             // Batch 0: go immediately — no predecessors.
-            std::cout << "[METRICS " << replicaId_ << "] Resume_Time: " << simTime()
+            std::cout << "[METRICS " << ctx_.replicaId_ << "] Resume_Time: " << simTime()
                       << " (batch=0)\n";
             resumeVehicle(0);
         } else {
             // Wait for all vehicles in batch (my_batch - 1) to clear the
             // intersection via TraCI. Mirrors V2VOrderProtocol.cc executeBatch().
             clearance_started_ = simTime();
-            std::cout << "[CLEARANCE r" << replicaId_ << "] batch=" << my_batch
+            std::cout << "[CLEARANCE r" << ctx_.replicaId_ << "] batch=" << my_batch
                       << " waiting for " << preceding_batch_cars_.size()
                       << " vehicle(s) in batch " << (my_batch - 1) << " to clear\n";
             if (!preceding_batch_poll_msg_)
