@@ -1,120 +1,163 @@
 # DistributedSystemsforAVs
 
-This repo contains the active OMNeT++/Veins + ResilientDB intersection simulation.
-The old Java/JNI/BFT-SMaRt implementation has been removed from the runnable code path.
+BFT consensus for autonomous vehicles at an unsignalled intersection. Vehicles
+agree on a safe crossing order using PBFT, with an arrival-certificate layer
+that proves a vehicle really is where it claims before its entry can enter a
+proposal.
 
-The current runnable pieces are:
+Three layers:
 
-- `veins-veins-5.3.1`
-- `incubator-resilientdb`
-- `fourway`
-- `experiment_orchestrator.py`
+| Layer | Where | What |
+|---|---|---|
+| Network + mobility | `veins-veins-5.3.1/` | OMNeT++ / Veins 802.11p radio, SUMO via TraCI |
+| Application | `veins-veins-5.3.1/src/veins/modules/application/resDB/` | the protocol — arrival certs, ordering, rollback |
+| Consensus | `incubator-resilientdb/integration/omnet/` | C ABI bridge to a real ResilientDB PBFT replica |
 
-OMNeT++ is an external prerequisite and is not vendored in this repo.
+Each vehicle is one `ResDBIntersectionApp` module embedding its own PBFT
+replica. Both vendored trees carry local patches, so they are **not** pristine
+upstream checkouts.
+
+## Layout
+
+```
+veins-veins-5.3.1/      Veins, patched (TraCI scenario manager +665 lines)
+  .../application/resDB/   the protocol
+    protocol/               shared types: Primitives, Arrival, Rollback, OrderCandidate
+    crypto/                 ECDSA P-256 signing, ambulance certs
+incubator-resilientdb/  ResilientDB, patched (PBFT core +1,154 lines)
+  integration/omnet/       the bridge + deterministic batching/safety table
+fourway/                scenarios, omnetpp.ini, the run script, crypto key dirs
+plotter/                figure generation (see below)
+tests/golden/           structural-invariant harness for safe refactoring
+benchmarks/ablations/   the ablation runner; results are gitignored
+docs/                   ARCHITECTURE.md and the CLEAR/WAIT spec
+writing/                thesis source
+```
 
 ## Prerequisites
 
-- OMNeT++ 6.2.0 installed separately, typically at `/home/yash/omnetpp/omnetpp-6.2.0`
-- A shell where OMNeT++ is available, or `OMNETPP_ROOT` exported manually
-- Bazel/toolchain support for building `incubator-resilientdb`
-
-Optional environment variables:
-
-- `OMNETPP_ROOT`
-- `VEINS_ROOT`
-- `FOURWAY_ROOT`
-- `RESDB_ROOT`
-- `DISTRIBUTED_AVS_ROOT`
-
-## Environment
-
-From the OMNeT++ installation:
+OMNeT++ 6.2.0 is **not** vendored. Everything builds and runs inside an
+`opp_env` shell:
 
 ```bash
-cd /home/yash/omnetpp/omnetpp-6.2.0
-source setenv
-opp_env shell
-source ~/.bashrc
+opp_env shell -w <workspace> omnetpp-6.2.0 --no-build --no-cleanup
 ```
 
-Then return to the repo:
-
-```bash
-cd /home/yash/DistributedSystemsforAVs
-```
+SUMO must be on `PATH`. All commands below assume you are inside that shell.
 
 ## Build
 
-Build the ResDB OMNeT bridge and helper tools:
+Three stages, in order. The bridge is the slow one (~5 min).
+
+**1. ResilientDB bridge** — the two flags that matter are `-xc++` (so Nix clang
+finds libstdc++) and `-include cstdint` (for Abseil):
 
 ```bash
-makeres
+cd incubator-resilientdb
+bazel --output_user_root=/tmp/bazel build --spawn_strategy=local \
+  --cxxopt=-xc++ --host_cxxopt=-xc++ \
+  --cxxopt=-Wno-enum-constexpr-conversion --host_cxxopt=-Wno-enum-constexpr-conversion \
+  --copt=-Dfdopen=fdopen --host_copt=-Dfdopen=fdopen \
+  --cxxopt=-include --cxxopt=cstdint --host_cxxopt=-include --host_cxxopt=cstdint \
+  --action_env=PATH="$PATH" --host_action_env=PATH="$PATH" \
+  //integration/omnet:resdb_omnet_bridge //tools:key_generator_tools //tools:certificate_tools
 ```
 
-Build Veins:
+`scripts/makeres.sh` wraps this. Do not point `--output_user_root` at
+`~/.cache/bazel`; that path hits toolchain errors here.
+
+**2. Veins** — `./configure` first on a fresh clone, since `src/Makefile` is generated:
 
 ```bash
-makeveins
+cd veins-veins-5.3.1 && ./configure && make -j$(nproc)
 ```
 
-Equivalent direct commands are:
+**3. Simulation binary:**
 
 ```bash
-./scripts/makeres.sh
-( cd veins-veins-5.3.1 && make )
+cd fourway && make -j$(nproc)
 ```
+
+The binary must be rebuilt locally — a committed one carries an rpath to
+whichever machine built it.
 
 ## Run
 
-Use the ResDB simulation runner directly:
-
 ```bash
-fourway/run-resdb-simulation.sh -u Cmdenv -c FourVehiclesResDB
+fourway/run-resdb-simulation.sh -u Cmdenv -c FourVehiclesResDB   # headless
+fourway/run-resdb-simulation.sh -u Qtenv  -c FourVehiclesResDB   # GUI
 ```
 
-GUI mode:
+Configs live in `fourway/omnetpp.ini`. Useful flags:
+
+| Flag | Effect |
+|---|---|
+| `--byzleader <id> --leader-byz-type <n>` | make a replica Byzantine; `<n>` is a `ByzantineType` from `protocol/Primitives.h` |
+| `--no-firewall` | disable the f+1 pre-verification checks |
+| `--randomize <N> <F>` | generate a random scenario |
+| `--rollback-late-emergency` | late-ambulance rollback scenario |
+| `--tolerated-f <n>` | override the tolerated fault count |
+
+Both value-taking flags need their value; passing `--byzleader` bare silently
+consumes the next argument.
+
+Full log goes to `/tmp/resdb-simulation.log`, or `$LOG_FILE` if set.
+
+**Crypto key directories must match the replica count** — the bridge derives N
+from `server.config`. Hence `fourway/resdb_crypto_8`, `_16`, `_rb18` and so on.
+Generate one with `fourway/gen_crypto_dir.sh <N> <dir>` (needs the Bazel tools
+from stage 1).
+
+## Figures
+
+Every figure is generated by one pipeline: discover → parse → metrics → figure.
 
 ```bash
-fourway/run-resdb-simulation.sh -u Qtenv -c FourVehiclesResDB
+python3 -m plotter list
+python3 -m plotter build ab1_rsu
+python3 -m plotter build-all          # -> figures/
 ```
 
-Common configs include:
+Log parsing lives in exactly one place, `plotter/io/logparse.py`. If the C++ log
+format changes, that is the only file to update. Adding a figure means adding
+one module under `plotter/figures/` and one line in `_registry.py`.
 
-- `FourVehiclesResDB`
-- `EightVehiclesResDB`
-- `TwelveVehiclesResDB`
-- `SixteenVehiclesResDB`
-- `EighteenVehiclesResDB`
-- `TwentyVehiclesResDB`
+Results come from `benchmarks/ablations/run_ablations.sh`; both results and
+figures are gitignored.
 
-The compatibility wrappers `fourway/run.sh`, `fourway/run_cmdenv.sh`, and
-`fourway/run_correct.sh` now delegate to `fourway/run-resdb-simulation.sh`.
+## Refactoring safely
 
-For batch experiments, use the orchestrator:
+Consensus timings are **not** reproducible: the bridge runs PBFT on worker
+threads polled on a fixed tick, so the same binary can report a commit at 32.6s
+on one run and 33.1s on the next. Comparing timings produces constant false
+alarms.
+
+`tests/golden/` therefore compares *structure* — did every replica commit,
+schedule size, quorum, stop-sign fallbacks, whether rollback fired — over
+several repetitions, because commit success is genuinely probabilistic near the
+quorum edge.
 
 ```bash
-python experiment_orchestrator.py
+python3 tests/golden/run_golden.py capture     # on known-good code
+# ... refactor ...
+python3 tests/golden/run_golden.py check       # non-zero exit if anything moved
+python3 tests/golden/run_golden.py capture --from-logs   # rebuild without re-running
 ```
 
-Pass the same arguments you normally use for your experiment suite.
-
-## Notes
-
-- All active consensus traffic uses the C++ ResDB bridge and Veins 802.11p radio path.
-- Historical Java migration notes remain in archived documentation, but they are not part of the build.
-- Route and result files with `bft_` in their names are retained as experiment artifacts or SUMO scenario names.
+The 18-vehicle rollback cells take ~7 minutes per run, so a full matrix is
+roughly 55 minutes. Never run a simulation concurrently with the harness unless
+`LOG_FILE` is set per run.
 
 ## Troubleshooting
 
-If the launcher cannot find OMNeT++:
+**`OMNETPP_ROOT is not set`** — you are outside the `opp_env` shell.
 
-- source the OMNeT shell with `source "$OMNETPP_ROOT/setenv"`
-- or export `OMNETPP_ROOT` before running
+**`libveins.so: cannot open shared object file`** — rebuild stage 2 and 3
+locally.
 
-If `makeres` / Bazel fails on Boost.MPL `int_float_mixture_enum` /
-`-Wenum-constexpr-conversion`, your Clang is newer than the pinned Boost expects;
-`incubator-resilientdb/.bazelrc` already passes the required suppression for C++ builds.
+**Exit 139 / 133 on 18-vehicle runs** — a known TraCI crash when a node queries
+a departed vehicle after sim overrun. It fires *after* the commit, so metrics
+are unaffected; the golden harness judges the invariants, not the exit code.
 
-If plain `bazel build` from `opp_env` fails on macOS with `'limits' file not found`
-or similar while compiling protobuf, use `scripts/makeres.sh`; it clears SDK/include
-environment variables before invoking Bazel.
+**Bazel fails on Boost `int_float_mixture_enum`** — your Clang is newer than the
+pinned Boost expects; `.bazelrc` already passes the suppression.
