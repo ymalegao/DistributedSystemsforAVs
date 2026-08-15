@@ -32,14 +32,18 @@ INK_SECONDARY = "#55554e"
 GRID_ALPHA = 0.3
 
 # ── categorical series ───────────────────────────────────────────────────────
-# Fixed assignment by identity: an arm keeps its color no matter which arms a
-# given figure happens to show. Never cycled, never reassigned by rank.
+# Assigned by ROLE, not by arm name, so every ablation reads the same way: the
+# control condition is always blue and the treatment always orange, whether the
+# pair is vanilla/ours, baseline/ours or OFF/ON. Fixed, never cycled, never
+# reassigned by rank.
+CONTROL = "#2a78d6"     # categorical slot 1 — baseline / vanilla / without / off
+TREATMENT = "#eb6834"   # categorical slot 2 — ours / with / on
+ACCENT = "#1baf7a"      # slot 3, for the rare third series
+
 SERIES = {
-    "OFF": dict(color="#2a78d6", marker="o", label="without RSU"),
-    "ON":  dict(color="#eb6834", marker="s", label="with RSU"),
+    "control":   dict(color=CONTROL, marker="o"),
+    "treatment": dict(color=TREATMENT, marker="s"),
 }
-# Third slot, for figures that need one beyond the two arms.
-SERIES_3 = dict(color="#1baf7a", marker="^")
 
 DPI = 130
 FIGSIZE = (7.2, 4.4)
@@ -51,18 +55,19 @@ BAR_EDGE = SURFACE      # 2px surface gap between adjacent bars
 BAR_EDGEWIDTH = 2.0
 
 
-def series(arm: str, *, label_suffix: str = "") -> dict:
-    """Plot kwargs for an arm. label_suffix carries the config, e.g. "(N=18)"."""
-    spec = dict(SERIES[arm])
-    if label_suffix:
-        spec["label"] = f"{spec['label']} {label_suffix}"
+def series(role: str, label: str = "") -> dict:
+    """Plot kwargs for a role ("control" or "treatment"), with its legend label.
+
+    The label is per-figure because the same role is named differently in each
+    ablation ("vanilla BFT", "SUMO all-way-stop", "without RSU").
+    """
+    spec = dict(SERIES[role])
+    if label:
+        spec["label"] = label
     return spec
 
 
-def figure(figsize=FIGSIZE):
-    """A themed figure/axes pair. Every figure module starts here."""
-    fig, ax = plt.subplots(figsize=figsize)
-    fig.patch.set_facecolor(SURFACE)
+def _theme_axes(ax):
     ax.set_facecolor(SURFACE)
     ax.grid(alpha=GRID_ALPHA, linewidth=0.8)
     ax.set_axisbelow(True)
@@ -74,7 +79,22 @@ def figure(figsize=FIGSIZE):
     # Text wears ink tokens, never a series color.
     ax.xaxis.label.set_color(INK_PRIMARY)
     ax.yaxis.label.set_color(INK_PRIMARY)
-    return fig, ax
+    return ax
+
+
+def figure(figsize=FIGSIZE, subplots=(1, 1)):
+    """A themed figure. Every figure module starts here.
+
+    Returns (fig, ax) for a single panel, or (fig, axes) when subplots asks for
+    more -- ablations 1 and 6 each pair two related panels in one figure.
+    """
+    fig, axes = plt.subplots(*subplots, figsize=figsize)
+    fig.patch.set_facecolor(SURFACE)
+    if subplots == (1, 1):
+        return fig, _theme_axes(axes)
+    for ax in axes.flat if hasattr(axes, "flat") else axes:
+        _theme_axes(ax)
+    return fig, axes
 
 
 def finish(ax, *, title=None, xlabel=None, ylabel=None, legend=True,
@@ -99,6 +119,36 @@ def finish(ax, *, title=None, xlabel=None, ylabel=None, legend=True,
         if legend_above:
             kwargs.update(loc="lower left", bbox_to_anchor=(0, 1.02), ncol=2)
         ax.legend(**kwargs)
+
+
+def paired_bars(ax, entries, *, value_fmt="{:.0f}", show_n=True):
+    """The control-vs-treatment bar comparison shared by ablations 2-5.
+
+    entries: [(label, role, Stat), ...] in the order they should appear, control
+    first so the reader meets the baseline before the improvement.
+
+    Each bar is directly labeled with its value, so the figure is readable
+    without tracing back to the axis, and identity never rests on color alone.
+    Cells with no data are skipped rather than drawn as zero, which would read
+    as a measured result of zero.
+    """
+    xs, ticks = [], []
+    for i, (label, role, stat) in enumerate(e for e in entries if e[2].mean is not None):
+        spec = series(role)
+        ax.bar(i, stat.mean, 0.6, color=spec["color"],
+               yerr=stat.yerr, capsize=4, ecolor=INK_SECONDARY,
+               edgecolor=BAR_EDGE, linewidth=BAR_EDGEWIDTH)
+        text = value_fmt.format(stat.mean)
+        if show_n:
+            text += f"\n(n={stat.n})"
+        ax.annotate(text, xy=(i, stat.hi if stat.hi is not None else stat.mean),
+                    xytext=(0, 6), textcoords="offset points",
+                    ha="center", va="bottom", fontsize=9, color=INK_PRIMARY)
+        xs.append(i)
+        ticks.append(label)
+    ax.set_xticks(xs)
+    ax.set_xticklabels(ticks)
+    return xs
 
 
 def save(fig, name: str, out_dir) -> Path:
