@@ -1,8 +1,8 @@
-# Stage C Prime: Crash -> WAIT(BLOCKED) -> CLEAR -> ORDER (Scenario 16)
+# Stage C Prime: Crash -> WAIT -> CLEAR -> ORDER (Scenario 16)
 
-**Status:** Implementation plan, repository-audited against the current Scenario 15 code.
+**Status:** Revised implementation plan, repository-audited against the current Scenario 15 code.
 
-This specification extends the working Scenario 15 architecture. It deliberately does not add a rollback ORDER type, `ResdbRollbackHdr` usage, or `ResdbConsensusTag`. Rollback is the committed CANCEL decision. Discovery after CANCEL and the resulting `ORDER(e+1)` use the same ordinary discovery and ORDER path as epoch 0.
+**Core decision:** WAIT is a signed advisory heartbeat from the ordinary next-epoch certificate primary after discovery completes. It is not PBFT consensus, not an `f+1` certificate, not a voter-set change, and not an ORDER validation or proposer-authorization rule. BLOCKED and CLEAR remain `f+1` physical-evidence certificates. CANCEL and ORDER remain the only committed decisions.
 
 ## 1. Protocol Summary
 
@@ -11,52 +11,67 @@ ORDER(e)
   -> crash perceived in the executing batch
   -> f+1 BLOCKED incident certificate
   -> CANCEL(e) commits
-  -> WAIT(term, renewal, ttl) decisions while the incident remains blocked
+  -> ordinary discovery for e+1 begins
+  -> recovery leader sends advisory WAIT heartbeats while BLOCKING
   -> f+1 CLEAR certificate for the blocked incident
   -> ordinary ORDER(e+1), carrying CLEAR evidence
 ```
 
-The decisions use the same ResDB PBFT machinery:
+There are three deliberately separate mechanisms:
 
-- `ORDER` grants crossing authority according to a committed schedule.
-- `CANCEL` tombstones a previously committed ORDER epoch.
-- `WAIT` grants the current recovery leader a bounded lease to keep recovery pending.
+- **Committed decisions:** ORDER grants crossing authority; CANCEL tombstones a committed ORDER epoch.
+- **Certified physical evidence:** BLOCKED proves the conflict box is obstructed; CLEAR proves the obstruction is gone.
+- **Advisory liveness traffic:** WAIT says the ordinary next-epoch certificate primary is alive and recovery is still pending. It only delays local leader-suspicion timers.
 
-The payloads differ because the application decisions differ. This does not create separate consensus algorithms.
+Only ORDER grants crossing authority. WAIT cannot make an ORDER valid or invalid.
 
-## 2. Non-Goals and Removed Assumptions
+## 2. Scenario 16
+
+1. Sixteen vehicles commit `ORDER(0)`.
+2. Two vehicles in the executing batch are force-stopped in the conflict box and become communication-dead.
+3. The remaining vehicles observe the blocked batch. Six trusted witnesses form one batch-scoped BLOCKED certificate.
+4. CANCEL(0) commits under the 16-member committed view.
+5. Fresh epoch-1 discovery starts among the 14 responsive vehicles.
+6. After epoch-1 discovery completes, its ordinary certificate primary periodically broadcasts WAIT heartbeats while the conflict box remains blocked, so followers do not time it out merely because ORDER cannot yet be proposed.
+7. The scenario removes both wrecks. Six trusted witnesses form one CLEAR certificate after the conflict box remains empty for the clearance dwell.
+8. CLEAR immediately terminates local WAIT deferral.
+9. The ordinary epoch-1 primary proposes the same ORDER payload used by ordinary discovery, plus a CLEAR evidence trailer.
+10. `ORDER(1)` commits for the 14 remaining vehicles.
+
+## 3. Non-Goals
 
 - Do not use `ResdbRollbackHdr` for `ORDER(e+1)`.
-- Do not infer decision type or epoch from PBFT sequence arithmetic.
-- Do not add `ResdbConsensusTag`; discovery state already controls ANN/ECHO/CERT transmission.
-- Do not create a separate rollback discovery protocol. The existing view-based discovery state machine is reused.
+- Do not add a rollback ORDER consensus mode.
+- Do not add WAIT to the ResDB bridge, executor, ledger, or active-view registry.
+- Do not create WAIT_ECHO or WAIT_CERT messages.
+- Do not use WAIT to elect or authorize an ORDER proposer.
+- Do not reject an otherwise valid ORDER because of local WAIT state.
+- Do not add `ResdbConsensusTag` or infer epoch from PBFT sequence arithmetic.
+- Do not create separate rollback discovery. Reuse the existing discovery state machine.
 - Do not use per-vehicle crash certificates as the authoritative completeness boundary.
-- Do not make all 18 provisioned identities mandatory active voters.
-- Do not let WAIT expiry authorize crossing. Only ORDER grants crossing authority.
+- Do not apply exponential backoff to PBFT PRE_PREPARE/PREPARE/COMMIT retries in this stage.
 
-## 3. Identity Universe, Active Views, and Quorums
+## 4. Identity Universe, Active Views, and Quorums
 
-The repository provisions 18 ResDB identities because 18 distinct vehicles may exist over the lifetime of Scenario 15/16. Provisioning is an identity/address/key registry, not a claim that all 18 vehicles are simultaneously active.
+The 18 entries in `server.config` are the provisioned identity universe because 18 distinct vehicles may exist over the lifetime of the scenario. Provisioning does not make all 18 simultaneous voters.
 
 For Scenario 16:
 
 - `K = {r0..r17}` is the provisioned identity universe.
 - `M_e` is the 16-member active view committed by `ORDER(e)`.
-- The two wrecked vehicles remain members of `M_e` but become communication-dead.
-- BLOCKED/CLEAR certificate threshold is `f_e + 1 = 6`, where `f_e = 5` for `M_e`.
-- CANCEL and WAIT use the committed `M_e` view: `N=16`, `f=5`, quorum `11`.
-- Fourteen responsive vehicles remain, so CANCEL and WAIT retain a three-vote liveness margin over quorum.
-- After both wrecks are removed, fresh discovery for `e+1` contains 14 eligible intents. Under the current per-epoch fault mode, ordinary `ORDER(e+1)` installs `N=14`, `f=4`, quorum `10`.
+- The two wrecked vehicles remain members of `M_e` but are communication-dead.
+- BLOCKED and CLEAR require `f_e + 1 = 6` distinct trusted witnesses from `M_e`, where `f_e = 5`.
+- CANCEL uses committed `M_e`: `N=16`, `f=5`, quorum `11`.
+- Fourteen responsive replicas remain, giving CANCEL a three-vote liveness margin.
+- After tow, epoch-1 discovery contains 14 signed intents. Under the current per-epoch mode, ordinary `ORDER(1)` installs `N=14`, `f=4`, quorum `10`.
 
-Every active view must come from a committed decision or a proposal validated under the existing proposal-defined active-view rules. Live TraCI perception never directly defines a PBFT voter set.
+WAIT has no quorum and creates no active view.
 
-## 4. Trusted Witness Identity
+## 5. Trusted Witness Identity
 
-The current CANCEL wire carries `echoingReplicaId`, signer public key, and signature, but validation trusts the public key embedded by the sender. Before reusing this mechanism for CLEAR, bind witness keys to provisioned replica identities.
+The current CANCEL wire verifies a signature against the public key embedded by the same sender. Before CLEAR reuses that machinery, bind witness keys to replica IDs.
 
-### 4.1 Simulation key registry
-
-Add an immutable simulation bootstrap registry:
+### 5.1 Simulation key registry
 
 ```cpp
 class WitnessKeyRegistry {
@@ -70,18 +85,18 @@ public:
 
 Rules:
 
-- Each module registers its existing `ec_pub_key_` for its own replica ID during initialization, before simulation traffic begins.
-- The first registration for an ID is immutable. Conflicting registration fails loudly.
-- Evidence validation checks the echo's public key against this registry before checking its signature.
-- A signer ID must also belong to the statement's eligible committed view.
-- The embedded key remains on the type-12/13 wire for compatibility, but it is no longer an authority by itself.
-- A deployment replaces this simulation bootstrap with provisioned certificates or hardware identities; the validation interface stays the same.
+- Every module registers its existing `ec_pub_key_` for its own ID during initialization, before traffic begins.
+- The first registration for an ID is immutable; conflicting registration fails loudly.
+- BLOCKED, CLEAR, and WAIT signatures count only if the supplied key matches the registry entry for the claimed sender ID.
+- Evidence signers must belong to the committed view associated with the incident.
+- The current type-12/13 embedded key can remain wire-compatible, but it is no longer authoritative by itself.
+- A deployment replaces this simulation registry with provisioned certificates or hardware identities.
 
-The bridge must not implement a second, weaker certificate validator. Register a thread-safe, read-only evidence-validation callback, following the existing cert-snapshot callback pattern, so bridge pre-verify and the Veins application consume the same result.
+The bridge uses one thread-safe, read-only evidence-validation callback for the ORDER CLEAR trailer. It must not implement a second weaker validator.
 
-## 5. Blocked Incident Model
+## 6. Blocked Incident
 
-The authoritative subject is the obstruction of the currently executing committed batch, not an individual wreck.
+The authoritative subject is the obstruction of the executing committed batch, not each individual wreck.
 
 ```cpp
 struct BlockedIncident {
@@ -105,21 +120,21 @@ struct IncidentRecord {
 std::map<BlockedIncident, IncidentRecord> incidentRegistry_;
 ```
 
-Per-vehicle observations remain useful for injection, dwell tracking, and logs, but they do not define how many crash certificates must be discovered.
-
 The canonical existing CANCEL `reasonRef` is:
 
 ```text
 blocked_batch:<cancelled_epoch>:<executing_batch>
 ```
 
-Provide one formatter/parser pair. Safety code consumes `BlockedIncident`, never ad hoc string parsing.
+Use one formatter/parser pair. Protocol checks consume `BlockedIncident`, never scattered string parsing.
 
-## 6. BLOCKED Evidence and CANCEL
+Per-vehicle crash observations remain useful for injection, dwell tracking, and logs. Multiple wrecks in one executing batch strengthen the same incident statement rather than creating an unknowable set of independent crash subjects.
 
-### 6.1 Crash perception
+## 7. BLOCKED Evidence and CANCEL
 
-On each world-state poll, an honest witness evaluates vehicles in the currently executing committed batch:
+### 7.1 Crash perception
+
+An honest witness evaluates vehicles in the currently executing committed batch:
 
 ```text
 crashedInExecutingBatch(v):
@@ -130,26 +145,26 @@ crashedInExecutingBatch(v):
     continuously for crashDwellSec
 ```
 
-The first qualifying vehicle causes that witness to emit one existing type-12 `CANCEL_ECHO` for the batch incident. Multiple wrecks in the same batch map to the same statement and therefore strengthen the same echo bucket instead of fragmenting evidence.
+The first qualifying vehicle causes that witness to emit one existing type-12 CANCEL_ECHO for the batch incident.
 
-Local perception may defensively stop the observing vehicle immediately. It does not mark the incident cert-driven registry `BLOCKING`; only a validated certificate does that.
+Local perception may defensively stop the observing vehicle immediately. It does not mutate the cert-driven incident registry; only a valid BLOCKED certificate records `BLOCKING`.
 
-### 6.2 BLOCKED certificate
+### 7.2 BLOCKED certificate
 
-Reuse the existing type-12/13 CANCEL pipeline with `reason=CANCEL_CRASH` and the canonical batch reference.
+Reuse the existing type-12/13 CANCEL pipeline with `reason=CANCEL_CRASH` and the batch incident reference.
 
 A valid certificate requires:
 
 1. At least six distinct witness IDs.
-2. Every witness ID is in committed view `M_e`.
-3. Every witness key matches the immutable key registry.
+2. Every signer belongs to committed `M_e`.
+3. Every signer key matches the trusted key registry.
 4. Every signature verifies.
-5. Every signed statement matches epoch, reason, incident reference, and signer ID.
+5. Every signed statement matches epoch, reason, incident, and signer ID.
 6. No duplicate signer IDs.
 
-Validation registers `incidentRegistry_[incident] = BLOCKING` before selecting or suppressing a local CANCEL proposal. Registration is independent of the existing singleton "current cancel justification" state.
+Every valid crash certificate registers the incident as BLOCKING before the application decides whether that certificate becomes the current singleton CANCEL justification. Registration must continue even when CANCEL for the epoch is already pending or committed.
 
-### 6.3 CANCEL behavior
+### 7.3 CANCEL
 
 The first valid BLOCKED certificate starts the existing path:
 
@@ -160,136 +175,140 @@ CANCEL_WITNESSING
   -> CANCEL_COMMITTED
 ```
 
-Reuse the current active-batch exclusion, deterministic CANCEL proposer, cancel drain, tombstone, vote retry, and cancel-commit gossip behavior.
+Reuse:
 
-CANCEL commits under `M_e`, including the two wrecked IDs as silent members. The remaining 14 replicas can satisfy quorum 11.
+- Active-batch exclusion from CANCEL leadership.
+- Frozen deterministic CANCEL proposer/electorate.
+- CANCEL drain.
+- Existing PBFT vote retry manager.
+- Epoch tombstone.
+- CANCEL-commit gossip/adoption.
+
+CANCEL commits under the 16-member committed view. The two wrecked members are silent, leaving 14 possible voters for quorum 11.
 
 Only committed CANCEL starts ordinary discovery for epoch `e+1`.
 
-## 7. WAIT Decision
+## 8. Advisory WAIT Heartbeat
 
-WAIT is a committed application decision submitted through the same PBFT service as CANCEL and ORDER. It is not discovery state and it does not grant crossing authority.
+WAIT exists only to avoid a false leader timeout after discovery has completed while the conflict box is legitimately blocked. It is one signed application message from the ordinary next-epoch certificate primary. Followers do not echo it and do not assemble a WAIT certificate.
 
-### 7.1 Payload
+### 8.1 Message type and payload
 
-Add an unambiguous WAIT payload magic:
+Reserve one unused application message type:
 
 ```cpp
-#define RESDB_WAIT_MAGIC 0x57414954u
+static constexpr int kWaitHeartbeatType = 17;
+
+#define RESDB_WAIT_HEARTBEAT_MAGIC 0x57414954u
 
 #pragma pack(push, 1)
-struct ResdbWaitHdr {
-    uint32_t magic;              // RESDB_WAIT_MAGIC
-    uint32_t pendingEpoch;       // e + 1
-    uint32_t cancelledEpoch;     // e
-    uint32_t leaderTerm;         // changes only after a lapsed lease
-    uint32_t renewalIndex;       // increments for timely same-leader renewals
-    int32_t  proposerId;
-    uint64_t proposedAtSimUs;    // committed lease time base
-    uint32_t ttlMs;
-    uint32_t blockedCertLen;
-    uint32_t nElectors;
+struct WaitHeartbeatPayload {
+    uint32_t magic;
+    uint16_t version;
+    uint16_t _pad;
+    uint32_t cancelledEpoch;
+    uint32_t executingBatch;
+    int32_t  leaderId;
+    uint32_t heartbeatIndex;
+    uint64_t sentAtSimUs;
+    uint64_t validUntilSimUs;
 };
 #pragma pack(pop)
-
-// payload:
-// ResdbWaitHdr
-// blockedCert[blockedCertLen]
-// int32_t electors[nElectors]
 ```
 
-The elector list must exactly equal the committed `M_e` membership, sorted and unique. It is included so the request-scoped active view remains explicit and independently checkable.
+The payload is signed by the leader using the existing signed application envelope. The claimed leader ID must match the trusted key registry.
 
-### 7.2 WAIT pre-verify
+WAIT does not carry BLOCKED_CERT bytes on every heartbeat. The follower already needs the matching locally validated BLOCKED certificate before accepting the heartbeat. A follower that lacks BLOCKED evidence simply does not defer its timeout.
 
-The bridge/application validation boundary checks, in order:
+### 8.2 Leader derivation and send rule
 
-1. Magic, lengths, integer bounds, and `pendingEpoch == cancelledEpoch + 1`.
-2. `ttlMs` is non-zero and no greater than `waitTtlMaxMs`; `proposedAtSimUs` is not in the future beyond the configured clock-skew allowance, and `proposedAtSimUs + ttlMs` has not already expired.
-3. CANCEL for `cancelledEpoch` is committed/adopted and no ORDER for `pendingEpoch` is committed.
-4. The embedded BLOCKED certificate is valid and names the registered incident for `cancelledEpoch`.
-5. No valid matching CLEAR certificate is known.
-6. Electors exactly match committed `M_e`; proposer belongs to that view.
-7. `(leaderTerm, renewalIndex, proposerId)` follows the lease rules below.
-8. Install a request-scoped active view `N=16`, `f=5`, quorum `11`.
+WAIT leadership is derived from the ordinary epoch-`e+1` discovery result. Once that discovery reaches `COMPLETE`, every replica computes the expected sender using the existing `CertPrimary()` rule over the finalized eligible certificate set. In the honest converged case this is the smallest eligible certified replica ID, and it is the same replica that may submit the ordinary ORDER proposal after CLEAR.
 
-A replica that already holds the matching CLEAR certificate rejects WAIT with `reason=incident-cleared`. Because CLEAR certificates are relayed and retried, all honest replicas should converge on this rejection before ORDER.
+No WAIT heartbeat is sent and no follower leader-timeout is armed before local discovery reaches `COMPLETE`. WAIT does not create a second leader election, and `cancel_primary_` is not reused as the WAIT or ORDER leader.
 
-### 7.3 Leader lease and renewal
+After discovery completes, the ordinary certificate primary sends WAIT every `waitHeartbeatIntervalSec` while:
 
-The initial WAIT leader is derived from the frozen recovery candidate list already used around CANCEL. The leader stays the same while it remains responsive.
+- The local discovery round is `COMPLETE` for `cancelledEpoch + 1`.
+- The matching incident is locally BLOCKING.
+- No matching CLEAR certificate is known.
+- No `ORDER(e+1)` is committed.
+- The leader remains the locally expected recovery leader.
+
+WAIT uses a fixed heartbeat interval in Scenario 16. One leader frame per interval is already inexpensive and provides predictable failure detection. Exponential retry backoff applies to evidence/gossip dissemination, not the heartbeat cadence.
+
+### 8.3 Follower acceptance
+
+A follower accepts a WAIT heartbeat only when:
+
+1. The signature is valid and bound to `leaderId` by the key registry.
+2. CANCEL for `cancelledEpoch` is committed/adopted.
+3. It holds a valid matching BLOCKED certificate and the incident is locally BLOCKING.
+4. It holds no matching CLEAR certificate.
+5. No `ORDER(cancelledEpoch+1)` is committed or being applied.
+6. The sender equals the follower's locally computed ordinary `CertPrimary()` for the completed epoch-`e+1` discovery view.
+7. `heartbeatIndex` is strictly greater than the last accepted index from that leader/incident.
+8. `sentAtSimUs` is within the configured clock-skew allowance.
+9. `validUntilSimUs > sentAtSimUs` and the advertised lease is no greater than `waitHeartbeatMaxDeferralSec`.
+10. `validUntilSimUs` has not already expired.
+
+Acceptance only reschedules the local recovery-leader suspicion timer to `validUntilSimUs`.
+
+It does not:
+
+- Change `rollback_rotation_index_`.
+- Install a PBFT primary or active view.
+- Authorize the sender to propose ORDER.
+- Enter bridge pre-verify.
+- Make an ORDER valid or invalid.
+- Restart, close, or erase discovery.
+
+### 8.4 Precedence
+
+The precedence order is strict:
 
 ```text
-first WAIT:
-    leaderTerm = 0
-    renewalIndex = 0
-
-timely renewal by the same leader:
-    leaderTerm unchanged
-    renewalIndex = previous renewalIndex + 1
-
-lease expires without a committed successor:
-    leaderTerm = previous leaderTerm + 1
-    renewalIndex = 0
-    proposer = candidates[leaderTerm % candidates.size()]
+valid ORDER(e+1) with matching CLEAR evidence
+    > valid CLEAR certificate
+    > advisory WAIT heartbeat
 ```
 
-Only committed WAITs update the committed term/index. Rejected proposals do not advance rotation.
+On valid CLEAR_CERT:
 
-The active leader begins renewal when the remaining lease reaches `waitRenewalLeadSec`, provided the incident is still BLOCKING. A valid committed ORDER, CANCEL, or successor WAIT supersedes the current WAIT.
+1. Transition the incident from BLOCKING to CLEARED.
+2. Cancel the local WAIT deferral timer immediately.
+3. Ignore all future WAIT heartbeats for that incident.
+4. Reevaluate ordinary ORDER proposal readiness.
 
-All replicas derive the same lease deadline from the committed `proposedAtSimUs + ttlMs`, rather than adding TTL to their locally delayed executor callback. OMNeT simulation time supplies the common clock for Scenario 16. A deployment requires a bounded synchronized clock or replaces deterministic timeout takeover with proper PBFT view change.
+On an ORDER proposal carrying valid matching CLEAR evidence:
 
-If the leader is alive and the accident remains, it should commit another WAIT before expiry. Rotation occurs only when no successor decision is committed by the expiry deadline.
+1. Validate and adopt CLEAR evidence first.
+2. Clear local WAIT state before any ordinary proposal/primary checks.
+3. Continue through the existing ordinary ORDER validation path.
 
-The first implementation uses this deterministic lease rotation. A proper PBFT view-change/leader-election implementation may replace it later, but both mechanisms must not run concurrently for the same WAIT instance.
+A local WAIT heartbeat must never cause rejection of an otherwise valid ORDER.
 
-### 7.4 Lapse semantics
+### 8.5 Expiry and leader election
 
-WAIT expiry is a real leader-lease lapse:
+When WAIT expires without CLEAR or a successor heartbeat:
 
-- The previous leader can no longer renew the expired term.
-- The next deterministic leader becomes eligible to propose WAIT or ORDER.
-- `[WAIT-LAPSED]` is a recovery event, not merely a metric.
-- Vehicles remain stopped because CANCEL tombstoned `ORDER(e)` and no `ORDER(e+1)` exists.
-- WAIT expiry never restores the cancelled schedule and never grants stop-sign crossing by itself.
+- Log `[WAIT-EXPIRED]`.
+- Re-enable the ordinary follower leader-suspicion/view-change path.
+- Keep every vehicle stopped because CANCEL remains committed and no new ORDER exists.
 
-This bounds an unresponsive WAIT leader without weakening the rule that only ORDER authorizes crossing.
+Scenario 16 assumes this ordinary certificate primary remains responsive. WAIT does not itself solve Byzantine leader election, and this stage does not claim that the current post-CANCEL application path can safely rotate to a replacement ORDER primary. Byzantine recovery-primary takeover remains deferred to a proper view-change or timeout-certificate design.
 
-### 7.5 WAIT executor result and gossip
+## 9. CLEAR Evidence
 
-Add a distinct executor result so the application callback cannot parse WAIT as ORDER:
-
-```cpp
-#define RESDB_WAIT_DECISION_MAGIC 0x57414944u
-
-struct ResdbWaitDecisionHdr {
-    uint32_t magic;
-    uint32_t pendingEpoch;
-    uint32_t cancelledEpoch;
-    uint32_t leaderTerm;
-    uint32_t renewalIndex;
-    int32_t  proposerId;
-    uint64_t leaseExpiresAtSimUs;
-    uint32_t ttlMs;
-    uint8_t  payloadDigest[32];
-};
-```
-
-WAIT decisions need the same late-learner/gossip treatment as other committed application decisions. Adoption must be idempotent by cancelled epoch, term, renewal index, and payload digest.
-
-## 8. CLEAR Evidence
-
-Reserve the currently unused application message types:
+Reserve the unused message types:
 
 ```cpp
 static constexpr int kClearEchoType = 15;
 static constexpr int kClearCertType = 16;
 ```
 
-### 8.1 Clearance predicate
+### 9.1 Clearance predicate
 
-An honest witness may emit CLEAR evidence only when it holds a valid matching BLOCKED certificate and observes:
+An honest witness may emit CLEAR evidence only when it holds the matching valid BLOCKED certificate and observes:
 
 ```text
 conflictBoxClear(incident):
@@ -297,27 +316,29 @@ conflictBoxClear(incident):
     continuously for clearDwellSec
 ```
 
-This intentionally certifies the whole blocked incident, not merely the removal of one named wreck. If either wreck remains, honest witnesses cannot produce CLEAR echoes.
+This certifies the whole blocked incident. Removing only one of two wrecks cannot satisfy it.
 
-### 8.2 CLEAR statement and certificate
+### 9.2 CLEAR statement and certificate
 
-The signed statement is canonically derived from the same `BlockedIncident`:
+The canonical signed statement is:
 
 ```text
 cancelledEpoch:clear:blocked_batch:<cancelledEpoch>:<batch>:signerId
 ```
 
-Any replica may assemble CLEAR_CERT after six matching trusted echoes. Validation uses the same six rules as BLOCKED evidence. A valid CLEAR_CERT transitions only the matching incident:
+A valid CLEAR certificate requires six matching trusted echoes under the same identity and distinct-signer rules as BLOCKED.
 
 ```text
 BLOCKING -> CLEARED
 ```
 
-CLEAR_ECHO and CLEAR_CERT use per-statement bounded retries and relay-once behavior. A valid cert stops retries for that statement only.
+CLEARED is terminal for that incident. A new crash belongs to a later committed epoch/incident.
 
-## 9. Shared Witness-Certificate Machinery
+Any valid CLEAR certificate immediately stops WAIT acceptance and triggers ORDER-readiness evaluation.
 
-Extract only the behavior shared by CANCEL and CLEAR; preserve the existing type-12/13 wire representation.
+## 10. Shared Witness Certificate Machinery
+
+Extract only the behavior shared by CANCEL/BLOCKED and CLEAR. Preserve the existing type-12/13 wire representation.
 
 ```cpp
 enum class WitnessKind {
@@ -339,25 +360,82 @@ class WitnessRetryManager;
 
 Requirements:
 
-- Collector key is the full canonical statement.
-- Distinct-signer handling is shared.
-- Trusted-key and signature checks are shared.
-- Retry state is keyed by statement; it is not a singleton certificate slot.
-- OMNeT timer ownership remains in `ResDBIntersectionApp`; the manager owns data and retry decisions, not raw `cMessage` lifetimes.
-- Type-12/13 serialization remains compatible except for validation becoming identity-bound.
-- Types 15/16 have separate thin serializers over the shared internal model.
+- The collector key is the full canonical statement.
+- Signers are distinct and identity-bound.
+- Retry state is keyed by statement, not one singleton certificate slot.
+- OMNeT timer ownership remains in `ResDBIntersectionApp`; the retry manager owns retry data/policy, not raw `cMessage` lifetime.
+- Type-12/13 serializers remain wire-compatible.
+- Types 15/16 use separate thin serializers over the same internal validation model.
+- WAIT is not a client of this certificate machinery.
 
-## 10. Ordinary ORDER(e+1) with CLEAR Evidence
+## 11. Exponential Backoff and Congestion
 
-`ORDER(e+1)` remains the existing ordinary payload and proposal-defined active-view path. Add an optional evidence trailer after the vehicle entries:
+The repository already uses exponential spacing for ordinary decision gossip. CANCEL_CERT retry, CANCEL-commit gossip, and arrival certificate retries are currently fixed interval. Scenario 16 adds backoff only where it does not weaken PBFT phase progress.
+
+### 11.1 Backoff function
+
+```text
+interval(k) = min(base * factor^k, cap) + full_jitter(0, jitterMax)
+```
+
+Use saturating arithmetic rather than unchecked bit shifting.
+
+### 11.2 BLOCKED/CANCEL certificate retry
+
+Cancellation evidence is time-sensitive, so use fast-start exponential backoff:
+
+```text
+initial broadcast immediately
+retry 1: 0.10 s + jitter
+retry 2: 0.20 s + jitter
+retry 3: 0.40 s + jitter
+retry 4: 0.80 s + jitter
+later: capped at cancelEvidenceRetryCapSec
+```
+
+Rules:
+
+- Reset the backoff for a statement when a new distinct echo is accepted.
+- Stop certificate retry after CANCEL commits/adopts, the retry bound is reached, or the statement becomes obsolete.
+- Relay-once by validators remains immediate and is not delayed by the assembler's retry backoff.
+- Do not back off the first CANCEL_ECHO or first assembled BLOCKED certificate transmission.
+
+### 11.3 CANCEL-commit gossip
+
+CANCEL-commit gossip may use a slower capped exponential schedule:
+
+```text
+initial gossip immediately
+then 0.25 s, 0.50 s, 1.0 s, 2.0 s, cap 4.0 s, each with jitter
+```
+
+Stop when the configured retry bound is reached or the run advances past the relevant recovery state. Gossip adoption still requires the existing matching-attestation threshold.
+
+### 11.4 CLEAR evidence retry
+
+CLEAR_ECHO/CLEAR_CERT use the generic capped backoff. The first transmission and relay-once remain immediate. New unique echo progress resets the assembler backoff so a nearly complete certificate is not needlessly delayed.
+
+### 11.5 What remains fixed interval
+
+Do not change these in Scenario 16:
+
+- `ConsensusRetryManager` PRE_PREPARE/PREPARE/COMMIT retry cadence.
+- Discovery's initial ANN/ECHO/CERT transmissions.
+- Advisory WAIT heartbeat cadence.
+
+PBFT retries are phase-liveness traffic. Backing them off could turn ordinary packet loss into long consensus stalls. Change them only after separate measurements and a dedicated acceptance test.
+
+## 12. Ordinary ORDER(e+1) with CLEAR Evidence
+
+The crash-recovery order remains ordinary ORDER consensus. It uses the same `ResdbProposeHdr + ResdbVehicleEntry[]` payload and proposal-defined active-view path as other epochs, with one optional evidence trailer.
 
 ```cpp
 #define RESDB_ORDER_EVIDENCE_MAGIC 0x4F455631u
 
 #pragma pack(push, 1)
 struct ResdbOrderEvidenceHdr {
-    uint32_t magic;              // RESDB_ORDER_EVIDENCE_MAGIC
-    uint16_t version;            // 1
+    uint32_t magic;
+    uint16_t version;
     uint16_t nClearCerts;
 };
 #pragma pack(pop)
@@ -368,162 +446,123 @@ struct ResdbOrderEvidenceHdr {
 // repeated { uint32_t certLen; uint8_t cert[certLen]; }
 ```
 
-Rules:
+### 12.1 Why ORDER carries CLEAR
 
-- Epoch-0 ORDER and Scenario-15 emergency ORDER need no evidence trailer.
-- A proposer recovering from a crash CANCEL includes the matching CLEAR_CERT.
-- The trailer does not change PBFT consensus semantics or active-view derivation.
-- The bridge validates the trailer before installing the active view.
-- Validation adopts a valid embedded CLEAR_CERT, so a replica that missed the CLEAR flood can still vote.
-- If a locally registered incident for `e` remains BLOCKING and the proposal lacks a valid matching CLEAR_CERT, reject.
-- If the proposal schedules an ID known to be a communication-dead wreck, reject.
-- The executor schedules only the existing vehicle entries and ignores the already-validated trailer.
+Include the matching CLEAR certificate even though it was already gossiped:
 
-No committed-CANCEL reference is required in ORDER. Epoch monotonicity, the committed tombstone, and the matching CLEAR incident evidence are the relevant checks.
+- Validation is self-contained for a follower that missed CLEAR gossip.
+- Every voter validates the same physical-clearance proof.
+- The follower can atomically adopt CLEAR and discard stale WAIT state before continuing ORDER checks.
+- Packet reordering cannot make a valid crash-recovery ORDER depend on receiving CLEAR first.
+- One batch-scoped certificate is modest compared with the ORDER and PBFT traffic it protects.
 
-## 11. Discovery and Membership After CLEAR
+This evidence trailer does not make ORDER a special rollback consensus mode.
 
-Committed CANCEL starts the existing shared discovery round for `e+1`. Discovery may collect while WAIT decisions are active.
+### 12.2 ORDER validation
 
-- Wrecked communication-dead vehicles do not re-announce and are absent from the stabilized intent view.
-- Towed/removed vehicles are not synthesized as QUIET members.
-- The remaining 14 honest vehicles exchange fresh epoch-`e+1` arrival certificates.
-- ORDER proposal submission is gated by both discovery COMPLETE and matching incident CLEARED.
-- A committed WAIT does not restart or erase discovery.
-- A CLEAR certificate reevaluates the ORDER gate but does not directly call `proposeAll()` from a packet handler; state transition code schedules the proposal attempt.
+For a crash-recovery ORDER:
 
-### 11.1 Certificate omission rule
+1. Parse the ordinary proposal and optional evidence trailer.
+2. Validate the matching CLEAR certificate through the shared evidence callback.
+3. Adopt CLEAR and clear local WAIT state.
+4. Reject if a known incident for the prior epoch remains BLOCKING.
+5. Reject if a communication-dead wreck ID is scheduled.
+6. Continue through ordinary epoch, entry, certificate, membership, active-view, and primary checks.
+
+Epoch-0 ORDER and Scenario-15 emergency recovery ORDER do not require CLEAR evidence.
+
+No committed-CANCEL reference is embedded in ORDER. The committed tombstone, epoch monotonicity, and CLEAR incident proof are the relevant state.
+
+## 13. Discovery and Membership
+
+Committed CANCEL starts the existing COLLECTING -> DRAINING_CERTS -> COMPLETE discovery round for `e+1`. Discovery runs while WAIT heartbeats are active.
+
+- Wrecks do not re-announce and are absent from the stabilized intent view.
+- Removed vehicles are not synthesized as QUIET members.
+- The 14 responsive vehicles exchange fresh epoch-1 certificates.
+- WAIT does not start, stop, reopen, or close discovery.
+- WAIT begins only after discovery COMPLETE; before that point no follower leader-timeout is active.
+- ORDER readiness requires discovery COMPLETE and incident CLEARED.
+- The ordinary cert primary/proposal path selects the ORDER proposer. WAIT does not participate.
+- CLEAR packet handlers update evidence state and schedule reevaluation; they do not call `proposeAll()` directly.
+
+### 13.1 Certificate omission rule
 
 For every locally held valid fresh arrival certificate:
 
-- If the ORDER omits that replica, reject.
-- If the ORDER encodes it as QUIET, reject.
-- A vehicle for which the follower has no valid certificate is not counted as a proven omission.
+- If ORDER omits the replica, reject.
+- If ORDER encodes it as QUIET, reject.
+- A vehicle for which the follower has no valid certificate is not a proven omission.
 
-Change the bridge gate from `omitted > f` to `omitted > 0` for these locally proven omissions. The protocol assumption is that honest discovery certificate gossip converges before honest replicas reach COMPLETE, so all honest replicas hold all honest certificates. Add an explicit convergence assertion to Scenario 16 rather than silently tolerating divergent snapshots.
+Change the bridge threshold from `omitted > f` to `omitted > 0`. Scenario 16 explicitly asserts that honest discovery gossip converges before honest replicas reach COMPLETE, so every honest replica holds every honest certificate.
 
-## 12. Crash Injection and Tow Behavior
+## 14. Crash Injection and Tow
 
-Scenario 16 starts from the Scenario 15 fleet shape without the ambulance:
+### 14.1 Injection
 
-- 16 vehicles commit `ORDER(0)`.
-- Two vehicles in executing batch 0 are selected from the committed batch assignment.
-- No normal departures or late arrivals occur before the crash.
-
-### 12.1 Injection
-
-Do not reuse `stopVehicle()` as the crash primitive. Add a dedicated helper that force-stops inside the box with TraCI speed control disabled from normal SUMO behavior.
+Do not reuse `stopVehicle()` as the crash primitive. Add a dedicated TraCI force-stop helper.
 
 At `[CRASH-INJECT]`:
 
-1. Freeze the selected vehicle in the conflict box.
+1. Freeze the selected vehicle inside the conflict box.
 2. Set `crashCommsDisabled_`.
-3. Clear queued application, discovery, gossip, and PBFT retry transmissions belonging to that module.
-4. Reject all future TX enqueue/send paths and all RX dispatch for the wreck.
-5. Mark ResDB PBFT silent if the bridge exposes that control.
+3. Clear queued application, discovery, gossip, and PBFT retry transmissions for that module.
+4. Reject future TX enqueue/send paths and RX dispatch.
+5. Mark the local ResDB replica silent if the bridge exposes that control.
 
-Already handed-off MAC frames may still appear during one bounded radio grace interval. Acceptance checks zero wreck traffic after that interval rather than claiming instantaneous cancellation of frames already owned by the MAC.
+Frames already handed to the MAC may appear during one bounded grace interval. Test zero wreck traffic after that grace rather than claiming impossible cancellation of already-owned frames.
 
-### 12.2 Tow
+### 14.2 Tow
 
-At `crash_time + clearDelaySec`, remove both wrecks from TraCI. The current Veins vehicle wrapper has no `remove()` method, so add an explicit wrapper over the SUMO vehicle REMOVE command or implement removal in the scenario manager.
+At `crash_time + clearDelaySec`, remove both wrecks from TraCI. The current Veins wrapper lacks `vehicle.remove()`, so add a SUMO REMOVE command wrapper or perform removal through the scenario manager.
 
-CLEAR is based on the observed empty conflict box after `clearDwellSec`, not directly on the tow timer.
+CLEAR depends on observed empty conflict box plus `clearDwellSec`, not directly on the tow timer.
 
-Crash and clearance polling must run even after `order_applied_`; place it before the current early return in `handlePositionUpdate()` or use a dedicated world-state timer.
+Crash and clearance polling must run after ORDER is applied. Place it before the current `order_applied_` early return or use a dedicated world-state timer.
 
-## 13. State Ownership
+## 15. State Ownership
 
-Keep the following boundaries:
-
-- `ResDBArrivalProtocol.cc`: ANN/ECHO/CERT and shared discovery state.
-- `ResDBRollbackProtocol.cc`: BLOCKED evidence, CANCEL, incident registry, CLEAR evidence, WAIT lease state.
-- `ResDBDecision.cc`: ordinary ORDER construction, evidence trailer, executor callback dispatch.
-- `ResDBTransport.cc`: PBFT byte transport and existing consensus retry manager.
-- `ResDBIntersectionApp.cc::onWSM()`: application message-type dispatch, including types 15/16.
-- ResDB bridge: payload parsing, pre-verify, request-scoped active view, executor decision kind.
-
-Do not introduce another collection of unrelated booleans. Use explicit state objects:
+Use explicit state rather than unrelated booleans:
 
 ```cpp
-enum class WaitState { INACTIVE, PROPOSING, ACTIVE, LAPSED };
-
-struct WaitLease {
-    WaitState state = WaitState::INACTIVE;
+struct WaitHeartbeatState {
     uint32_t cancelledEpoch = 0;
-    uint32_t pendingEpoch = 0;
-    uint32_t leaderTerm = 0;
-    uint32_t renewalIndex = 0;
-    int proposerId = -1;
-    simtime_t expiresAt = SIMTIME_ZERO;
+    uint32_t executingBatch = 0;
+    int leaderId = -1;
+    uint32_t lastHeartbeatIndex = 0;
+    simtime_t validUntil = SIMTIME_ZERO;
+    bool active = false;
 };
 ```
 
-One transition function owns timer cancellation, replacement, and logs for each WAIT state change.
+One transition helper owns WAIT timer replacement, expiration, CLEAR supersession, ORDER supersession, and logs.
 
-## 14. Existing Machinery to Reuse
+Ownership boundaries:
 
-- View-based `DiscoveryRound` and its COLLECTING/DRAINING_CERTS/COMPLETE states.
+- `ResDBArrivalProtocol.cc`: arrival evidence and discovery state.
+- `ResDBRollbackProtocol.cc`: BLOCKED, CANCEL, incident registry, CLEAR, WAIT heartbeat state.
+- `ResDBDecision.cc`: ordinary ORDER construction and CLEAR trailer.
+- `ResDBTransport.cc`: PBFT transport and fixed-interval consensus retry manager.
+- `ResDBIntersectionApp.cc::onWSM()`: application message dispatch for CLEAR and WAIT.
+- ResDB bridge: ordinary ORDER parsing, CLEAR trailer validation, request-scoped active view. No WAIT handling.
+
+## 16. Existing Machinery to Reuse
+
+- Shared `DiscoveryRound` states and certificate-drain behavior.
 - Full-statement-keyed CANCEL echo buckets.
 - CANCEL drain and active-batch leader exclusion.
 - `perceivedActiveBatch()` and committed batch assignments.
 - CANCEL tombstones and cancel-commit gossip.
 - Request-scoped active views for ordinary epoch proposals.
-- `ConsensusRetryManager`: retry PRE_PREPARE until local PREPARE progress, PREPARE until local COMMIT generation or verified COMMIT quorum, and COMMIT until decision/timeout.
-- Stage A early-vote buffering/replay and loud vote-drop accounting.
-- TraCI conflict-box and clearance polling helpers where their semantics match.
+- `ConsensusRetryManager` and Stage A early-vote buffering/replay.
+- Decision-gossip exponential backoff pattern.
+- TraCI conflict-box/clearance helpers where semantics match.
 
-Stage A in this repository means PBFT vote buffering/replay, vote-drop accounting, and bounded phase retries. It does not include a consensus wire tag.
+Stage A in this repository means PBFT early-vote buffering, vote-drop accounting, and bounded phase retries. It does not include a consensus wire tag.
 
-## 15. Implementation Inventory
+## 17. Parameters
 
-### Veins application
-
-- `ResDBIntersectionApp.h`
-  - Add `BlockedIncident`, `IncidentRecord`, `WaitLease`, CLEAR structs, timers, and parameters.
-  - Replace singleton CANCEL cert retry storage with statement-keyed retry state.
-- `ResDBRollbackProtocol.cc`
-  - Incident formatter/parser.
-  - Cert-driven BLOCKING/CLEARED registry transitions.
-  - WAIT proposal, renewal, lapse, and deterministic takeover.
-  - Registration of every valid crash cert independently of CANCEL proposal selection.
-- `ResDBDecision.cc`
-  - Optional ORDER evidence trailer.
-  - WAIT decision callback dispatch.
-  - ORDER gate requiring discovery COMPLETE and incident CLEARED.
-- `ResDBIntersectionApp.cc`
-  - Parameters and timer ownership.
-  - Crash/CLEAR world-state polling before the `order_applied_` return.
-  - Type-15/16 receive dispatch.
-- `ResDBTraCI.cc` and TraCI command interface
-  - Dedicated crash freeze.
-  - Vehicle removal support.
-- `ResDBWitnessCert.h/.cc` (new)
-  - Trusted validation, echo collection, keyed retry data.
-- `ResdbV2VWire.h`
-  - No consensus tag change.
-- Veins generated/source Makefile
-  - Add the new witness-cert object.
-
-### ResDB bridge
-
-- Define WAIT payload/result and ORDER evidence trailer structs in the shared bridge header.
-- Parse WAIT before attempting to parse ordinary ORDER.
-- Add evidence validation/adoption callback registration.
-- Install WAIT active view from committed `M_e` electors.
-- Validate crash ORDER evidence before installing the ordinary ORDER active view.
-- Preserve ordinary ORDER active-view construction.
-
-### Scenario and analysis
-
-- Add Scenario 16 INI/orchestrator mapping.
-- Add crash/tow parameters and select wrecks from committed batch 0.
-- Extend analyzer for BLOCKED, CANCEL, WAIT leases, CLEAR, and ORDER evidence.
-- Update `ARCHITECTURE.md` after implementation to remove stale claims that post-CANCEL ORDER uses `ResdbRollbackHdr`.
-
-## 16. Parameters
-
-Provisional defaults, subject to the latency gate below:
+Provisional defaults:
 
 | Parameter | Default | Purpose |
 |---|---:|---|
@@ -533,142 +572,176 @@ Provisional defaults, subject to the latency gate below:
 | `crashSpeedEps` | 0.1 m/s | Stationary threshold |
 | `clearDelaySec` | 10.0 s | Scenario tow delay |
 | `clearDwellSec` | 1.0 s | Empty-box debounce |
-| `clearEchoRetryIntervalSec` | 0.5 s | CLEAR echo retry interval |
-| `clearEchoRetryMax` | 20 | CLEAR echo retry bound |
-| `waitTtlMs` | 4000 | WAIT leader lease |
-| `waitTtlMaxMs` | 8000 | Pre-verify upper bound |
-| `waitRenewalLeadSec` | 1.5 s | Timely renewal threshold |
-| `waitClockSkewSec` | 0 s | Simulation-time proposal allowance; deployment-specific |
+| `waitHeartbeatIntervalSec` | 1.0 s | Leader heartbeat period while blocked |
+| `waitHeartbeatMaxDeferralSec` | 2.5 s | Maximum follower timeout extension |
+| `waitClockSkewSec` | 0 s | Simulation allowance; deployment-specific |
+| `evidenceRetryBaseSec` | 0.10 s | Fast-start evidence retry base |
+| `evidenceRetryFactor` | 2.0 | Retry growth factor |
+| `evidenceRetryCapSec` | 2.0 s | Evidence retry cap |
+| `cancelGossipRetryBaseSec` | 0.25 s | CANCEL-commit gossip base |
+| `cancelGossipRetryCapSec` | 4.0 s | CANCEL-commit gossip cap |
+| `evidenceRetryMax` | 12 | Per-statement retry bound |
 
-The constants are accepted only if:
+Require:
 
 ```text
-waitTtl > maximum observed WAIT propose-to-commit latency
-          + radio retry margin
-          + scheduling jitter margin
+waitHeartbeatMaxDeferralSec
+    > waitHeartbeatIntervalSec
+      + maximum measured heartbeat delivery jitter
+      + radio scheduling margin
 ```
 
-If the inequality fails in any calibration seed, increase TTL before counting acceptance runs.
+## 18. Implementation Inventory
 
-## 17. Logging
+### Veins
 
-Add concise transition logs:
+- `ResDBIntersectionApp.h`
+  - Add incident, CLEAR, WAIT heartbeat, key registry, and keyed retry state.
+- `ResDBRollbackProtocol.cc`
+  - Batch incident formatter/parser and registration.
+  - Trusted BLOCKED/CLEAR validation.
+  - Advisory WAIT send/receive/expiry/supersession.
+  - Phased backoff for BLOCKED cert and CANCEL-commit gossip.
+- `ResDBDecision.cc`
+  - Optional CLEAR evidence trailer and crash-recovery ORDER gate.
+- `ResDBIntersectionApp.cc`
+  - Parameters/timers, world-state polling, message dispatch.
+- `ResDBTraCI.cc` and TraCI command interface
+  - Crash freeze and vehicle removal.
+- `ResDBWitnessCert.h/.cc`
+  - Shared validation, collection, identity binding, keyed backoff policy.
+- `ResdbV2VWire.h`
+  - No consensus tag change.
+- Generated/source Makefile
+  - Add new witness-cert object.
 
-- `[CRASH-INJECT] veh= batch= pos= t=`
-- `[CRASH-PERCEIVED] witness= incident= stalled_vehicles= dwell=`
-- `[INCIDENT-BLOCKING] epoch= batch= cert_signers=`
-- `[WAIT-PROPOSE] epoch= term= renewal= leader= ttl_ms=`
-- `[WAIT-COMMIT] epoch= term= renewal= leader= expires=`
-- `[WAIT-RENEW] epoch= term= from= to=`
-- `[WAIT-LAPSED] epoch= term= old_leader= next_leader=`
-- `[CLEAR-PERCEIVED] witness= incident= dwell=`
-- `[CLEAR-CERT] epoch= batch= signers=`
-- `[INCIDENT-CLEARED] epoch= batch=`
-- `[ORDER-EVIDENCE] epoch= clear_cert=valid|missing|invalid`
-- `[ORDER-REJECT] reason=blocking-incident|wreck-scheduled|cert-omission`
-- `[ACTIVE-VIEW] decision=WAIT|ORDER N= f= quorum= responsive= margin=`
+### Bridge
 
-## 18. Staged Implementation Plan
+- Define and parse only the ORDER evidence trailer.
+- Register the read-only evidence validation/adoption callback.
+- Adopt CLEAR before ordinary ORDER checks.
+- Preserve ordinary active-view construction.
+- Add no WAIT payload, executor result, or active view.
 
-### Stage 0: Correct documentation and identity validation
+### Scenario and analyzer
 
-1. Add immutable witness key registry.
-2. Make existing CANCEL validation key-bound.
-3. Add bridge evidence-validation callback.
-4. Regression-test Scenario 15 with ordinary post-CANCEL ORDER and no rollback wrapper/tag.
+- Add Scenario 16 configuration/orchestrator mapping.
+- Select wrecks from committed batch 0.
+- Parse BLOCKED, CANCEL, WAIT heartbeat, CLEAR, ORDER evidence, backoff, and channel load.
+- Update `ARCHITECTURE.md` after implementation to remove stale rollback-wrapper claims and document WAIT as advisory.
 
-Gate: Scenario 15 remains green; a forged signer ID with a valid signature under the wrong key is rejected.
+## 19. Staged Implementation
 
-### Stage 1: One batch-scoped BLOCKED incident
+### Stage 0: Identity and Scenario 15 regression
 
-1. Add crash injection/freeze and communication kill.
+1. Add immutable witness key binding.
+2. Harden existing CANCEL validation.
+3. Add the bridge evidence callback.
+4. Run Scenario 15 with ordinary post-CANCEL ORDER.
+
+Gate: Scenario 15 remains green; wrong-key signer ID forgery is rejected.
+
+### Stage 1: BLOCKED and CANCEL
+
+1. Add crash freeze/comms kill.
 2. Add execution-bound crash perception.
-3. Emit existing CANCEL echoes using the batch incident reference.
-4. Register the BLOCKED incident from a valid cert.
-5. Commit CANCEL under the 16-member committed view.
+3. Form one batch-scoped BLOCKED certificate.
+4. Register BLOCKING independently of CANCEL singleton state.
+5. Commit CANCEL under the 16-member view.
 
-Gate: exactly one incident cert forms even with two wrecks; both wrecks are silent; CANCEL commits with quorum 11.
+Gate: two wrecks produce one incident certificate; CANCEL commits with quorum 11.
 
-### Stage 2: CLEAR evidence and ordinary recovery ORDER
+### Stage 2: CLEAR and ordinary ORDER
 
-1. Add types 15/16 and shared witness helpers.
-2. Add tow/removal and empty-box dwell detection.
-3. Add ORDER evidence trailer and crash-order pre-verify.
-4. Gate ordinary ORDER on discovery COMPLETE plus incident CLEARED.
+1. Add CLEAR_ECHO/CLEAR_CERT.
+2. Add tow/removal and empty-box dwell.
+3. Add CLEAR evidence trailer.
+4. Gate ORDER on discovery COMPLETE plus incident CLEARED.
 
-Gate: ORDER cannot commit after only one wreck is removed; after both are removed one CLEAR cert forms and ordinary 14-entry ORDER commits with valid evidence.
+Gate: one remaining wreck prevents CLEAR and ORDER; removing both allows a 14-entry ordinary ORDER with valid CLEAR evidence.
 
-### Stage 3: WAIT lease
+### Stage 3: Advisory WAIT
 
-1. Add WAIT payload/parser/executor result.
-2. Install WAIT over committed `M_e` with quorum 11.
-3. Add same-leader renewal, lapse, and deterministic leader-term takeover.
-4. Add WAIT gossip/adoption and analyzer continuity checks.
+1. Add one signed WAIT heartbeat type.
+2. Delay only local recovery-leader suspicion timers.
+3. Add strict CLEAR and ORDER supersession.
+4. Test heartbeat loss/expiry without claiming full Byzantine view change.
 
-Gate: responsive leader renews while blockage persists; killing that leader causes one lease lapse and deterministic takeover; no vehicle crosses during the transition.
+Gate: WAIT never reaches the bridge, never changes the ORDER proposer, and never blocks valid ORDER with CLEAR evidence.
 
-### Stage 4: Omission enforcement and adversarial runs
+### Stage 4: Backoff and omission enforcement
 
-1. Reject every locally proven fresh-cert omission (`omitted > 0`).
-2. Assert all honest replicas have all honest certificates before honest discovery COMPLETE.
-3. Run forged evidence, lazy WAIT leader, bad ORDER, and staggered tow variants.
+1. Add keyed fast-start exponential backoff for BLOCKED/CLEAR cert retries.
+2. Add capped exponential CANCEL-commit gossip.
+3. Keep PBFT retry cadence unchanged.
+4. Change locally proven omission rejection to `omitted > 0`.
+5. Add channel-load and convergence assertions.
 
-## 19. Acceptance Tests
+## 20. Acceptance Tests
 
-Run at least 10 seeds after each stage that changes consensus behavior.
+Run at least 10 seeds after each stage affecting consensus or evidence behavior.
 
 ### Baseline
 
 1. Scenario 15 remains green.
-2. Post-CANCEL ORDER is logged as ordinary ORDER.
-3. No `ResdbConsensusTag` or sequence-to-epoch inference is introduced.
+2. Post-CANCEL ORDER is ordinary ORDER.
+3. No `ResdbConsensusTag` or sequence arithmetic is introduced.
+4. No WAIT bytes enter bridge dispatch or the executor.
 
 ### Crash and CANCEL
 
-1. `ORDER(0)` commits with 16 entries and active view `N=16`, `f=5`, quorum 11.
-2. Two batch-0 wrecks are injected and become silent after the bounded MAC grace interval.
-3. Honest witnesses converge on one `BlockedIncident(e, batch0)`.
-4. One BLOCKED certificate forms with at least six trusted distinct signers and no wreck signer.
+1. `ORDER(0)` commits with 16 entries, `N=16`, `f=5`, quorum 11.
+2. Both wrecks become silent after the MAC grace interval.
+3. Witnesses converge on one batch incident.
+4. BLOCKED_CERT has at least six trusted signers and no wreck signer.
 5. CANCEL commits with 11-14 voters and tombstones epoch 0.
 
 ### WAIT
 
-1. At least two WAIT decisions commit before clearance in the long-delay variant.
-2. Timely renewals retain the same leader term and increment renewal index.
-3. No `[WAIT-LAPSED]` occurs while the leader is responsive and latency remains inside the lease budget.
-4. In the killed-leader variant, expiry emits one lapse, advances the term, and enables the next deterministic leader.
-5. The old leader cannot renew an expired term.
-6. Vehicles remain stopped during WAIT, renewal, lapse, and takeover.
+1. Only the ordinary next-epoch certificate primary emits WAIT after discovery completes.
+2. Followers with BLOCKING defer their local suspicion timer.
+3. A follower missing WAIT may suspect the leader but never moves.
+4. WAIT expiry never restores ORDER(0).
+5. WAIT never changes the ordinary ORDER proposer or bridge active view.
+6. CLEAR immediately cancels WAIT state at every receiver.
+7. A delayed WAIT arriving after CLEAR is ignored.
+8. A valid ORDER with embedded CLEAR is accepted even when the follower had not received separate CLEAR gossip and still had WAIT active.
+9. Forged, stale-index, wrong-leader, excessive-deferral, and wrong-incident WAIT messages are rejected.
 
 ### CLEAR and ORDER
 
 1. Removing only one wreck does not produce CLEAR_CERT.
-2. Removing both wrecks and observing an empty box for `clearDwellSec` produces one CLEAR_CERT with six trusted signers.
-3. No `ORDER(1)` commits while the incident is BLOCKING.
-4. `ORDER(1)` is ordinary ORDER with one valid CLEAR evidence trailer.
-5. The 14 remaining honest vehicles have fresh epoch-1 certs at every honest replica before proposal.
-6. `ORDER(1)` contains exactly 14 signed entries, excludes both wreck IDs, and commits under the current per-epoch active-view rule (`N=14`, `f=4`, quorum 10).
-7. All 14 scheduled vehicles cross with zero conflict-box overlap violations.
+2. Empty box after both removals produces CLEAR_CERT with six trusted signers.
+3. No ORDER commits while the incident remains BLOCKING.
+4. Crash-recovery ORDER embeds matching CLEAR evidence.
+5. All honest replicas hold all 14 honest epoch-1 arrival certificates before honest discovery COMPLETE.
+6. `ORDER(1)` has 14 signed entries, excludes wreck IDs, and commits under `N=14`, `f=4`, quorum 10.
+7. All scheduled vehicles cross without conflict-box overlap.
 
-### Adversarial variants
+### Backoff and adversarial tests
 
-1. Wrong-key signer claiming an honest replica ID is rejected.
-2. Underweight BLOCKED/CLEAR cert with five signers is rejected.
-3. CLEAR cert for the wrong epoch or batch is rejected.
-4. Lazy leader proposing WAIT after CLEAR convergence is rejected by honest replicas.
-5. ORDER without CLEAR evidence is rejected while the incident is BLOCKING.
-6. ORDER omitting or QUIET-encoding an honestly certified vehicle is rejected by every honest replica that holds that cert; the convergence assertion requires all honest replicas to hold it.
-7. Staggered tow proves the intersection remains BLOCKING until the second wreck leaves.
+1. First BLOCKED/CLEAR/CANCEL-gossip transmissions are immediate.
+2. Retry intervals grow to their cap with jitter and no arithmetic overflow.
+3. Accepting a new unique echo resets the statement's backoff.
+4. PBFT retry intervals remain unchanged.
+5. Channel frames per second fall after the fast-start evidence window.
+6. Underweight or wrong-key evidence certificates are rejected.
+7. ORDER without CLEAR evidence is rejected for crash recovery.
+8. ORDER omitting or QUIET-encoding a locally certified honest vehicle is rejected.
 
-## 20. Invariants
+## 21. Invariants
 
 1. Only committed ORDER grants crossing authority.
-2. Committed CANCEL permanently tombstones its cancelled epoch.
-3. WAIT expiry changes recovery leadership, never crossing authority.
-4. Local perception may halt and emit evidence but cannot create BLOCKING/CLEARED protocol state without a valid certificate.
-5. One committed executing batch maps to at most one active blocked incident per cancelled epoch.
-6. BLOCKING is monotonic until a matching valid CLEAR certificate transitions it to CLEARED.
-7. A crash-recovery ORDER must carry valid matching CLEAR evidence.
-8. Active PBFT membership comes from committed/proposal-validated membership, never a live perception snapshot.
-9. A witness signature counts only when its key is bound to its claimed provisioned replica ID.
-10. A fresh arrival certificate held by a follower cannot be silently converted to QUIET or omitted by the leader.
+2. Committed CANCEL permanently tombstones the cancelled epoch.
+3. BLOCKED and CLEAR require `f+1` trusted physical witnesses.
+4. WAIT is advisory and has no quorum, lock, vote, active view, or proposer authority.
+5. WAIT may only delay a local leader-suspicion timer while the incident is locally BLOCKING.
+6. CLEAR and valid crash-recovery ORDER always supersede WAIT.
+7. Missing or expired WAIT never authorizes motion.
+8. Local perception may halt and emit evidence but cannot create BLOCKING/CLEARED registry state without a valid certificate.
+9. One executing batch maps to one blocked incident per cancelled epoch.
+10. A crash-recovery ORDER carries matching CLEAR evidence.
+11. Active PBFT membership comes from committed/proposal-validated membership, never a live perception snapshot.
+12. A witness signature counts only when its key is bound to its claimed replica ID.
+13. A fresh arrival certificate held by a follower cannot be silently omitted or converted to QUIET.
+14. Exponential backoff applies to evidence/gossip retries, not PBFT phase retries or WAIT heartbeat cadence.

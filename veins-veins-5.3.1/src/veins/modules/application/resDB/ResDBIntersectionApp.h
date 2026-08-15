@@ -17,6 +17,8 @@
 #include "veins/modules/application/resDB/IV2VTransport.h"
 #include "veins/modules/application/resDB/crypto/CryptoAuth.h"
 #include "veins/modules/application/resDB/ResDBDecisionGossip.h"
+#include "veins/modules/application/resDB/ResDBPropagationTracker.h"
+#include "veins/modules/application/resDB/ResDBWitnessCert.h"
 #include "integration/omnet/resdb_omnet_bridge.h"
 
 class ChannelMetrics;
@@ -31,7 +33,8 @@ public:
     ~ResDBIntersectionApp() override;
     enum Direction { DIR_STRAIGHT = 0, DIR_LEFT = 1, DIR_RIGHT = 2 };
     void recordIntersectionDeparture(simtime_t departedAt);
-
+    /** Mute this replica after manager-side crash freeze (Scenario 16). */
+    void disableCrashComms(const char* reason);
 
 protected:
     void initialize(int stage) override;
@@ -173,6 +176,23 @@ private:
         CANCEL_EMERGENCY = 1,
     };
 
+    // Immutable input snapshot for one ORDER round.  Consensus still uses the
+    // existing wire formats; this only prevents late discovery/incident state
+    // from changing the proposal after readiness has been established.
+    struct OrderCandidate {
+        uint32_t epoch = 0;
+        bool recovery = false;
+        uint32_t cancelledEpoch = 0;
+        CancelReason rollbackReason = CANCEL_CRASH;
+        int initialPrimary = -1;
+        std::map<std::string, ArrivalCert> certs;
+        std::map<std::string, VehicleState> vehicleStates;
+        std::set<std::string> observedIntents;
+        std::vector<uint8_t> cancelJustification;
+        std::vector<std::vector<uint8_t>> clearCerts;
+        std::vector<int> voterIds;
+    };
+
     enum class CancelState {
         INACTIVE,
         WITNESSING,
@@ -196,6 +216,73 @@ private:
         CancelReason            reason = CANCEL_CRASH;
         std::string             reasonRef;
         std::vector<CancelEcho> echoes;
+    };
+
+    // Scenario 16 CLEAR: structurally identical f+1 physical-evidence
+    // certificate to BLOCKED, but its subject is always a BlockedIncident
+    // (batch-scoped), so it carries cancelledEpoch/executingBatch directly
+    // instead of a generic reasonRef string.
+    struct ClearEcho {
+        int      echoingReplicaId = -1;
+        uint32_t cancelledEpoch = 0;
+        uint32_t executingBatch = 0;
+        uint8_t  signerPubKey[CRYPTO_PUBKEY_BYTES] = {};
+        uint8_t  signature[CRYPTO_SIG_MAX_BYTES] = {};
+        uint8_t  signatureLen = 0;
+    };
+
+    struct ClearCert {
+        uint32_t                cancelledEpoch = 0;
+        uint32_t                executingBatch = 0;
+        std::vector<ClearEcho>  echoes;
+    };
+
+    // Scenario 16 WAIT (spec §8): one signed advisory heartbeat from the
+    // ordinary next-epoch certificate primary — not PBFT, not an f+1
+    // certificate, no quorum. Wire layout matches the spec exactly.
+#pragma pack(push, 1)
+    struct WaitHeartbeatPayload {
+        uint32_t magic = 0;
+        uint16_t version = 1;
+        uint16_t _pad = 0;
+        uint32_t cancelledEpoch = 0;
+        uint32_t executingBatch = 0;
+        int32_t  leaderId = -1;
+        uint32_t heartbeatIndex = 0;
+        uint64_t sentAtSimUs = 0;
+        uint64_t validUntilSimUs = 0;
+    };
+#pragma pack(pop)
+    static constexpr uint32_t kWaitHeartbeatMagic = 0x57414954u; // "WAIT"
+
+    // Follower's view of the most recently accepted heartbeat for the
+    // incident it is currently deferring on.
+    struct WaitHeartbeatState {
+        uint32_t cancelledEpoch = 0;
+        uint32_t executingBatch = 0;
+        int      leaderId = -1;
+        uint32_t lastHeartbeatIndex = 0;
+        simtime_t validUntil = SIMTIME_ZERO;
+        bool     active = false;
+    };
+
+    // Scenario 16: the authoritative subject of a BLOCKED/CLEAR incident is the
+    // obstruction of an executing committed batch, not any one wrecked vehicle.
+    struct BlockedIncident {
+        uint32_t cancelledEpoch = 0;
+        uint32_t executingBatch = 0;
+        bool operator<(const BlockedIncident& o) const
+        {
+            return cancelledEpoch != o.cancelledEpoch
+                ? cancelledEpoch < o.cancelledEpoch
+                : executingBatch < o.executingBatch;
+        }
+    };
+    enum class IncidentState { BLOCKING, CLEARED };
+    struct IncidentRecord {
+        IncidentState state = IncidentState::BLOCKING;
+        std::vector<uint8_t> blockedCertBytes;
+        std::vector<uint8_t> clearCertBytes;
     };
 
     struct VerificationResult {
@@ -277,6 +364,16 @@ private:
         bool witnessTraffic = false;
     };
 
+    struct PendingConsensusRelay {
+        std::string key;
+        std::vector<uint8_t> raw;
+        ResdbPacketRequestInfo info{};
+        std::string source;
+        simtime_t fireTime;
+        uint32_t relayEpoch = 0;
+        int rank = -1;
+    };
+
     void registerTransport();
     void enqueueOutbound(int toReplicaId, const uint8_t* data, uint32_t len);
     void drainOutboundQueue();
@@ -290,7 +387,25 @@ private:
     void handleResdbConsensusRelay(BFTMessage* bft);
     void maybeRelayResdbConsensusBytes(const uint8_t* data, uint32_t len,
                                        const ResdbPacketRequestInfo& info,
-                                       const char* source);
+                                       const char* source,
+                                       uint32_t relayEpoch);
+    int consensusRelayCarrierThreshold() const;
+    int consensusRelayRank(const ResdbPacketRequestInfo& info) const;
+    bool consensusRelayCarrierIsAuthenticated(
+        int carrier, const uint8_t pubKey[CRYPTO_PUBKEY_BYTES]) const;
+    void observeConsensusRelayCarrier(const std::string& key, int carrier,
+                                      const ResdbPacketRequestInfo& info);
+    void scheduleConsensusRelay(const std::string& key,
+                                const uint8_t* data, uint32_t len,
+                                const ResdbPacketRequestInfo& info,
+                                const char* source,
+                                uint32_t relayEpoch);
+    void scheduleConsensusRelayFlush();
+    void flushDueConsensusRelays();
+    void cancelPendingConsensusRelays(const char* reason);
+    bool consensusRelayPhaseComplete(
+        const std::vector<uint8_t>& raw,
+        const ResdbPacketRequestInfo& info) const;
     bool isConsensusRelayEligible(const ResdbPacketRequestInfo& info) const;
     std::string consensusRelayKey(const uint8_t* data, uint32_t len,
                                   const ResdbPacketRequestInfo& info) const;
@@ -332,6 +447,10 @@ private:
                                              bool forceEmergency = false);
     void handleArrivalAnnouncementGossip(BFTMessage* msg);
     void sendArrivalEcho(const ArrivalAnnouncement& ann);
+    void collectArrivalEcho(const ArrivalEcho& echo, const char* source);
+    bool isExactFalseLaneClaim(const ArrivalAnnouncement& ann) const;
+    bool shouldColludeOnFalseLane(const ArrivalAnnouncement& ann) const;
+    bool isArrivalSignerEligible(int replicaId) const;
     void handleArrivalEcho(BFTMessage* msg);
     void broadcastArrivalCert(const ArrivalCert& cert);
     void scheduleNextCertRetry();
@@ -365,6 +484,9 @@ private:
     CancelCert deserializeCancelCert(BFTMessage* msg) const;
     void scheduleNextCancelCertRetry();
     void stopCancelCertRetries();
+    // interval(k) = min(baseSec * evidence_retry_factor_^attempt, capSec),
+    // plus the existing broadcastJitterMin/Max jitter (spec §11.1).
+    double backoffDelaySec(double baseSec, double capSec, int attempt) const;
     void beginCancelDrain(const char* reason);
     void finishCancelDrain();
     const char* cancelStateName() const;
@@ -382,7 +504,6 @@ private:
     int minRollbackVoteN() const;
     int minRollbackMembershipSize() const;
     bool isRollbackPerEpochMode() const;
-    int chooseRollbackProposer();
     int designatedRollbackUnavailableReporter() const;
     void logDiscoveryDiagnostics(const char* reason) const;
     bool shouldIncludeInRollbackMembership(int replicaId) const;
@@ -398,14 +519,101 @@ private:
     bool hasCommittedCancel(uint32_t epoch) const;
     void triggerCancelCommitGossip(uint32_t cancelledEpoch,
                                    const std::vector<uint8_t>& attestation);
+    // True once cancel_gossip_acc_ has seen this attestation gossiped by f+1
+    // distinct peers — i.e. propagation is well underway independent of my
+    // own broadcasts, so further retries add little and just cost channel
+    // time. Not a witness-certificate concept (nothing is being assembled
+    // into a cert here, just confirming an already-decided fact has spread),
+    // so this stays local rather than living in ResDBWitnessCert.h.
+    bool cancelGossipPropagationConfirmed() const;
+    // Same idea for ordinary decision gossip (Type 9): true once gossip_acc_
+    // has seen f+1 distinct peers gossip the same order_bytes for this epoch.
+    bool decisionGossipPropagationConfirmed() const;
+    // Same idea for my own CANCEL_CERT retry: true once f+1 distinct peers
+    // have relayed/shown me the same cert (cancel_cert_carriers_), tracked
+    // separately from cancel_cert_seen_/cancel_cert_relayed_ (those are
+    // dedup sets, not per-sender counts).
+    bool cancelCertPropagationConfirmed(const std::string& key) const;
     void handleCancelCommitGossip(BFTMessage* bft);
     void broadcastCancelCommitAttestation(const ResdbCancelDecisionHdr& dh);
-    void trySubmitRollbackProposal(const char* reason);
+    void evaluateOrderReadiness(const char* reason);
+    std::shared_ptr<const OrderCandidate> buildOrderCandidate() const;
+    int currentOrderPrimary() const;
+    void armOrderSuspicionTimer(const char* reason);
+    void resetOrderCandidate(const char* reason);
     std::string cancelReasonKey(uint32_t epoch, CancelReason reason,
                                 const std::string& reasonRef) const;
     std::string cancelSignPayload(uint32_t cancelledEpoch, CancelReason reason,
                                   const std::string& reasonRef,
                                   int echoingReplicaId) const;
+    static std::string formatBlockedBatchRef(uint32_t cancelledEpoch, uint32_t executingBatch);
+    static bool parseBlockedBatchRef(const std::string& ref, BlockedIncident& out);
+    // CancelReason/CancelEcho <-> WitnessKind/WitnessEcho adapters for the shared
+    // witness-cert machinery (ResDBWitnessCert.h). Members because CancelReason/
+    // CancelEcho are private nested types.
+    static WitnessKind toWitnessKind(CancelReason r);
+    static WitnessEcho toWitnessEcho(const CancelEcho& e);
+    static CancelEcho toCancelEcho(const WitnessEcho& we, uint32_t epoch, CancelReason reason,
+                                    const std::string& reasonRef);
+    // Registers the incident as BLOCKING independently of whether this cert
+    // becomes the singleton CANCEL justification (spec §7.2 rule 6) — must run
+    // even when CANCEL for the epoch is already pending/committed.
+    void registerBlockedIncidentIfCrash(const CancelCert& cert);
+
+    // ── Clear protocol (Types 15, 16) ─────────────────────────────────────────
+    void sendClearEcho(uint32_t cancelledEpoch, uint32_t executingBatch);
+    void handleClearEcho(BFTMessage* msg);
+    void scheduleClearCertCandidate(const ClearCert& cert);
+    void cancelClearCertCandidate(const char* reason);
+    void broadcastClearCert(const ClearCert& cert);
+    void scheduleClearCertRelay(const ClearCert& cert, const std::string& key);
+    void cancelClearCertRelay(const char* reason);
+    void sendClearCertCarrier(const ClearCert& cert, const char* marker);
+    void handleClearCert(BFTMessage* msg);
+    std::string clearSemanticKey(uint32_t cancelledEpoch, uint32_t executingBatch) const;
+    std::vector<int> clearPropagationMembers() const;
+    int clearPropagationRank() const;
+    bool clearCarrierIsActiveMember(int replicaId) const;
+    int clearPropagationThreshold() const;
+    bool clearPropagationConfirmed(const std::string& key) const;
+    bool validateClearCert(const ClearCert& cert) const;
+    std::vector<uint8_t> serializeClearEcho(const ClearEcho& echo) const;
+    ClearEcho deserializeClearEcho(BFTMessage* msg) const;
+    std::vector<uint8_t> serializeClearCert(const ClearCert& cert) const;
+    ClearCert deserializeClearCert(BFTMessage* msg) const;
+    ClearCert deserializeClearCert(const uint8_t* data, uint32_t len) const;
+    // Trampoline registered with the bridge as ResdbClearEvidenceFn (spec
+    // §5.1) — runs on a ResDB worker thread during PBFT PreVerify.
+    static int clearEvidenceCallback(void* ctx, uint32_t cancelledEpoch,
+                                     const uint8_t* certBytes, uint32_t certLen);
+    void scheduleNextClearCertRetry();
+    void stopClearCertRetries();
+    static WitnessEcho toWitnessEcho(const ClearEcho& e);
+    static ClearEcho toClearEcho(const WitnessEcho& we, uint32_t cancelledEpoch, uint32_t executingBatch);
+    // Transitions the incident BLOCKING->CLEARED (first-write-wins, mirrors
+    // registerBlockedIncidentIfCrash) and, if that unblocks the epoch, kicks
+    // the recovery proposer that was withheld pending this evidence.
+    void onIncidentCleared(const BlockedIncident& incident, const std::vector<uint8_t>& clearCertBytes);
+    // True iff at least one incident registered under cancelledEpoch is still
+    // BLOCKING. False (not "unknown") when no incident was ever registered for
+    // this epoch — an emergency (ambulance) rollback has no incident and must
+    // never be gated by this check.
+    bool hasBlockingIncidentForEpoch(uint32_t cancelledEpoch) const;
+
+    // ── WAIT advisory heartbeat (Type 17) ─────────────────────────────────────
+    // True iff discovery is COMPLETE for rollback_new_epoch_ and there is a
+    // matching BLOCKING incident for cancelled_epoch_ — the condition under
+    // which the ordinary cert primary should be sending WAIT and followers
+    // should be willing to accept it. Writes the incident to *outIncident.
+    bool waitConditionsHold(BlockedIncident* outIncident) const;
+    // Re-evaluates waitConditionsHold()/CertPrimary() and either sends the
+    // next heartbeat + reschedules wait_leader_send_timer_, or cancels it if
+    // I'm no longer the expected leader or conditions no longer hold.
+    void maybeSendWaitHeartbeat(const char* reason);
+    void sendWaitHeartbeat(const BlockedIncident& incident);
+    void handleWaitHeartbeat(BFTMessage* msg);
+    // Cancels both WAIT timers and clears follower state. Idempotent.
+    void stopWait(const char* reason);
 
     std::vector<uint8_t> serializeArrivalAnnouncement(const ArrivalAnnouncement& ann);
     ArrivalAnnouncement  deserializeArrivalAnnouncement(BFTMessage* msg);
@@ -452,6 +660,9 @@ private:
     int    countRollbackPerceivedVehicles() const;
     void   discoverLane();
     bool   vehicleHasClearedIntersectionTraCI(const std::string& carId) const;
+    bool   vehicleInConflictBoxTraCI(const std::string& carId) const;
+    bool   anyVehicleInConflictBoxTraCI() const;
+    double vehicleSpeedTraCI(const std::string& carId) const;
     void   stopVehicle();
     void   resumeVehicle(int position_in_order);
     bool   isApproachingIntersection();
@@ -460,8 +671,6 @@ private:
                                          const std::string& claimedLane,
                                          double claimedPosition, double tolerance);
     int    extractReplicaId(const std::string& carId) const;
-
-    
 
     // ── State ─────────────────────────────────────────────────────────────────
     void*  resdb_server_handle_ = nullptr;
@@ -480,9 +689,13 @@ private:
     cMessage* consensus_timeout_msg_   = nullptr;
     cMessage* resume_msg_              = nullptr;
     cMessage* cancel_cert_retry_timer_ = nullptr;
+    cMessage* clear_cert_retry_timer_  = nullptr;
+    cMessage* clear_cert_candidate_timer_ = nullptr;
+    cMessage* clear_cert_relay_timer_ = nullptr;
+    cMessage* wait_leader_send_timer_       = nullptr;
+    cMessage* wait_follower_expiry_timer_   = nullptr;
     cMessage* cancel_drain_timer_      = nullptr;
     cMessage* consensus_retry_timer_   = nullptr;
-    cMessage* rollback_vc_timer_       = nullptr;
     cMessage* cancel_vc_timer_         = nullptr;
     int       pending_resume_position_ = 0;
     cMessage* vc_trigger_msg_          = nullptr;  // follower VC trigger after primary silence
@@ -492,12 +705,45 @@ private:
     // my_batch_index_:        which batch this vehicle belongs to (0-based).
     // preceding_batch_cars_:  replica IDs of all vehicles in batch_index - 1.
     //                         All must clear the intersection before we resume.
-    cMessage*                clearance_poll_msg_       = nullptr;
+    // Also carries the crash-dwell perception scan (see handleSelfMsg) since it
+    // already ticks on a fixed period and already queries other vehicles via TraCI.
+    cMessage*                preceding_batch_poll_msg_       = nullptr;
     int                      my_batch_index_           = -1;
     std::vector<int>         preceding_batch_cars_;     // replica IDs to wait on
     simtime_t                clearance_started_        = -1;
-    double                   clearance_poll_period_sec_ = 0.1;
+    double                   preceding_batch_poll_period_sec_ = 0.1;
     double                   clearance_timeout_sec_     = 8.0;
+
+    // Scenario 16: manager freezes/tows; app only mutes when asked.
+    bool                     crashCommsDisabled_       = false;
+    cMessage*                crash_mac_grace_msg_      = nullptr;
+    double                   crash_mac_grace_sec_      = 0.2;
+
+    // Scenario 16: crash-dwell perception, scanned inside preceding_batch_poll_msg_
+    // (see handleSelfMsg). Gated purely on enableRollback_ — no separate flag.
+    std::map<std::string, simtime_t> crash_dwell_since_;   // veh id -> first-qualified time
+    std::set<std::string>            crash_echoed_targets_; // one echo per incident, local guard
+    double                           crash_dwell_sec_     = 2.0;
+    double                           crash_speed_eps_     = 0.1;
+
+    // Scenario 16: CLEAR empty-box dwell, scanned in the same poll tick as
+    // crash-dwell above. Keyed per incident (not per-vehicle) since the
+    // clearance predicate is "no vehicle occupies the conflict box", not a
+    // per-target check.
+    std::map<BlockedIncident, simtime_t> clear_dwell_since_;
+    std::set<BlockedIncident>            clear_echoed_incidents_; // one echo per incident, local guard
+    double                               clear_dwell_sec_     = 1.0;
+    double                               clear_cert_candidate_slot_sec_ = 0.1;
+
+    // Scenario 16 WAIT (spec §8). Leader-side: only meaningful while I am
+    // the expected CertPrimary(); follower-side: the last heartbeat I
+    // accepted, if any.
+    uint32_t           wait_leader_heartbeat_index_ = 0;
+    bool               wait_leader_active_ = false;
+    WaitHeartbeatState wait_follower_state_;
+    double             wait_heartbeat_interval_sec_ = 1.0;
+    double             wait_heartbeat_max_deferral_sec_ = 2.5;
+    double             wait_clock_skew_sec_ = 0.0;
 
     // Legacy single-predecessor fields kept for existing clearance-poll handler
     // (now polls all preceding_batch_cars_ instead of one car).
@@ -573,11 +819,17 @@ private:
     static constexpr int kCancelEchoType = 12;
     static constexpr int kCancelCertType = 13;
     static constexpr int kCancelCommitGossipType = 14;
+    static constexpr int kClearEchoType = 15;
+    static constexpr int kClearCertType = 16;
+    static constexpr int kWaitHeartbeatType = 17;
 
     resdb_gossip::GossipAccumulator  gossip_acc_;
     resdb_gossip::CertRelayTracker   cert_relay_tracker_;
     resdb_gossip::AnnouncementRelayTracker announcement_relay_tracker_;
     std::set<std::string> consensus_relay_seen_;
+    std::map<std::string, std::set<int>> consensus_relay_carriers_;
+    std::map<std::string, PendingConsensusRelay> pending_consensus_relays_;
+    cMessage*            consensus_relay_timer_ = nullptr;
     std::vector<PendingDiscoveryTx> pending_discovery_txs_;
     cMessage*            discovery_tx_flush_timer_ = nullptr;
     std::map<std::pair<uint32_t, std::string>, resdb_gossip::PendingRelay> pending_relays_;
@@ -588,6 +840,10 @@ private:
     uint32_t             last_committed_epoch_      = 0;
     bool                 has_committed_order_       = false;
     std::vector<uint8_t> committed_order_bytes_;
+    // Guards committed_order_vehicle_ids_: written on the sim thread inside
+    // processOrders(), but also read from a ResDB worker thread by the CLEAR
+    // evidence-validation callback (invoked from PBFT PreVerify).
+    mutable std::mutex   committed_view_mutex_;
     std::set<int>        committed_order_vehicle_ids_;
     std::vector<std::vector<int>> committed_order_batches_;
     std::set<uint32_t>   tombstoned_epochs_;
@@ -643,6 +899,8 @@ private:
     ByzantineType byzantine_type_        = BYZANTINE_HONEST;
     bool          byzantine_pbft_silent_ = false;
     bool          enableAmbulanceCertGate_ = false;  // when true, rejects ambulance claims with no ambulanceCertBytes
+    bool          enable_arrival_position_gate_ = true;
+    std::set<int> false_lane_colluder_ids_;
     int           last_known_primary_ = 0;
     bool          bad_proposal_injected_ = false;
     int           fake_ambulance_proposal_replica_id_ = -1;
@@ -650,12 +908,27 @@ private:
     double        pbft_vc_timeout_sec_ = 3.0;
     bool          enableRollback_ = false;
     double        cancel_cert_retry_interval_sec_ = 0.1;
+    double        evidence_retry_base_sec_ = 0.1;
+    double        evidence_retry_factor_ = 2.0;
+    double        evidence_retry_cap_sec_ = 2.0;
+    double        cancel_gossip_retry_base_sec_ = 0.25;
+    double        cancel_gossip_retry_cap_sec_ = 4.0;
     int           cancel_cert_retry_max_ = 10;
     double        consensus_retry_interval_sec_ = 0.12;
     int           consensus_retry_max_ = 8;
+    int           consensus_relay_carrier_cap_ = 2;
+    double        consensus_relay_base_delay_sec_ = 0.02;
+    double        consensus_relay_slot_sec_ = 0.02;
     double        braking_decel_mps2_ = 4.5;
     double        processing_latency_margin_ = 2.0;
     double        rollback_vc_timeout_sec_ = 3.0;
+    bool          inject_suppress_initial_cancel_leader_ = false;
+    bool          enable_cancel_leader_failover_ = true;
+    bool          cancel_leader_attack_logged_ = false;
+    bool          inject_fabricated_clearance_leader_ = false;
+    bool          enable_recovery_clear_evidence_gate_ = true;
+    bool          fabricated_clearance_attack_logged_ = false;
+    bool          fabricated_clearance_attack_active_ = false;
     bool          rollback_fault_mode_per_epoch_ = true;
     bool          cancel_consensus_pending_ = false;
     bool          cancel_propose_submitted_ = false;
@@ -684,15 +957,32 @@ private:
     std::string   rollback_reason_ref_;
     std::vector<uint8_t> rollback_justification_;
     bool          rollback_local_recallable_ = false;
-    bool          rollback_propose_submitted_ = false;
     int           rollback_expected_membership_size_ = 0;
-    int           rollback_rotation_index_ = 0;
-    std::map<std::string, std::vector<CancelEcho>> cancel_echoes_;
+    int           cancel_rotation_index_ = 0;
+    std::shared_ptr<const OrderCandidate> order_candidate_;
+    bool          order_vc_requested_ = false;
+    bool          order_vc_authoritative_ = false;
+    WitnessEchoCollector cancel_echo_collector_;  // shared f+1 dedup/threshold bookkeeping
+    std::map<BlockedIncident, IncidentRecord> incidentRegistry_;
     std::set<std::string> cancel_echo_sent_;
     std::set<std::string> cancel_cert_seen_;
     std::set<std::string> cancel_cert_relayed_;
+    std::map<std::string, std::set<int>> cancel_cert_carriers_; // key -> distinct relaying senders
     CancelCert    cancel_cert_pending_retries_{};
     int           cancel_cert_retry_count_ = 0;
+    WitnessEchoCollector clear_echo_collector_;
+    std::set<std::string> clear_echo_sent_;
+    std::set<std::string> clear_cert_seen_;
+    std::set<std::string> clear_cert_relayed_;
+    std::set<std::string> clear_cert_candidate_keys_;
+    resdb_propagation::AuthenticatedPropagationTracker clear_propagation_tracker_;
+    ClearCert     clear_cert_candidate_{};
+    ClearCert     clear_cert_pending_relay_{};
+    std::string   clear_cert_candidate_key_;
+    std::string   clear_cert_pending_relay_key_;
+    int           clear_cert_candidate_rank_ = -1;
+    ClearCert     clear_cert_pending_retries_{};
+    int           clear_cert_retry_count_ = 0;
     ConsensusRetryManager consensus_retry_manager_;
     double trigger_join_time_     = 0.5;
     double arrival_slot_sec_      = 0.1;

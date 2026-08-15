@@ -5,12 +5,15 @@
 #   ./scripts/makeres.sh
 #   ./scripts/makeres.sh --force    # delete stale dylib and rebuild
 #
+# Cache lives under ~/.cache/bazel-resdb (not /tmp) so reboots keep the
+# action cache. Wipe with: ./scripts/clearcache.sh  (or: clearcache)
+#
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 RESDB_ROOT="${RESDB_ROOT:-${REPO_ROOT}/incubator-resilientdb}"
-BAZEL_OUTPUT_ROOT="${BAZEL_OUTPUT_ROOT:-/tmp/bazel}"
+BAZEL_OUTPUT_ROOT="${BAZEL_OUTPUT_ROOT:-${HOME}/.cache/bazel-resdb}"
 BRIDGE="${RESDB_ROOT}/bazel-bin/integration/omnet/libresdb_omnet_bridge.dylib"
 FOURWAY="${REPO_ROOT}/fourway/out/clang-release/fourway"
 FORCE=0

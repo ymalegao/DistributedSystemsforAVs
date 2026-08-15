@@ -144,6 +144,53 @@ bool ResDBIntersectionApp::vehicleHasClearedIntersectionTraCI(const std::string&
     }
 }
 
+bool ResDBIntersectionApp::vehicleInConflictBoxTraCI(const std::string& carId) const
+{
+    if (!mobility || !mobility->getCommandInterface()) return false;
+    TraCICommandInterface* traci = mobility->getCommandInterface();
+    try {
+        // Existence precheck first — see vehicleHasClearedIntersectionTraCI for why
+        // (debug-on-errors=true would otherwise SIGINT before the catch runs).
+        std::list<std::string> active = traci->getVehicleIds();
+        if (std::find(active.begin(), active.end(), carId) == active.end()) return false;
+
+        std::string laneId = traci->vehicle(carId).getLaneId();
+        return !laneId.empty() && laneId.front() == ':';
+    } catch (...) {
+        return false;
+    }
+}
+
+bool ResDBIntersectionApp::anyVehicleInConflictBoxTraCI() const
+{
+    if (!mobility || !mobility->getCommandInterface()) return false;
+    TraCICommandInterface* traci = mobility->getCommandInterface();
+    try {
+        for (const auto& vid : traci->getVehicleIds()) {
+            const std::string laneId = traci->vehicle(vid).getLaneId();
+            if (!laneId.empty() && laneId.front() == ':') return true;
+        }
+        return false;
+    } catch (...) {
+        // Unknown box occupancy must not be mistaken for "clear".
+        return true;
+    }
+}
+
+double ResDBIntersectionApp::vehicleSpeedTraCI(const std::string& carId) const
+{
+    if (!mobility || !mobility->getCommandInterface()) return std::numeric_limits<double>::infinity();
+    TraCICommandInterface* traci = mobility->getCommandInterface();
+    try {
+        std::list<std::string> active = traci->getVehicleIds();
+        if (std::find(active.begin(), active.end(), carId) == active.end())
+            return std::numeric_limits<double>::infinity();
+        return traci->vehicle(carId).getSpeed();
+    } catch (...) {
+        return std::numeric_limits<double>::infinity();
+    }
+}
+
 bool ResDBIntersectionApp::isApproachingIntersection()
 {
     double distance = getDistanceToIntersection();
@@ -317,4 +364,62 @@ ResDBIntersectionApp::verifyCarPosition(const std::string& carId,
 int ResDBIntersectionApp::extractReplicaId(const std::string& carId) const
 {
     try { return std::stoi(carId.substr(3)); } catch (...) { return -1; }
+}
+
+// ── Scenario 16: app-side mute only (freeze/tow owned by TraCIScenarioManager) ─
+
+void ResDBIntersectionApp::disableCrashComms(const char* reason)
+{
+    // Called cross-module from TraCIScenarioManager::freezeCrashWreck(); this
+    // method schedules/cancels events owned by *this* module, so we must
+    // switch simulation context or scheduleAt()/cancelEvent() below abort
+    // with "lacks Enter_Method()".
+    Enter_Method_Silent("disableCrashComms");
+
+    if (crashCommsDisabled_) return;
+    crashCommsDisabled_ = true;
+
+    {
+        std::lock_guard<std::mutex> lk(outbound_mutex_);
+        if (!outbound_queue_.empty()) {
+            std::cout << "[CRASH-TX-CLEAR] r" << replicaId_
+                      << " outbound_queue=" << outbound_queue_.size()
+                      << " reason=" << (reason ? reason : "crash") << "\n";
+            outbound_queue_.clear();
+        }
+    }
+    pending_discovery_txs_.clear();
+    if (discovery_tx_flush_timer_ && discovery_tx_flush_timer_->isScheduled())
+        cancelEvent(discovery_tx_flush_timer_);
+
+    stopCertBroadcastRetries();
+    stopCancelCertRetries();
+    stopClearCertRetries();
+    cancelClearCertCandidate("crash");
+    cancelClearCertRelay("crash");
+    clearConsensusRetries(reason ? reason : "crash");
+
+    if (gossip_timer_ && gossip_timer_->isScheduled()) cancelEvent(gossip_timer_);
+    if (cancel_gossip_timer_ && cancel_gossip_timer_->isScheduled())
+        cancelEvent(cancel_gossip_timer_);
+    if (cert_gossip_timer_ && cert_gossip_timer_->isScheduled())
+        cancelEvent(cert_gossip_timer_);
+    if (broadcastArrivalAnnouncement_timer_ &&
+            broadcastArrivalAnnouncement_timer_->isScheduled())
+        cancelEvent(broadcastArrivalAnnouncement_timer_);
+    if (resume_msg_ && resume_msg_->isScheduled()) cancelEvent(resume_msg_);
+    if (preceding_batch_poll_msg_ && preceding_batch_poll_msg_->isScheduled())
+        cancelEvent(preceding_batch_poll_msg_);
+
+    if (resdb_server_handle_)
+        ResdbOmnetSetPbftSilent(resdb_server_handle_, 1);
+
+    std::cout << "[CRASH-COMMS-DISABLE] r" << replicaId_
+              << " reason=" << (reason ? reason : "crash")
+              << " t=" << simTime() << "\n";
+
+    if (!crash_mac_grace_msg_)
+        crash_mac_grace_msg_ = new cMessage("resdbCrashMacGrace");
+    if (crash_mac_grace_msg_->isScheduled()) cancelEvent(crash_mac_grace_msg_);
+    scheduleAt(simTime() + crash_mac_grace_sec_, crash_mac_grace_msg_);
 }

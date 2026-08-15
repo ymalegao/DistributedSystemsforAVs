@@ -28,6 +28,7 @@
 #include <queue>
 #include <set>
 #include <string>
+#include <vector>
 
 #include "veins/veins.h"
 
@@ -163,6 +164,11 @@ protected:
     std::string r0LateEmergencyVehicleId;
     std::string r0LateEmergencyType;
     std::string r0LateEmergencyRoute;
+    bool enableCrashSupervisor; /**< Scenario 16: manager-side freeze/tow of batch-0 wrecks */
+    int crashWreckCount;
+    simtime_t crashPollPeriodSec;
+    simtime_t crashOnBoxEntrySec;
+    simtime_t clearDelaySec;
     double penetrationRate;
     bool ignoreGuiCommands; /**< whether to ignore all TraCI commands that only make sense when the server has a graphical user interface */
     int order; // specific position in the multi-client execution order of the TraCI server to request upon connecting (-1: do not request a position)
@@ -188,22 +194,43 @@ protected:
     bool r0LateSpawnDone;
     int r0LateSpawnRetryCount;
     bool autoShutdownTriggered;
+    std::set<std::string> crashBatch0Members_;
+    std::vector<std::string> crashWreckIds_;
+    std::set<std::string> crashInjected_;
+    std::set<std::string> crashTowed_;
+    std::set<std::string> crashConflictOccupantsAtInjection_;
+    std::set<std::string> crashUnsafeEntrants_;
+    std::map<std::string, simtime_t> crashPendingInjectAt_;
+    std::map<std::string, simtime_t> crashTowAt_;
+    std::map<std::string, char> physicalApproachByVehicle_;
+    std::set<std::pair<std::string, std::string>> unsafeConflictPairs_;
+    std::set<std::string> physicalCollisionVehicles_;
+    bool crashSelectDone_;
     cMessage* connectAndStartTrigger; /**< self-message scheduled for when to connect to TraCI server and start running */
     cMessage* executeOneTimestepTrigger; /**< self-message scheduled for when to next call executeOneTimestep */
     cMessage* r0LateEmergencySpawnTrigger; /**< R0 supervisor self-message for controlled late insertion */
+    cMessage* crashSupervisorPollTrigger_; /**< Scenario 16 crash freeze/tow poll */
 
     BaseWorldUtility* world;
     std::map<const BaseMobility*, const MobileHostObstacle*> vehicleObstacles;
     VehicleObstacleControl* vehicleObstacleControl;
 
     void executeOneTimestep(); /**< read and execute all commands for the next timestep */
+    void pollIntersectionCooccupancy(); /**< TraCI-ground-truth conflicting internal-lane occupants */
 
     /** Same predicate as V2VProxyModule::vehicleHasClearedIntersectionTraCI (four-way C2* departure legs). */
     bool vehiclePastIntersectionDepartureLeg(const std::string& vehicleId);
     void notifyIntersectionDeparture(const std::string& vehicleId);
     void tryShutdownOnIntersectionBatchCleared(const std::string& vehicleId);
+    void tryShutdownOnTerminalVehicleCount(const std::string& latestVehicleId,
+                                           const char* latestOutcome);
     void maybeScheduleR0LateEmergencySpawn(const std::string& vehicleId);
     void tryR0LateEmergencySpawn();
+    void onCrashBatch0Started(const std::string& vehicleId);
+    void pollCrashSupervisor();
+    void freezeCrashWreck(const std::string& vehicleId);
+    void towCrashWreck(const std::string& vehicleId);
+    bool vehicleOnInternalConflictLane(const std::string& vehicleId) const;
 
     virtual void init_traci();
 

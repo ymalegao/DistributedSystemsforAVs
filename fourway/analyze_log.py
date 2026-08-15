@@ -40,17 +40,27 @@ _parser.add_argument("log_file", nargs="?", default="/tmp/bft-all-replicas.log",
 _parser.add_argument("--save-to", metavar="DIR",
                      help="Copy metrics into DIR as <N>veh_<i>.log for later batch analysis")
 _parser.add_argument(
-    "--scenario", type=int, choices=[1, 2, 3, 4, 5, 6, 15], default=None,
+    "--scenario", type=int, choices=[1, 2, 3, 4, 5, 6, 15, 16], default=None,
     metavar="N",
     help="Save under a scenario subfolder (requires --save-to): "
          "1=no ambulance, 2=honest ambulance, 3=ambulance+Byzantine followers, "
          "4=ambulance+Byzantine leader, 5=no ambulance+Byzantine leader, "
-         "6=no ambulance+Byzantine followers, 15=R0 late-emergency rollback. "
+         "6=no ambulance+Byzantine followers, 15=R0 late-emergency rollback, "
+         "16=crash wait-clear. "
          "Use same base DIR and --cars for each run; "
          "plot_wait_time_cdf.py pools all matching <N>veh_*.json in that folder.")
 _parser.add_argument("--cars", type=int, default=None,
                      help="Total cars/replicas in the scenario (e.g. 12 or 16). "
                           "If omitted, inferred from --save-to path or defaults to 16.")
+_parser.add_argument(
+    "--run-index",
+    type=int,
+    default=None,
+    metavar="IDX",
+    help="Write <N>veh_IDX.log/json for a single run directory, replacing that "
+         "repetition and pruning stale <N>veh_* analyzer outputs there. If omitted, "
+         "append after existing analyzer outputs (legacy behavior).",
+)
 _parser.add_argument("--plots-dir", metavar="DIR",
                      help="Directory for generated plots/CSV. Defaults to the log file directory.")
 _parser.add_argument(
@@ -91,6 +101,7 @@ SCENARIO_SUBDIR = {
     5: "no_amb_byz_leader",
     6: "no_amb_byz_follower",
     15: "rollback_emergency_dynamic_n",
+    16: "crash_wait_clear",
 }
 SCENARIO_LABEL = {
     1: "no ambulance",
@@ -100,6 +111,7 @@ SCENARIO_LABEL = {
     5: "no ambulance + Byzantine leader",
     6: "no ambulance + Byzantine followers",
     15: "R0 late-emergency rollback",
+    16: "Crash wait-clear (Stage 1a harness)",
 }
 
 LOG_FILE = _args.log_file
@@ -193,6 +205,29 @@ RE_BYZANTINE_CONFIG = re.compile(r'\[BYZANTINE\]\s+r(\d+)\s+([A-Z_]+)')
 RE_PREVERIFY_STATE_MISMATCH = re.compile(
     r'\[OMNET-PREVERIFY\]\s+reject:\s+state-field mismatch'
 )
+RE_FALSE_LANE_COLLUDER_SET = re.compile(
+    r'\[FALSE-LANE-COLLUDER-SET\]\s+r\d+\s+N=(\d+)\s+F=(\d+)\s+ids=([^\s]*)\s+position_gate=(\d+)'
+)
+RE_FALSE_LANE_COLLUSION_ECHO = re.compile(
+    r'\[FALSE-LANE-COLLUSION-ECHO\]\s+target=(veh\d+)\s+signer=(\d+)(?:\s+count=(\d+)/(\d+))?'
+)
+RE_FALSE_LANE_COLLUSION_CERT = re.compile(
+    r'\[FALSE-LANE-COLLUSION-CERT\]\s+target=(veh\d+)\s+signers=([^\s]+)\s+threshold=(\d+)'
+)
+RE_FALSE_LANE_COLLUSION_BLOCK = re.compile(
+    r'\[FALSE-LANE-COLLUSION-BLOCK\]\s+target=(veh\d+)\s+signers=(\d+)\s+threshold=(\d+)'
+)
+RE_FALSE_LANE_COLLUSION_COMMIT = re.compile(
+    r'\[FALSE-LANE-COLLUSION-COMMIT\]\s+target=(veh\d+)\s+claimed=([^\s]+)\s+actual=([^\s]+)\s+epoch=(\d+)'
+)
+RE_MALFORMED_PROPOSAL_REJECT = re.compile(r'\[MALFORMED-PROPOSAL-REJECT\]')
+RE_UNSAFE_CONFLICT_COOCCUPANCY = re.compile(
+    r'\[UNSAFE-CONFLICT-COOCCUPANCY\]\s+first=(veh\d+)\s+first_approach=([NSEW])\s+'
+    r'second=(veh\d+)\s+second_approach=([NSEW])\s+t=([\d.]+)'
+)
+RE_PHYSICAL_COLLISION = re.compile(
+    r'\[PHYSICAL-COLLISION\]\s+vehicle=(veh\d+)\s+t=([\d.]+)'
+)
 RE_CONSENSUS_ATTACK_OUTCOME = re.compile(
     r'\[CONSENSUS_ATTACK_OUTCOME\]\s+r(\d+)\s+epoch=(\d+)\s+'
     r'fault=([A-Z_]+)\s+outcome=([A-Z_]+)(?:\s+(.*))?'
@@ -208,10 +243,36 @@ RE_AMBULANCE_SCHED   = re.compile(r'\[AMBULANCE_SCHED\] (veh\d+) batch=')
 RE_CAR_METRICS       = re.compile(
     r'\[CAR-METRICS\] (veh\d+) role=(ambulance|normal) epoch=(\d+) '
     r'stop_time=([-\d.]+) depart_time=([-\d.]+) wait_stop_to_departure_sec=([-\d.]+)')
+RE_DEPARTED          = re.compile(
+    r'\[DEPARTED\]\s+Replica\s+(\d+)\s+cleared intersection\s+t=([-\d.]+)')
 RE_AMBULANCE_WAIT    = re.compile(
     r'\[AMBULANCE_METRICS\] (veh\d+) sim_wait_stop_to_departure_sec=([-\d.]+) epoch=(\d+)')
 RE_BYZANTINE_INJECTION = re.compile(
     r'\[BYZANTINE INJECTION\] Replica (\d+) CID=(\d+) intentionally broadcasting corrupted consensus hash')
+RE_FABRICATED_CLEARANCE = re.compile(
+    r'\[BYZANTINE-FABRICATED-CLEARANCE\]\s+r(\d+)\s+'
+    r'cancelled_epoch=(\d+)\s+new_epoch=(\d+).*action=submit-invalid-clear')
+RE_MISSING_CLEAR_REJECT = re.compile(
+    r'\[EPOCH-VIEW-REJECT\]\s+reason=missing-clear-evidence\s+epoch=(\d+)')
+RE_UNSAFE_RECOVERY_ORDER = re.compile(
+    r'\[UNSAFE-RECOVERY-ORDER\]\s+r(\d+)\s+cancelled_epoch=(\d+)\s+'
+    r'new_epoch=(\d+).*box_occupied=(\d+)')
+RE_CRASH_INJECT_EVENT = re.compile(
+    r'\[CRASH-INJECT\]\s+manager\s+(veh\d+)\s+t=([\d.]+)')
+RE_CRASH_TOW_EVENT = re.compile(
+    r'\[TOW\]\s+manager\s+(veh\d+)\s+t=([\d.]+)')
+RE_CRASH_COOCCUPANCY_EVENT = re.compile(
+    r'\[CRASH-COOCCUPANCY\]\s+entrant=(veh\d+)\s+'
+    r'active_wrecks=(\d+)\s+t=([\d.]+)')
+RE_WAIT_SEND_EVENT = re.compile(
+    r'\[WAIT-SEND\]\s+r(\d+).*\st=([\d.]+)')
+RE_WAIT_STOP_EVENT = re.compile(
+    r'\[WAIT-STOP\]\s+r(\d+)\s+reason=([^\s]*)\s+t=([\d.]+)')
+RE_CLEAR_CERT_BROADCAST_EVENT = re.compile(
+    r'\[CLEAR-CERT\]\s+r(\d+)\s+broadcast\s+key=([^\s]+).*\st=([\d.]+)')
+RE_ROLLBACK_COMMIT_EVENT = re.compile(
+    r'\[ROLLBACK-COMMIT\]\s+r(\d+)\s+cancelled_epoch=(\d+)\s+'
+    r'new_epoch=(\d+)\s+t=([\d.]+)')
 
 RE_PHASE_SUMMARY = re.compile(
     r'\[PHASE_SUMMARY (\d+)\](?:\s+epoch=(\d+))? .*PROPOSE_ALL_BFT\(sim\)=(?:([\d.]+)s|N/A) .*stop_to_decision\(sim\)=(?:([\d.]+)s|N/A)'
@@ -267,6 +328,17 @@ RE_R0_CANCEL_COMMIT = re.compile(
     r'\[CANCEL-COMMIT\]\s+r(\d+)\s+cancelled_epoch=(\d+)\s+seq=(\d+)\s+'
     r'(?:quorum=(\d+)\s+)?source=([^\s]+)'
 )
+RE_CANCEL_LEADER_SUPPRESS = re.compile(
+    r'\[BYZANTINE-CANCEL-SUPPRESS\]\s+r(\d+).*cancelled_epoch=(\d+)'
+    r'.*attack_time=([0-9.]+)'
+)
+RE_CANCEL_LEADER_ROTATE = re.compile(
+    r'\[CANCEL-VC\]\s+r(\d+)\s+rotating cancel proposer index=(\d+)'
+    r'.*cancelled_epoch=(\d+).*\bt=([0-9.]+)'
+)
+RE_CANCEL_COMMIT_TIME = re.compile(
+    r'\[CANCEL-COMMIT\]\s+r(\d+).*cancelled_epoch=(\d+).*\bt=([0-9.]+)'
+)
 RE_R0_ROLLBACK_COMMIT = re.compile(
     r'\[ROLLBACK-COMMIT\]\s+r(\d+)\s+cancelled_epoch=(\d+)\s+new_epoch=(\d+)'
 )
@@ -311,6 +383,7 @@ go_decision_epoch = {}  # carId -> epoch it was granted GO
 replica_arrival_time = {}                   # replica -> first arrival time in intersection zone
 replica_stop_time   = {}                    # replica -> stop_time (float)
 replica_resume_time = {}                    # replica -> resume_time (float)
+replica_depart_time = {}                    # replica -> physical departure fallback
 epoch_messages_sent = defaultdict(list)     # epoch -> [sent_count, ...]
 epoch_messages_recv = defaultdict(list)     # epoch -> [recv_count, ...]
 epoch_bytes_sent    = defaultdict(list)     # epoch -> [payload_bytes, ...]
@@ -337,6 +410,14 @@ r0_metrics = {
     "rollback_discovery_snapshots": [],
     "rollback_active_views": [],
     "cancel_commit_count": 0,
+    "cancel_leader_suppress_count": 0,
+    "cancel_leader_attack_replica": None,
+    "cancel_leader_attack_time": None,
+    "cancel_leader_rotation_count": 0,
+    "cancel_leader_max_rotation_index": 0,
+    "cancel_leader_first_rotation_time": None,
+    "cancel_leader_first_commit_time": None,
+    "cancel_leader_failover_latency_sec": None,
     "rollback_commit_count": 0,
     "rollback_commit_replica_ids": [],
     "epoch1_order_decision_count": 0,
@@ -355,6 +436,25 @@ r0_metrics = {
 byzantine_by_epoch   = defaultdict(int)    # epoch -> count of [BYZANTINE INJECTION] events
 byzantine_by_replica = defaultdict(int)    # replica -> count
 byzantine_total      = 0                   # across the whole run
+fabricated_clearance_events = set()        # {(replica, cancelled_epoch, new_epoch)}
+missing_clear_reject_count = 0
+unsafe_recovery_order_replicas = set()
+unsafe_recovery_order_box_occupied_replicas = set()
+crash_inject_times = {}              # vehicle -> first injection sim-time
+crash_tow_times = {}                 # vehicle -> first tow sim-time
+crash_unsafe_entrants = {}           # vehicle -> first unsafe box-entry sim-time
+wait_send_times = []                 # leader heartbeat sim-times
+wait_stop_times = []                 # local WAIT stop sim-times
+clear_cert_broadcast_times = []      # authenticated CLEAR cert origin times
+recovery_commit_times = []           # ORDER(e+1) local apply times
+false_lane_colluder_config = None     # canonical {N,F,ids,position_gate}
+false_lane_echo_signers = defaultdict(set)  # target -> distinct signer ids observed
+false_lane_certificates = {}          # target -> {signers, threshold}
+false_lane_blocked_targets = {}       # target -> {signers, threshold}
+false_lane_commits = {}               # target -> {claimed, actual, epoch}
+malformed_proposal_reject_count = 0
+unsafe_conflict_pairs = {}            # (first,second) -> ground-truth approaches/time
+physical_collision_vehicles = {}      # vehicle -> first collision time
 
 # Per-replica message counts and fallback tracking
 replica_messages_sent    = {}   # replica -> messages_sent count (last value seen)
@@ -395,10 +495,11 @@ experiment_fault_tolerance = {
 }
 attack_success_outcomes = {
     "MALICIOUS_INPUT_COMMITTED",
-    "ORDER_COMMITTED_AFTER_MALFORMED_PROPOSAL",
     "FALSE_PRIORITY_GRANTED",
     "UNCERTIFIED_PRIORITY_CLAIM_COMMITTED",
     "UNSAFE_ORDER_COMMITTED",
+    "UNSAFE_PHYSICAL_COOCCUPANCY",
+    "PREEMPTION_SUPPRESSED",
 }
 
 def record_attack_outcome(
@@ -604,6 +705,37 @@ else:
         _log_lines = list(f)
 
 for line in _log_lines:
+        # Crash/recovery timeline extraction is deliberately non-consuming:
+        # the same lines must remain available to the existing rollback and
+        # Byzantine metric parsers below.
+        m_aux = RE_CRASH_INJECT_EVENT.search(line)
+        if m_aux:
+            crash_inject_times.setdefault(m_aux.group(1), float(m_aux.group(2)))
+        m_aux = RE_CRASH_TOW_EVENT.search(line)
+        if m_aux:
+            crash_tow_times.setdefault(m_aux.group(1), float(m_aux.group(2)))
+        m_aux = RE_CRASH_COOCCUPANCY_EVENT.search(line)
+        if m_aux:
+            crash_unsafe_entrants.setdefault(m_aux.group(1), float(m_aux.group(3)))
+        m_aux = RE_WAIT_SEND_EVENT.search(line)
+        if m_aux:
+            wait_send_times.append(float(m_aux.group(2)))
+        m_aux = RE_WAIT_STOP_EVENT.search(line)
+        if m_aux:
+            wait_stop_times.append(float(m_aux.group(3)))
+        m_aux = RE_CLEAR_CERT_BROADCAST_EVENT.search(line)
+        if m_aux:
+            clear_cert_broadcast_times.append(float(m_aux.group(3)))
+        m_aux = RE_ROLLBACK_COMMIT_EVENT.search(line)
+        if m_aux and int(m_aux.group(3)) == int(m_aux.group(2)) + 1:
+            recovery_commit_times.append(float(m_aux.group(4)))
+        # A CAR-METRICS line can be damaged by interleaved ResDB worker output.
+        # DEPARTED is emitted immediately before it and independently preserves
+        # the physical terminal event, so retain it as a per-car fallback.
+        m_aux = RE_DEPARTED.search(line)
+        if m_aux:
+            replica_depart_time.setdefault(int(m_aux.group(1)), float(m_aux.group(2)))
+
         # ROUND-METRICS
         m = RE_ROUND_METRIC.search(line)
         if m:
@@ -785,6 +917,76 @@ for line in _log_lines:
                 pass
             continue
 
+        m = RE_FALSE_LANE_COLLUDER_SET.search(line)
+        if m:
+            ids = [int(x) for x in m.group(3).split(",") if x]
+            candidate = {
+                "N": int(m.group(1)),
+                "F": int(m.group(2)),
+                "ids": ids,
+                "position_gate_enabled": bool(int(m.group(4))),
+            }
+            if false_lane_colluder_config is None:
+                false_lane_colluder_config = candidate
+            continue
+
+        m = RE_FALSE_LANE_COLLUSION_ECHO.search(line)
+        if m:
+            false_lane_echo_signers[m.group(1)].add(int(m.group(2)))
+            continue
+
+        m = RE_FALSE_LANE_COLLUSION_CERT.search(line)
+        if m:
+            false_lane_certificates[m.group(1)] = {
+                "signers": sorted(int(x) for x in m.group(2).split(",") if x),
+                "threshold": int(m.group(3)),
+            }
+            continue
+
+        m = RE_FALSE_LANE_COLLUSION_BLOCK.search(line)
+        if m:
+            false_lane_blocked_targets[m.group(1)] = {
+                "signers": int(m.group(2)),
+                "threshold": int(m.group(3)),
+            }
+            continue
+
+        m = RE_FALSE_LANE_COLLUSION_COMMIT.search(line)
+        if m:
+            false_lane_commits[m.group(1)] = {
+                "claimed_lane": m.group(2),
+                "actual_lane": m.group(3),
+                "epoch": int(m.group(4)),
+            }
+            continue
+
+        if RE_MALFORMED_PROPOSAL_REJECT.search(line):
+            malformed_proposal_reject_count += 1
+            continue
+
+        m = RE_UNSAFE_CONFLICT_COOCCUPANCY.search(line)
+        if m:
+            unsafe_conflict_pairs[(m.group(1), m.group(3))] = {
+                "first": m.group(1),
+                "first_approach": m.group(2),
+                "second": m.group(3),
+                "second_approach": m.group(4),
+                "time_ms": float(m.group(5)) * 1000.0,
+            }
+            record_attack_outcome(
+                -1,
+                current_gossip_epoch,
+                "FALSE_LANE",
+                "UNSAFE_PHYSICAL_COOCCUPANCY",
+                f"pair={m.group(1)}+{m.group(3)}",
+            )
+            continue
+
+        m = RE_PHYSICAL_COLLISION.search(line)
+        if m:
+            physical_collision_vehicles.setdefault(m.group(1), float(m.group(2)) * 1000.0)
+            continue
+
         m = RE_BYZANTINE_CONFIG.search(line)
         if m:
             rep = int(m.group(1))
@@ -884,6 +1086,31 @@ for line in _log_lines:
             byzantine_by_replica[replica] += 1
             continue
 
+        m = RE_FABRICATED_CLEARANCE.search(line)
+        if m:
+            replica = int(m.group(1))
+            cancelled_epoch = int(m.group(2))
+            new_epoch = int(m.group(3))
+            event = (replica, cancelled_epoch, new_epoch)
+            if event not in fabricated_clearance_events:
+                fabricated_clearance_events.add(event)
+                byzantine_by_epoch[new_epoch] += 1
+                byzantine_by_replica[replica] += 1
+            continue
+
+        m = RE_MISSING_CLEAR_REJECT.search(line)
+        if m:
+            missing_clear_reject_count += 1
+            continue
+
+        m = RE_UNSAFE_RECOVERY_ORDER.search(line)
+        if m:
+            replica = int(m.group(1))
+            unsafe_recovery_order_replicas.add(replica)
+            if int(m.group(4)) == 1:
+                unsafe_recovery_order_box_occupied_replicas.add(replica)
+            continue
+
         m = RE_CONSENSUS_HEADER.search(line)
         if m:
             rep, epoch = int(m.group(1)), int(m.group(2))
@@ -981,6 +1208,41 @@ for line in _log_lines:
         if m:
             r0_metrics["enabled"] = True
             r0_metrics["cancel_commit_count"] += 1
+            tm = RE_CANCEL_COMMIT_TIME.search(line)
+            if tm:
+                commit_time = float(tm.group(3))
+                prior = r0_metrics["cancel_leader_first_commit_time"]
+                if prior is None or commit_time < prior:
+                    r0_metrics["cancel_leader_first_commit_time"] = commit_time
+            continue
+
+        m = RE_CANCEL_LEADER_SUPPRESS.search(line)
+        if m:
+            r0_metrics["enabled"] = True
+            r0_metrics["cancel_leader_suppress_count"] += 1
+            attack_replica = int(m.group(1))
+            if r0_metrics["cancel_leader_attack_replica"] is None:
+                byzantine_by_epoch[int(m.group(2))] += 1
+                byzantine_by_replica[attack_replica] += 1
+            r0_metrics["cancel_leader_attack_replica"] = attack_replica
+            attack_time = float(m.group(3))
+            prior = r0_metrics["cancel_leader_attack_time"]
+            if prior is None or attack_time < prior:
+                r0_metrics["cancel_leader_attack_time"] = attack_time
+            continue
+
+        m = RE_CANCEL_LEADER_ROTATE.search(line)
+        if m:
+            r0_metrics["enabled"] = True
+            r0_metrics["cancel_leader_rotation_count"] += 1
+            r0_metrics["cancel_leader_max_rotation_index"] = max(
+                r0_metrics["cancel_leader_max_rotation_index"],
+                int(m.group(2)),
+            )
+            rotate_time = float(m.group(4))
+            prior = r0_metrics["cancel_leader_first_rotation_time"]
+            if prior is None or rotate_time < prior:
+                r0_metrics["cancel_leader_first_rotation_time"] = rotate_time
             continue
 
         m = RE_R0_ROLLBACK_COMMIT.search(line)
@@ -1182,6 +1444,35 @@ if _args.baseline_tripinfo:
 print("Done.\n")
 byzantine_total = sum(byzantine_by_epoch.values())
 
+if fabricated_clearance_events:
+    attack_replica, _cancelled_epoch, attacked_epoch = sorted(
+        fabricated_clearance_events
+    )[0]
+    if unsafe_recovery_order_replicas:
+        record_attack_outcome(
+            attack_replica,
+            attacked_epoch,
+            "FABRICATED_CLEARANCE",
+            "UNSAFE_ORDER_COMMITTED",
+            "accepted_while_blocking_replicas="
+            + str(len(unsafe_recovery_order_replicas))
+            + " box_occupied_replicas="
+            + str(len(unsafe_recovery_order_box_occupied_replicas)),
+        )
+    elif missing_clear_reject_count > 0:
+        outcome = (
+            "PREVERIFY_BLOCKED_AND_RECOVERED"
+            if r0_metrics["rollback_commit_count"] > 0
+            else "PREVERIFY_BLOCKED_MISSING_CLEAR"
+        )
+        record_attack_outcome(
+            attack_replica,
+            attacked_epoch,
+            "FABRICATED_CLEARANCE",
+            outcome,
+            f"preverify_rejections={missing_clear_reject_count}",
+        )
+
 if experiment_fault_tolerance["tolerated_f"] is None and "Tolerated_F" in run_metrics:
     experiment_fault_tolerance["tolerated_f"] = int(run_metrics["Tolerated_F"])
     experiment_fault_tolerance["static_replicas"] = int(
@@ -1196,6 +1487,35 @@ if experiment_fault_tolerance["tolerated_f"] is None and "Tolerated_F" in run_me
 
 if _args.scenario == 15:
     r0_metrics["enabled"] = True
+if (r0_metrics["cancel_leader_attack_time"] is not None and
+        r0_metrics["cancel_leader_first_commit_time"] is not None):
+    r0_metrics["cancel_leader_failover_latency_sec"] = max(
+        0.0,
+        r0_metrics["cancel_leader_first_commit_time"] -
+        r0_metrics["cancel_leader_attack_time"],
+    )
+if r0_metrics["cancel_leader_suppress_count"] > 0:
+    attack_replica = r0_metrics["cancel_leader_attack_replica"]
+    if r0_metrics["cancel_commit_count"] > 0:
+        latency = r0_metrics["cancel_leader_failover_latency_sec"]
+        detail = ""
+        if latency is not None:
+            detail = f"cancel_commit_latency_sec={latency:.6f}"
+        record_attack_outcome(
+            attack_replica,
+            0,
+            "SUPPRESS_CANCEL",
+            "RECOVERED_AFTER_CANCEL_ROTATION",
+            detail,
+        )
+    else:
+        record_attack_outcome(
+            attack_replica,
+            0,
+            "SUPPRESS_CANCEL",
+            "PREEMPTION_SUPPRESSED",
+            "valid_cancel_cert_without_commit",
+        )
 if r0_metrics["enabled"]:
     if r0_metrics["bad_quorum_count"] > 0:
         r0_metrics["failure_stage"] = "bad_quorum"
@@ -1210,6 +1530,9 @@ if r0_metrics["enabled"]:
         r0_metrics["failure_stage"] = "no_echo"
     elif r0_metrics["cancel_cert_count"] == 0:
         r0_metrics["failure_stage"] = "no_cert"
+    elif (r0_metrics["cancel_leader_suppress_count"] > 0 and
+          r0_metrics["cancel_commit_count"] == 0):
+        r0_metrics["failure_stage"] = "suppressed_cancel_stalled"
     elif r0_metrics["rollback_epoch1_committed"]:
         latest_view = (
             r0_metrics["rollback_active_views"][-1]
@@ -1324,6 +1647,13 @@ for rep, stop_t in replica_stop_time.items():
     car_metrics[f"veh{rep}"]["stop_time"] = stop_t
 for rep, resume_t in replica_resume_time.items():
     car_metrics[f"veh{rep}"]["resume_time"] = resume_t
+for rep, depart_t in replica_depart_time.items():
+    cm = car_metrics[f"veh{rep}"]
+    if cm.get("depart_time") is None:
+        cm["depart_time"] = depart_t
+        stop_t = cm.get("stop_time", replica_stop_time.get(rep))
+        if stop_t is not None and depart_t >= stop_t:
+            cm["wait_intersection"] = depart_t - stop_t
 
 # ── Per-car phase breakdown: cert_wait / bft_wait / queue_wait ───────────────
 # For each epoch, find the leader (only replica with cert_collection_s set).
@@ -1696,6 +2026,23 @@ def write_metrics_json(path):
         "attack_failures_by_epoch": dict(attack_failures_by_epoch),
         "attack_outcomes": _attack_outcomes_unique,
         "attack_outcome_lines_total": len(attack_outcomes),
+        "false_lane_collusion": {
+            "configuration": false_lane_colluder_config,
+            "distinct_echo_signers_by_target": {
+                target: sorted(signers)
+                for target, signers in sorted(false_lane_echo_signers.items())
+            },
+            "forged_certificates": false_lane_certificates,
+            "blocked_targets": false_lane_blocked_targets,
+            "committed_targets": false_lane_commits,
+            "forged_certificate_count": len(false_lane_certificates),
+            "committed_forged_claim_count": len(false_lane_commits),
+        },
+        "malformed_proposal_preverify_rejections": malformed_proposal_reject_count,
+        "unsafe_conflict_cooccupancy_pairs": list(unsafe_conflict_pairs.values()),
+        "unsafe_conflict_cooccupancy_pair_count": len(unsafe_conflict_pairs),
+        "physical_collision_vehicles": physical_collision_vehicles,
+        "physical_collision_vehicle_count": len(physical_collision_vehicles),
         "stop_to_resume_s": _stat(stop_to_resume_all),
         "resume_to_depart_s": _stat(resume_to_depart_all),
         # Delivery and fallback metrics (same definitions as RAFT counterpart)
@@ -1800,11 +2147,78 @@ def write_metrics_json(path):
                         if m.get("bytes_sent") is not None else None
                     ),
                 },
+                # Physical ground truth is distinct from which Byzantine
+                # replica originated an attack.  Keep it per vehicle so plots
+                # can identify both the injected wrecks and the actual unsafe
+                # entrants without reparsing the combined text log.
+                "physical_safety": {
+                    "is_injected_wreck": cid in crash_inject_times,
+                    "wreck_injected_at_ms": (
+                        crash_inject_times[cid] * 1000.0
+                        if cid in crash_inject_times else None
+                    ),
+                    "wreck_towed_at_ms": (
+                        crash_tow_times[cid] * 1000.0
+                        if cid in crash_tow_times else None
+                    ),
+                    "entered_while_wreck_active": cid in crash_unsafe_entrants,
+                    "unsafe_entry_at_ms": (
+                        crash_unsafe_entrants[cid] * 1000.0
+                        if cid in crash_unsafe_entrants else None
+                    ),
+                    "unsafe_conflict_cooccupancy": any(
+                        cid in pair for pair in unsafe_conflict_pairs
+                    ),
+                    "physical_collision": cid in physical_collision_vehicles,
+                    "physical_collision_at_ms": physical_collision_vehicles.get(cid),
+                },
+                # Partner-format output is a list of vehicle records, so repeat
+                # the compact run-level safety result on each record.  This
+                # avoids the misleading interpretation that
+                # attack_success_replica=false means the run was safe.
+                "run_safety": {
+                    "attack_success": _attack_failures_total > 0,
+                    "fabricated_clearance_attempts": len(fabricated_clearance_events),
+                    "fabricated_clearance_preverify_rejections": missing_clear_reject_count,
+                    "unsafe_recovery_order_replicas": len(unsafe_recovery_order_replicas),
+                    "unsafe_recovery_order_box_occupied_replicas": len(
+                        unsafe_recovery_order_box_occupied_replicas
+                    ),
+                    "crash_injected_vehicles": sorted(
+                        crash_inject_times, key=lambda x: int(x[3:])
+                    ),
+                    "crash_towed_vehicles": sorted(
+                        crash_tow_times, key=lambda x: int(x[3:])
+                    ),
+                    "crash_cooccupancy_entrants": sorted(
+                        crash_unsafe_entrants, key=lambda x: int(x[3:])
+                    ),
+                    "crash_cooccupancy_entrant_count": len(crash_unsafe_entrants),
+                    "false_lane_forged_certificate_count": len(false_lane_certificates),
+                    "false_lane_committed_claim_count": len(false_lane_commits),
+                    "false_lane_committed_targets": sorted(false_lane_commits),
+                    "malformed_proposal_preverify_rejections": malformed_proposal_reject_count,
+                    "unsafe_conflict_cooccupancy_pair_count": len(unsafe_conflict_pairs),
+                    "unsafe_conflict_cooccupancy_pairs": list(unsafe_conflict_pairs.values()),
+                    "physical_collision_vehicle_count": len(physical_collision_vehicles),
+                },
                 "bft_stats": {
                     "tolerated_f": experiment_fault_tolerance["tolerated_f"],
                     "static_replicas": experiment_fault_tolerance["static_replicas"],
                     "consensus_quorum": experiment_fault_tolerance["consensus_quorum"],
                     "cert_threshold": experiment_fault_tolerance["cert_threshold"],
+                    "injected_f": (
+                        false_lane_colluder_config.get("F")
+                        if false_lane_colluder_config else None
+                    ),
+                    "false_lane_colluder_ids": (
+                        false_lane_colluder_config.get("ids")
+                        if false_lane_colluder_config else None
+                    ),
+                    "arrival_position_gate_enabled": (
+                        false_lane_colluder_config.get("position_gate_enabled")
+                        if false_lane_colluder_config else None
+                    ),
                     "cert_collection_duration_ms": (
                         _epoch_cert_collection_duration_ms(ep) if isinstance(ep, int) else None
                     ),
@@ -1833,6 +2247,10 @@ def write_metrics_json(path):
                     "attack_success_replica": any(
                         row["attack_success"] for row in attack_outcomes
                         if row["replica"] == rep
+                    ),
+                    "unsafe_recovery_order_accepted": rep in unsafe_recovery_order_replicas,
+                    "unsafe_recovery_order_accepted_while_box_occupied": (
+                        rep in unsafe_recovery_order_box_occupied_replicas
                     ),
                 },
             })
@@ -2051,6 +2469,10 @@ if r0_metrics["enabled"]:
         f"certs={r0_metrics['cancel_cert_count']} "
         f"bad_quorum={r0_metrics['bad_quorum_count']} "
         f"cancel_commit={r0_metrics['cancel_commit_count']} "
+        f"cancel_suppress={r0_metrics['cancel_leader_suppress_count']} "
+        f"cancel_rotations={r0_metrics['cancel_leader_rotation_count']} "
+        f"cancel_max_round={r0_metrics['cancel_leader_max_rotation_index']} "
+        f"cancel_failover_s={r0_metrics['cancel_leader_failover_latency_sec']} "
         f"rollback_unavailable={r0_metrics['rollback_unavailable_count']} "
         f"max_M={r0_metrics['rollback_unavailable_max_m']} "
         f"need={r0_metrics['rollback_unavailable_need']} "
@@ -2177,7 +2599,7 @@ if byz_total_display > 0:
     print(f"\n{'=' * 72}")
     print(f"{BOLD}Byzantine Fault Analysis{RESET}")
     print(f"{'─' * 72}")
-    print(f"  Total Byzantine hash corruptions: {RED}{byz_total_display}{RESET}")
+    print(f"  Total Byzantine fault injections: {RED}{byz_total_display}{RESET}")
     byz_by_ep = {ep: (byzantine_by_epoch.get(ep, 0) or
                       int(run_metrics.get(f"Byzantine_Injections_Epoch{ep}", 0)))
                  for ep in range(N_EPOCHS)}
@@ -2224,7 +2646,7 @@ if not SAVE_TO:
 if SAVE_TO:
     os.makedirs(SAVE_TO, exist_ok=True)
     existing = [f for f in os.listdir(SAVE_TO) if re.match(rf'{CARS}veh_\d+\.log$', f)]
-    idx  = len(existing)
+    idx = _args.run_index if _args.run_index is not None else len(existing)
     dest = os.path.join(SAVE_TO, f"{CARS}veh_{idx}.log")
 
     def _first_present(ep, *keys):
@@ -2315,6 +2737,16 @@ if SAVE_TO:
             f.write(f"[RUN-METRICS] R0_Cancel_Echo_Count: {r0_metrics['cancel_echo_count']}\n")
             f.write(f"[RUN-METRICS] R0_Cancel_Cert_Count: {r0_metrics['cancel_cert_count']}\n")
             f.write(f"[RUN-METRICS] R0_Cancel_Commit_Count: {r0_metrics['cancel_commit_count']}\n")
+            f.write(f"[RUN-METRICS] Cancel_Leader_Suppress_Count: {r0_metrics['cancel_leader_suppress_count']}\n")
+            f.write(f"[RUN-METRICS] Cancel_Leader_Rotation_Count: {r0_metrics['cancel_leader_rotation_count']}\n")
+            f.write(f"[RUN-METRICS] Cancel_Leader_Max_Rotation_Index: {r0_metrics['cancel_leader_max_rotation_index']}\n")
+            if r0_metrics["cancel_leader_attack_replica"] is not None:
+                f.write(f"[RUN-METRICS] Cancel_Leader_Attack_Replica: {r0_metrics['cancel_leader_attack_replica']}\n")
+            if r0_metrics["cancel_leader_failover_latency_sec"] is not None:
+                f.write(
+                    "[RUN-METRICS] Cancel_Leader_Failover_Latency: "
+                    f"{r0_metrics['cancel_leader_failover_latency_sec']:.6f} seconds\n"
+                )
             f.write(f"[RUN-METRICS] R0_Bad_Quorum_Count: {r0_metrics['bad_quorum_count']}\n")
             f.write(f"[RUN-METRICS] R0_Rollback_Unavailable_Count: {r0_metrics['rollback_unavailable_count']}\n")
             f.write(f"[RUN-METRICS] R0_Rollback_Unavailable_Max_M: {r0_metrics['rollback_unavailable_max_m']}\n")
@@ -2359,6 +2791,52 @@ if SAVE_TO:
 
         # Byzantine fault injection summary
         f.write(f"[RUN-METRICS] Byzantine_Injections_Total: {byzantine_total}\n")
+        f.write(f"[RUN-METRICS] Fabricated_Clearance_Attempts: {len(fabricated_clearance_events)}\n")
+        f.write(f"[RUN-METRICS] Fabricated_Clearance_PreVerify_Rejections: {missing_clear_reject_count}\n")
+        f.write(f"[RUN-METRICS] Unsafe_Recovery_Order_Replicas: {len(unsafe_recovery_order_replicas)}\n")
+        f.write(
+            "[RUN-METRICS] Unsafe_Recovery_Order_Box_Occupied_Replicas: "
+            f"{len(unsafe_recovery_order_box_occupied_replicas)}\n"
+        )
+        f.write(f"[RUN-METRICS] Crash_Injected_Vehicles: {len(crash_inject_times)}\n")
+        f.write(f"[RUN-METRICS] Crash_Towed_Vehicles: {len(crash_tow_times)}\n")
+        f.write(f"[RUN-METRICS] Crash_Cooccupancy_Entrants: {len(crash_unsafe_entrants)}\n")
+        f.write(f"[RUN-METRICS] Wait_Heartbeat_Sends: {len(wait_send_times)}\n")
+        f.write(f"[RUN-METRICS] Clear_Cert_Initial_Broadcasts: {len(clear_cert_broadcast_times)}\n")
+        if crash_inject_times:
+            crash_t0 = min(crash_inject_times.values())
+            f.write(f"[RUN-METRICS] Crash_First_Inject_Time: {crash_t0:.6f} seconds\n")
+            if clear_cert_broadcast_times:
+                clear_t0 = min(clear_cert_broadcast_times)
+                f.write(f"[RUN-METRICS] Clear_First_Cert_Time: {clear_t0:.6f} seconds\n")
+                f.write(
+                    "[RUN-METRICS] Crash_To_Clear_Latency: "
+                    f"{max(0.0, clear_t0 - crash_t0):.6f} seconds\n"
+                )
+            if recovery_commit_times:
+                recovery_t0 = min(recovery_commit_times)
+                f.write(f"[RUN-METRICS] Recovery_First_Order_Commit_Time: {recovery_t0:.6f} seconds\n")
+                f.write(
+                    "[RUN-METRICS] Crash_To_Recovery_Order_Latency: "
+                    f"{max(0.0, recovery_t0 - crash_t0):.6f} seconds\n"
+                )
+                if clear_cert_broadcast_times:
+                    f.write(
+                        "[RUN-METRICS] Clear_To_Recovery_Order_Latency: "
+                        f"{max(0.0, recovery_t0 - min(clear_cert_broadcast_times)):.6f} seconds\n"
+                    )
+        if crash_tow_times:
+            f.write(
+                "[RUN-METRICS] Crash_Last_Tow_Time: "
+                f"{max(crash_tow_times.values()):.6f} seconds\n"
+            )
+        if wait_send_times:
+            f.write(f"[RUN-METRICS] Wait_First_Send_Time: {min(wait_send_times):.6f} seconds\n")
+            if wait_stop_times:
+                f.write(
+                    "[RUN-METRICS] Wait_Observed_Duration: "
+                    f"{max(0.0, max(wait_stop_times) - min(wait_send_times)):.6f} seconds\n"
+                )
         for ep in range(N_EPOCHS):
             byz = byzantine_by_epoch.get(ep, 0)
             f.write(f"[RUN-METRICS] Byzantine_Injections_Epoch{ep}: {byz}\n")
@@ -2415,6 +2893,13 @@ if SAVE_TO:
         # Also copy the JSON alongside the .log
         json_dest = os.path.join(SAVE_TO, f"{CARS}veh_{idx}.json")
         write_metrics_json(json_dest)
+
+    if _args.run_index is not None:
+        canonical = {f"{CARS}veh_{idx}.log", f"{CARS}veh_{idx}.json"}
+        for name in os.listdir(SAVE_TO):
+            if (re.fullmatch(rf"{CARS}veh_\d+\.(?:log|json)", name)
+                    and name not in canonical):
+                os.remove(os.path.join(SAVE_TO, name))
 
     saved_size = os.path.getsize(dest)
     print(f"Log saved → {dest}  (run #{idx}, {saved_size} bytes — round/run metrics summary)")

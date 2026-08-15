@@ -116,6 +116,22 @@ typedef struct ResdbProposeHdr {
     uint32_t n_vehicles;
 } ResdbProposeHdr;            /* 20 bytes */
 
+/* Optional evidence trailer appended after ResdbVehicleEntry[] in a
+ * crash-recovery ORDER proposal (spec §12) — NOT a new consensus mode, just
+ * extra bytes on the ordinary ResdbProposeHdr proposal:
+ *   ResdbProposeHdr
+ *   ResdbVehicleEntry[ResdbProposeHdr.n_vehicles]
+ *   ResdbOrderEvidenceHdr                                    (optional)
+ *   repeated { uint32_t cert_len; uint8_t cert[cert_len]; }  (n_clear_certs times)
+ * Absent for epoch 0 and for Scenario-15 emergency-rollback ORDER, which
+ * never require CLEAR evidence. */
+#define RESDB_ORDER_EVIDENCE_MAGIC 0x4F455631u
+typedef struct ResdbOrderEvidenceHdr {
+    uint32_t magic;              /* RESDB_ORDER_EVIDENCE_MAGIC */
+    uint16_t version;
+    uint16_t n_clear_certs;
+} ResdbOrderEvidenceHdr;      /* 8 bytes */
+
 /* Rollback proposal wrapper.  The bytes after this header are:
  *   justification[justification_len]
  *   ResdbProposeHdr
@@ -207,6 +223,26 @@ typedef void (*ResdbOrderDecidedFn)(void* ctx,
  * Returns 0 on success, -1 if handle is null. */
 int ResdbOmnetSetOrderCallback(void* server_handle,
                                ResdbOrderDecidedFn cb, void* ctx);
+
+/* Scenario 16: validate a CLEAR evidence certificate carried in a
+ * crash-recovery ORDER's evidence trailer. Called from a ResDB worker thread
+ * during PBFT PreVerify — must be thread-safe and read-only (spec §5.1's
+ * "one thread-safe, read-only evidence-validation callback"; the bridge must
+ * not implement a second, weaker validator of its own, so cert_bytes is
+ * opaque here — only the Veins-side callback parses it).
+ * cancelled_epoch is the epoch that was cancelled (proposal epoch - 1); the
+ * callback is responsible for checking cert_bytes actually matches it.
+ * Returns nonzero if cert_bytes is a valid CLEAR certificate for
+ * cancelled_epoch under the replica's own committed view, zero otherwise. */
+typedef int (*ResdbClearEvidenceFn)(void* ctx,
+                                    uint32_t cancelled_epoch,
+                                    const uint8_t* cert_bytes,
+                                    uint32_t cert_len);
+
+/* Register the CLEAR evidence-validation callback.  Must be called before
+ * RunServer.  Returns 0 on success, -1 if handle is null. */
+int ResdbOmnetSetClearEvidenceCallback(void* server_handle,
+                                       ResdbClearEvidenceFn fn, void* ctx);
 
 /* Return the 0-based primary replica ID from PBFT SystemInfo.
  * Returns 0 if the handle is null or the consensus is not yet started. */

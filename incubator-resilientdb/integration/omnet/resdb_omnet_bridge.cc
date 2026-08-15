@@ -5,6 +5,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -202,6 +203,23 @@ struct ToleratedFaultState {
   bool enabled = false;
   int tolerated_f = -1;
   bool rollback_per_epoch = true;
+};
+
+// Scenario 16: read-only CLEAR evidence validator, delegated to Veins (spec
+// §5.1 — the bridge must not implement a second, weaker validator).
+struct ClearEvidenceState {
+  std::mutex           mu;
+  ResdbClearEvidenceFn fn  = nullptr;
+  void*                ctx = nullptr;
+};
+
+// Which "new" epochs (cancelled_epoch + 1) are crash-recovery epochs that
+// require a CLEAR evidence trailer before their ORDER proposal may pass
+// PreVerify. Populated by the executor when a CANCEL_CRASH decision commits.
+// Declared ahead of IntersectionExecutor, which holds a reference to it.
+struct CrashRecoveryState {
+  std::mutex          mu;
+  std::set<uint32_t>  epochs;
 };
 
 int RollbackFaultsForMembership(int configured_f, int member_count) {
@@ -729,6 +747,10 @@ class IntersectionExecutor : public resdb::TransactionManager {
     ctx_ = ctx;
   }
 
+  void SetCrashRecoveryState(std::shared_ptr<CrashRecoveryState> state) {
+    crash_recovery_state_ = std::move(state);
+  }
+
   std::unique_ptr<std::string> ExecuteData(const std::string& data) override {
     std::cout << "[EXECUTOR] ExecuteData called bytes=" << data.size() << "\n";
     ProposalView view;
@@ -748,6 +770,13 @@ class IntersectionExecutor : public resdb::TransactionManager {
       dh.cancel_seq = 0;
       for (int i = 0; i < 8; ++i) {
         dh.cancel_seq = (dh.cancel_seq << 8) | dh.payload_digest[i];
+      }
+      // reason 0 == CANCEL_CRASH (veins::ResDBIntersectionApp::CancelReason).
+      // Only crash recovery requires CLEAR evidence before its ORDER(e+1) may
+      // pass PreVerify — emergency (ambulance) rollback never blocks the box.
+      if (dh.reason == 0 && crash_recovery_state_) {
+        std::lock_guard<std::mutex> lk(crash_recovery_state_->mu);
+        crash_recovery_state_->epochs.insert(dh.cancelled_epoch + 1);
       }
       std::string cancel_bytes(reinterpret_cast<const char*>(&dh), sizeof(dh));
       {
@@ -812,10 +841,22 @@ class IntersectionExecutor : public resdb::TransactionManager {
     std::cout << "\n";
 
     auto schedule = resdb::omnet::BuildIntersectionSchedule(hdr, entries);
-    const std::string& result = schedule.order_bytes;
+    std::string result = schedule.order_bytes;
     const uint32_t n = static_cast<uint32_t>(entries.size());
     const uint32_t n_batches = schedule.n_batches;
     const int ambu_lane = schedule.ambulance_lane;
+
+    // Forward any CLEAR evidence trailer from the proposal into the decision
+    // so a follower that missed CLEAR gossip can still adopt it atomically
+    // with the ORDER (spec §12.1). Already checked in PreVerify when
+    // required (see BuildEpochOrderViewCandidate's caller) — this is a
+    // pass-through, not a second validation.
+    const size_t entries_end = sizeof(ResdbProposeHdr) +
+        static_cast<size_t>(hdr.n_vehicles) * sizeof(ResdbVehicleEntry);
+    if (view.len > entries_end) {
+      result.append(reinterpret_cast<const char*>(view.data + entries_end),
+                    view.len - entries_end);
+    }
 
     {
       std::lock_guard<std::mutex> lk(cb_mutex_);
@@ -854,6 +895,7 @@ class IntersectionExecutor : public resdb::TransactionManager {
   ResdbOrderDecidedFn cb_ = nullptr;
   void* ctx_ = nullptr;
   std::mutex cb_mutex_;
+  std::shared_ptr<CrashRecoveryState> crash_recovery_state_;
 };
 
 // ── OmnetReplicaCommunicator ──────────────────────────────────────────────────
@@ -1124,6 +1166,8 @@ struct ResdbOmnetServerHandle {
   int64_t vc_timeout_us = 3000000;  // 3 s default
   std::shared_ptr<CertCheckState> cert_state;
   std::shared_ptr<ToleratedFaultState> tolerated_fault_state;
+  std::shared_ptr<ClearEvidenceState> clear_evidence_state;
+  std::shared_ptr<CrashRecoveryState> crash_recovery_state;
 };
 
 }  // namespace
@@ -1164,6 +1208,9 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
   const int expected = static_cast<int>(config->GetReplicaInfos().size());
   auto cert_state = std::make_shared<CertCheckState>();
   auto tolerated_fault_state = std::make_shared<ToleratedFaultState>();
+  auto clear_evidence_state = std::make_shared<ClearEvidenceState>();
+  auto crash_recovery_state = std::make_shared<CrashRecoveryState>();
+  executor_ptr->SetCrashRecoveryState(crash_recovery_state);
 
   // RESDB_NO_FIREWALL=1 disables all 10 PreVerify checks for "firewall-off" experiments.
   // Demonstrates that Byzantine proposals can be committed by PBFT but still cannot
@@ -1241,7 +1288,8 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
       return true;
     });
   } else {
-  service_ptr->SetPreVerifyFunc([expected, cert_state, service_ptr, tolerated_fault_state](const resdb::Request& req) -> bool {
+  service_ptr->SetPreVerifyFunc([expected, cert_state, service_ptr, tolerated_fault_state,
+                                 clear_evidence_state, crash_recovery_state](const resdb::Request& req) -> bool {
     if (req.type() != resdb::Request::TYPE_PRE_PREPARE &&
         req.type() != resdb::Request::TYPE_NEW_TXNS) {
       return true;
@@ -1293,6 +1341,8 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
 
     ResdbProposeHdr hdr;
     std::memcpy(&hdr, view.data, sizeof(hdr));
+    bool normal_leader_is_cert_primary = false;
+    bool normal_leader_is_pbft_primary = false;
     resdb::OmnetForcedView active_view;
     const bool has_active_view = !view.is_rollback() &&
         BuildEpochOrderViewCandidate(
@@ -1309,29 +1359,6 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
                 << " result=" << (has_active_view ? "candidate" : "none")
                 << "\n";
     }
-    if (has_active_view) {
-      if (req.type() == resdb::Request::TYPE_PRE_PREPARE) {
-        std::cout << "[EPOCH-VIEW]"
-                  << " type=" << req.type()
-                  << " hash=" << req.hash()
-                  << " seq=" << req.seq()
-                  << " action=install-request\n";
-        if (!service_ptr->InstallOmnetForcedViewForRequest(req, active_view)) {
-          LOG(ERROR) << "[OMNET-PREVERIFY] reject: active view install failed"
-                     << " epoch=" << hdr.epoch
-                     << " seq=" << req.seq()
-                     << " hash=" << req.hash();
-          return false;
-        }
-      } else if (req.type() == resdb::Request::TYPE_NEW_TXNS) {
-        std::cout << "[EPOCH-VIEW]"
-                  << " type=" << req.type()
-                  << " hash=" << req.hash()
-                  << " seq=" << req.seq()
-                  << " action=install-pending\n";
-        service_ptr->InstallOmnetPendingForcedView(active_view);
-      }
-    }
     if (!view.is_rollback() && hdr.epoch > 0 && !has_active_view) {
       LOG(ERROR) << "[OMNET-PREVERIFY] reject: missing epoch active view"
                  << " epoch=" << hdr.epoch
@@ -1344,9 +1371,54 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
                 << " seq=" << req.seq() << "\n";
       return false;
     }
-    if (req.type() == resdb::Request::TYPE_NEW_TXNS &&
-        view.kind == ProposalView::kNormal) {
-      return true;
+    // Scenario 16: a crash-recovery ORDER(cancelled_epoch+1) may not pass
+    // PreVerify without a valid CLEAR evidence trailer (spec §12.2) — this
+    // constrains every voter, not just the honest proposer's own
+    // self-restraint in evaluateOrderReadiness. Only epochs the executor
+    // marked as CANCEL_CRASH recoveries are gated; ordinary epoch-0 and
+    // Scenario-15 emergency-rollback proposals are untouched.
+    if (!view.is_rollback() && crash_recovery_state) {
+      bool requires_evidence = false;
+      {
+        std::lock_guard<std::mutex> lk(crash_recovery_state->mu);
+        requires_evidence = crash_recovery_state->epochs.count(hdr.epoch) > 0;
+      }
+      if (requires_evidence) {
+        bool evidence_ok = false;
+        const size_t entries_end = sizeof(ResdbProposeHdr) +
+            static_cast<size_t>(hdr.n_vehicles) * sizeof(ResdbVehicleEntry);
+        if (view.len >= entries_end + sizeof(ResdbOrderEvidenceHdr)) {
+          ResdbOrderEvidenceHdr ehdr;
+          std::memcpy(&ehdr, view.data + entries_end, sizeof(ehdr));
+          size_t off = entries_end + sizeof(ehdr);
+          if (ehdr.magic == RESDB_ORDER_EVIDENCE_MAGIC && ehdr.n_clear_certs >= 1 &&
+              view.len >= off + sizeof(uint32_t)) {
+            uint32_t cert_len = 0;
+            std::memcpy(&cert_len, view.data + off, sizeof(cert_len));
+            off += sizeof(cert_len);
+            if (view.len >= off + cert_len) {
+              std::lock_guard<std::mutex> lk(clear_evidence_state->mu);
+              if (clear_evidence_state->fn) {
+                evidence_ok = clear_evidence_state->fn(
+                    clear_evidence_state->ctx, hdr.epoch - 1,
+                    view.data + off, cert_len) != 0;
+              }
+            }
+          }
+        }
+        if (!evidence_ok) {
+          LOG(ERROR) << "[OMNET-PREVERIFY] reject: missing/invalid CLEAR evidence"
+                     << " epoch=" << hdr.epoch
+                     << " seq=" << req.seq()
+                     << " hash=" << req.hash();
+          std::cout << "[EPOCH-VIEW-REJECT]"
+                    << " reason=missing-clear-evidence"
+                    << " epoch=" << hdr.epoch
+                    << " hash=" << req.hash()
+                    << " seq=" << req.seq() << "\n";
+          return false;
+        }
+      }
     }
     const bool installing_pre_prepare =
         view.is_rollback() && req.type() == resdb::Request::TYPE_PRE_PREPARE;
@@ -1389,6 +1461,14 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
                  << " size=" << view.len
                  << " need_at_least=" << needed_size
                  << " n_vehicles=" << hdr.n_vehicles;
+      std::cout << "[MALFORMED-PROPOSAL-REJECT]"
+                << " reason=bad_n_vehicles_or_truncated_entries"
+                << " epoch=" << hdr.epoch
+                << " claimed_n=" << hdr.n_vehicles
+                << " payload_size=" << view.len
+                << " required_size=" << needed_size
+                << " seq=" << req.seq()
+                << " hash=" << req.hash() << "\n";
       return false;
     }
     // Check no duplicate replica IDs.
@@ -1470,23 +1550,20 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
                    << " epoch=" << hdr.epoch;
         return false;
       }
-      if (hdr.leader_id != proposal_cert_primary || !leader_is_signed) {
-        LOG(ERROR) << "[OMNET-PREVERIFY] reject: leader is not cert-primary"
+      const int current_pbft_primary = ResdbIdToOmnetReplica(
+          static_cast<int64_t>(service_ptr->GetPrimary()));
+      normal_leader_is_cert_primary =
+          hdr.leader_id == proposal_cert_primary && leader_is_signed;
+      normal_leader_is_pbft_primary =
+          hdr.leader_id == current_pbft_primary && leader_is_signed;
+      if (!normal_leader_is_cert_primary && !normal_leader_is_pbft_primary) {
+        LOG(ERROR) << "[OMNET-PREVERIFY] reject: leader is neither cert-primary nor current PBFT primary"
                    << " leader_id=" << hdr.leader_id
                    << " proposal_cert_primary=" << proposal_cert_primary
+                   << " current_pbft_primary=" << current_pbft_primary
                    << " leader_signed=" << (leader_is_signed ? 1 : 0)
                    << " epoch=" << hdr.epoch;
         return false;
-      }
-      if (req.type() == resdb::Request::TYPE_PRE_PREPARE) {
-        const uint64_t incoming_view = req.current_view();
-        service_ptr->SetPrimary(static_cast<uint32_t>(hdr.leader_id + 1),
-                                incoming_view);
-        LOG(INFO) << "[OMNET-PREVERIFY] installed cert-primary"
-                  << " leader_id=" << hdr.leader_id
-                  << " resdb_primary=" << (hdr.leader_id + 1)
-                  << " view=" << incoming_view
-                  << " epoch=" << hdr.epoch;
       }
     }
     // Check 8: deterministic sort always has a unique tiebreaker because
@@ -1534,7 +1611,7 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
           cert_backed_ids.insert(cert_entries[i].replica_id);
         }
 
-        if (!view.is_rollback()) {
+        if (!view.is_rollback() && normal_leader_is_cert_primary) {
           for (uint32_t i = 0; i < cert_count; ++i) {
             const ResdbCertEntry& ce = cert_entries[i];
             if (ce.replica_id >= 0 &&
@@ -1636,6 +1713,43 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
       }
     }
 
+    // Installation is deliberately last: malformed membership, missing CLEAR,
+    // cert mismatch, or any other guarded rejection above must have no effect
+    // on the request-specific/pending view or current primary.
+    if (!view.is_rollback() && has_active_view) {
+      if (req.type() == resdb::Request::TYPE_PRE_PREPARE) {
+        std::cout << "[EPOCH-VIEW]"
+                  << " type=" << req.type()
+                  << " hash=" << req.hash()
+                  << " seq=" << req.seq()
+                  << " action=install-request-after-validation\n";
+        if (!service_ptr->InstallOmnetForcedViewForRequest(req, active_view)) {
+          LOG(ERROR) << "[OMNET-PREVERIFY] reject: active view install failed"
+                     << " epoch=" << hdr.epoch
+                     << " seq=" << req.seq()
+                     << " hash=" << req.hash();
+          return false;
+        }
+        if (normal_leader_is_cert_primary && !normal_leader_is_pbft_primary) {
+          const uint64_t incoming_view = req.current_view();
+          service_ptr->SetPrimary(static_cast<uint32_t>(hdr.leader_id + 1),
+                                  incoming_view);
+          LOG(INFO) << "[OMNET-PREVERIFY] installed initial cert-primary"
+                    << " leader_id=" << hdr.leader_id
+                    << " resdb_primary=" << (hdr.leader_id + 1)
+                    << " view=" << incoming_view
+                    << " epoch=" << hdr.epoch;
+        }
+      } else if (req.type() == resdb::Request::TYPE_NEW_TXNS) {
+        std::cout << "[EPOCH-VIEW]"
+                  << " type=" << req.type()
+                  << " hash=" << req.hash()
+                  << " seq=" << req.seq()
+                  << " action=install-pending-after-validation\n";
+        service_ptr->InstallOmnetPendingForcedView(active_view);
+      }
+    }
+
     LOG(INFO) << "[OMNET-PREVERIFY] pass: all 10 checks ok"
               << " n_vehicles=" << hdr.n_vehicles << " epoch=" << hdr.epoch;
     return true;
@@ -1657,6 +1771,8 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
   handle->executor   = executor_ptr;
   handle->cert_state = cert_state;
   handle->tolerated_fault_state = tolerated_fault_state;
+  handle->clear_evidence_state = clear_evidence_state;
+  handle->crash_recovery_state = crash_recovery_state;
   return handle;
 }
 
@@ -1814,6 +1930,10 @@ extern "C" int ResdbOmnetTriggerConsensus(void* server_handle,
           return -1;
         }
         cancel_view.request_hash = req.hash();
+        // CANCEL chooses a certified proposer independently of the current
+        // ORDER primary.  The pending forced electorate must therefore exist
+        // before TYPE_NEW_TXNS routing checks the proxy/primary.  Check13 and
+        // BuildCancelViewCandidate above are the complete CANCEL guards.
         if (h->consensus) {
           h->consensus->InstallOmnetPendingForcedView(cancel_view);
         }
@@ -1836,13 +1956,10 @@ extern "C" int ResdbOmnetTriggerConsensus(void* server_handle,
                   << "\n";
         if (has_active_view) {
           active_view.request_hash = req.hash();
-          if (h->consensus) {
-            std::cout << "[EPOCH-VIEW]"
-                      << " hash=" << req.hash()
-                      << " seq=" << req.seq()
-                      << " action=install-pending\n";
-            h->consensus->InstallOmnetPendingForcedView(active_view);
-          }
+          std::cout << "[EPOCH-VIEW]"
+                    << " hash=" << req.hash()
+                    << " seq=" << req.seq()
+                    << " action=defer-install-to-preverify\n";
         }
         if (hdr.epoch > 0 && !has_active_view) {
           std::cout << "[EPOCH-VIEW-REJECT]"
@@ -1874,9 +1991,8 @@ extern "C" int ResdbOmnetTriggerConsensus(void* server_handle,
         return -1;
         }
         forced_view.request_hash = req.hash();
-        if (h->consensus) {
-          h->consensus->InstallOmnetPendingForcedView(forced_view);
-        }
+        // Defer installation until guarded PreVerify has accepted every
+        // membership, justification, and evidence check.
       }
       }
     }
@@ -2103,5 +2219,16 @@ extern "C" int ResdbOmnetSetCertSnapshotFn(void* server_handle,
   std::lock_guard<std::mutex> lk(h->cert_state->mu);
   h->cert_state->fn  = fn;
   h->cert_state->ctx = ctx;
+  return 0;
+}
+
+extern "C" int ResdbOmnetSetClearEvidenceCallback(void* server_handle,
+                                                  ResdbClearEvidenceFn fn, void* ctx) {
+  if (!server_handle) return -1;
+  auto* h = static_cast<ResdbOmnetServerHandle*>(server_handle);
+  if (!h->clear_evidence_state) return -1;
+  std::lock_guard<std::mutex> lk(h->clear_evidence_state->mu);
+  h->clear_evidence_state->fn  = fn;
+  h->clear_evidence_state->ctx = ctx;
   return 0;
 }

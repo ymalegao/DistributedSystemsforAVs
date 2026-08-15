@@ -90,6 +90,12 @@ simple TraCIScenarioManager
         string r0LateEmergencyVehicleId = default("veh17");
         string r0LateEmergencyType = default("ambulance");
         string r0LateEmergencyRoute = default("rE");
+        // Scenario 16 crash supervisor: freeze two batch-0 vehicles in the conflict box, then tow.
+        bool enableCrashSupervisor = default(false);
+        int crashWreckCount = default(2);  // lowest replica IDs from notified batch-0 members
+        double crashPollPeriodSec @unit("s") = default(0.1s);
+        double crashOnBoxEntrySec @unit("s") = default(0s);  // delay after first internal-lane sighting
+        double clearDelaySec @unit("s") = default(10s);  // tow delay after freeze
         int margin = default(25);  // margin to add to all received vehicle positions
         string roiRoads = default("");  // which roads (e.g. "hwy1 hwy2") are considered to consitute the region of interest, if not empty
         string roiRects = default("");  // which rectangles (e.g. "0,0-10,10 20,20-30,30) are considered to consitute the region of interest, if not empty. Note that these rectangles have to use TraCI (SUMO) coordinates and not OMNeT++. They can be easily read from sumo-gui.

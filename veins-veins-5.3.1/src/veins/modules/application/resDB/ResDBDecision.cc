@@ -51,8 +51,7 @@ void ResDBIntersectionApp::proposeAll()
     }
     if (cancel_pending_ && !rollbackOrderEpoch) {
         std::cout << "[ROLLBACK-PROPOSE] r" << replicaId_
-                  << " proposeAll redirected while cancel_pending\n";
-        trySubmitRollbackProposal("proposeAll-redirect");
+                  << " proposeAll blocked outside recovery ORDER epoch\n";
         return;
     }
     if (rollback_cancel_initiated_ && !rollbackOrderEpoch) {
@@ -71,21 +70,28 @@ void ResDBIntersectionApp::proposeAll()
                   << " epoch=" << discovery_.epoch << "\n";
         return;
     }
-    int certPrimary = CertPrimary();
-    if (certPrimary < 0) {
-        std::cout << "[CERT-PRIMARY] r" << replicaId_
-                  << " proposeAll skipped: no static cert primary yet\n";
+    if (!order_candidate_ || order_candidate_->epoch != current_epoch_) {
+        evaluateOrderReadiness("proposeAll-candidate-missing");
         return;
     }
-    if (certPrimary != replicaId_) {
+    const OrderCandidate& candidate = *order_candidate_;
+    const int orderPrimary = currentOrderPrimary();
+    if (orderPrimary < 0) {
         std::cout << "[CERT-PRIMARY] r" << replicaId_
-                  << " proposeAll skipped: cert_primary=" << certPrimary << "\n";
+                  << " proposeAll skipped: no ORDER primary yet\n";
         return;
     }
-    if (ResdbOmnetSetPrimaryFromCert(resdb_server_handle_, certPrimary) != 0) {
+    if (orderPrimary != replicaId_) {
+        std::cout << "[CERT-PRIMARY] r" << replicaId_
+                  << " proposeAll skipped: order_primary=" << orderPrimary << "\n";
+        return;
+    }
+    if (!order_vc_authoritative_ &&
+            ResdbOmnetSetPrimaryFromCert(resdb_server_handle_,
+                                         candidate.initialPrimary) != 0) {
         std::cout << "[CERT-PRIMARY] r" << replicaId_
                   << " proposeAll skipped: failed to install PBFT primary"
-                  << " cert_primary=" << certPrimary << "\n";
+                  << " cert_primary=" << candidate.initialPrimary << "\n";
         return;
     }
     stopCertBroadcastRetries();
@@ -101,11 +107,13 @@ void ResDBIntersectionApp::proposeAll()
     }
     std::cout << "[VC-TRACE] r" << replicaId_
               << " proposeAll context phase=" << phaseToStr(current_phase_)
-              << " static_certs=" << countStaticCollectedCerts() << "/"
+              << " static_certs=" << candidate.voterIds.size() << "/"
               << (rollbackOrderEpoch ? minRollbackMembershipSize() : total_vehicles_)
-              << " all_certs=" << collected_certs_.size()
-              << " observed=" << observed_intent_cars_.size()
-              << " cert_primary=" << certPrimary
+              << " all_certs=" << candidate.certs.size()
+              << " observed=" << candidate.observedIntents.size()
+              << " cert_primary=" << candidate.initialPrimary
+              << " order_primary=" << orderPrimary
+              << " authority=" << (order_vc_authoritative_ ? "pbft-vc" : "cert")
               << " pbft_primary=" << ResdbOmnetGetPrimary(resdb_server_handle_);
     if (stop_time_ >= SIMTIME_ZERO)
         std::cout << " stop_to_propose_sec=" << (simTime() - stop_time_).dbl();
@@ -113,20 +121,12 @@ void ResDBIntersectionApp::proposeAll()
 
     std::string myCarId = "veh" + std::to_string(replicaId_);
     // Ensure own arrival_time_us is set if missing.
-    if (local_vehicle_states_.count(myCarId)
-            && local_vehicle_states_[myCarId].arrival_time_us == 0) {
-        local_vehicle_states_[myCarId].arrival_time_us =
-            (stop_time_ >= SIMTIME_ZERO)
-                ? (uint64_t)stop_time_.inUnit(SIMTIME_US)
-                : (uint64_t)simTime().inUnit(SIMTIME_US);
-    }
-
     // Pack ResdbProposeHdr + ResdbVehicleEntry per collected cert.
     // Vehicles that have a cert → SIGNED (cyber_status=1).
     // Missing vehicles → QUIET (cyber_status=0, sim_time_us=UINT64_MAX).
     std::set<int> present_ids;
     std::vector<ResdbVehicleEntry> entries;
-    for (const auto& kv : collected_certs_) {
+    for (const auto& kv : candidate.certs) {
         const int rid = extractReplicaId(kv.first);
         const bool eligible = rollbackOrderEpoch
             ? shouldIncludeInRollbackMembership(rid)
@@ -143,8 +143,8 @@ void ResDBIntersectionApp::proposeAll()
         e.replica_id   = rid;
         e.is_ambulance = kv.second.isAmbulance ? 1 : 0;
         e.cyber_status = 1;  // SIGNED — has a valid cert with f+1 echoes
-        if (local_vehicle_states_.count(kv.first)) {
-            const VehicleState& vs = local_vehicle_states_.at(kv.first);
+        if (candidate.vehicleStates.count(kv.first)) {
+            const VehicleState& vs = candidate.vehicleStates.at(kv.first);
             e.sim_time_us      = vs.arrival_time_us;
             e.lane             = laneCode(vs.lane);
             e.direction        = directionCode(vs.direction);
@@ -207,13 +207,13 @@ void ResDBIntersectionApp::proposeAll()
         }
     };
     if (rollbackOrderEpoch) {
-        for (const auto& kv : local_vehicle_states_) {
+        for (const auto& kv : candidate.vehicleStates) {
             const int rid = extractReplicaId(kv.first);
             if (shouldIncludeInRollbackMembership(rid))
                 appendQuiet(rid, &kv.second);
         }
     } else {
-        for (const auto& kv : local_vehicle_states_) {
+        for (const auto& kv : candidate.vehicleStates) {
             const int rid = extractReplicaId(kv.first);
             if (rid >= 0 && (rid < total_vehicles_ || kv.second.isAmbulance))
                 appendQuiet(rid, &kv.second);
@@ -260,10 +260,43 @@ void ResDBIntersectionApp::proposeAll()
     uint32_t n = (uint32_t)entries.size();
     if (n == 0) {
         std::cout << "[ResDB r" << replicaId_ << "] proposeAll: no entries, aborting\n";
+        propose_submitted_ = false;
         return;
     }
 
-    size_t total = sizeof(ResdbProposeHdr) + n * sizeof(ResdbVehicleEntry);
+    // Crash-recovery ORDER carries a CLEAR evidence trailer (spec §12) so a
+    // follower that missed CLEAR gossip can still validate/adopt it
+    // atomically with the ORDER itself. Epoch 0 and Scenario-15 emergency
+    // rollback never populate incidentRegistry_, so clearCerts stays empty.
+    std::vector<std::vector<uint8_t>> clearCerts = candidate.clearCerts;
+    if (rollbackOrderEpoch) {
+        if (fabricated_clearance_attack_active_ && clearCerts.empty()) {
+            // Preserve the proposal's wire shape so the experiment isolates
+            // certificate validation rather than malformed-packet rejection.
+            // Zero echoes makes this certificate cryptographically invalid.
+            ClearCert forged;
+            forged.cancelledEpoch = cancelled_epoch_;
+            for (const auto& kv : incidentRegistry_) {
+                if (kv.first.cancelledEpoch != cancelled_epoch_) continue;
+                forged.executingBatch = kv.first.executingBatch;
+                break;
+            }
+            clearCerts.push_back(serializeClearCert(forged));
+            std::cout << "[BYZANTINE-FABRICATED-CLEARANCE] r" << replicaId_
+                      << " cancelled_epoch=" << forged.cancelledEpoch
+                      << " new_epoch=" << current_epoch_
+                      << " batch=" << forged.executingBatch
+                      << " forged_echoes=0"
+                      << " action=attach-invalid-clear\n";
+        }
+    }
+    size_t trailerSize = 0;
+    if (!clearCerts.empty()) {
+        trailerSize = sizeof(ResdbOrderEvidenceHdr);
+        for (const auto& c : clearCerts) trailerSize += sizeof(uint32_t) + c.size();
+    }
+
+    size_t total = sizeof(ResdbProposeHdr) + n * sizeof(ResdbVehicleEntry) + trailerSize;
     std::vector<uint8_t> buf(total);
     uint8_t* p = buf.data();
 
@@ -276,6 +309,18 @@ void ResDBIntersectionApp::proposeAll()
     for (const auto& e : entries) {
         std::memcpy(p, &e, sizeof(e)); p += sizeof(e);
     }
+    if (!clearCerts.empty()) {
+        ResdbOrderEvidenceHdr ehdr{};
+        ehdr.magic = RESDB_ORDER_EVIDENCE_MAGIC;
+        ehdr.version = 1;
+        ehdr.n_clear_certs = static_cast<uint16_t>(clearCerts.size());
+        std::memcpy(p, &ehdr, sizeof(ehdr)); p += sizeof(ehdr);
+        for (const auto& c : clearCerts) {
+            uint32_t clen = static_cast<uint32_t>(c.size());
+            std::memcpy(p, &clen, sizeof(clen)); p += sizeof(clen);
+            std::memcpy(p, c.data(), c.size()); p += c.size();
+        }
+    }
 
     // Byzantine primary fault injection.
     if (is_byzantine_ && byzantine_type_ == BYZANTINE_SILENT_PRIMARY) { applyByzantineSilentPrimary(); return; }
@@ -285,7 +330,6 @@ void ResDBIntersectionApp::proposeAll()
 
     int rc = ResdbOmnetTriggerConsensus(resdb_server_handle_, buf.data(), (uint32_t)buf.size());
     if (rollbackOrderEpoch) {
-        rollback_propose_submitted_ = true;
         std::cout << "[ROLLBACK-PROPOSE] r" << replicaId_
                   << " rc=" << rc
                   << " cancelled_epoch=" << cancelled_epoch_
@@ -442,10 +486,23 @@ void ResDBIntersectionApp::detectConsensusAttackOutcome(
         std::lock_guard<std::mutex> lk(certs_mutex_);
         auto it = collected_certs_.find("veh" + std::to_string(replicaId_));
         if (it == collected_certs_.end()) {
+            const std::string carId = "veh" + std::to_string(replicaId_);
+            const size_t signerCount = my_received_echoes_.count(carId)
+                ? my_received_echoes_.at(carId).size() : 0;
+            const int threshold = (tolerated_faults_ >= 0
+                ? tolerated_faults_ : (total_vehicles_ - 1) / 3) + 1;
+            std::cout << "[FALSE-LANE-COLLUSION-BLOCK] target=" << carId
+                      << " signers=" << signerCount
+                      << " threshold=" << threshold
+                      << " reason=insufficient-signers\n";
             logOutcome("FALSE_LANE", "BLOCKED_NO_VALID_CERT",
                        "malicious_input=fake_lane");
         } else if (it->second.lane != "N" && it->second.lane != "S" &&
                    it->second.lane != "E" && it->second.lane != "W") {
+            std::cout << "[FALSE-LANE-COLLUSION-COMMIT] target=veh" << replicaId_
+                      << " claimed=" << it->second.lane
+                      << " actual=" << intended_lane_
+                      << " epoch=" << current_epoch_ << "\n";
             logOutcome("FALSE_LANE", "MALICIOUS_INPUT_COMMITTED",
                        "cert_lane=" + it->second.lane);
         } else {
@@ -468,7 +525,7 @@ void ResDBIntersectionApp::detectConsensusAttackOutcome(
         break;
     case BYZANTINE_BAD_PROPOSAL:
         if (bad_proposal_injected_) {
-            logOutcome("BAD_PROPOSAL", "ORDER_COMMITTED_AFTER_MALFORMED_PROPOSAL",
+            logOutcome("BAD_PROPOSAL", "MALFORMED_PROPOSAL_REJECTED_AND_RECOVERED",
                        "malicious_input=bad_n_vehicles");
         }
         break;
@@ -692,12 +749,56 @@ void ResDBIntersectionApp::processOrders()
         const ResdbVehicleDecision* decisions = reinterpret_cast<const ResdbVehicleDecision*>(
             dec.data() + sizeof(ResdbOrderHdr));
 
-        committed_order_vehicle_ids_.clear();
         committed_order_batches_.assign(ohdr.n_batches, {});
+        {
+            std::lock_guard<std::mutex> lk(committed_view_mutex_);
+            committed_order_vehicle_ids_.clear();
+            for (uint32_t i = 0; i < ohdr.n_vehicles; ++i)
+                committed_order_vehicle_ids_.insert(decisions[i].replica_id);
+        }
         for (uint32_t i = 0; i < ohdr.n_vehicles; ++i) {
-            committed_order_vehicle_ids_.insert(decisions[i].replica_id);
             if (decisions[i].batch_index < ohdr.n_batches)
                 committed_order_batches_[decisions[i].batch_index].push_back(decisions[i].replica_id);
+        }
+
+        // Adopt any CLEAR evidence trailer the executor forwarded from the
+        // proposal (spec §12.1) — lets a replica that missed CLEAR gossip
+        // still transition BLOCKING->CLEARED atomically with this ORDER,
+        // rather than depending solely on separately-gossiped CLEAR_CERT.
+        {
+            const size_t decisions_end = sizeof(ResdbOrderHdr) +
+                static_cast<size_t>(ohdr.n_vehicles) * sizeof(ResdbVehicleDecision);
+            if (dec.size() >= decisions_end + sizeof(ResdbOrderEvidenceHdr)) {
+                ResdbOrderEvidenceHdr ehdr;
+                std::memcpy(&ehdr, dec.data() + decisions_end, sizeof(ehdr));
+                size_t off = decisions_end + sizeof(ehdr);
+                if (ehdr.magic == RESDB_ORDER_EVIDENCE_MAGIC) {
+                    for (uint16_t i = 0; i < ehdr.n_clear_certs; ++i) {
+                        if (off + sizeof(uint32_t) > dec.size()) break;
+                        uint32_t certLen = 0;
+                        std::memcpy(&certLen, dec.data() + off, sizeof(certLen));
+                        off += sizeof(uint32_t);
+                        if (off + certLen > dec.size()) break;
+                        const uint8_t* certStart = dec.data() + off;
+                        ClearCert cert = deserializeClearCert(certStart, certLen);
+                        off += certLen;
+                        if (cert.echoes.empty() || !validateClearCert(cert)) continue;
+                        onIncidentCleared(BlockedIncident{cert.cancelledEpoch, cert.executingBatch},
+                                          std::vector<uint8_t>(certStart, certStart + certLen));
+                    }
+                }
+            }
+        }
+
+        if (cancel_pending_ && ohdr.epoch == rollback_new_epoch_ &&
+                hasBlockingIncidentForEpoch(cancelled_epoch_)) {
+            const bool boxOccupied = anyVehicleInConflictBoxTraCI();
+            std::cout << "[UNSAFE-RECOVERY-ORDER] r" << replicaId_
+                      << " cancelled_epoch=" << cancelled_epoch_
+                      << " new_epoch=" << ohdr.epoch
+                      << " incident_state=BLOCKING"
+                      << " box_occupied=" << (boxOccupied ? 1 : 0)
+                      << " action=accepted-without-valid-clear\n";
         }
 
         if (cancel_pending_ && ohdr.epoch == rollback_new_epoch_) {
@@ -707,16 +808,18 @@ void ResDBIntersectionApp::processOrders()
             cancel_primary_ = -1;
             cancel_leader_candidates_.clear();
             rollback_cancel_initiated_ = false;
-            rollback_propose_submitted_ = false;
             stopCancelCertRetries();
-            if (rollback_vc_timer_) {
-                if (rollback_vc_timer_->isScheduled()) cancelEvent(rollback_vc_timer_);
-                delete rollback_vc_timer_;
-                rollback_vc_timer_ = nullptr;
-            }
+            stopClearCertRetries();
+            cancelClearCertCandidate("order-applied");
+            cancelClearCertRelay("order-applied");
+            // Spec §8.4: a valid ORDER(e+1) supersedes WAIT the same way
+            // CLEAR does — clear local WAIT state before continuing.
+            stopWait("order-applied");
+            resetOrderCandidate("order-applied");
             std::cout << "[ROLLBACK-COMMIT] r" << replicaId_
                       << " cancelled_epoch=" << cancelled_epoch_
-                      << " new_epoch=" << ohdr.epoch << "\n";
+                      << " new_epoch=" << ohdr.epoch
+                      << " t=" << simTime() << "\n";
         }
 
         if (cancel_pending_ && ohdr.epoch == cancelled_epoch_) {
@@ -855,10 +958,10 @@ void ResDBIntersectionApp::processOrders()
             std::cout << "[CLEARANCE r" << replicaId_ << "] batch=" << my_batch
                       << " waiting for " << preceding_batch_cars_.size()
                       << " vehicle(s) in batch " << (my_batch - 1) << " to clear\n";
-            if (!clearance_poll_msg_)
-                clearance_poll_msg_ = new cMessage("resdbClearancePoll");
-            if (clearance_poll_msg_->isScheduled()) cancelEvent(clearance_poll_msg_);
-            scheduleAt(simTime() + clearance_poll_period_sec_, clearance_poll_msg_);
+            if (!preceding_batch_poll_msg_)
+                preceding_batch_poll_msg_ = new cMessage("resdbClearancePoll");
+            if (preceding_batch_poll_msg_->isScheduled()) cancelEvent(preceding_batch_poll_msg_);
+            scheduleAt(simTime() + preceding_batch_poll_period_sec_, preceding_batch_poll_msg_);
         }
     }
 }
