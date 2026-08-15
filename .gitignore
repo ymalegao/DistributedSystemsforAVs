@@ -18,3 +18,6 @@ bftsmart/library/
 __pycache__/
 *.pyc
 .DS_Store
+
+# IDE / workspace state
+.metadata/
