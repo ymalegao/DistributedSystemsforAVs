@@ -10,6 +10,13 @@ incubator-resilientdb/bazel.gpg
 veins-veins-5.3.1/configure
 fourway/out/
 fourway/results/
+fourway/fourway
+fourway/fourway_dbg
+veins-veins-5.3.1/examples/fourway/fourway
+bin/protoc
+
+# Simulation runtime output
+fourway/resdb_crypto*/logs/
 
 # Generated experiment output
 benchmarks/
