@@ -63,7 +63,7 @@ std::vector<uint8_t> ResDBIntersectionApp::serializeArrivalAnnouncement(
     return result;
 }
 
-ResDBIntersectionApp::ArrivalAnnouncement
+ArrivalAnnouncement
 ResDBIntersectionApp::deserializeArrivalAnnouncement(BFTMessage* msg)
 {
     std::vector<uint8_t> payload(msg->getPayloadArraySize());
@@ -109,7 +109,7 @@ std::vector<uint8_t> ResDBIntersectionApp::serializeArrivalEcho(const ArrivalEch
     return std::vector<uint8_t>(s.begin(), s.end());
 }
 
-ResDBIntersectionApp::ArrivalEcho
+ArrivalEcho
 ResDBIntersectionApp::deserializeArrivalEcho(BFTMessage* msg)
 {
     std::vector<uint8_t> payload(msg->getPayloadArraySize());
@@ -163,7 +163,7 @@ std::vector<uint8_t> ResDBIntersectionApp::serializeArrivalCert(const ArrivalCer
     return std::vector<uint8_t>(s.begin(), s.end());
 }
 
-ResDBIntersectionApp::ArrivalCert
+ArrivalCert
 ResDBIntersectionApp::deserializeArrivalCert(BFTMessage* msg)
 {
     std::vector<uint8_t> payload(msg->getPayloadArraySize());

@@ -335,7 +335,7 @@ void ResDBIntersectionApp::resumeVehicle(int position_in_order)
 
 // ── verifyCarPosition (port of V2VArrivalProtocol::verifyCarPosition) ─────────
 
-ResDBIntersectionApp::VerificationResult
+VerificationResult
 ResDBIntersectionApp::verifyCarPosition(const std::string& carId,
                                          const std::string& claimedLane,
                                          double claimedPosition, double tolerance)

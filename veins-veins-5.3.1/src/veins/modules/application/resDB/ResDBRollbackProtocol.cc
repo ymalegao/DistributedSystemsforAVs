@@ -63,7 +63,7 @@ WitnessEcho ResDBIntersectionApp::toWitnessEcho(const CancelEcho& e)
     return we;
 }
 
-ResDBIntersectionApp::CancelEcho ResDBIntersectionApp::toCancelEcho(
+CancelEcho ResDBIntersectionApp::toCancelEcho(
     const WitnessEcho& we, uint32_t epoch, CancelReason reason, const std::string& reasonRef)
 {
     CancelEcho e;
@@ -143,7 +143,7 @@ std::vector<uint8_t> ResDBIntersectionApp::serializeCancelEcho(const CancelEcho&
     return std::vector<uint8_t>(s.begin(), s.end());
 }
 
-ResDBIntersectionApp::CancelEcho
+CancelEcho
 ResDBIntersectionApp::deserializeCancelEcho(BFTMessage* msg) const
 {
     std::vector<uint8_t> payload = payloadBytes(msg);
@@ -191,7 +191,7 @@ std::vector<uint8_t> ResDBIntersectionApp::serializeCancelCert(const CancelCert&
     return std::vector<uint8_t>(s.begin(), s.end());
 }
 
-ResDBIntersectionApp::CancelCert
+CancelCert
 ResDBIntersectionApp::deserializeCancelCert(BFTMessage* msg) const
 {
     std::vector<uint8_t> payload = payloadBytes(msg);
@@ -542,7 +542,7 @@ WitnessEcho ResDBIntersectionApp::toWitnessEcho(const ClearEcho& e)
     return we;
 }
 
-ResDBIntersectionApp::ClearEcho ResDBIntersectionApp::toClearEcho(
+ClearEcho ResDBIntersectionApp::toClearEcho(
     const WitnessEcho& we, uint32_t cancelledEpoch, uint32_t executingBatch)
 {
     ClearEcho e;
@@ -571,7 +571,7 @@ std::vector<uint8_t> ResDBIntersectionApp::serializeClearEcho(const ClearEcho& e
     return std::vector<uint8_t>(s.begin(), s.end());
 }
 
-ResDBIntersectionApp::ClearEcho
+ClearEcho
 ResDBIntersectionApp::deserializeClearEcho(BFTMessage* msg) const
 {
     std::vector<uint8_t> payload = payloadBytes(msg);
@@ -617,14 +617,14 @@ std::vector<uint8_t> ResDBIntersectionApp::serializeClearCert(const ClearCert& c
     return std::vector<uint8_t>(s.begin(), s.end());
 }
 
-ResDBIntersectionApp::ClearCert
+ClearCert
 ResDBIntersectionApp::deserializeClearCert(BFTMessage* msg) const
 {
     std::vector<uint8_t> payload = payloadBytes(msg);
     return deserializeClearCert(payload.data(), (uint32_t)payload.size());
 }
 
-ResDBIntersectionApp::ClearCert
+ClearCert
 ResDBIntersectionApp::deserializeClearCert(const uint8_t* data, uint32_t len) const
 {
     std::string s(reinterpret_cast<const char*>(data), len);
@@ -2131,7 +2131,7 @@ bool ResDBIntersectionApp::shouldIncludeInRollbackMembership(int replicaId) cons
     return true;
 }
 
-std::shared_ptr<const ResDBIntersectionApp::OrderCandidate>
+std::shared_ptr<const OrderCandidate>
 ResDBIntersectionApp::buildOrderCandidate() const
 {
     auto candidate = std::make_shared<OrderCandidate>();

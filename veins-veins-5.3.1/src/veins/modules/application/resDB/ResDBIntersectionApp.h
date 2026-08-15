@@ -17,6 +17,10 @@
 #include "veins/modules/mobility/traci/IIntersectionApp.h"
 #include "veins/modules/application/resDB/IV2VTransport.h"
 #include "veins/modules/application/resDB/crypto/CryptoAuth.h"
+#include "veins/modules/application/resDB/protocol/Primitives.h"
+#include "veins/modules/application/resDB/protocol/ArrivalTypes.h"
+#include "veins/modules/application/resDB/protocol/RollbackTypes.h"
+#include "veins/modules/application/resDB/protocol/OrderCandidate.h"
 #include "veins/modules/application/resDB/ResDBDecisionGossip.h"
 #include "veins/modules/application/resDB/ResDBPropagationTracker.h"
 #include "veins/modules/application/resDB/ResDBWitnessCert.h"
@@ -33,7 +37,6 @@ class VEINS_API ResDBIntersectionApp : public DemoBaseApplLayer,
 
 public:
     ~ResDBIntersectionApp() override;
-    enum Direction { DIR_STRAIGHT = 0, DIR_LEFT = 1, DIR_RIGHT = 2 };
     // ── IIntersectionApp ─────────────────────────────────────────────────────
     // Called by TraCIScenarioManager, which knows only the interface.
     void recordIntersectionDeparture(simtime_t departedAt) override;
@@ -53,248 +56,11 @@ protected:
 private:
 
    
-    // ── Phase state machine ───────────────────────────────────────────────────
-    // Byzantine fault injection types
-    enum ByzantineType {
-        BYZANTINE_HONEST         = 0,  // Normal behavior
-        BYZANTINE_FALSE_LANE     = 1,  // Claims wrong lane in ARRIVAL_ANNOUNCE
-        BYZANTINE_INVALID_SIG    = 2,  // Attaches garbage signature bytes
-        BYZANTINE_EQUIVOCATOR    = 3,  // Sends different direction to different peers
-        BYZANTINE_SILENT_PRIMARY          = 4,  // Primary suppresses proposeAll() — triggers VC
-        BYZANTINE_BAD_PROPOSAL            = 5,  // Primary corrupts n_vehicles — PreVerify rejects
-        BYZANTINE_FAKE_AMBULANCE          = 6,  // Primary flips is_ambulance 0→1 for non-ambulance car — PreVerify Check 10 rejects
-        BYZANTINE_FAKE_AMBULANCE_FOLLOWER = 7,  // Follower claims isAmbulance=true without cert — cert gate catches this
-        BYZANTINE_TAMPER_LANE             = 8,  // Primary: quiet real S car + reassign E car's lane to S → scheduler batches N+E simultaneously → CRASH
-    };
+    // Protocol types now live in protocol/ — see Primitives.h, ArrivalTypes.h,
+    // RollbackTypes.h and OrderCandidate.h. They were private nested types here,
+    // which meant no component could name a shared type without naming this class.
 
-    // Consensus phases
-    enum ConsensusPhase {
-        IDLE,
-        COLLECTING_CERTS,      // Cars broadcast ARRIVAL_ANNOUNCE; replicas echo; f+1 certs assembled
-        WAITING_FOR_CLEARANCE, // Waiting for clearance from intersection controller
-        PULLING_FORWARD,       // Pulling forward to stop line
-        EXECUTING,             // Cars crossing intersection
-        DEPARTED,              // Car has crossed intersection (zombie mode)
-    };
     ConsensusPhase current_phase_ = IDLE;
-
-    enum class DiscoveryState {
-        INACTIVE,
-        COLLECTING,
-        DRAINING_CERTS,
-        COMPLETE,
-    };
-
-    enum class LocalCertState {
-        NOT_ASSEMBLED,
-        QUEUED,
-        AIRED,
-    };
-
-    enum class DiscoveryCloseReason {
-        NONE,
-        STABILIZED,
-        DEADLINE,
-    };
-
-    struct DiscoveryRound {
-        DiscoveryState state = DiscoveryState::INACTIVE;
-        uint32_t epoch = 0;
-        simtime_t lastNewIntentAt = -1;
-        simtime_t collectionStartedAt = SIMTIME_ZERO;
-        LocalCertState localCert = LocalCertState::NOT_ASSEMBLED;
-        DiscoveryCloseReason closeReason = DiscoveryCloseReason::NONE;
-
-        void reset(uint32_t newEpoch, simtime_t now)
-        {
-            state = DiscoveryState::COLLECTING;
-            epoch = newEpoch;
-            lastNewIntentAt = now;
-            collectionStartedAt = SIMTIME_ZERO;
-            localCert = LocalCertState::NOT_ASSEMBLED;
-            closeReason = DiscoveryCloseReason::NONE;
-        }
-
-        bool localCertAssembled() const
-        {
-            return localCert != LocalCertState::NOT_ASSEMBLED;
-        }
-
-        bool localCertAired() const
-        {
-            return localCert == LocalCertState::AIRED;
-        }
-    };
-
-    // ── Arrival-cert direction ────────────────────────────────────────────────
-
-    // ── Arrival cert protocol structs ─────────────────────────────────────────
-    struct VehicleState {
-        std::string vehicleId;
-        std::string lane;
-        int         positionInLane  = 1;
-        Direction   direction       = DIR_STRAIGHT;
-        bool        isAmbulance     = false;
-        uint64_t    arrival_time_us = 0;
-    };
-
-    struct ArrivalAnnouncement {
-        std::string          carId;
-        std::string          laneId;
-        std::string          lane;
-        int                  positionInLane      = 1;
-        Direction            direction           = DIR_STRAIGHT;
-        bool                 isAmbulance         = false;
-        double               claimedArrivalTime  = 0.0;
-        int                  epoch               = 0;
-        std::vector<uint8_t> ambulanceCertBytes;
-        std::vector<uint8_t> ambulanceSigBytes;
-        std::vector<uint8_t> signature;
-    };
-
-    struct ArrivalEcho {
-        int         echoingReplicaId = -1;
-        std::string targetCarId;
-        std::string lane;
-        int         positionInLane = 1;
-        Direction   direction      = DIR_STRAIGHT;
-        bool        isAmbulance    = false;
-        int         epoch          = 0;
-        uint8_t     signerPubKey[CRYPTO_PUBKEY_BYTES] = {};
-        uint8_t     signature[CRYPTO_SIG_MAX_BYTES]   = {};
-        uint8_t     signatureLen = 0;
-    };
-
-    struct ArrivalCert {
-        std::string              carId;
-        std::string              lane;
-        int                      positionInLane = 1;
-        Direction                direction      = DIR_STRAIGHT;
-        bool                     isAmbulance    = false;
-        int                      epoch          = 0;
-        std::vector<ArrivalEcho> echoes;
-    };
-
-    enum CancelReason {
-        CANCEL_CRASH = 0,
-        CANCEL_EMERGENCY = 1,
-    };
-
-    // Immutable input snapshot for one ORDER round.  Consensus still uses the
-    // existing wire formats; this only prevents late discovery/incident state
-    // from changing the proposal after readiness has been established.
-    struct OrderCandidate {
-        uint32_t epoch = 0;
-        bool recovery = false;
-        uint32_t cancelledEpoch = 0;
-        CancelReason rollbackReason = CANCEL_CRASH;
-        int initialPrimary = -1;
-        std::map<std::string, ArrivalCert> certs;
-        std::map<std::string, VehicleState> vehicleStates;
-        std::set<std::string> observedIntents;
-        std::vector<uint8_t> cancelJustification;
-        std::vector<std::vector<uint8_t>> clearCerts;
-        std::vector<int> voterIds;
-    };
-
-    enum class CancelState {
-        INACTIVE,
-        WITNESSING,
-        DRAINING,
-        CONSENSUS,
-        COMMITTED,
-    };
-
-    struct CancelEcho {
-        int          echoingReplicaId = -1;
-        uint32_t     cancelledEpoch = 0;
-        CancelReason reason = CANCEL_CRASH;
-        std::string  reasonRef;
-        uint8_t      signerPubKey[CRYPTO_PUBKEY_BYTES] = {};
-        uint8_t      signature[CRYPTO_SIG_MAX_BYTES] = {};
-        uint8_t      signatureLen = 0;
-    };
-
-    struct CancelCert {
-        uint32_t                cancelledEpoch = 0;
-        CancelReason            reason = CANCEL_CRASH;
-        std::string             reasonRef;
-        std::vector<CancelEcho> echoes;
-    };
-
-    // Scenario 16 CLEAR: structurally identical f+1 physical-evidence
-    // certificate to BLOCKED, but its subject is always a BlockedIncident
-    // (batch-scoped), so it carries cancelledEpoch/executingBatch directly
-    // instead of a generic reasonRef string.
-    struct ClearEcho {
-        int      echoingReplicaId = -1;
-        uint32_t cancelledEpoch = 0;
-        uint32_t executingBatch = 0;
-        uint8_t  signerPubKey[CRYPTO_PUBKEY_BYTES] = {};
-        uint8_t  signature[CRYPTO_SIG_MAX_BYTES] = {};
-        uint8_t  signatureLen = 0;
-    };
-
-    struct ClearCert {
-        uint32_t                cancelledEpoch = 0;
-        uint32_t                executingBatch = 0;
-        std::vector<ClearEcho>  echoes;
-    };
-
-    // Scenario 16 WAIT (spec §8): one signed advisory heartbeat from the
-    // ordinary next-epoch certificate primary — not PBFT, not an f+1
-    // certificate, no quorum. Wire layout matches the spec exactly.
-#pragma pack(push, 1)
-    struct WaitHeartbeatPayload {
-        uint32_t magic = 0;
-        uint16_t version = 1;
-        uint16_t _pad = 0;
-        uint32_t cancelledEpoch = 0;
-        uint32_t executingBatch = 0;
-        int32_t  leaderId = -1;
-        uint32_t heartbeatIndex = 0;
-        uint64_t sentAtSimUs = 0;
-        uint64_t validUntilSimUs = 0;
-    };
-#pragma pack(pop)
-    static constexpr uint32_t kWaitHeartbeatMagic = 0x57414954u; // "WAIT"
-
-    // Follower's view of the most recently accepted heartbeat for the
-    // incident it is currently deferring on.
-    struct WaitHeartbeatState {
-        uint32_t cancelledEpoch = 0;
-        uint32_t executingBatch = 0;
-        int      leaderId = -1;
-        uint32_t lastHeartbeatIndex = 0;
-        simtime_t validUntil = SIMTIME_ZERO;
-        bool     active = false;
-    };
-
-    // Scenario 16: the authoritative subject of a BLOCKED/CLEAR incident is the
-    // obstruction of an executing committed batch, not any one wrecked vehicle.
-    struct BlockedIncident {
-        uint32_t cancelledEpoch = 0;
-        uint32_t executingBatch = 0;
-        bool operator<(const BlockedIncident& o) const
-        {
-            return cancelledEpoch != o.cancelledEpoch
-                ? cancelledEpoch < o.cancelledEpoch
-                : executingBatch < o.executingBatch;
-        }
-    };
-    enum class IncidentState { BLOCKING, CLEARED };
-    struct IncidentRecord {
-        IncidentState state = IncidentState::BLOCKING;
-        std::vector<uint8_t> blockedCertBytes;
-        std::vector<uint8_t> clearCertBytes;
-    };
-
-    struct VerificationResult {
-        bool        isValid  = false;
-        std::string reason;
-        std::string actualLaneId;
-        double      actualPosition = 0.0;
-    };
 
     // ── Transport ─────────────────────────────────────────────────────────────
     class LoggingTransport : public IV2VTransport {

@@ -47,20 +47,20 @@ std::vector<uint8_t> fromHex(const std::string& s)
     return out;
 }
 
-std::string dirToStr(ResDBIntersectionApp::Direction d)
+std::string dirToStr(Direction d)
 {
     switch (d) {
-        case ResDBIntersectionApp::DIR_LEFT:  return "L";
-        case ResDBIntersectionApp::DIR_RIGHT: return "R";
+        case DIR_LEFT:  return "L";
+        case DIR_RIGHT: return "R";
         default:                              return "S";
     }
 }
 
-ResDBIntersectionApp::Direction strToDir(const std::string& s)
+Direction strToDir(const std::string& s)
 {
-    if (s == "L") return ResDBIntersectionApp::DIR_LEFT;
-    if (s == "R") return ResDBIntersectionApp::DIR_RIGHT;
-    return ResDBIntersectionApp::DIR_STRAIGHT;
+    if (s == "L") return DIR_LEFT;
+    if (s == "R") return DIR_RIGHT;
+    return DIR_STRAIGHT;
 }
 
 const char* phaseToStr(int p)
@@ -84,10 +84,10 @@ uint8_t laneCode(const std::string& lane)
     return 0;
 }
 
-uint8_t directionCode(ResDBIntersectionApp::Direction direction)
+uint8_t directionCode(Direction direction)
 {
-    if (direction == ResDBIntersectionApp::DIR_LEFT) return 1;
-    if (direction == ResDBIntersectionApp::DIR_RIGHT) return 2;
+    if (direction == DIR_LEFT) return 1;
+    if (direction == DIR_RIGHT) return 2;
     return 0;
 }
 
