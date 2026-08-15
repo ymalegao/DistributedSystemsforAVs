@@ -14,6 +14,7 @@
 #include <openssl/evp.h>
 
 #include "veins/modules/application/ieee80211p/DemoBaseApplLayer.h"
+#include "veins/modules/mobility/traci/IIntersectionApp.h"
 #include "veins/modules/application/resDB/IV2VTransport.h"
 #include "veins/modules/application/resDB/crypto/CryptoAuth.h"
 #include "veins/modules/application/resDB/ResDBDecisionGossip.h"
@@ -27,14 +28,17 @@ namespace veins {
 
 class BFTMessage;
 
-class VEINS_API ResDBIntersectionApp : public DemoBaseApplLayer {
+class VEINS_API ResDBIntersectionApp : public DemoBaseApplLayer,
+                                       public IIntersectionApp {
 
 public:
     ~ResDBIntersectionApp() override;
     enum Direction { DIR_STRAIGHT = 0, DIR_LEFT = 1, DIR_RIGHT = 2 };
-    void recordIntersectionDeparture(simtime_t departedAt);
+    // ── IIntersectionApp ─────────────────────────────────────────────────────
+    // Called by TraCIScenarioManager, which knows only the interface.
+    void recordIntersectionDeparture(simtime_t departedAt) override;
     /** Mute this replica after manager-side crash freeze (Scenario 16). */
-    void disableCrashComms(const char* reason);
+    void disableCrashComms(const char* reason) override;
 
 protected:
     void initialize(int stage) override;

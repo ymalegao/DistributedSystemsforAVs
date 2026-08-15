@@ -34,7 +34,7 @@
 #include "veins/modules/mobility/traci/TraCICommandInterface.h"
 #include "veins/modules/mobility/traci/TraCIConstants.h"
 #include "veins/modules/mobility/traci/TraCIMobility.h"
-#include "veins/modules/application/resDB/ResDBIntersectionApp.h"
+#include "veins/modules/mobility/traci/IIntersectionApp.h"
 #include "veins/modules/obstacle/ObstacleControl.h"
 #include "veins/modules/world/traci/trafficLight/TraCITrafficLightInterface.h"
 
@@ -1131,7 +1131,7 @@ void TraCIScenarioManager::notifyIntersectionDeparture(const std::string& vehicl
     cModule* car = getManagedModule(vehicleId);
     if (!car) return;
 
-    for (auto* app : getSubmodulesOfType<ResDBIntersectionApp>(car, true)) {
+    for (auto* app : getSubmodulesOfType<IIntersectionApp>(car, true)) {
         app->recordIntersectionDeparture(simTime());
     }
 }
@@ -1369,7 +1369,7 @@ void TraCIScenarioManager::freezeCrashWreck(const std::string& vehicleId)
                   << " tow_at=" << crashTowAt_[vehicleId] << "\n";
 
         if (cModule* host = getManagedModule(vehicleId)) {
-            if (auto* appl = dynamic_cast<ResDBIntersectionApp*>(host->getSubmodule("appl"))) {
+            if (auto* appl = dynamic_cast<IIntersectionApp*>(host->getSubmodule("appl"))) {
                 appl->disableCrashComms("crash-inject");
             }
         }
