@@ -18,6 +18,7 @@
 #include "veins/modules/application/resDB/IV2VTransport.h"
 #include "veins/modules/application/resDB/crypto/CryptoAuth.h"
 #include "veins/modules/application/resDB/protocol/ConsensusContext.h"
+#include "veins/modules/application/resDB/protocol/RollbackState.h"
 #include "veins/modules/application/resDB/protocol/Primitives.h"
 #include "veins/modules/application/resDB/protocol/ArrivalTypes.h"
 #include "veins/modules/application/resDB/protocol/RollbackTypes.h"
@@ -100,6 +101,9 @@ private:
     // The state shared by four or more of this class's implementation files.
     // See protocol/ConsensusContext.h for how the membership was decided.
     ConsensusContext ctx_;
+
+    // State owned solely by the cancel/rollback/clear protocol.
+    RollbackState rollback_;
 
 
     // ── Transport ─────────────────────────────────────────────────────────────
@@ -329,7 +333,7 @@ private:
     bool hasCommittedCancel(uint32_t epoch) const;
     void triggerCancelCommitGossip(uint32_t cancelledEpoch,
                                    const std::vector<uint8_t>& attestation);
-    // True once cancel_gossip_acc_ has seen this attestation gossiped by f+1
+    // True once rollback_.cancel_gossip_acc_ has seen this attestation gossiped by f+1
     // distinct peers — i.e. propagation is well underway independent of my
     // own broadcasts, so further retries add little and just cost channel
     // time. Not a witness-certificate concept (nothing is being assembled
@@ -340,8 +344,8 @@ private:
     // has seen f+1 distinct peers gossip the same order_bytes for this epoch.
     bool decisionGossipPropagationConfirmed() const;
     // Same idea for my own CANCEL_CERT retry: true once f+1 distinct peers
-    // have relayed/shown me the same cert (cancel_cert_carriers_), tracked
-    // separately from cancel_cert_seen_/cancel_cert_relayed_ (those are
+    // have relayed/shown me the same cert (rollback_.cancel_cert_carriers_), tracked
+    // separately from rollback_.cancel_cert_seen_/rollback_.cancel_cert_relayed_ (those are
     // dedup sets, not per-sender counts).
     bool cancelCertPropagationConfirmed(const std::string& key) const;
     void handleCancelCommitGossip(BFTMessage* bft);
@@ -547,8 +551,6 @@ private:
     // Scenario 16 WAIT (spec §8). Leader-side: only meaningful while I am
     // the expected CertPrimary(); follower-side: the last heartbeat I
     // accepted, if any.
-    uint32_t           wait_leader_heartbeat_index_ = 0;
-    bool               wait_leader_active_ = false;
     WaitHeartbeatState wait_follower_state_;
     double             wait_heartbeat_interval_sec_ = 1.0;
     double             wait_heartbeat_max_deferral_sec_ = 2.5;
@@ -717,10 +719,8 @@ private:
     double        rollback_vc_timeout_sec_ = 3.0;
     bool          inject_suppress_initial_cancel_leader_ = false;
     bool          enable_cancel_leader_failover_ = true;
-    bool          cancel_leader_attack_logged_ = false;
     bool          inject_fabricated_clearance_leader_ = false;
     bool          enable_recovery_clear_evidence_gate_ = true;
-    bool          fabricated_clearance_attack_logged_ = false;
     bool          fabricated_clearance_attack_active_ = false;
     bool          rollback_fault_mode_per_epoch_ = true;
     bool          cancel_consensus_pending_ = false;
@@ -730,14 +730,6 @@ private:
     int           cancel_primary_ = -1;
     std::vector<int> cancel_leader_candidates_;
     std::vector<uint8_t> cancel_cert_bytes_;
-    struct CommittedCancelInfo {
-        uint64_t cancel_seq = 0;
-        uint8_t  payload_digest[32] = {};
-        std::vector<uint8_t> attestation_bytes;
-        bool gossip_adopted = false;
-    };
-    std::map<uint32_t, CommittedCancelInfo> committed_cancels_;
-    resdb_gossip::GossipAccumulator cancel_gossip_acc_;
     cMessage* cancel_gossip_timer_ = nullptr;
     int cancel_gossip_retry_count_ = 0;
     uint32_t cancel_gossip_epoch_ = 0;
@@ -745,34 +737,18 @@ private:
     bool          rollback_cancel_initiated_ = false;
     uint32_t      cancelled_epoch_ = 0;
     uint32_t      rollback_new_epoch_ = 0;
-    CancelReason  rollback_reason_ = CANCEL_CRASH;
-    std::string   rollback_reason_ref_;
-    std::vector<uint8_t> rollback_justification_;
     bool          rollback_local_recallable_ = false;
-    int           rollback_expected_membership_size_ = 0;
     int           cancel_rotation_index_ = 0;
     std::shared_ptr<const OrderCandidate> order_candidate_;
     bool          order_vc_requested_ = false;
     bool          order_vc_authoritative_ = false;
-    WitnessEchoCollector cancel_echo_collector_;  // shared f+1 dedup/threshold bookkeeping
     std::map<BlockedIncident, IncidentRecord> incidentRegistry_;
-    std::set<std::string> cancel_echo_sent_;
-    std::set<std::string> cancel_cert_seen_;
-    std::set<std::string> cancel_cert_relayed_;
-    std::map<std::string, std::set<int>> cancel_cert_carriers_; // key -> distinct relaying senders
     CancelCert    cancel_cert_pending_retries_{};
     int           cancel_cert_retry_count_ = 0;
-    WitnessEchoCollector clear_echo_collector_;
-    std::set<std::string> clear_echo_sent_;
-    std::set<std::string> clear_cert_seen_;
-    std::set<std::string> clear_cert_relayed_;
-    std::set<std::string> clear_cert_candidate_keys_;
     resdb_propagation::AuthenticatedPropagationTracker clear_propagation_tracker_;
     ClearCert     clear_cert_candidate_{};
     ClearCert     clear_cert_pending_relay_{};
-    std::string   clear_cert_candidate_key_;
     std::string   clear_cert_pending_relay_key_;
-    int           clear_cert_candidate_rank_ = -1;
     ClearCert     clear_cert_pending_retries_{};
     int           clear_cert_retry_count_ = 0;
     ConsensusRetryManager consensus_retry_manager_;

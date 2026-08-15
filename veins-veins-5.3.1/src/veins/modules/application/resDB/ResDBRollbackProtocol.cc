@@ -258,7 +258,7 @@ void ResDBIntersectionApp::sendCancelEcho(
     const std::string cleanedRef = cleanRef(reasonRef);
     WitnessStatement stmt{cancelledEpoch, toWitnessKind(reason), cleanedRef};
     const std::string key = stmt.collectorKey();
-    if (!cancel_echo_sent_.insert(key).second) return;
+    if (!rollback_.cancel_echo_sent_.insert(key).second) return;
     if (cancel_state_ == CancelState::INACTIVE) {
         cancel_state_ = CancelState::WITNESSING;
         std::cout << "[CANCEL-WITNESSING] r" << ctx_.replicaId_
@@ -287,7 +287,7 @@ void ResDBIntersectionApp::sendCancelEcho(
               << " reason=" << static_cast<int>(reason)
               << " ref=" << echo.reasonRef << "\n";
 
-    cancel_echo_collector_.add(stmt, toWitnessEcho(echo));
+    rollback_.cancel_echo_collector_.add(stmt, toWitnessEcho(echo));
 }
 
 void ResDBIntersectionApp::handleCancelEcho(BFTMessage* msg)
@@ -308,15 +308,15 @@ void ResDBIntersectionApp::handleCancelEcho(BFTMessage* msg)
     }
 
     const std::string key = stmt.collectorKey();
-    if (!cancel_echo_collector_.add(stmt, toWitnessEcho(echo))) {
-        const auto* bucket = cancel_echo_collector_.get(key);
+    if (!rollback_.cancel_echo_collector_.add(stmt, toWitnessEcho(echo))) {
+        const auto* bucket = rollback_.cancel_echo_collector_.get(key);
         std::cout << "[CANCEL-ECHO-DUP] r" << ctx_.replicaId_
                   << " signer=r" << echo.echoingReplicaId
                   << " key=" << key
                   << " count=" << (bucket ? bucket->size() : 0) << "\n";
         return;
     }
-    const auto* bucket = cancel_echo_collector_.get(key);
+    const auto* bucket = rollback_.cancel_echo_collector_.get(key);
     const size_t count = bucket ? bucket->size() : 0;
     const int threshold = anchoredFaults(ctx_.tolerated_faults_, ctx_.total_vehicles_) + 1;
     std::cout << "[CANCEL-ECHO] r" << ctx_.replicaId_
@@ -324,7 +324,7 @@ void ResDBIntersectionApp::handleCancelEcho(BFTMessage* msg)
               << " key=" << key
               << " count=" << count << "/" << threshold << "\n";
 
-    if ((int)count >= threshold && !cancel_cert_seen_.count(key)) {
+    if ((int)count >= threshold && !rollback_.cancel_cert_seen_.count(key)) {
         CancelCert cert;
         cert.cancelledEpoch = echo.cancelledEpoch;
         cert.reason = echo.reason;
@@ -342,7 +342,7 @@ void ResDBIntersectionApp::handleCancelEcho(BFTMessage* msg)
                   << " action=skip key=" << key
                   << " count=" << count
                   << " threshold=" << threshold
-                  << " seen=" << (cancel_cert_seen_.count(key) ? 1 : 0)
+                  << " seen=" << (rollback_.cancel_cert_seen_.count(key) ? 1 : 0)
                   << "\n";
     }
 }
@@ -362,8 +362,8 @@ double ResDBIntersectionApp::backoffDelaySec(double baseSec, double capSec, int 
 bool ResDBIntersectionApp::cancelCertPropagationConfirmed(const std::string& key) const
 {
     const int f = anchoredFaults(ctx_.tolerated_faults_, ctx_.total_vehicles_);
-    auto it = cancel_cert_carriers_.find(key);
-    return it != cancel_cert_carriers_.end() && (int)it->second.size() >= f + 1;
+    auto it = rollback_.cancel_cert_carriers_.find(key);
+    return it != rollback_.cancel_cert_carriers_.end() && (int)it->second.size() >= f + 1;
 }
 
 void ResDBIntersectionApp::scheduleNextCancelCertRetry()
@@ -486,7 +486,7 @@ void ResDBIntersectionApp::broadcastCancelCert(const CancelCert& cert)
         return;
     }
     registerBlockedIncidentIfCrash(cert);
-    cancel_cert_seen_.insert(key);
+    rollback_.cancel_cert_seen_.insert(key);
     std::vector<uint8_t> payload = serializeCancelCert(cert);
     sendBFTMessage(-1, payload, kCancelCertType);
     std::cout << "[CANCEL-CERT] r" << ctx_.replicaId_
@@ -515,9 +515,9 @@ void ResDBIntersectionApp::handleCancelCert(BFTMessage* msg)
     // Track distinct carriers regardless of firstSeen/relayed state, so my
     // own broadcastCancelCert retry loop can observe propagation even after
     // I've already seen/relayed this cert myself.
-    cancel_cert_carriers_[key].insert(msg->getFromReplicaId());
-    const bool firstSeen = cancel_cert_seen_.insert(key).second;
-    if (cancel_cert_relayed_.insert(key).second) {
+    rollback_.cancel_cert_carriers_[key].insert(msg->getFromReplicaId());
+    const bool firstSeen = rollback_.cancel_cert_seen_.insert(key).second;
+    if (rollback_.cancel_cert_relayed_.insert(key).second) {
         sendBFTMessage(-1, payload, kCancelCertType);
         std::cout << "[CANCEL-RELAY] r" << ctx_.replicaId_
                   << " key=" << key << " from=r" << msg->getFromReplicaId() << "\n";
@@ -710,13 +710,13 @@ void ResDBIntersectionApp::sendClearEcho(uint32_t cancelledEpoch, uint32_t execu
     auto incidentIt = incidentRegistry_.find(incident);
     if ((incidentIt != incidentRegistry_.end() &&
             incidentIt->second.state == IncidentState::CLEARED) ||
-            clear_cert_seen_.count(key) ||
-            clear_cert_candidate_keys_.count(key)) {
+            rollback_.clear_cert_seen_.count(key) ||
+            rollback_.clear_cert_candidate_keys_.count(key)) {
         std::cout << "[CLEAR-ECHO-HUSH] r" << ctx_.replicaId_
                   << " key=" << key << " reason=already-resolved\n";
         return;
     }
-    if (!clear_echo_sent_.insert(key).second) return;
+    if (!rollback_.clear_echo_sent_.insert(key).second) return;
 
     ClearEcho echo;
     echo.echoingReplicaId = ctx_.replicaId_;
@@ -736,7 +736,7 @@ void ResDBIntersectionApp::sendClearEcho(uint32_t cancelledEpoch, uint32_t execu
               << " epoch=" << cancelledEpoch
               << " batch=" << executingBatch << "\n";
 
-    clear_echo_collector_.add(stmt, toWitnessEcho(echo));
+    rollback_.clear_echo_collector_.add(stmt, toWitnessEcho(echo));
 }
 
 void ResDBIntersectionApp::handleClearEcho(BFTMessage* msg)
@@ -751,8 +751,8 @@ void ResDBIntersectionApp::handleClearEcho(BFTMessage* msg)
     auto incidentIt = incidentRegistry_.find(incident);
     if ((incidentIt != incidentRegistry_.end() &&
             incidentIt->second.state == IncidentState::CLEARED) ||
-            clear_cert_seen_.count(key) ||
-            clear_cert_candidate_keys_.count(key)) {
+            rollback_.clear_cert_seen_.count(key) ||
+            rollback_.clear_cert_candidate_keys_.count(key)) {
         std::cout << "[CLEAR-ECHO-HUSH] r" << ctx_.replicaId_
                   << " key=" << key
                   << " signer=r" << echo.echoingReplicaId
@@ -776,10 +776,10 @@ void ResDBIntersectionApp::handleClearEcho(BFTMessage* msg)
         return;
     }
 
-    if (!clear_echo_collector_.add(stmt, toWitnessEcho(echo))) {
+    if (!rollback_.clear_echo_collector_.add(stmt, toWitnessEcho(echo))) {
         return;
     }
-    const auto* bucket = clear_echo_collector_.get(key);
+    const auto* bucket = rollback_.clear_echo_collector_.get(key);
     const size_t count = bucket ? bucket->size() : 0;
     const int threshold = anchoredFaults(ctx_.tolerated_faults_, ctx_.total_vehicles_) + 1;
     std::cout << "[CLEAR-ECHO] r" << ctx_.replicaId_
@@ -787,7 +787,7 @@ void ResDBIntersectionApp::handleClearEcho(BFTMessage* msg)
               << " key=" << key
               << " count=" << count << "/" << threshold << "\n";
 
-    if ((int)count >= threshold && !clear_cert_seen_.count(key)) {
+    if ((int)count >= threshold && !rollback_.clear_cert_seen_.count(key)) {
         ClearCert cert;
         cert.cancelledEpoch = echo.cancelledEpoch;
         cert.executingBatch = echo.executingBatch;
@@ -870,8 +870,8 @@ void ResDBIntersectionApp::scheduleClearCertCandidate(const ClearCert& cert)
         cert.cancelledEpoch, WitnessKind::CLEAR,
         formatBlockedBatchRef(cert.cancelledEpoch, cert.executingBatch)
     }.collectorKey();
-    if (clear_cert_seen_.count(collectorKey) ||
-            clear_cert_candidate_keys_.count(collectorKey)) {
+    if (rollback_.clear_cert_seen_.count(collectorKey) ||
+            rollback_.clear_cert_candidate_keys_.count(collectorKey)) {
         return;
     }
     const int rank = clearPropagationRank();
@@ -881,10 +881,10 @@ void ResDBIntersectionApp::scheduleClearCertCandidate(const ClearCert& cert)
         return;
     }
 
-    clear_cert_candidate_keys_.insert(collectorKey);
+    rollback_.clear_cert_candidate_keys_.insert(collectorKey);
     clear_cert_candidate_ = cert;
-    clear_cert_candidate_key_ = key;
-    clear_cert_candidate_rank_ = rank;
+    rollback_.clear_cert_candidate_key_ = key;
+    rollback_.clear_cert_candidate_rank_ = rank;
     if (!clear_cert_candidate_timer_)
         clear_cert_candidate_timer_ = new cMessage("resdbClearCertCandidate");
     if (clear_cert_candidate_timer_->isScheduled())
@@ -907,13 +907,13 @@ void ResDBIntersectionApp::cancelClearCertCandidate(const char* reason)
     }
     if (active) {
         std::cout << "[CLEAR-CERT-CANDIDATE-CANCEL] r" << ctx_.replicaId_
-                  << " key=" << clear_cert_candidate_key_
-                  << " rank=" << clear_cert_candidate_rank_
+                  << " key=" << rollback_.clear_cert_candidate_key_
+                  << " rank=" << rollback_.clear_cert_candidate_rank_
                   << " reason=" << (reason ? reason : "cancelled") << "\n";
     }
     clear_cert_candidate_ = ClearCert{};
-    clear_cert_candidate_key_.clear();
-    clear_cert_candidate_rank_ = -1;
+    rollback_.clear_cert_candidate_key_.clear();
+    rollback_.clear_cert_candidate_rank_ = -1;
 }
 
 void ResDBIntersectionApp::sendClearCertCarrier(
@@ -944,7 +944,7 @@ void ResDBIntersectionApp::scheduleClearCertRelay(
                       "propagation-confirmed") << "\n";
         return;
     }
-    if (!clear_cert_relayed_.insert(key).second) return;
+    if (!rollback_.clear_cert_relayed_.insert(key).second) return;
     const int rank = clearPropagationRank();
     if (rank < 0) return;
     clear_cert_pending_relay_ = cert;
@@ -1048,7 +1048,7 @@ void ResDBIntersectionApp::broadcastClearCert(const ClearCert& cert)
     WitnessStatement stmt{cert.cancelledEpoch, WitnessKind::CLEAR,
         formatBlockedBatchRef(cert.cancelledEpoch, cert.executingBatch)};
     const std::string key = stmt.collectorKey();
-    clear_cert_seen_.insert(key);
+    rollback_.clear_cert_seen_.insert(key);
     std::vector<uint8_t> payload = serializeClearCert(cert);
     const std::string semanticKey =
         clearSemanticKey(cert.cancelledEpoch, cert.executingBatch);
@@ -1113,7 +1113,7 @@ void ResDBIntersectionApp::handleClearCert(BFTMessage* msg)
                   << " count=" << clear_propagation_tracker_.count(semanticKey)
                   << "/" << clearPropagationThreshold() << "\n";
     }
-    const bool firstSeen = clear_cert_seen_.insert(collectorKey).second;
+    const bool firstSeen = rollback_.clear_cert_seen_.insert(collectorKey).second;
     cancelClearCertCandidate(firstSeen ? "valid-cert-received" :
         "additional-carrier-received");
     std::vector<uint8_t> rawCert(
@@ -1158,7 +1158,7 @@ void ResDBIntersectionApp::sendWaitHeartbeat(const BlockedIncident& incident)
     p.cancelledEpoch = incident.cancelledEpoch;
     p.executingBatch = incident.executingBatch;
     p.leaderId = ctx_.replicaId_;
-    p.heartbeatIndex = wait_leader_heartbeat_index_++;
+    p.heartbeatIndex = rollback_.wait_leader_heartbeat_index_++;
     p.sentAtSimUs = static_cast<uint64_t>(simTime().inUnit(SIMTIME_US));
     p.validUntilSimUs = static_cast<uint64_t>(
         (simTime() + wait_heartbeat_max_deferral_sec_).inUnit(SIMTIME_US));
@@ -1187,20 +1187,20 @@ void ResDBIntersectionApp::maybeSendWaitHeartbeat(const char* reason)
     if (!amLeader) {
         if (wait_leader_send_timer_ && wait_leader_send_timer_->isScheduled())
             cancelEvent(wait_leader_send_timer_);
-        wait_leader_active_ = false;
+        rollback_.wait_leader_active_ = false;
         return;
     }
 
-    // wait_leader_active_ (not timer->isScheduled()) marks a fresh
+    // rollback_.wait_leader_active_ (not timer->isScheduled()) marks a fresh
     // activation: a self-message that just fired reports isScheduled()==
     // false until it is rescheduled below, so using the timer's scheduled
     // state here would (and did) misdetect every periodic tick as a fresh
     // start and reset the counter back to 0 every time. Reset the
     // per-incident heartbeat counter only on genuine (re)activation (spec:
     // indices increase monotonically per incident, not globally).
-    if (!wait_leader_active_) {
-        wait_leader_heartbeat_index_ = 0;
-        wait_leader_active_ = true;
+    if (!rollback_.wait_leader_active_) {
+        rollback_.wait_leader_heartbeat_index_ = 0;
+        rollback_.wait_leader_active_ = true;
     }
 
     sendWaitHeartbeat(incident);
@@ -1327,13 +1327,13 @@ void ResDBIntersectionApp::stopWait(const char* reason)
         cancelEvent(wait_leader_send_timer_);
     if (wait_follower_expiry_timer_ && wait_follower_expiry_timer_->isScheduled())
         cancelEvent(wait_follower_expiry_timer_);
-    if (wait_follower_state_.active || wait_leader_active_) {
+    if (wait_follower_state_.active || rollback_.wait_leader_active_) {
         std::cout << "[WAIT-STOP] r" << ctx_.replicaId_
                   << " reason=" << (reason ? reason : "")
                   << " t=" << simTime() << "\n";
     }
     wait_follower_state_ = WaitHeartbeatState{};
-    wait_leader_active_ = false;
+    rollback_.wait_leader_active_ = false;
 }
 
 bool ResDBIntersectionApp::isRecallable()
@@ -1412,13 +1412,13 @@ void ResDBIntersectionApp::handleValidCancelJustification(
         stopVehicle();
     }
     cancelled_epoch_ = epoch;
-    rollback_reason_ = reason;
-    rollback_reason_ref_ = reasonRef;
+    rollback_.rollback_reason_ = reason;
+    rollback_.rollback_reason_ref_ = reasonRef;
     cancel_cert_bytes_ = justification;
     cancel_consensus_pending_ = true;
     cancel_propose_submitted_ = false;
     cancel_rotation_index_ = 0;
-    cancel_leader_attack_logged_ = false;
+    rollback_.cancel_leader_attack_logged_ = false;
     cancel_active_batch_ = -1;
     cancel_primary_ = -1;
     cancel_leader_candidates_.clear();
@@ -1463,13 +1463,13 @@ void ResDBIntersectionApp::beginPostCancelDiscovery(
     ctx_.cancel_pending_ = true;
     cancelled_epoch_ = cancelledEpoch;
     rollback_new_epoch_ = cancelledEpoch + 1;
-    rollback_reason_ = reason;
-    rollback_reason_ref_ = reasonRef;
-    rollback_justification_ = justification;
-    rollback_expected_membership_size_ = 0;
+    rollback_.rollback_reason_ = reason;
+    rollback_.rollback_reason_ref_ = reasonRef;
+    rollback_.rollback_justification_ = justification;
+    rollback_.rollback_expected_membership_size_ = 0;
     cancel_rotation_index_ = 0;
     resetOrderCandidate("rollback-begin");
-    fabricated_clearance_attack_logged_ = false;
+    rollback_.fabricated_clearance_attack_logged_ = false;
     fabricated_clearance_attack_active_ = false;
 
     ctx_.current_epoch_ = rollback_new_epoch_;
@@ -1495,7 +1495,7 @@ void ResDBIntersectionApp::beginPostCancelDiscovery(
     pending_relays_.clear();
     cancelClearCertCandidate("rollback-begin");
     cancelClearCertRelay("rollback-begin");
-    clear_cert_candidate_keys_.clear();
+    rollback_.clear_cert_candidate_keys_.clear();
     clear_propagation_tracker_.reset();
 
     startDiscoveryRound("cancel-committed");
@@ -1572,8 +1572,8 @@ int ResDBIntersectionApp::minRollbackVoteN() const
 
 int ResDBIntersectionApp::minRollbackMembershipSize() const
 {
-    if (rollback_expected_membership_size_ > 0)
-        return std::max(minRollbackVoteN(), rollback_expected_membership_size_);
+    if (rollback_.rollback_expected_membership_size_ > 0)
+        return std::max(minRollbackVoteN(), rollback_.rollback_expected_membership_size_);
     return minRollbackVoteN();
 }
 
@@ -1633,13 +1633,13 @@ std::vector<int> ResDBIntersectionApp::cancelLeaderCandidatesForBatch(
 bool ResDBIntersectionApp::isEpochTombstoned(uint32_t epoch) const
 {
     if (tombstoned_epochs_.count(epoch)) return true;
-    auto it = committed_cancels_.find(epoch);
-    return it != committed_cancels_.end();
+    auto it = rollback_.committed_cancels_.find(epoch);
+    return it != rollback_.committed_cancels_.end();
 }
 
 bool ResDBIntersectionApp::hasCommittedCancel(uint32_t epoch) const
 {
-    return committed_cancels_.count(epoch) > 0;
+    return rollback_.committed_cancels_.count(epoch) > 0;
 }
 
 int ResDBIntersectionApp::chooseCancelProposer()
@@ -1719,8 +1719,8 @@ void ResDBIntersectionApp::trySubmitCancelProposal(const char* reason)
     }
     if (inject_suppress_initial_cancel_leader_ &&
             cancel_rotation_index_ == 0) {
-        if (!cancel_leader_attack_logged_) {
-            cancel_leader_attack_logged_ = true;
+        if (!rollback_.cancel_leader_attack_logged_) {
+            rollback_.cancel_leader_attack_logged_ = true;
             std::cout << "[BYZANTINE-CANCEL-SUPPRESS] r" << ctx_.replicaId_
                       << " cancelled_epoch=" << cancelled_epoch_
                       << " rotation_index=0"
@@ -1792,7 +1792,7 @@ void ResDBIntersectionApp::proposeCancel()
 
     ResdbCancelHdr chdr{};
     chdr.cancelled_epoch = cancelled_epoch_;
-    chdr.reason = static_cast<uint8_t>(rollback_reason_);
+    chdr.reason = static_cast<uint8_t>(rollback_.rollback_reason_);
     chdr.justification_len = static_cast<uint32_t>(cancel_cert_bytes_.size());
 
     const int32_t leader_id = ctx_.replicaId_;
@@ -1834,8 +1834,8 @@ void ResDBIntersectionApp::proposeCancel()
 
 std::vector<uint8_t> ResDBIntersectionApp::buildCancelCommitRef(uint32_t cancelledEpoch) const
 {
-    auto it = committed_cancels_.find(cancelledEpoch);
-    if (it == committed_cancels_.end()) return {};
+    auto it = rollback_.committed_cancels_.find(cancelledEpoch);
+    if (it == rollback_.committed_cancels_.end()) return {};
     ResdbCancelCommitRef ref{};
     ref.cancelled_epoch = cancelledEpoch;
     ref.cancel_seq = it->second.cancel_seq;
@@ -1862,7 +1862,7 @@ bool ResDBIntersectionApp::cancelGossipPropagationConfirmed() const
 {
     if (cancel_gossip_bytes_.empty()) return false;
     const int threshold = anchoredFaults(ctx_.tolerated_faults_, ctx_.total_vehicles_) + 1;
-    return cancel_gossip_acc_.count(cancel_gossip_epoch_, cancel_gossip_bytes_) >= threshold;
+    return rollback_.cancel_gossip_acc_.count(cancel_gossip_epoch_, cancel_gossip_bytes_) >= threshold;
 }
 
 void ResDBIntersectionApp::triggerCancelCommitGossip(
@@ -1889,7 +1889,7 @@ void ResDBIntersectionApp::triggerCancelCommitGossip(
         std::cout << "[CANCEL-GOSSIP-STOP] r" << ctx_.replicaId_
                   << " cancelled_epoch=" << cancelledEpoch
                   << " reason=propagation-confirmed"
-                  << " seen=" << cancel_gossip_acc_.count(cancelledEpoch, attestation) << "\n";
+                  << " seen=" << rollback_.cancel_gossip_acc_.count(cancelledEpoch, attestation) << "\n";
     } else if (cancel_cert_retry_max_ <= 0 ||
             cancel_gossip_retry_count_ < cancel_cert_retry_max_) {
         // Slower capped backoff than evidence retry (spec §11.3): 0.25s,
@@ -1915,7 +1915,7 @@ void ResDBIntersectionApp::handleCancelCommitDecision(const std::vector<uint8_t>
     info.cancel_seq = dh.cancel_seq;
     std::memcpy(info.payload_digest, dh.payload_digest, 32);
     info.attestation_bytes = dec;
-    committed_cancels_[dh.cancelled_epoch] = info;
+    rollback_.committed_cancels_[dh.cancelled_epoch] = info;
 
     const int fAnchored = anchoredFaults(ctx_.tolerated_faults_, ctx_.total_vehicles_);
     const int cancelQuorum = bftQuorumSize(ctx_.total_vehicles_, fAnchored);
@@ -1944,10 +1944,10 @@ void ResDBIntersectionApp::handleCancelCommitDecision(const std::vector<uint8_t>
         cancel_drain_timer_ = nullptr;
     }
 
-    rollback_justification_ = buildCancelCommitRef(dh.cancelled_epoch);
+    rollback_.rollback_justification_ = buildCancelCommitRef(dh.cancelled_epoch);
     broadcastCancelCommitAttestation(dh);
-    beginPostCancelDiscovery(dh.cancelled_epoch, rollback_reason_,
-                           rollback_reason_ref_, rollback_justification_);
+    beginPostCancelDiscovery(dh.cancelled_epoch, rollback_.rollback_reason_,
+                           rollback_.rollback_reason_ref_, rollback_.rollback_justification_);
 }
 
 void ResDBIntersectionApp::handleCancelCommitGossip(BFTMessage* bft)
@@ -1978,13 +1978,13 @@ void ResDBIntersectionApp::handleCancelCommitGossip(BFTMessage* bft)
         return;
     }
     // Count this vote even if I've already tombstoned the epoch myself —
-    // cancelGossipPropagationConfirmed() needs cancel_gossip_acc_ to keep
+    // cancelGossipPropagationConfirmed() needs rollback_.cancel_gossip_acc_ to keep
     // growing after my own adoption/commit, not freeze at whatever it was
     // the instant I tombstoned (which is almost immediately, right before I
     // start my own retry loop — if counting stopped here, the "enough peers
     // already have it" check could never fire).
     const int threshold = anchoredFaults(ctx_.tolerated_faults_, ctx_.total_vehicles_) + 1;
-    const bool reached = cancel_gossip_acc_.add(
+    const bool reached = rollback_.cancel_gossip_acc_.add(
         bft->getFromReplicaId(), cancelled_epoch, attestation, threshold);
 
     if (isEpochTombstoned(cancelled_epoch)) return;
@@ -1996,7 +1996,7 @@ void ResDBIntersectionApp::handleCancelCommitGossip(BFTMessage* bft)
     std::memcpy(info.payload_digest, dh.payload_digest, 32);
     info.attestation_bytes = attestation;
     info.gossip_adopted = true;
-    committed_cancels_[cancelled_epoch] = info;
+    rollback_.committed_cancels_[cancelled_epoch] = info;
     std::cout << "[CANCEL-COMMIT] r" << ctx_.replicaId_
               << " cancelled_epoch=" << cancelled_epoch
               << " seq=" << dh.cancel_seq
@@ -2004,7 +2004,7 @@ void ResDBIntersectionApp::handleCancelCommitGossip(BFTMessage* bft)
     std::cout << "[TOMBSTONE] r" << ctx_.replicaId_
               << " epoch=" << cancelled_epoch << " source=gossip-adopted\n";
 
-    rollback_justification_ = buildCancelCommitRef(cancelled_epoch);
+    rollback_.rollback_justification_ = buildCancelCommitRef(cancelled_epoch);
     cancel_consensus_pending_ = false;
     cancel_propose_submitted_ = false;
     cancel_state_ = CancelState::COMMITTED;
@@ -2017,10 +2017,10 @@ void ResDBIntersectionApp::handleCancelCommitGossip(BFTMessage* bft)
     triggerCancelCommitGossip(cancelled_epoch, attestation);
 
     const CancelReason reason = static_cast<CancelReason>(dh.reason);
-    const std::string ref = rollback_reason_ref_.empty()
+    const std::string ref = rollback_.rollback_reason_ref_.empty()
         ? "gossip-adopted"
-        : rollback_reason_ref_;
-    beginPostCancelDiscovery(cancelled_epoch, reason, ref, rollback_justification_);
+        : rollback_.rollback_reason_ref_;
+    beginPostCancelDiscovery(cancelled_epoch, reason, ref, rollback_.rollback_justification_);
 
     if (ctx_.resdb_server_handle_) {
         const int sync_rc = ResdbOmnetAdvanceExecutorAfterGossipCancel(
@@ -2138,9 +2138,9 @@ ResDBIntersectionApp::buildOrderCandidate() const
     candidate->epoch = ctx_.current_epoch_;
     candidate->recovery = ctx_.cancel_pending_ && ctx_.current_epoch_ == rollback_new_epoch_;
     candidate->cancelledEpoch = candidate->recovery ? cancelled_epoch_ : 0;
-    candidate->rollbackReason = rollback_reason_;
+    candidate->rollbackReason = rollback_.rollback_reason_;
     candidate->cancelJustification = candidate->recovery
-        ? rollback_justification_ : std::vector<uint8_t>{};
+        ? rollback_.rollback_justification_ : std::vector<uint8_t>{};
 
     {
         std::lock_guard<std::mutex> lk(certs_mutex_);
@@ -2256,9 +2256,9 @@ void ResDBIntersectionApp::evaluateOrderReadiness(const char* reason)
     if (recovery && hasBlockingIncidentForEpoch(cancelled_epoch_)) {
         const int attackPrimary = CertPrimary();
         if (inject_fabricated_clearance_leader_ &&
-                !fabricated_clearance_attack_logged_ &&
+                !rollback_.fabricated_clearance_attack_logged_ &&
                 attackPrimary == ctx_.replicaId_) {
-            fabricated_clearance_attack_logged_ = true;
+            rollback_.fabricated_clearance_attack_logged_ = true;
             fabricated_clearance_attack_active_ = true;
             order_candidate_ = buildOrderCandidate();
             std::cout << "[BYZANTINE-FABRICATED-CLEARANCE] r" << ctx_.replicaId_
