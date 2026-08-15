@@ -32,3 +32,4 @@ __pycache__/
 
 # Golden-harness run logs (regenerable)
 tests/golden/logs/
+fourway/channel_metrics_override.ini

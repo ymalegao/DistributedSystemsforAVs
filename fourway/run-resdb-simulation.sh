@@ -26,8 +26,8 @@
 #
 # --channel-metrics-dir <PATH>
 #   Write channel_metrics_override.ini so *.node[*].appl.channelMetricsCsvDir
-#   points at PATH (absolute path recommended). Used by experiment_orchestrator.py
-#   to place channel_*.csv / sinr_*.csv under benchmarks/.../run_<rep>/.
+#   points at PATH (absolute path recommended). Used by batch harnesses
+#   to place channel_*.csv / sinr_*.csv beside a run's results.
 #
 # --tolerated-f <F>
 #   Configure the intended consensus fault-tolerance point for fixed-physical-N
