@@ -84,6 +84,56 @@
     ],
     "vote_n": []
   },
+  "rollback_no_units": {
+    "commit_rate": 1.0,
+    "committing_replicas": [
+      18
+    ],
+    "fallbacks": [
+      0
+    ],
+    "n_batches": [
+      9
+    ],
+    "quorum": [
+      11
+    ],
+    "reporting_replicas": [
+      18
+    ],
+    "reps": 3,
+    "rollback_fired": [
+      true
+    ],
+    "vote_n": [
+      16
+    ]
+  },
+  "rollback_units": {
+    "commit_rate": 1.0,
+    "committing_replicas": [
+      22
+    ],
+    "fallbacks": [
+      0
+    ],
+    "n_batches": [
+      13
+    ],
+    "quorum": [
+      13
+    ],
+    "reporting_replicas": [
+      22
+    ],
+    "reps": 3,
+    "rollback_fired": [
+      true
+    ],
+    "vote_n": [
+      20
+    ]
+  },
   "units_4veh": {
     "commit_rate": 1.0,
     "committing_replicas": [
