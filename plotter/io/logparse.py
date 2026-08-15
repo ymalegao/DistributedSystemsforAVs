@@ -17,8 +17,17 @@ from .schema import RunKey, RunRecord
 # ── log line patterns ────────────────────────────────────────────────────────
 # Each notes which side emits it, so a C++ rename can be traced back here.
 
-# ResDBDecision.cc, on the PBFT commit callback.
+# ResDBDecision.cc, on the PBFT commit callback. The n_batches suffix is the
+# size of the schedule the commit produced.
 RE_ORDER_DECIDED = re.compile(r"Order_Decided_Time")
+RE_ORDER_BATCHES = re.compile(r"\[METRICS (\d+)\]\s+Order_Decided_Time:.*n_batches=(\d+)")
+
+# Bridge: the active-view sizing this run actually used.
+RE_QUORUM_VOTE = re.compile(r"voteN=(\d+) f=(\d+) quorum=(\d+)")
+
+# ResDBTraCI.cc: vehicle crossed on the stop-sign timeout, i.e. BFT bypassed.
+# This is the safety-relevant degradation, so a refactor must not change it.
+RE_STOPSIGN_TIMEOUT = re.compile(r"StopSign_Timeout:\s+1")
 
 # ResDBIntersectionApp.cc finish(): cumulative per-replica counter.
 RE_MESSAGES_SENT = re.compile(r"\[METRICS (\d+)\]\s+Messages_Sent:\s+(\d+)")

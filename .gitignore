@@ -29,3 +29,6 @@ __pycache__/
 
 # IDE / workspace state
 .metadata/
+
+# Golden-harness run logs (regenerable)
+tests/golden/logs/
