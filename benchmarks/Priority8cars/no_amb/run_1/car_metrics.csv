@@ -1,1 +1,0 @@
-car_id,role,epoch,arrival_time,stop_time,resume_time,depart_time,wait_intersection,stop_to_resume,resume_to_depart,arrival_to_depart
