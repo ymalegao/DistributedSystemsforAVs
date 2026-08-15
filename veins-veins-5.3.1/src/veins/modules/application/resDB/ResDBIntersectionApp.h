@@ -47,6 +47,42 @@ public:
 protected:
     void initialize(int stage) override;
     void handleSelfMsg(cMessage* msg) override;
+
+    // ── Timer handlers ───────────────────────────────────────────────────────
+    // One per self-message; dispatchTimer() routes to them via a table. These
+    // were anonymous blocks in a 677-line if-chain. Each is the seam along
+    // which a timer moves to the component that owns it.
+    bool dispatchTimer(cMessage* msg);
+    void onCrashMacGrace(cMessage* msg);
+    void onChannelMetrics(cMessage* msg);
+    void onSmokeTest(cMessage* msg);
+    void onTransportPoll(cMessage* msg);
+    void onTimeTick(cMessage* msg);
+    void onConsensusRetry(cMessage* msg);
+    void onConsensusRelay(cMessage* msg);
+    void onCancelDrain(cMessage* msg);
+    void onInitialAnnounce(cMessage* msg);
+    void onBroadcastArrivalAnnouncement(cMessage* msg);
+    void onCertRetry(cMessage* msg);
+    void onDiscoveryTxFlush(cMessage* msg);
+    void onCertGossip(cMessage* msg);
+    void onGossip(cMessage* msg);
+    void onCancelGossip(cMessage* msg);
+    void onCancelCertRetry(cMessage* msg);
+    void onClearCertRetry(cMessage* msg);
+    void onClearCertCandidate(cMessage* msg);
+    void onClearCertRelay(cMessage* msg);
+    void onWaitLeaderSend(cMessage* msg);
+    void onWaitFollowerExpiry(cMessage* msg);
+    void onDiscoveryDeadline(cMessage* msg);
+    void onDiscoverySettle(cMessage* msg);
+    void onVcTrigger(cMessage* msg);
+    void onCancelVc(cMessage* msg);
+    void onStopSignTimeout(cMessage* msg);
+    void onConsensusTimeout(cMessage* msg);
+    void onResume(cMessage* msg);
+    void onPrecedingBatchPoll(cMessage* msg);
+
     void handlePositionUpdate(cObject* obj) override;
     void finish() override;
 
