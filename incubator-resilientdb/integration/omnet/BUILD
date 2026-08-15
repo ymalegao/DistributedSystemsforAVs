@@ -1,7 +1,7 @@
 package(default_visibility = ["//visibility:public"])
 
-# intersection.proto kept for reference; not compiled into the bridge.
-# The wire format is defined as C structs in resdb_omnet_bridge.h.
+# The OMNeT bridge wire format is the C structs in resdb_omnet_bridge.h,
+# not a .proto — see ResdbVehicleEntry / ResdbProposeHdr / ResdbOrderHdr there.
 
 cc_library(
     name = "resdb_bridge",
