@@ -20,6 +20,7 @@ fourway/resdb_crypto*/logs/
 
 # Generated experiment output
 benchmarks/
+figures/
 partner_results/
 bftsmart/library/
 __pycache__/
