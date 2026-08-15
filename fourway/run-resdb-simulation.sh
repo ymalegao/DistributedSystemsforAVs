@@ -746,7 +746,9 @@ if [[ -n "${CHANNEL_METRICS_DIR}" ]]; then
     fi
 fi
 
-LOG_FILE="/tmp/resdb-simulation.log"
+# Overridable so concurrent runs (e.g. the golden harness) do not clobber one
+# another's log; line 120 already reads it defensively.
+LOG_FILE="${LOG_FILE:-/tmp/resdb-simulation.log}"
 trap cleanup EXIT INT TERM HUP
 
 > "${LOG_FILE}"

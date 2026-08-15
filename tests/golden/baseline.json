@@ -1,0 +1,109 @@
+{
+  "byz_fake_ambulance": {
+    "commit_rate": 1.0,
+    "committing_replicas": [
+      4
+    ],
+    "fallbacks": [
+      0
+    ],
+    "n_batches": [
+      2
+    ],
+    "quorum": [],
+    "reporting_replicas": [
+      4
+    ],
+    "reps": 3,
+    "rollback_fired": [
+      false
+    ],
+    "vote_n": []
+  },
+  "byz_silent_primary": {
+    "commit_rate": 1.0,
+    "committing_replicas": [
+      4
+    ],
+    "fallbacks": [
+      0
+    ],
+    "n_batches": [
+      2
+    ],
+    "quorum": [],
+    "reporting_replicas": [
+      4
+    ],
+    "reps": 3,
+    "rollback_fired": [
+      false
+    ],
+    "vote_n": []
+  },
+  "honest_4veh": {
+    "commit_rate": 1.0,
+    "committing_replicas": [
+      4
+    ],
+    "fallbacks": [
+      0
+    ],
+    "n_batches": [
+      2
+    ],
+    "quorum": [],
+    "reporting_replicas": [
+      4
+    ],
+    "reps": 3,
+    "rollback_fired": [
+      false
+    ],
+    "vote_n": []
+  },
+  "no_firewall_4veh": {
+    "commit_rate": 1.0,
+    "committing_replicas": [
+      4
+    ],
+    "fallbacks": [
+      0
+    ],
+    "n_batches": [
+      2
+    ],
+    "quorum": [],
+    "reporting_replicas": [
+      4,
+      5
+    ],
+    "reps": 3,
+    "rollback_fired": [
+      false
+    ],
+    "vote_n": []
+  },
+  "units_4veh": {
+    "commit_rate": 1.0,
+    "committing_replicas": [
+      6,
+      7
+    ],
+    "fallbacks": [
+      0
+    ],
+    "n_batches": [
+      4
+    ],
+    "quorum": [],
+    "reporting_replicas": [
+      8
+    ],
+    "reps": 3,
+    "rollback_fired": [
+      false
+    ],
+    "vote_n": []
+  }
+}
