@@ -33,3 +33,11 @@ __pycache__/
 # Golden-harness run logs (regenerable)
 tests/golden/logs/
 fourway/channel_metrics_override.ini
+
+# Legacy per-run figure output (plotter writes to figures/ instead)
+fourway/graphs/
+
+# Per-user IDE state (project files themselves are tracked)
+.settings/
+.csettings/
+.qtenvrc
