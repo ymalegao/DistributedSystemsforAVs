@@ -29,8 +29,12 @@ STUDY = 2
 SUBPLOTS = (3, 3)
 FIGSIZE = (14.0, 10.0)
 
-_ARMS = (("vanilla", "control", "vanilla BFT (no f+1 firewall)"),
-         ("ours", "treatment", "ours (f+1 pre-verification)"))
+# NOT vanilla PBFT: --no-firewall disables the bridge's 10 PreVerify
+# checks only. The arrival-certificate layer still runs, still supplies
+# membership and still elects the primary, so the arms differ by the
+# pre-verification stage alone.
+_ARMS = (("vanilla", "control", "pre-verification OFF"),
+         ("ours", "treatment", "pre-verification ON (f+1)"))
 
 _ROWS = (
     ("attack succeeded", "runs granting false priority (%)",

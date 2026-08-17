@@ -3,7 +3,7 @@
 Six stages, each adding one layer to the one before. The order is by
 dependency, not by importance, so each stage's effect is attributable:
 
-  S0  vanilla PBFT ordering, no pre-verification
+  S0  ordering with pre-verification off (NOT vanilla PBFT -- see below)
   S1  + f+1 firewall     the admission gate every later layer assumes
   S2  + decision gossip  propagates what S1 admitted; changes no membership
   S3  + priority         a policy over an already-delivered schedule
@@ -33,7 +33,7 @@ STUDY = 6
 SUBPLOTS = (2, 3)
 FIGSIZE = (14.5, 8.2)
 
-STAGES = ((0, "S0\nvanilla"), (1, "S1\n+firewall"), (2, "S2\n+gossip"),
+STAGES = ((0, "S0\nno firewall"), (1, "S1\n+firewall"), (2, "S2\n+gossip"),
           (3, "S3\n+priority"), (4, "S4\n+RSU"), (5, "S5\n+rollback"))
 
 
