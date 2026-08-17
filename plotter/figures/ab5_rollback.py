@@ -24,8 +24,8 @@ from .. import style
 NAME = "ab5_rollback"
 TITLE = "Rollback: admitting a late ambulance, and its cost"
 STUDY = 5
-SUBPLOTS = (1, 3)
-FIGSIZE = (13.0, 4.6)
+SUBPLOTS = (2, 3)
+FIGSIZE = (14.0, 8.2)
 
 _ARMS = (("rollback_off", "control", "rollback OFF"),
          ("rollback_on", "treatment", "rollback ON"))
@@ -52,6 +52,9 @@ def load(runs):
         cleared=[aggregate.cleared(cells[arm]) for arm, _, _ in _ARMS],
         cost=[aggregate.msgs_per_vehicle(cells[arm], committed_only=False)
               for arm, _, _ in _ARMS],
+        thru=[aggregate.discharge_rate(cells[arm]) for arm, _, _ in _ARMS],
+        wait=[aggregate.clearance_wait(cells[arm]) for arm, _, _ in _ARMS],
+        latency=[aggregate.stop_to_decision(cells[arm]) for arm, _, _ in _ARMS],
     )
 
 
@@ -80,13 +83,23 @@ def _value_panel(data, key, ax, *, title, ylabel, fmt):
 
 
 def build(data, axes):
-    _stacked_outcomes(data, axes[0])
-    _value_panel(data, "cleared", axes[1], fmt="{:.1f}",
+    flat = list(axes.flat)
+    _stacked_outcomes(data, flat[0])
+    _value_panel(data, "cleared", flat[1], fmt="{:.1f}",
                  title="Traffic served in the window",
                  ylabel="vehicles cleared")
-    _value_panel(data, "cost", axes[2], fmt="{:.0f}",
+    _value_panel(data, "thru", flat[2], fmt="{:.2f}",
+                 title="Service rate once clearing starts",
+                 ylabel="vehicles / s across departures")
+    _value_panel(data, "wait", flat[3], fmt="{:.1f}",
+                 title="Time from stopping to clearing",
+                 ylabel="mean seconds per vehicle")
+    _value_panel(data, "latency", flat[4], fmt="{:.1f}",
+                 title="Delay to consensus",
+                 ylabel="stop to decision (s)")
+    _value_panel(data, "cost", flat[5], fmt="{:.0f}",
                  title="Cost of serving them",
                  ylabel="messages per vehicle")
-    axes[0].figure.suptitle(
+    flat[0].figure.suptitle(
         "Ablation 5 — rollback admits the ambulance, and pays for it in throughput",
         fontsize=12, color=style.INK_PRIMARY)

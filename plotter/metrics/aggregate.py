@@ -106,6 +106,16 @@ def throughput(recs: Sequence[RunRecord]) -> Stat:
     return summarize([r.throughput for r in recs])
 
 
+def discharge_rate(recs: Sequence[RunRecord]) -> Stat:
+    """Vehicles per second across the departure sequence.
+
+    The cross-scenario throughput measure. throughput() starts the clock at the
+    first stop and so also counts how long traffic took to arrive, which is set
+    by the scenario's route file rather than by the controller.
+    """
+    return summarize([r.discharge_rate for r in recs])
+
+
 def cleared(recs: Sequence[RunRecord]) -> Stat:
     """Vehicles that physically crossed."""
     return summarize([float(r.cleared) for r in recs])

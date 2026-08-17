@@ -142,9 +142,34 @@ class RunRecord:
 
     @property
     def throughput(self) -> Optional[float]:
-        """Vehicles cleared per second of service window."""
+        """Vehicles cleared per second, counted from the first stop.
+
+        Includes the spread over which traffic ARRIVES, so it is only
+        comparable between arms of the same scenario. Across scenarios it moves
+        with the route file's spawn pattern: the all-way-stop baseline's window
+        is 6.1s at 4 vehicles but 16.3s at 8, which drags the rate down even
+        though the intersection is serving traffic no more slowly. Use
+        discharge_rate to compare across vehicle counts.
+        """
         window = self.busy_window
         return self.cleared / window if window else None
+
+    @property
+    def discharge_rate(self) -> Optional[float]:
+        """Vehicles per second across the departure sequence itself.
+
+        Measured first departure to last, so it is the rate the intersection
+        actually clears vehicles once it starts, independent of when they
+        arrived. This is what the conflict-matrix batching claim is about:
+        movements that may cross together depart together.
+
+        Needs at least two departures to have a gap to measure.
+        """
+        deps = sorted(self.depart_at.values())
+        if len(deps) < 2:
+            return None
+        span = deps[-1] - deps[0]
+        return (len(deps) - 1) / span if span > 0 else None
 
     @property
     def msgs_per_vehicle(self) -> Optional[float]:

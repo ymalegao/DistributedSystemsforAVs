@@ -47,7 +47,7 @@ def load(runs):
     return dict(
         ns=ns,
         wait={arm: [aggregate.clearance_wait(c) for c in cells[arm]] for arm, _, _ in _ARMS},
-        thru={arm: [aggregate.throughput(c) for c in cells[arm]] for arm, _, _ in _ARMS},
+        thru={arm: [aggregate.discharge_rate(c) for c in cells[arm]] for arm, _, _ in _ARMS},
         cost={arm: [aggregate.msgs_per_vehicle(c, committed_only=False)
                     for c in cells[arm]] for arm, _, _ in _ARMS},
         spread=spread,
@@ -96,8 +96,9 @@ def build(data, axes):
     flat = list(axes.flat)
     _line_panel(data, "wait", flat[0], title="Time from stopping to clearing",
                 ylabel="mean seconds per vehicle", legend=True)
-    _line_panel(data, "thru", flat[1], title="Intersection throughput",
-                ylabel="vehicles cleared per second")
+    _line_panel(data, "thru", flat[1],
+                title="Service rate once clearing starts",
+                ylabel="vehicles / s across departures")
     _spread_panel(data, flat[2])
     _line_panel(data, "cost", flat[3], skip_zero=True,
                 title="Coordination cost (all-way stop: no messages)",

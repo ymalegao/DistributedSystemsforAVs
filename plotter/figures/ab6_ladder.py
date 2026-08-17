@@ -27,7 +27,7 @@ from ..io.schema import RunRecord
 from ..metrics import aggregate
 from .. import style
 
-NAME = "ladder"
+NAME = "ab6_ladder"
 TITLE = "Capability ladder: what each layer adds"
 STUDY = 6
 SUBPLOTS = (2, 3)

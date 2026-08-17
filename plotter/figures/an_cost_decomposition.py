@@ -20,7 +20,7 @@ from ..io.schema import RunRecord
 from ..metrics import aggregate
 from .. import style
 
-NAME = "decomposition"
+NAME = "an_cost_decomposition"
 TITLE = "Cost decomposition by protocol layer"
 STUDY = 1
 SUBPLOTS = (1, 2)

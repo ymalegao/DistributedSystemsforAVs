@@ -15,7 +15,7 @@ from matplotlib.colors import ListedColormap
 
 from .. import style
 
-NAME = "conflict_matrix"
+NAME = "ref_conflict_matrix"
 TITLE = "Intersection conflict matrix (scheduler batching rule)"
 FIGSIZE = (8.2, 7.2)
 NEEDS_RUNS = False

@@ -22,8 +22,8 @@ from .. import style
 NAME = "ab4_priority"
 TITLE = "Emergency priority vs queue length"
 STUDY = 4
-SUBPLOTS = (2, 2)
-FIGSIZE = (11.5, 8.0)
+SUBPLOTS = (2, 3)
+FIGSIZE = (14.5, 8.2)
 
 _ARMS = (("noprio", "control", "no priority (FIFO)"),
          ("prio", "treatment", "ambulance priority"))
@@ -46,6 +46,10 @@ def load(runs):
                 for arm, _, _ in _ARMS},
         cost={arm: [aggregate.msgs_per_vehicle(c) for c in cells[arm]]
               for arm, _, _ in _ARMS},
+        thru={arm: [aggregate.discharge_rate(c) for c in cells[arm]]
+              for arm, _, _ in _ARMS},
+        latency={arm: [aggregate.stop_to_decision(c) for c in cells[arm]]
+                 for arm, _, _ in _ARMS},
     )
 
 
@@ -70,7 +74,11 @@ def build(data, axes):
            ylabel="wait / mean wait in the same run", unit_line=True)
     _panel(data, "others", flat[2], title="Cost to everyone else",
            ylabel="mean wait, all vehicles (s)")
-    _panel(data, "cost", flat[3], title="Coordination cost",
+    _panel(data, "thru", flat[3], title="Intersection service rate",
+           ylabel="vehicles / s across departures")
+    _panel(data, "latency", flat[4], title="Delay to consensus",
+           ylabel="stop to decision (s)")
+    _panel(data, "cost", flat[5], title="Coordination cost",
            ylabel="messages per vehicle served")
     flat[0].figure.suptitle(
         "Ablation 4 — priority is worth more the longer the queue",

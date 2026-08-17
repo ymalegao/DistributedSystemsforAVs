@@ -76,5 +76,22 @@ def main(argv=None) -> int:
 
     print(f"Building into {args.out}")
     built = sum(_build_one(m, runs, args.out) for m in modules)
+    if args.command == "build-all":
+        _prune(args.out)
     print(f"{built}/{len(modules)} built")
     return 0 if built else 1
+
+
+def _prune(out_dir):
+    """Delete PNGs with no figure module behind them.
+
+    A renamed or removed figure otherwise leaves its last render sitting in the
+    output directory, indistinguishable from a current one. That is how a
+    deleted comparison stayed on disk being read as a live result long after
+    the module was gone.
+    """
+    known = set(_registry.REGISTRY)
+    for png in Path(out_dir).glob("*.png"):
+        if png.stem not in known:
+            png.unlink()
+            print(f"  {png.stem:<24} PRUNED  no module produces this any more")
