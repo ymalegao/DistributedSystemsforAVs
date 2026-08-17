@@ -128,6 +128,31 @@ def ambulance_clearance_wait(recs: Sequence[RunRecord]) -> Stat:
     return summarize(values)
 
 
+def vehicle_clearance_wait(recs: Sequence[RunRecord], vehicle_id: int) -> Stat:
+    """Stop -> departure for one specific vehicle.
+
+    The priority-off arm marks no ambulance, so the two arms cannot be paired by
+    role. They are paired by replica id instead: the runner designates the same
+    vehicle in both, and only one arm grants it priority.
+    """
+    return summarize([r.clearance_waits().get(vehicle_id) for r in recs])
+
+
+def relative_wait(recs: Sequence[RunRecord], vehicle_id: int) -> Stat:
+    """One vehicle's wait as a fraction of that run's mean wait.
+
+    Absolute waits grow with traffic in both arms, so the raw number conflates
+    "priority helped" with "the queue got longer". The ratio isolates whether
+    the vehicle is served ahead of the pack: 1.0 is exactly average.
+    """
+    values = []
+    for r in recs:
+        waits = r.clearance_waits()
+        mine, mean_wait = waits.get(vehicle_id), r.mean_clearance_wait
+        values.append(mine / mean_wait if mine is not None and mean_wait else None)
+    return summarize(values)
+
+
 def fallback_rate(recs: Sequence[RunRecord]) -> Stat:
     """Runs where at least one vehicle crossed on the stop-sign timeout.
 

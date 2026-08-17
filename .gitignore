@@ -20,7 +20,9 @@ fourway/resdb_crypto*/logs/
 
 # Generated experiment output
 benchmarks/
-figures/
+# Anchored: unanchored "figures/" also matched plotter/figures/, which is source
+# code, so the entire figure package was silently untracked.
+/figures/
 partner_results/
 bftsmart/library/
 __pycache__/
