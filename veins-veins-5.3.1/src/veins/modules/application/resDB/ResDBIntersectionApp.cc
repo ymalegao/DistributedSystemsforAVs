@@ -1390,6 +1390,14 @@ void ResDBIntersectionApp::finish()
     std::cout << "[METRICS " << ctx_.replicaId_ << "] Bytes_Sent: " << sentPayloadBytes_ << "\n";
     std::cout << "[METRICS " << ctx_.replicaId_ << "] Megabytes_Sent: "
               << (static_cast<double>(sentPayloadBytes_) / (1024.0 * 1024.0)) << "\n";
+    // One line per message type, so a layer's cost can be priced from a normal
+    // run: the arrival-cert exchange and PBFT ordering (type 8) are separate
+    // types, and totals alone cannot separate them.
+    for (const auto& kv : sentMessagesByType_) {
+        std::cout << "[METRICS " << ctx_.replicaId_ << "] Sent_By_Type: type="
+                  << kv.first << " msgs=" << kv.second
+                  << " bytes=" << sentBytesByType_[kv.first] << "\n";
+    }
     std::cout << "[METRICS " << ctx_.replicaId_ << "] Quiet_Honest_Vehicles: "
               << quietHonestVehicles_ << "\n";
     std::cout << "[METRICS " << ctx_.replicaId_ << "] Quiet_Honest_Opportunities: "

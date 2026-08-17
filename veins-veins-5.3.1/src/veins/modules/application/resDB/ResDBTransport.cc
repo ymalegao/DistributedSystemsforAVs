@@ -144,8 +144,7 @@ void ResDBIntersectionApp::drainOutboundQueue()
             pkt.resdbBytes.data(), (uint32_t)pkt.resdbBytes.size());
         if (signed_payload.empty()) continue;
 
-        sentMessages_++;
-        sentPayloadBytes_ += signed_payload.size();
+        recordSent(kResdbConsensusMsgType, signed_payload.size());
 
         BFTMessage* bft = new BFTMessage();
         bft->setFromReplicaId(ctx_.replicaId_);
@@ -285,8 +284,7 @@ void ResDBIntersectionApp::sendConsensusBytes(
         ((jmax > jmin) ? uniform(jmin, jmax) : 0.0);
     ResdbPacketRequestInfo info = {};
     ResdbOmnetGetPacketRequestInfo(bytes.data(), (uint32_t)bytes.size(), &info);
-    sentMessages_++;
-    sentPayloadBytes_ += signedPayload.size();
+    recordSent(kResdbConsensusMsgType, signedPayload.size());
     std::cout << "[PBFT-RETRY] r" << ctx_.replicaId_
               << " source=" << (source ? source : "timer")
               << " phase=" << ResdbOmnetRequestTypeName(info.type)
@@ -411,8 +409,7 @@ void ResDBIntersectionApp::sendBFTMessageNow(int toReplicaId,
                   << " to=" << toReplicaId << " t=" << simTime() << "\n";
         return;
     }
-    sentMessages_++;
-    sentPayloadBytes_ += payload.size();
+    recordSent(msgType, payload.size());
     BFTMessage* bft = new BFTMessage();
     bft->setFromReplicaId(ctx_.replicaId_);
     bft->setToReplicaId(toReplicaId);
@@ -635,8 +632,7 @@ void ResDBIntersectionApp::sendBFTMessage(int toReplicaId,
     }
 
     // Non-discovery (TYPE11 relay, gossip, cancel cert, …): keep prior path.
-    sentMessages_++;
-    sentPayloadBytes_ += payload.size();
+    recordSent(msgType, payload.size());
     BFTMessage* bft = new BFTMessage();
     bft->setFromReplicaId(ctx_.replicaId_);
     bft->setToReplicaId(toReplicaId);

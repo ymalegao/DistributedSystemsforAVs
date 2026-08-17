@@ -37,6 +37,12 @@ RE_BYTES_SENT = re.compile(r"\[METRICS (\d+)\]\s+Bytes_Sent:\s+(\d+)")
 # ResDBIntersectionApp.cc: consensus did not decide within the timeout.
 RE_CONSENSUS_TIMEOUT = re.compile(r"Consensus_Timeout:\s+1")
 
+# ResDBIntersectionApp.cc finish(): one line per BFTMessage type. Lets a
+# protocol layer be priced from a normal run instead of a counterfactual build.
+RE_SENT_BY_TYPE = re.compile(
+    r"\[METRICS (\d+)\]\s+Sent_By_Type:\s+type=(\d+)\s+msgs=(\d+)\s+bytes=(\d+)"
+)
+
 # ResDBIntersectionApp.cc / ResDBTraCI.cc, and the all-way-stop baseline module.
 # Both emit this identical line on departure, which is what lets ablation 3
 # compare the two arms on the same measurement. Intersection units never depart
@@ -123,6 +129,13 @@ def parse_log(path, key: RunKey | None = None) -> RunRecord:
 
             if RE_CONSENSUS_TIMEOUT.search(line):
                 rec.consensus_timeouts += 1
+
+            if m := RE_SENT_BY_TYPE.search(line):
+                # keyed by (replica, type) for the same reason as the totals:
+                # the counter is cumulative, so a repeat line must overwrite
+                # rather than add before the sum across replicas.
+                key = (int(m.group(1)), int(m.group(2)))
+                rec.sent_by_type[key] = (int(m.group(3)), int(m.group(4)))
 
             if m := RE_CAR_METRICS.search(line):
                 # First departure per vehicle wins: the TraCI distance check and

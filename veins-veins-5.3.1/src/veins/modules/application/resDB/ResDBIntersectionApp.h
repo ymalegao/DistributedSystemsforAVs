@@ -581,6 +581,23 @@ private:
     uint64_t quietHonestVehicles_ = 0;
     uint64_t quietHonestOpportunities_ = 0;
 
+    // Per-message-type send counters, keyed by BFTMessage messageType.
+    // The totals above cannot say what a protocol layer costs, so the ablations
+    // could only compare whole configurations. Split by type, the arrival-cert
+    // layer (announce/echo/cert) can be priced against PBFT ordering (type 8)
+    // from a single normal run, with no counterfactual build.
+    std::map<int, unsigned int> sentMessagesByType_;
+    std::map<int, uint64_t> sentBytesByType_;
+
+    /** Record one outbound frame against both the totals and its type. */
+    void recordSent(int msgType, size_t bytes)
+    {
+        sentMessages_++;
+        sentPayloadBytes_ += bytes;
+        sentMessagesByType_[msgType]++;
+        sentBytesByType_[msgType] += bytes;
+    }
+
 
     
 

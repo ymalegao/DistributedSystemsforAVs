@@ -56,6 +56,11 @@ class RunRecord:
     bytes_by_replica: Dict[int, int] = field(default_factory=dict)
     recv_by_replica: Dict[int, int] = field(default_factory=dict)
 
+    # (replica, message type) -> (messages, bytes). Lets a protocol layer be
+    # priced without a counterfactual build: the arrival-cert exchange and PBFT
+    # ordering travel as distinct BFTMessage types.
+    sent_by_type: Dict[tuple, tuple] = field(default_factory=dict)
+
     # ── degradation ──────────────────────────────────────────────────────────
     # A vehicle that crossed on the stop-sign timeout bypassed BFT entirely, so
     # a run can "commit" and still have degraded. Counted, not just flagged,
@@ -88,6 +93,26 @@ class RunRecord:
     @property
     def bytes_sent(self) -> int:
         return sum(self.bytes_by_replica.values())
+
+    # BFTMessage types, from ResDBUtil.h and ResDBIntersectionApp.h. Grouped by
+    # the protocol layer that owns them, which is the unit the ladder figure
+    # reports: what each addition costs on top of plain PBFT ordering.
+    ARRIVAL_CERT_TYPES = (1, 4, 5)      # announce, echo, cert
+    PBFT_TYPES = (8, 11)                # consensus bytes, consensus relay
+    GOSSIP_TYPES = (9, 10)              # order gossip, announce gossip
+    ROLLBACK_TYPES = (12, 13, 14)       # cancel echo, cancel cert, cancel gossip
+
+    def layer_msgs(self, types) -> int:
+        """Messages sent across all replicas for the given message types."""
+        return sum(v[0] for (_, t), v in self.sent_by_type.items() if t in types)
+
+    def layer_bytes(self, types) -> int:
+        return sum(v[1] for (_, t), v in self.sent_by_type.items() if t in types)
+
+    def layer_share(self, types) -> Optional[float]:
+        """This layer's share of all messages sent, as a percentage."""
+        total = sum(v[0] for v in self.sent_by_type.values())
+        return 100.0 * self.layer_msgs(types) / total if total else None
 
     @property
     def cleared(self) -> int:
