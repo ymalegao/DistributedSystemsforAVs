@@ -152,16 +152,16 @@ def paired_bars(ax, entries, *, value_fmt="{:.0f}", show_n=True):
 
 
 def save(fig, name: str, out_dir) -> Path:
-    """Write <name>.png and <name>.pdf at the shared DPI.
+    """Write <name>.png at the shared DPI.
 
-    Both formats every time: PNG for review, PDF for LaTeX inclusion, so the
-    thesis never picks up a stale raster of a regenerated figure.
+    PNG only, by request. If a vector copy is ever needed for print, add the
+    format here rather than in a figure module, so every figure keeps emitting
+    the same set and none can drift to its own.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
     png = out_dir / f"{name}.png"
     fig.savefig(png, dpi=DPI, facecolor=fig.get_facecolor())
-    fig.savefig(out_dir / f"{name}.pdf", facecolor=fig.get_facecolor())
     plt.close(fig)
     return png
