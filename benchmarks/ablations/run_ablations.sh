@@ -33,6 +33,13 @@ declare -A WORD=( [4]=Four [8]=Eight [12]=Twelve [16]=Sixteen [20]=Twenty )
 # Faults a view of N tolerates: f = (N-1)/3.
 f_of() { echo $((($1 - 1) / 3)); }
 
+# Silent replicas a view of N survives before quorum (2f+1) becomes
+# unreachable. This, NOT f, is where consensus actually stops: at 12 vehicles
+# f is 3 but 5 replicas can fall silent and 7 still remain to form the quorum.
+# Sweeping only to f+1 left every count except 4 and 16 at a flat 100%, which
+# locates nothing. Mirrors aggregate.tolerated_faults().
+tolerated_of() { local f; f=$(f_of "$1"); echo $(( $1 - (2 * f + 1) )); }
+
 # OMNeT++ orders node[] by SUMO vehicle ID lexicographically, so for n>9 the
 # node index differs from the replica ID (n=16: veh10 < veh2, so node[2]=veh10).
 # Injecting a fault at the wrong index silences a vehicle we did not choose and
@@ -91,10 +98,9 @@ ablation1() {
   echo "### Ablation 1: RSU on/off across N and k ###"
   for r in $(seq 1 "$REPS"); do
     for n in "${NS[@]}"; do
-      # k must reach past f, or nothing fails and the panel is a flat line.
-      # A fixed k<=2 was only ever interesting at 4 vehicles, where f=1.
-      # Swept to f+1 so the frontier is located rather than assumed.
-      for k in $(seq 0 $(( $(f_of "$n") + 1 ))); do
+      # k must reach one past the point quorum becomes unreachable, or nothing
+      # fails and the panel is a flat line locating nothing.
+      for k in $(seq 0 $(( $(tolerated_of "$n") + 1 ))); do
         local ini="$RES/_a1_n${n}_k${k}.ini"; common_ini "$ini"; silence_k "$ini" "$n" "$k"
         echo "  N=$n k=$k rep=$r OFF"; run "ab1_OFF_n${n}_k${k}_rep${r}.log" "${WORD[$n]}VehiclesResDB" -f "$ini"
         echo "  N=$n k=$k rep=$r ON";  run "ab1_ON_n${n}_k${k}_rep${r}.log"  "${WORD[$n]}VehiclesFourUnitsResDB" -f "$ini"
