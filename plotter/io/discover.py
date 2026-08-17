@@ -10,7 +10,7 @@ Runs = Dict[tuple, List[RunRecord]]
 
 
 def load_runs(results_dir, study: int | None = None) -> Runs:
-    """Parse run logs under results_dir, grouped by (study, arm, k).
+    """Parse run logs under results_dir, grouped by (study, arm, k, n).
 
     Returns {} when the directory is missing or holds no run logs; callers
     report that rather than raising, because "the matrix has not been run yet"
@@ -42,6 +42,19 @@ def ks(runs: Runs, arm: str | None = None) -> List[int]:
     })
 
 
-def cell(runs: Runs, study: int, arm: str, k: int | None = None) -> List[RunRecord]:
+def ns(runs: Runs, arm: str | None = None) -> List[int]:
+    """Sorted vehicle counts present, optionally restricted to one arm.
+
+    Empty for the pre-sweep logs, which encode no N — a figure that sweeps N
+    should treat that as "not run yet" rather than plotting a single point.
+    """
+    return sorted({
+        cell[3] for cell in runs
+        if cell[3] is not None and (arm is None or cell[1] == arm)
+    })
+
+
+def cell(runs: Runs, study: int, arm: str, k: int | None = None,
+         n: int | None = None) -> List[RunRecord]:
     """The repetitions for one cell; empty when that cell was never run."""
-    return runs.get((study, arm, k), [])
+    return runs.get((study, arm, k, n), [])

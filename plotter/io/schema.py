@@ -16,15 +16,19 @@ class RunKey:
     arm   - the condition, e.g. "OFF"/"ON", "ours"/"vanilla", "rollback_on"
     k     - PBFT-silent replicas; None for ablations that do not sweep it
     rep   - repetition index
+    n     - vehicle count. None for the original single-operating-point runs,
+            which encoded no N in the filename because every ablation ran at
+            4 vehicles. Kept optional so those logs still parse.
     """
     study: int
     arm: str
     k: Optional[int] = None
     rep: int = 0
+    n: Optional[int] = None
 
     def cell(self) -> tuple:
         """The key runs are grouped by — everything but the repetition."""
-        return (self.study, self.arm, self.k)
+        return (self.study, self.arm, self.k, self.n)
 
 
 @dataclass
@@ -46,8 +50,27 @@ class RunRecord:
 
     # ── cost ─────────────────────────────────────────────────────────────────
     # Messages_Sent is cumulative and finish()-only: keep the LAST value per
-    # replica, then sum across replicas.
+    # replica, then sum across replicas. Bytes_Sent and Messages_Received come
+    # from the same finish() block and follow the same rule.
     msgs_by_replica: Dict[int, int] = field(default_factory=dict)
+    bytes_by_replica: Dict[int, int] = field(default_factory=dict)
+    recv_by_replica: Dict[int, int] = field(default_factory=dict)
+
+    # ── degradation ──────────────────────────────────────────────────────────
+    # A vehicle that crossed on the stop-sign timeout bypassed BFT entirely, so
+    # a run can "commit" and still have degraded. Counted, not just flagged,
+    # because how MANY cars fell back is the size of the degradation.
+    stopsign_timeouts: int = 0
+    consensus_timeouts: int = 0
+
+    # ── clearance ────────────────────────────────────────────────────────────
+    # [CAR-METRICS] is emitted by the BFT app and the all-way-stop baseline in
+    # the same format, which is what makes throughput comparable across
+    # ablation 3's two arms. Intersection units never emit it, so these dicts
+    # count vehicles only -- never replicas.
+    stop_at: Dict[int, float] = field(default_factory=dict)
+    depart_at: Dict[int, float] = field(default_factory=dict)
+    role: Dict[int, str] = field(default_factory=dict)
 
     # ── latency ──────────────────────────────────────────────────────────────
     bft_latency_s: List[float] = field(default_factory=list)    # PBFT ordering
@@ -61,6 +84,71 @@ class RunRecord:
     @property
     def msgs(self) -> int:
         return sum(self.msgs_by_replica.values())
+
+    @property
+    def bytes_sent(self) -> int:
+        return sum(self.bytes_by_replica.values())
+
+    @property
+    def cleared(self) -> int:
+        """Vehicles that physically crossed the intersection."""
+        return len(self.depart_at)
+
+    @property
+    def busy_window(self) -> Optional[float]:
+        """First vehicle stops -> last vehicle clears.
+
+        The service window, not the simulated duration: sim-time-limit differs
+        between scenarios (and the scenario's own [Config] silently overrides
+        [General]), so anything divided by wall duration is not comparable
+        across configs. This is.
+        """
+        if not self.depart_at or not self.stop_at:
+            return None
+        span = max(self.depart_at.values()) - min(self.stop_at.values())
+        return span if span > 0 else None
+
+    @property
+    def throughput(self) -> Optional[float]:
+        """Vehicles cleared per second of service window."""
+        window = self.busy_window
+        return self.cleared / window if window else None
+
+    @property
+    def msgs_per_vehicle(self) -> Optional[float]:
+        """Message cost of serving one vehicle.
+
+        Divided by vehicles SERVED rather than by replica count, so a
+        configuration that adds replicas (RSU units) to move the same traffic
+        is charged for them instead of being credited with a lower per-replica
+        average.
+        """
+        if not self.cleared or not self.msgs_by_replica:
+            return None
+        return self.msgs / self.cleared
+
+    def clearance_waits(self) -> Dict[int, float]:
+        """Per-vehicle stop -> departure time.
+
+        Distinct from wait_times(): Resume_Time is when consensus RELEASED the
+        vehicle, which in the BFT arm precedes physically clearing by seconds,
+        while in the all-way-stop baseline the two coincide. Comparing arms on
+        release time therefore flatters the BFT arm; this is the metric that
+        means the same thing in both.
+        """
+        return {
+            v: self.depart_at[v] - self.stop_at[v]
+            for v in self.depart_at
+            if v in self.stop_at and self.depart_at[v] >= self.stop_at[v]
+        }
+
+    @property
+    def mean_clearance_wait(self) -> Optional[float]:
+        w = self.clearance_waits()
+        return mean(w.values()) if w else None
+
+    def ambulance_ids(self) -> List[int]:
+        return [v for v, r in self.role.items() if r == "ambulance"]
 
     @property
     def msgs_emitted(self) -> bool:

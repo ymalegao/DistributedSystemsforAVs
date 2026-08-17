@@ -79,6 +79,64 @@ def msgs(recs: Sequence[RunRecord], *, committed_only: bool = True) -> Stat:
     return summarize([r.msgs for r in usable])
 
 
+def msgs_per_vehicle(recs: Sequence[RunRecord], *, committed_only: bool = True) -> Stat:
+    """Messages spent per vehicle served — the scale-fair cost metric.
+
+    Raw message count grows with the replica set, so comparing a 4-vehicle arm
+    against a 4-vehicle + 4-unit arm on totals conflates "costs more" with "has
+    more nodes". Per vehicle served, the two are on the same footing.
+    """
+    usable = [r for r in recs if r.msgs_emitted and (r.committed or not committed_only)]
+    return summarize([r.msgs_per_vehicle for r in usable])
+
+
+def bytes_sent(recs: Sequence[RunRecord], *, committed_only: bool = True) -> Stat:
+    """Payload bytes per run. Same conditioning rule as msgs()."""
+    usable = [r for r in recs if r.bytes_by_replica and (r.committed or not committed_only)]
+    return summarize([r.bytes_sent for r in usable])
+
+
+def throughput(recs: Sequence[RunRecord]) -> Stat:
+    """Vehicles cleared per second of service window.
+
+    Not conditioned on committing: a run that collapsed still moved whatever
+    traffic the stop-sign fallback moved, and excluding those would hide the
+    cost of collapse — which is the thing the figure exists to show.
+    """
+    return summarize([r.throughput for r in recs])
+
+
+def cleared(recs: Sequence[RunRecord]) -> Stat:
+    """Vehicles that physically crossed."""
+    return summarize([float(r.cleared) for r in recs])
+
+
+def clearance_wait(recs: Sequence[RunRecord]) -> Stat:
+    """Mean stop -> departure time. See RunRecord.clearance_waits for why this
+    rather than the release-time wait."""
+    return summarize([r.mean_clearance_wait for r in recs])
+
+
+def ambulance_clearance_wait(recs: Sequence[RunRecord]) -> Stat:
+    """Stop -> departure for the ambulance, identified by its logged role
+    rather than a hardcoded vehicle id (which changes with --randomize)."""
+    values = []
+    for r in recs:
+        waits = r.clearance_waits()
+        amb = [waits[v] for v in r.ambulance_ids() if v in waits]
+        values.append(statistics.mean(amb) if amb else None)
+    return summarize(values)
+
+
+def fallback_rate(recs: Sequence[RunRecord]) -> Stat:
+    """Runs where at least one vehicle crossed on the stop-sign timeout.
+
+    A run can decide an order and still degrade, so this is reported alongside
+    commit_rate rather than folded into it.
+    """
+    return rate(recs, lambda r: r.stopsign_timeouts > 0)
+
+
 def bft_latency(recs: Sequence[RunRecord]) -> Stat:
     """Mean PBFT ordering latency in seconds."""
     return summarize([r.mean_bft_latency for r in recs])
