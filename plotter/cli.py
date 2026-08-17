@@ -7,7 +7,7 @@
 import argparse
 from pathlib import Path
 
-from . import style
+from . import style, summary
 from .io import discover
 from .figures import _registry
 
@@ -38,7 +38,8 @@ def main(argv=None) -> int:
 
     sub.add_parser("list", help="list available figures")
     for name, help_text in (("build", "build one figure"),
-                            ("build-all", "build every figure that has data")):
+                            ("build-all", "build every figure that has data"),
+                            ("summary", "write the results table")):
         p = sub.add_parser(name, help=help_text)
         if name == "build":
             p.add_argument("name")
@@ -55,6 +56,13 @@ def main(argv=None) -> int:
             print(f"  {module.NAME:<24} {module.TITLE}")
             print(f"  {'':<24} ({source})")
         return 0
+
+    if args.command == "summary":
+        out = Path(args.out) / "results.md"
+        n = summary.build(args.results, out)
+        print(f"No ablation run logs in {args.results}" if not n
+              else f"{n} cells -> {out}")
+        return 0 if n else 1
 
     # Parsed once and shared: every ablation figure reads the same results tree,
     # and the logs are large enough that re-globbing per figure is wasteful.

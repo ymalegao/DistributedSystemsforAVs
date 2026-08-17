@@ -30,8 +30,8 @@ from .. import style
 NAME = "ladder"
 TITLE = "Capability ladder: what each layer adds"
 STUDY = 6
-SUBPLOTS = (2, 2)
-FIGSIZE = (12.0, 8.0)
+SUBPLOTS = (2, 3)
+FIGSIZE = (14.5, 8.2)
 
 STAGES = ((0, "S0\nvanilla"), (1, "S1\n+firewall"), (2, "S2\n+gossip"),
           (3, "S3\n+priority"), (4, "S4\n+RSU"), (5, "S5\n+rollback"))
@@ -53,27 +53,30 @@ def load(runs):
         commit=[aggregate.commit_rate(c) for c in faults],
         throughput=[aggregate.throughput(c) for c in normal],
         cost=[aggregate.msgs_per_vehicle(c) for c in normal],
-        cert_share=[aggregate.summarize(
-            [r.layer_share(RunRecord.ARRIVAL_CERT_TYPES) for r in c]) for c in normal],
+        latency=[aggregate.stop_to_decision(c) for c in normal],
+        bytes=[aggregate.bytes_per_vehicle(c) for c in normal],
     )
 
 
 def _bar_panel(stats, ax, *, title, ylabel, fmt="{:.0f}", pct=False):
-    xs, ys, labels = [], [], []
+    xs, ys, labels, errs = [], [], [], ([], [])
     for i, ((_, label), stat) in enumerate(zip(STAGES, stats)):
         if stat.mean is None:
             continue
         xs.append(i)
         ys.append(stat.mean)
         labels.append(label)
+        errs[0].append(stat.mean - stat.lo)
+        errs[1].append(stat.hi - stat.mean)
     if not xs:
         return
     # One hue across the ladder: the bars are stages of one system, not rival
     # conditions, so the control/treatment pairing would misread here.
-    ax.bar(xs, ys, 0.62, color=style.TREATMENT,
+    ax.bar(xs, ys, 0.62, color=style.TREATMENT, yerr=errs, capsize=3,
+           ecolor=style.INK_SECONDARY,
            edgecolor=style.BAR_EDGE, linewidth=style.BAR_EDGEWIDTH)
-    for x, y in zip(xs, ys):
-        ax.annotate(fmt.format(y), xy=(x, y), xytext=(0, 4),
+    for x, y, hi in zip(xs, ys, errs[1]):
+        ax.annotate(fmt.format(y), xy=(x, y + hi), xytext=(0, 4),
                     textcoords="offset points", ha="center",
                     fontsize=9, color=style.INK_PRIMARY)
     ax.set_xticks(xs)
@@ -94,9 +97,15 @@ def build(data, axes):
     _bar_panel(data["throughput"], flat[2], fmt="{:.2f}",
                title="Throughput, no faults",
                ylabel="vehicles cleared per second")
-    _bar_panel(data["cost"], flat[3],
-               title="Cost per vehicle served",
+    _bar_panel(data["latency"], flat[3], fmt="{:.1f}",
+               title="Delay to consensus",
+               ylabel="stop to decision (s)")
+    _bar_panel(data["cost"], flat[4],
+               title="Message cost per vehicle served",
                ylabel="messages per vehicle")
+    _bar_panel(data["bytes"], flat[5], fmt="{:.0f}",
+               title="Bandwidth per vehicle served",
+               ylabel="payload bytes per vehicle")
     flat[0].figure.suptitle(
         "Each layer buys a different guarantee — and is paid for on the right",
         fontsize=12, color=style.INK_PRIMARY)

@@ -22,8 +22,18 @@ from .schema import RunKey, RunRecord
 RE_ORDER_DECIDED = re.compile(r"Order_Decided_Time")
 RE_ORDER_BATCHES = re.compile(r"\[METRICS (\d+)\]\s+Order_Decided_Time:.*n_batches=(\d+)")
 
-# Bridge: the active-view sizing this run actually used.
-RE_QUORUM_VOTE = re.compile(r"voteN=(\d+) f=(\d+) quorum=(\d+)")
+# Bridge: the quorum this run actually required. The previous pattern here
+# looked for "voteN= f= quorum=", which the simulator never emits, so the field
+# was silently always absent.
+RE_QUORUM = re.compile(r"\[PBFT-QUORUM\].*?quorum=(\d+)")
+
+# ResDBArrivalProtocol: how long the f+1 certificate round took to collect.
+RE_CERT_COLLECTION = re.compile(r"Cert_Collection_Duration:\s+([\d.]+)s")
+
+# ResDBDecision: stop -> consensus decided. Distinct from the ordering latency
+# below, which starts at proposal; this includes waiting to be able to propose,
+# and is the delay a passenger actually experiences before release.
+RE_STOP_TO_DECISION = re.compile(r"stop_to_decision\(sim\)=([\d.]+)s")
 
 # ResDBTraCI.cc: vehicle crossed on the stop-sign timeout, i.e. BFT bypassed.
 # This is the safety-relevant degradation, so a refactor must not change it.
@@ -154,6 +164,15 @@ def parse_log(path, key: RunKey | None = None) -> RunRecord:
 
             if m := RE_CERT_LATENCY.search(line):
                 rec.cert_latency_s.append(float(m.group(1)))
+
+            if m := RE_CERT_COLLECTION.search(line):
+                rec.cert_collection_s.append(float(m.group(1)))
+
+            if m := RE_STOP_TO_DECISION.search(line):
+                rec.stop_to_decision_s.append(float(m.group(1)))
+
+            if m := RE_QUORUM.search(line):
+                rec.quorum = int(m.group(1))
 
             if RE_FALSE_PRIORITY.search(line):
                 rec.false_priority_granted += 1

@@ -55,6 +55,47 @@ BAR_EDGE = SURFACE      # 2px surface gap between adjacent bars
 BAR_EDGEWIDTH = 2.0
 
 
+# ── sequential ramp, for an ordered variable (vehicle count) ─────────────────
+# Categorical slots encode a ROLE and must not be reused for magnitude: a
+# reader who has learned blue=control would read a blue N=4 line as a control.
+# This ramp varies lightness monotonically, so the ordering survives greyscale
+# printing and every form of colour vision deficiency.
+SEQUENTIAL = ("#c6dbef", "#82b3dd", "#4a8fc7", "#2a6ba8", "#14456f")
+MARKERS = ("o", "s", "^", "D", "v")
+
+
+def ordered(index: int, total: int, label: str = "") -> dict:
+    """Plot kwargs for step `index` of `total` along an ordered variable.
+
+    Marker varies with colour so the series stay separable in greyscale.
+    """
+    if total <= 1:
+        pos = len(SEQUENTIAL) - 1
+    else:
+        pos = round(index * (len(SEQUENTIAL) - 1) / (total - 1))
+    spec = dict(color=SEQUENTIAL[pos], marker=MARKERS[index % len(MARKERS)])
+    if label:
+        spec["label"] = label
+    return spec
+
+
+def errorbar(ax, xs, stats, spec, *, dashed=False):
+    """Plot a series of Stats with their observed min-max range.
+
+    Every measured point carries its spread: with three repetitions a bare mean
+    cannot be told apart from a single lucky run, and near a quorum edge these
+    outcomes are probabilistic rather than a step.
+    """
+    ys = [s.mean if s.mean is not None else float("nan") for s in stats]
+    lo = [(s.mean - s.lo) if s.mean is not None else 0.0 for s in stats]
+    hi = [(s.hi - s.mean) if s.mean is not None else 0.0 for s in stats]
+    return ax.errorbar(xs, ys, yerr=[lo, hi], marker=spec["marker"],
+                       color=spec["color"], linewidth=LINEWIDTH,
+                       markersize=MARKERSIZE, capsize=3, elinewidth=1.2,
+                       ecolor=INK_SECONDARY, label=spec.get("label"),
+                       linestyle="--" if dashed else "-")
+
+
 def series(role: str, label: str = "") -> dict:
     """Plot kwargs for a role ("control" or "treatment"), with its legend label.
 

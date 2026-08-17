@@ -33,7 +33,7 @@ LAYERS = (("arrival certificates", RunRecord.ARRIVAL_CERT_TYPES, style.TREATMENT
 
 
 def load(runs):
-    ns = discover.ns(runs, "OFF")
+    ns = discover.ns(runs, "OFF", STUDY)
     if not ns:
         return {}
     # k=0 only: with replicas silenced the traffic mix reflects failure, not

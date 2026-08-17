@@ -172,6 +172,33 @@ def cert_latency(recs: Sequence[RunRecord]) -> Stat:
     return summarize([r.mean_cert_latency for r in recs])
 
 
+def cert_collection(recs: Sequence[RunRecord]) -> Stat:
+    """Mean duration of the f+1 certificate collection round, in seconds."""
+    return summarize([r.mean_cert_collection for r in recs])
+
+
+def stop_to_decision(recs: Sequence[RunRecord]) -> Stat:
+    """Mean stop -> consensus decided, in seconds.
+
+    The delay a vehicle actually experiences before release. Ordering latency
+    alone understates it, because it starts at proposal and so excludes the
+    wait for discovery to complete and for the right to propose.
+    """
+    return summarize([r.mean_stop_to_decision for r in recs])
+
+
+def bytes_per_vehicle(recs: Sequence[RunRecord], *, committed_only: bool = True) -> Stat:
+    """Payload bytes spent per vehicle served."""
+    usable = [r for r in recs if r.bytes_by_replica and (r.committed or not committed_only)]
+    return summarize([r.bytes_per_vehicle for r in usable])
+
+
+def quorum(recs: Sequence[RunRecord]) -> Stat:
+    """The quorum the runs actually required. Reported so a figure can state
+    the view sizing it was measured under rather than implying it."""
+    return summarize([float(r.quorum) for r in recs if r.quorum is not None])
+
+
 def wait_time(recs: Sequence[RunRecord]) -> Stat:
     """Mean per-vehicle intersection wait, averaged within a run then across runs."""
     return summarize([r.mean_wait for r in recs])

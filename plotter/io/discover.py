@@ -29,21 +29,28 @@ def load_runs(results_dir, study: int | None = None) -> Runs:
     return dict(runs)
 
 
-def arms(runs: Runs) -> List[str]:
+def arms(runs: Runs, study: int | None = None) -> List[str]:
     """Distinct arms present, in sorted order."""
-    return sorted({cell[1] for cell in runs})
+    return sorted({cell[1] for cell in runs
+                   if study is None or cell[0] == study})
 
 
-def ks(runs: Runs, arm: str | None = None) -> List[int]:
-    """Sorted k values present, optionally restricted to one arm."""
+def ks(runs: Runs, arm: str | None = None, study: int | None = None) -> List[int]:
+    """Sorted k values present, optionally restricted to one arm and study."""
     return sorted({
         cell[2] for cell in runs
         if cell[2] is not None and (arm is None or cell[1] == arm)
+        and (study is None or cell[0] == study)
     })
 
 
-def ns(runs: Runs, arm: str | None = None) -> List[int]:
-    """Sorted vehicle counts present, optionally restricted to one arm.
+def ns(runs: Runs, arm: str | None = None, study: int | None = None) -> List[int]:
+    """Sorted vehicle counts present, optionally restricted to one arm and study.
+
+    Pass `study` whenever a figure uses this to decide it has data: arm names
+    are not unique across studies ("ours" appears in both 2 and 3), so without
+    it a figure can see another study's vehicle counts, conclude it has been
+    run, and render entirely empty axes.
 
     Empty for the pre-sweep logs, which encode no N — a figure that sweeps N
     should treat that as "not run yet" rather than plotting a single point.
@@ -51,6 +58,7 @@ def ns(runs: Runs, arm: str | None = None) -> List[int]:
     return sorted({
         cell[3] for cell in runs
         if cell[3] is not None and (arm is None or cell[1] == arm)
+        and (study is None or cell[0] == study)
     })
 
 

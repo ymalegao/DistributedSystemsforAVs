@@ -70,6 +70,13 @@ silence_k() {   # $1=ini $2=n $3=k
 run() {   # $1=logname $2=config ; $3.. = extra args
   local name="$1" cfg="$2"; shift 2
   local log="$RES/$name"
+  # Resumable: a log that reached finish() is a complete cell, so a re-invoked
+  # matrix fills gaps instead of re-running hours of work. Partial logs (killed
+  # run, crash before finish) have no [METRICS line and are re-run.
+  if [[ -s "$log" ]] && grep -q '^\[METRICS ' "$log"; then
+    echo "    -> cached"
+    return
+  fi
   # LOG_FILE must be per-run: the runner used to hardcode one path, and two
   # interleaved runs produced a log with two finish markers that still parsed.
   ( cd "$FOURWAY" && LOG_FILE="$RES/.${name}.simlog" timeout 900 \
@@ -84,7 +91,10 @@ ablation1() {
   echo "### Ablation 1: RSU on/off across N and k ###"
   for r in $(seq 1 "$REPS"); do
     for n in "${NS[@]}"; do
-      for k in 0 1 2; do
+      # k must reach past f, or nothing fails and the panel is a flat line.
+      # A fixed k<=2 was only ever interesting at 4 vehicles, where f=1.
+      # Swept to f+1 so the frontier is located rather than assumed.
+      for k in $(seq 0 $(( $(f_of "$n") + 1 ))); do
         local ini="$RES/_a1_n${n}_k${k}.ini"; common_ini "$ini"; silence_k "$ini" "$n" "$k"
         echo "  N=$n k=$k rep=$r OFF"; run "ab1_OFF_n${n}_k${k}_rep${r}.log" "${WORD[$n]}VehiclesResDB" -f "$ini"
         echo "  N=$n k=$k rep=$r ON";  run "ab1_ON_n${n}_k${k}_rep${r}.log"  "${WORD[$n]}VehiclesFourUnitsResDB" -f "$ini"

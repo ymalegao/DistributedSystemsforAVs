@@ -80,6 +80,13 @@ class RunRecord:
     # ── latency ──────────────────────────────────────────────────────────────
     bft_latency_s: List[float] = field(default_factory=list)    # PBFT ordering
     cert_latency_s: List[float] = field(default_factory=list)   # arrival-cert f+1
+    cert_collection_s: List[float] = field(default_factory=list)  # f+1 round
+    # Stop -> decided. Includes waiting for the right to propose, so it is the
+    # delay actually experienced, where bft_latency_s starts at proposal.
+    stop_to_decision_s: List[float] = field(default_factory=list)
+
+    # ── configuration the run actually used ──────────────────────────────────
+    quorum: Optional[int] = None
 
     # ── per-vehicle timing ───────────────────────────────────────────────────
     stop_time: Dict[int, float] = field(default_factory=dict)
@@ -191,6 +198,20 @@ class RunRecord:
     @property
     def mean_cert_latency(self) -> Optional[float]:
         return mean(self.cert_latency_s) if self.cert_latency_s else None
+
+    @property
+    def mean_cert_collection(self) -> Optional[float]:
+        return mean(self.cert_collection_s) if self.cert_collection_s else None
+
+    @property
+    def mean_stop_to_decision(self) -> Optional[float]:
+        return mean(self.stop_to_decision_s) if self.stop_to_decision_s else None
+
+    @property
+    def bytes_per_vehicle(self) -> Optional[float]:
+        if not self.cleared or not self.bytes_by_replica:
+            return None
+        return self.bytes_sent / self.cleared
 
     def wait_times(self) -> Dict[int, float]:
         """Per-vehicle intersection wait = Resume - Stop.

@@ -1,99 +1,102 @@
-"""Ablation 1 — what RSU units buy, and what they cost, across traffic load.
+"""Ablation 1 — what RSU units buy, and everything they cost.
 
-Five small multiples rather than one panel: the claim is that the fault
-frontier MOVES with the replica set, and a single operating point cannot show
-a frontier moving. Each panel is one vehicle count, so "without RSU consensus
-fails at k=2" is read directly off the leftmost panel, and the reader sees
-whether that failure point shifts as N grows.
+Six panels, because "units help" is four separate claims and a reader has to
+be able to check each: they raise the fault frontier, and they change
+throughput, latency, and message cost. Reporting only the first would be
+advocacy; reporting overhead as a single percentage (as the previous version
+did) hid that the without-RSU arm sends FEWER messages as k rises, precisely
+because its replicas have gone silent.
 
-The sixth panel is throughput, because tolerance bought at the cost of moving
-less traffic is not obviously a win, and the earlier version of this figure
-reported message overhead as a percentage of the without-RSU arm -- which hid
-that the without-RSU arm sends fewer messages as k rises precisely because its
-replicas have gone silent.
+The top row splits the two arms rather than overlaying them, with one line per
+vehicle count, because the claim is about a frontier that MOVES with the
+replica set. Overlaying ten lines in one panel would make the movement
+unreadable; separating the arms lets the reader compare the same shape twice.
+
+Every point carries its observed min-max range. Near a quorum edge the outcome
+is probabilistic rather than a step, so a bare mean over three runs cannot be
+distinguished from one lucky run.
 """
 from ..io import discover
 from ..metrics import aggregate
 from .. import style
 
 NAME = "ab1_rsu"
-TITLE = "RSU units: fault tolerance and throughput vs traffic load"
+TITLE = "RSU units: fault tolerance, throughput, latency and cost vs load"
 STUDY = 1
 SUBPLOTS = (2, 3)
-FIGSIZE = (13.5, 7.4)
+FIGSIZE = (14.5, 8.2)
 
 _ARMS = (("OFF", "control", "without RSU"),
          ("ON", "treatment", "with 4 RSU"))
 
+# (panel title, y label, aggregator) for the cost/performance row, all read at
+# k=0: with replicas silenced the arms are not doing the same job, so a
+# difference there is not a like-for-like comparison.
+_METRICS = (
+    ("Throughput", "vehicles cleared / s", aggregate.throughput),
+    ("Delay to consensus", "stop to decision (s)", aggregate.stop_to_decision),
+    ("Message cost", "messages / vehicle served", aggregate.msgs_per_vehicle),
+)
+
 
 def load(runs):
-    ns = discover.ns(runs, "OFF")
+    ns = discover.ns(runs, "OFF", STUDY)
     if not ns:
         return {}
-    ks = discover.ks(runs)
-    tolerance, throughput, cost = {}, {}, {}
-    for arm, _, _ in _ARMS:
-        tolerance[arm] = {
-            n: [aggregate.commit_rate(discover.cell(runs, STUDY, arm, k, n)) for k in ks]
-            for n in ns
-        }
-        # Throughput and cost are read at k=0: with faults injected the arms are
-        # not doing the same job, so a difference there is not a like-for-like
-        # comparison of what the units cost.
-        throughput[arm] = [aggregate.throughput(discover.cell(runs, STUDY, arm, 0, n)) for n in ns]
-        cost[arm] = [aggregate.msgs_per_vehicle(discover.cell(runs, STUDY, arm, 0, n)) for n in ns]
-    return dict(ns=ns, ks=ks, tolerance=tolerance, throughput=throughput, cost=cost)
+    ks = discover.ks(runs, study=STUDY)
+    tolerance = {arm: {n: [aggregate.commit_rate(discover.cell(runs, STUDY, arm, k, n))
+                           for k in ks] for n in ns}
+                 for arm, _, _ in _ARMS}
+    metrics = {title: {arm: [agg(discover.cell(runs, STUDY, arm, 0, n)) for n in ns]
+                       for arm, _, _ in _ARMS}
+               for title, _, agg in _METRICS}
+    return dict(ns=ns, ks=ks, tolerance=tolerance, metrics=metrics,
+                quorum={arm: [aggregate.quorum(discover.cell(runs, STUDY, arm, 0, n))
+                              for n in ns] for arm, _, _ in _ARMS})
 
 
-def _panel_tolerance(data, ax, n, show_ylabel):
-    for arm, role, label in _ARMS:
-        spec = style.series(role, label)
-        ys = [s.mean if s.mean is not None else float("nan")
-              for s in data["tolerance"][arm][n]]
-        # The arms sit on top of each other until the control collapses, so a
-        # solid control line would be hidden and read as "not measured".
-        ax.plot(data["ks"], ys, marker=spec["marker"], color=spec["color"],
-                linestyle="--" if role == "control" else "-",
-                linewidth=style.LINEWIDTH, markersize=style.MARKERSIZE,
-                label=spec["label"])
+def _frontier_panel(data, ax, arm, title, show_ylabel):
+    ns = data["ns"]
+    for i, n in enumerate(ns):
+        spec = style.ordered(i, len(ns), f"{n} veh")
+        style.errorbar(ax, data["ks"], data["tolerance"][arm][n], spec)
     ax.set_xticks(data["ks"])
     ax.set_ylim(-5, 105)
-    style.finish(ax, title=f"{n} vehicles",
-                 xlabel="silent replicas (k)",
+    style.finish(ax, title=title, xlabel="silent replicas (k)",
                  ylabel="runs reaching consensus (%)" if show_ylabel else None,
-                 legend=False)
+                 legend=show_ylabel)
 
 
-def _panel_throughput(data, ax):
+def _metric_panel(data, ax, title, ylabel, show_legend):
+    ns = data["ns"]
     for arm, role, label in _ARMS:
         spec = style.series(role, label)
-        ys = [s.mean if s.mean is not None else float("nan")
-              for s in data["throughput"][arm]]
-        ax.plot(data["ns"], ys, marker=spec["marker"], color=spec["color"],
-                linewidth=style.LINEWIDTH, markersize=style.MARKERSIZE,
-                label=spec["label"])
-    ax.set_xticks(data["ns"])
-    # The figure-level legend already names both arms; a second copy inside
-    # this panel would repeat it.
-    style.finish(ax, title="Throughput, no faults injected",
-                 xlabel="vehicles", ylabel="vehicles cleared per second",
-                 legend=False)
+        style.errorbar(ax, ns, data["metrics"][title][arm], spec,
+                       dashed=(role == "control"))
+    ax.set_xticks(ns)
+    style.finish(ax, title=title, xlabel="vehicles", ylabel=ylabel,
+                 legend=show_legend)
 
 
 def build(data, axes):
     flat = list(axes.flat)
-    ns = data["ns"]
-    for i, n in enumerate(ns[:5]):
-        _panel_tolerance(data, flat[i], n, show_ylabel=(i % 3 == 0))
-    # Whatever panel is left after one per vehicle count carries throughput.
-    _panel_throughput(data, flat[5])
-    for ax in flat[len(ns):5]:
-        ax.set_visible(False)
+    _frontier_panel(data, flat[0], "OFF", "Fault tolerance — without RSU", True)
+    _frontier_panel(data, flat[1], "ON", "Fault tolerance — with 4 RSU", False)
 
-    handles, labels = flat[0].get_legend_handles_labels()
-    flat[0].figure.legend(handles, labels, fontsize=9, frameon=False,
-                          labelcolor=style.INK_PRIMARY, ncol=2,
-                          loc="upper right", bbox_to_anchor=(0.99, 0.99))
+    # Quorum is what the fault frontier is set by, so stating the measured
+    # value keeps the left-hand panels from looking like an unexplained result.
+    ns = data["ns"]
+    ax = flat[2]
+    for arm, role, label in _ARMS:
+        spec = style.series(role, label)
+        style.errorbar(ax, ns, data["quorum"][arm], spec, dashed=(role == "control"))
+    ax.set_xticks(ns)
+    style.finish(ax, title="Quorum required", xlabel="vehicles",
+                 ylabel="replica votes to commit", legend=True)
+
+    for i, (title, ylabel, _) in enumerate(_METRICS):
+        _metric_panel(data, flat[3 + i], title, ylabel, show_legend=(i == 0))
+
     flat[0].figure.suptitle(
-        "Ablation 1 — RSU units raise the fault frontier as traffic grows",
+        "Ablation 1 — RSU units raise the fault frontier, and what that costs",
         fontsize=12, color=style.INK_PRIMARY)
