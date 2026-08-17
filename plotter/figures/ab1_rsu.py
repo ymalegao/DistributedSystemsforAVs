@@ -73,8 +73,11 @@ def _panel_throughput(data, ax):
                 linewidth=style.LINEWIDTH, markersize=style.MARKERSIZE,
                 label=spec["label"])
     ax.set_xticks(data["ns"])
+    # The figure-level legend already names both arms; a second copy inside
+    # this panel would repeat it.
     style.finish(ax, title="Throughput, no faults injected",
-                 xlabel="vehicles", ylabel="vehicles cleared per second")
+                 xlabel="vehicles", ylabel="vehicles cleared per second",
+                 legend=False)
 
 
 def build(data, axes):
