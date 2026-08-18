@@ -8,13 +8,20 @@ releases a vehicle seconds before it physically crosses. That flattered the BFT
 arm roughly threefold. Both arms emit [CAR-METRICS] with a departure time, so
 this figure uses stop -> departure, which means the same thing on both sides.
 
-And it reported one load. The claim is that batching non-conflicting movements
-beats serialising every vehicle -- a claim about how the gap GROWS with
-traffic, which four vehicles cannot show.
+And it reported one load, at the one vehicle count that has no queue. The
+claim is that batching non-conflicting movements beats serialising every
+vehicle -- a claim about how the gap GROWS with traffic, which four
+simultaneous cars cannot show at all. The sweep now starts at 8.
 
-Four panels: the delay and throughput the claim rests on, the spread across
-individual vehicles (a mean hides whether one car was starved to speed up the
-rest), and what consensus costs to run, which the baseline does not pay at all.
+Four panels: delay, service rate, the spread across individual vehicles (a
+mean hides whether one car was starved to speed up the rest), and throughput.
+
+Throughput here starts its clock at the first stop, so it includes the time
+cars spend waiting as well as the time they take to discharge. The arms run
+different route files and therefore different arrival patterns, so part of the
+gap in that panel is the scenario rather than the controller -- service rate is
+the clean comparison. Both are shown because the difference between them is
+itself the result: it is the dead time consensus adds before anything moves.
 
 Caveat for the talk: the arms use different net/route files, so this compares
 two control approaches rather than one scenario with the controller swapped.
@@ -32,9 +39,19 @@ FIGSIZE = (11.5, 8.0)
 _ARMS = (("baseline", "control", "SUMO all-way stop"),
          ("ours", "treatment", "our BFT protocol"))
 
+# The 4-vehicle scenario is excluded: it is the only one with no queue.
+# Its route file puts every car at departPos=0, so all four reach the stop
+# line together (stop spread 0.0s) and none ever waits for another to clear.
+# From 8 vehicles on there are 2-5 ranks per approach at departPos 0/20/40/
+# 60/80, and a trailing car cannot reach the line until its leader has gone.
+# That one-off serialisation costs +10.2s of window between 4 and 8 against
+# +3.4s for every rank after, which showed up as a throughput dip that is
+# geometry, not control. Comparing across it measures the route file.
+MIN_N = 8
+
 
 def load(runs):
-    ns = discover.ns(runs, "ours", STUDY)
+    ns = [n for n in discover.ns(runs, "ours", STUDY) if n >= MIN_N]
     if not ns:
         return {}
     cells = {arm: [discover.cell(runs, STUDY, arm, None, n) for n in ns]
@@ -47,9 +64,9 @@ def load(runs):
     return dict(
         ns=ns,
         wait={arm: [aggregate.clearance_wait(c) for c in cells[arm]] for arm, _, _ in _ARMS},
-        thru={arm: [aggregate.discharge_rate(c) for c in cells[arm]] for arm, _, _ in _ARMS},
-        cost={arm: [aggregate.msgs_per_vehicle(c, committed_only=False)
-                    for c in cells[arm]] for arm, _, _ in _ARMS},
+        rate={arm: [aggregate.discharge_rate(c) for c in cells[arm]] for arm, _, _ in _ARMS},
+        thru={arm: [aggregate.throughput(c) for c in cells[arm]]
+              for arm, _, _ in _ARMS},
         spread=spread,
     )
 
@@ -96,13 +113,13 @@ def build(data, axes):
     flat = list(axes.flat)
     _line_panel(data, "wait", flat[0], title="Time from stopping to clearing",
                 ylabel="mean seconds per vehicle", legend=True)
-    _line_panel(data, "thru", flat[1],
+    _line_panel(data, "rate", flat[1],
                 title="Service rate once clearing starts",
                 ylabel="vehicles / s across departures")
     _spread_panel(data, flat[2])
-    _line_panel(data, "cost", flat[3], skip_zero=True,
-                title="Coordination cost (all-way stop: no messages)",
-                ylabel="messages per vehicle served")
+    _line_panel(data, "thru", flat[3],
+                title="Throughput (stop to last departure)",
+                ylabel="vehicles cleared / s")
     flat[0].figure.suptitle(
         "Ablation 3 — measured on stop-to-departure, the metric both arms share",
         fontsize=12, color=style.INK_PRIMARY)

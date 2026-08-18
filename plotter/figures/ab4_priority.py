@@ -28,16 +28,24 @@ FIGSIZE = (14.5, 8.2)
 _ARMS = (("noprio", "control", "no priority (FIFO)"),
          ("prio", "treatment", "ambulance priority"))
 
+# Excluded, for the reason that makes this ablation meaningful at all:
+# priority is the right to jump a queue, and at 4 vehicles there is no
+# queue. That route file puts all four cars at departPos=0, so they reach
+# the stop line together (stop spread 0.0s) and the designated vehicle is
+# not behind anyone. From 8 on there are 2-5 ranks per approach and being
+# moved to the front actually means something.
+MIN_N = 8
+
 
 def load(runs):
-    ns = discover.ns(runs, "prio", STUDY)
+    ns = [n for n in discover.ns(runs, "prio", STUDY) if n >= MIN_N]
     if not ns:
         return {}
     cells = {arm: [discover.cell(runs, STUDY, arm, None, n) for n in ns]
              for arm, _, _ in _ARMS}
     return dict(
         ns=ns,
-        # The runner designates the last replica in both arms.
+        # The same vehicle (last replica) in both arms; only one grants it priority.
         absolute={arm: [aggregate.vehicle_clearance_wait(c, n - 1)
                         for c, n in zip(cells[arm], ns)] for arm, _, _ in _ARMS},
         relative={arm: [aggregate.relative_wait(c, n - 1)
@@ -53,25 +61,20 @@ def load(runs):
     )
 
 
-def _panel(data, key, ax, *, title, ylabel, unit_line=False, legend=False):
+def _panel(data, key, ax, *, title, ylabel, legend=False):
     for arm, role, label in _ARMS:
         style.errorbar(ax, data["ns"], data[key][arm], style.series(role, label),
                        dashed=(role == "control"))
-    if unit_line:
-        ax.axhline(1.0, color=style.INK_SECONDARY, lw=0.9, ls="--", zorder=0)
-        ax.annotate("same as an average vehicle", xy=(data["ns"][0], 1.0),
-                    xytext=(0, 5), textcoords="offset points",
-                    fontsize=8, color=style.INK_SECONDARY)
     ax.set_xticks(data["ns"])
     style.finish(ax, title=title, xlabel="vehicles", ylabel=ylabel, legend=legend)
 
 
 def build(data, axes):
     flat = list(axes.flat)
-    _panel(data, "absolute", flat[0], title="Designated vehicle's wait",
+    _panel(data, "absolute", flat[0], title="Priority vehicle wait time",
            ylabel="stop to departure (s)", legend=True)
     _panel(data, "relative", flat[1], title="Relative to the rest of the traffic",
-           ylabel="wait / mean wait in the same run", unit_line=True)
+           ylabel="wait / mean wait in the same run")
     _panel(data, "others", flat[2], title="Cost to everyone else",
            ylabel="mean wait, all vehicles (s)")
     _panel(data, "thru", flat[3], title="Intersection service rate",

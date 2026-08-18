@@ -19,7 +19,16 @@ DEFAULT_OUT = REPO_ROOT / "figures"
 def _build_one(module, runs, out_dir) -> bool:
     data = module.load(runs) if getattr(module, "NEEDS_RUNS", True) else module.load()
     if data is None or len(data) == 0:
-        print(f"  {module.NAME:<24} SKIP  no run logs for this ablation")
+        # Remove any earlier render. A figure whose study has not been run must
+        # leave NO png behind, or a stale one is read as a current result --
+        # which is exactly how an empty ablation 2 got reviewed as if it were
+        # a measurement.
+        stale = Path(out_dir) / f"{module.NAME}.png"
+        if stale.exists():
+            stale.unlink()
+            print(f"  {module.NAME:<24} SKIP  no run logs — removed stale render")
+        else:
+            print(f"  {module.NAME:<24} SKIP  no run logs for this ablation")
         return False
 
     fig, axes = style.figure(getattr(module, "FIGSIZE", style.FIGSIZE),

@@ -18,6 +18,14 @@ single-bar figure could not have shown the difference.
 
 Colluders are swept to f+1, one past the threat model the f+1 pre-verification
 assumes, so the figure locates the bound instead of asserting there is none.
+
+What it locates is not the bound that was expected. Safety never breaks in the
+measured range -- no fabricated ambulance is ever granted priority, even at 4
+colluders against f=5. Liveness breaks at TWO colluders, at every vehicle count,
+independent of f. The pre-verification stage does not so much withstand the
+attack as convert it: a Byzantine proposer that could have forced a false
+schedule instead forces no schedule at all, and the intersection degrades to
+stop-sign control.
 """
 from ..io import discover
 from ..metrics import aggregate
@@ -33,8 +41,8 @@ FIGSIZE = (14.0, 10.0)
 # checks only. The arrival-certificate layer still runs, still supplies
 # membership and still elects the primary, so the arms differ by the
 # pre-verification stage alone.
-_ARMS = (("vanilla", "control", "pre-verification OFF"),
-         ("ours", "treatment", "pre-verification ON (f+1)"))
+_ARMS = (("vanilla", "control", "firewall OFF"),
+         ("ours", "treatment", "firewall ON (f+1)"))
 
 _ROWS = (
     ("attack succeeded", "runs granting false priority (%)",
@@ -92,5 +100,5 @@ def build(data, axes):
         for c in range(len(ns), 3):
             axes[r][c].set_visible(False)
     axes[0][0].figure.suptitle(
-        "Ablation 2 — the f+1 firewall holds to its assumed bound, and what it costs",
+        "Ablation 2 — the firewall converts a safety attack into a liveness attack",
         fontsize=12, color=style.INK_PRIMARY)
