@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Mathesh Kumar
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "v2vbft/app/ResDBIntersectionApp.h"
 #include "v2vbft/app/ResDBUtil.h"
 #include "v2vbft/sinr/ChannelMetrics.h"

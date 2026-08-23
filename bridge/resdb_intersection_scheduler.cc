@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Mathesh Kumar
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "integration/omnet/resdb_intersection_scheduler.h"
 
 #include <algorithm>

@@ -79,6 +79,13 @@ def run_one(config, flags, log_path) -> bool:
     Returns False if the run did not produce exactly one clean simulation, so
     the caller can abort rather than bake a bad cell into the baseline.
     """
+    # Delete first. The run script tee -a APPENDS to LOG_FILE, so without this a
+    # run that never starts (no veins_launchd, unbuilt binary) leaves the
+    # previous run's log in place, log_path.exists() stays true, and the parser
+    # happily re-reads stale results as a fresh pass. That turns "check" into a
+    # no-op that reports PASS against whatever was on disk.
+    log_path.unlink(missing_ok=True)
+
     env = {**os.environ, "LOG_FILE": str(log_path)}
     cmd = ["bash", str(RUN_SCRIPT), "-u", "Cmdenv", "-c", config, *flags]
     subprocess.run(cmd, cwd=SCENARIO_DIR, env=env,

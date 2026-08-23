@@ -22,10 +22,16 @@ from .schema import RunKey, RunRecord
 RE_ORDER_DECIDED = re.compile(r"Order_Decided_Time")
 RE_ORDER_BATCHES = re.compile(r"\[METRICS (\d+)\]\s+Order_Decided_Time:.*n_batches=(\d+)")
 
-# Bridge: the quorum this run actually required. The previous pattern here
-# looked for "voteN= f= quorum=", which the simulator never emits, so the field
-# was silently always absent.
+# Bridge: the quorum this run actually required. Emitted on every consensus
+# round, so this is the one to use for general-purpose quorum reporting.
 RE_QUORUM = re.compile(r"\[PBFT-QUORUM\].*?quorum=(\d+)")
+
+# Bridge rollback path only (resdb_omnet_bridge.cc): membership size, tolerated
+# faults and quorum for a vote over dynamic membership M. Rollback-free runs
+# never emit it, which is why RE_QUORUM above exists separately — do not merge
+# the two. Kept in this shared table because tests/golden/invariants.py records
+# all three fields and deliberately does not declare its own regexes.
+RE_QUORUM_VOTE = re.compile(r"voteN=(\d+) f=(\d+) quorum=(\d+)")
 
 # ResDBArrivalProtocol: how long the f+1 certificate round took to collect.
 RE_CERT_COLLECTION = re.compile(r"Cert_Collection_Duration:\s+([\d.]+)s")

@@ -7,7 +7,7 @@
 #
 # --randomize <N> <F>
 #   Picks one ambulance and F Byzantine nodes (all FALSE_LANE) from N vehicles
-#   at random per run, writes fourway/random_scenario.ini, and injects it.
+#   at random per run, writes scenarios/fourway/random_scenario.ini, and injects it.
 #   Replica 0 is eligible as a FALSE_LANE follower unless it is reserved with
 #   --byzleader or selected as the ambulance.
 #
@@ -207,7 +207,7 @@ has_ned_path_arg() {
 # ---------------------------------------------------------------------------
 # Random scenario generation
 # ---------------------------------------------------------------------------
-# Writes fourway/random_scenario.ini with randomized ambulance + Byzantine
+# Writes scenarios/fourway/random_scenario.ini with randomized ambulance + Byzantine
 # node assignments.  The file uses [General] so it applies to any config.
 # Prints the path to the generated ini file on stdout; all other output goes
 # to stderr so callers can safely capture the path with $(...).

@@ -1,6 +1,11 @@
 # V2V BFT Protocol — Proof Reference
 
-Full implementation notes: `/home/yash/BFTSMART_PROTOCOL_README.md`
+Full implementation notes: `docs/ARCHITECTURE.md`. The protocol source is
+`src/v2vbft/`; the consensus bridge is `bridge/`.
+
+> Written against the retired BFT-SMaRt/JNI path. The consensus engine is now
+> ResilientDB PBFT in-process, so "BFT-SMaRt" below means "the consensus layer"
+> and the message flow, quorum rule and evaluation baseline still hold.
 
 ## Architecture
 
