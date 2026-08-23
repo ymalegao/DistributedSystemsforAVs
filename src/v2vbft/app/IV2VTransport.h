@@ -16,7 +16,7 @@
 // Thread-safety: callbacks may arrive from ResDB's worker threads in Step 3+;
 // concrete implementations must be thread-safe from that point on.
 
-namespace veins {
+namespace v2vbft {
 
 class IV2VTransport {
 public:
@@ -44,4 +44,4 @@ public:
     }
 };
 
-} // namespace veins
+} // namespace v2vbft

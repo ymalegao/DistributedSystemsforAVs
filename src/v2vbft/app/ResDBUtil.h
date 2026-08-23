@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace veins {
+namespace v2vbft {
 namespace resdb_app_util {
 
 constexpr int kArrivalAnnounceType   = 1;
@@ -28,4 +28,4 @@ uint8_t laneCode(const std::string& lane);
 uint8_t directionCode(Direction direction);
 
 } // namespace resdb_app_util
-} // namespace veins
+} // namespace v2vbft

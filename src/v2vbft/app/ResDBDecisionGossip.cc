@@ -5,6 +5,7 @@
 
 #include <cstring>
 
+namespace v2vbft {
 namespace resdb_gossip {
 
 // --- Serialization -----------------------------------------------------------
@@ -103,3 +104,4 @@ void AnnouncementRelayTracker::reset()
 }
 
 } // namespace resdb_gossip
+} // namespace v2vbft

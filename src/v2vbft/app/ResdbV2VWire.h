@@ -9,7 +9,7 @@
 
 #include "v2vbft/crypto/CryptoAuth.h"
 
-namespace veins {
+namespace v2vbft {
 namespace resdbwire {
 
 // Payload layout:
@@ -75,5 +75,5 @@ inline std::vector<uint8_t> packSignedPacket(EVP_PKEY* privKey,
 }
 
 }  // namespace resdbwire
-}  // namespace veins
+} // namespace v2vbft
 

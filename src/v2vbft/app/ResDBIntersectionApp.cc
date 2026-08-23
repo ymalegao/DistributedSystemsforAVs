@@ -26,7 +26,8 @@
 #include "v2vbft/app/ResDBDecisionGossip.h"
 
 using namespace veins;
-using namespace veins::resdb_app_util;
+using namespace v2vbft;
+using namespace v2vbft::resdb_app_util;
 
 namespace {
 int bftQuorumSize(int n, int f)
@@ -40,7 +41,7 @@ std::set<std::pair<int, uint32_t>> g_completed_replica_epochs;
 
 }  // namespace
 
-Define_Module(veins::ResDBIntersectionApp);
+Define_Module(v2vbft::ResDBIntersectionApp);
 
 bool ResDBIntersectionApp::hasCompletedReplicaEpoch(int replicaId, uint32_t epoch)
 {

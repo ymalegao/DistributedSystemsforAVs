@@ -23,7 +23,7 @@
 // Grouped by the three certificate families the rollback protocol runs and the
 // round state they share. See protocol/RollbackTypes.h for the wire types.
 
-namespace veins {
+namespace v2vbft {
 
 // A cancel that reached consensus, retained so late gossip can be reconciled
 // against what this replica already committed.
@@ -73,4 +73,4 @@ struct RollbackState {
     uint32_t wait_leader_heartbeat_index_ = 0;
 };
 
-} // namespace veins
+} // namespace v2vbft

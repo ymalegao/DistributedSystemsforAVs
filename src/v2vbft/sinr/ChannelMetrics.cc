@@ -6,6 +6,8 @@
 #include <cmath>
 #include <iostream>
 
+namespace v2vbft {
+
 ChannelMetrics::ChannelMetrics(int vehicleId,
                                const std::string& utilizationCsvPath,
                                const std::string& sinrCsvPath)
@@ -95,3 +97,5 @@ void ChannelMetrics::tick(simtime_t now)
     sinrMin_     = std::numeric_limits<double>::infinity();
     sinrSamples_ = 0;
 }
+
+} // namespace v2vbft

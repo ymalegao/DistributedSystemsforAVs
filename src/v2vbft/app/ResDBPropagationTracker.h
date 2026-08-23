@@ -7,7 +7,7 @@
 #include <set>
 #include <string>
 
-namespace veins {
+namespace v2vbft {
 namespace resdb_propagation {
 
 // Generic bookkeeping for propagation of an already-validated semantic fact.
@@ -50,4 +50,4 @@ private:
 };
 
 }  // namespace resdb_propagation
-}  // namespace veins
+} // namespace v2vbft

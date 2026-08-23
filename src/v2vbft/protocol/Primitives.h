@@ -15,7 +15,7 @@
 // rollback protocol and the transport could not name a shared type without
 // naming the whole god class.
 
-namespace veins {
+namespace v2vbft {
 
 // Which way a vehicle intends to leave the junction.
 enum Direction { DIR_STRAIGHT = 0, DIR_LEFT = 1, DIR_RIGHT = 2 };
@@ -55,4 +55,4 @@ struct VerificationResult {
     double      actualPosition = 0.0;
 };
 
-} // namespace veins
+} // namespace v2vbft

@@ -23,6 +23,8 @@
 #include <openssl/evp.h>
 #include <openssl/obj_mac.h>  // NID_X9_62_prime256v1
 
+namespace v2vbft {
+
 // ============================================================
 // Singleton
 // ============================================================
@@ -265,3 +267,5 @@ std::vector<uint8_t> CryptoAuth::certTBS(const uint8_t pubKey[CRYPTO_PUBKEY_BYTE
     memcpy(buf.data() + CRYPTO_PUBKEY_BYTES + 16, issuer.c_str(), std::min(issuer.size(), size_t(31)));
     return buf;
 }
+
+} // namespace v2vbft

@@ -774,7 +774,7 @@ class IntersectionExecutor : public resdb::TransactionManager {
       for (int i = 0; i < 8; ++i) {
         dh.cancel_seq = (dh.cancel_seq << 8) | dh.payload_digest[i];
       }
-      // reason 0 == CANCEL_CRASH (veins::ResDBIntersectionApp::CancelReason).
+      // reason 0 == CANCEL_CRASH (v2vbft::ResDBIntersectionApp::CancelReason).
       // Only crash recovery requires CLEAR evidence before its ORDER(e+1) may
       // pass PreVerify — emergency (ambulance) rollback never blocks the box.
       if (dh.reason == 0 && crash_recovery_state_) {

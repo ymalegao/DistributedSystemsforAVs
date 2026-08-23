@@ -12,7 +12,7 @@ import org.car2x.veins.modules.application.ieee80211p.DemoBaseApplLayer;
 simple ResDBIntersectionApp extends DemoBaseApplLayer
 {
     parameters:
-        @class(veins::ResDBIntersectionApp);
+        @class(v2vbft::ResDBIntersectionApp);
 
         // ── Replica identity ──────────────────────────────────────────────────
         int replicaId = default(0);

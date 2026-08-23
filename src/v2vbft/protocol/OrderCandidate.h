@@ -18,7 +18,7 @@
 // that spans both families: a proposal cites arrival certificates and, when it
 // is a recovery round, the cancel justification that caused it.
 
-namespace veins {
+namespace v2vbft {
 
 // Immutable input snapshot for one ORDER round. Consensus still uses the
 // existing wire formats; this only prevents late discovery/incident state from
@@ -37,4 +37,4 @@ struct OrderCandidate {
     std::vector<int> voterIds;
 };
 
-} // namespace veins
+} // namespace v2vbft

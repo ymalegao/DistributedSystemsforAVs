@@ -15,7 +15,8 @@
 #include <string>
 
 using namespace veins;
-using namespace veins::resdb_app_util;
+using namespace v2vbft;
+using namespace v2vbft::resdb_app_util;
 
 namespace {
 

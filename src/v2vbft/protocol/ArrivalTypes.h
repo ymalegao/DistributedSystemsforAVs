@@ -20,7 +20,7 @@
 //
 // Extracted verbatim from ResDBIntersectionApp's private nested types.
 
-namespace veins {
+namespace v2vbft {
 
 // One vehicle's claim about itself, as carried in a proposal.
 struct VehicleState {
@@ -124,4 +124,4 @@ struct DiscoveryRound {
     }
 };
 
-} // namespace veins
+} // namespace v2vbft

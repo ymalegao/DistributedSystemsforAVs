@@ -35,6 +35,12 @@ docs/                 ARCHITECTURE.md and the CLEAR/WAIT spec
 .external/            (gitignored) Veins and ResilientDB, materialised by setup.sh
 ```
 
+Everything this project defines lives in C++ namespace **`v2vbft`** and NED
+package **`org.v2vbft`**. Nothing is added to Veins' namespace or to global
+scope, so `libv2vbft.so` can be loaded alongside stock Veins without collisions.
+`src/` is the C++ include root (`#include "v2vbft/app/..."`) while `src/v2vbft`
+is the NED root — the same split Veins uses between `src` and `src/veins`.
+
 **Veins and ResilientDB are not vendored into this repo.** `third_party/`
 carries a pinned upstream revision for each plus a patch, and `setup.sh` clones
 and patches them into `.external/`. See

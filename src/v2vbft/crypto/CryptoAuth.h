@@ -19,6 +19,8 @@
 #include <vector>
 #include <openssl/evp.h>
 
+namespace v2vbft {
+
 // Fixed byte sizes (P-256 compressed pubkey = 33, max DER ECDSA sig = 72)
 static constexpr int CRYPTO_PUBKEY_BYTES  = 33;
 static constexpr int CRYPTO_SIG_MAX_BYTES = 72;
@@ -117,3 +119,5 @@ private:
                                         const std::string& role,
                                         const std::string& issuer);
 };
+
+} // namespace v2vbft

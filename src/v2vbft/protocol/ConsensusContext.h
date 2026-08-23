@@ -34,7 +34,7 @@
 // the protocol genuinely does share these fields, and hiding that behind
 // accessors would add ceremony without adding safety.
 
-namespace veins {
+namespace v2vbft {
 
 struct ConsensusContext {
     // ── Identity and configuration ───────────────────────────────────────────
@@ -71,4 +71,4 @@ struct ConsensusContext {
     uint8_t ec_pub_key_[CRYPTO_PUBKEY_BYTES] = {};
 };
 
-} // namespace veins
+} // namespace v2vbft

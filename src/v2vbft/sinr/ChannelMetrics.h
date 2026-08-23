@@ -8,6 +8,10 @@
 #include <cstdio>
 #include <limits>
 
+namespace v2vbft {
+
+// Scoped to this namespace rather than left at global scope: a public header
+// must not pull omnetpp into every translation unit that includes it.
 using namespace omnetpp;
 
 // Per-vehicle channel utilization + SINR logger.
@@ -47,3 +51,5 @@ private:
 
     static constexpr double UTILIZATION_WINDOW_SEC = 0.100;
 };
+
+} // namespace v2vbft

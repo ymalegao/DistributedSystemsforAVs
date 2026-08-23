@@ -23,7 +23,7 @@
 //
 // Extracted verbatim from ResDBIntersectionApp's private nested types.
 
-namespace veins {
+namespace v2vbft {
 
 enum CancelReason {
     CANCEL_CRASH = 0,
@@ -127,4 +127,4 @@ struct IncidentRecord {
     std::vector<uint8_t> clearCertBytes;
 };
 
-} // namespace veins
+} // namespace v2vbft

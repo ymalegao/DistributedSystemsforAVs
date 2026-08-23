@@ -5,7 +5,7 @@
 
 #include <cstdlib>
 
-namespace veins {
+namespace v2vbft {
 namespace resdb_app_util {
 
 std::vector<std::string> splitStr(const std::string& s, char delim)
@@ -95,4 +95,4 @@ uint8_t directionCode(Direction direction)
 }
 
 } // namespace resdb_app_util
-} // namespace veins
+} // namespace v2vbft

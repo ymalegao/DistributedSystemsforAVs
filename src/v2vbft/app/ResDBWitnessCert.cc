@@ -6,6 +6,8 @@
 #include <cstring>
 #include <iostream>
 
+namespace v2vbft {
+
 // ---- WitnessKeyRegistry ----
 
 WitnessKeyRegistry& WitnessKeyRegistry::instance()
@@ -152,3 +154,5 @@ const WitnessRetryManager::Entry* WitnessRetryManager::entry(const std::string& 
     auto it = entries_.find(key);
     return it == entries_.end() ? nullptr : &it->second;
 }
+
+} // namespace v2vbft

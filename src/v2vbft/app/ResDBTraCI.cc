@@ -14,6 +14,7 @@
 #include <cmath>
 
 using namespace veins;
+using namespace v2vbft;
 
 TraCICommandInterface* ResDBIntersectionApp::getTraCI() const
 {

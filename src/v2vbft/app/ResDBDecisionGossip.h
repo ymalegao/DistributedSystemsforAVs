@@ -21,6 +21,7 @@
 // accumulation.  EC signing/verification and OMNeT timer scheduling remain
 // in ResDBIntersectionApp (which holds the private key and cMessage objects).
 
+namespace v2vbft {
 namespace resdb_gossip {
 
 // Stored custody copy for delayed announce gossip.
@@ -113,3 +114,4 @@ private:
 };
 
 } // namespace resdb_gossip
+} // namespace v2vbft

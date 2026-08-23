@@ -9,7 +9,7 @@
 import veins.base.utils.Coord;
 import veins.modules.messages.BaseFrame1609_4;
 
-namespace veins;
+namespace v2vbft;
 
 // messageType values:
 // 0 = BFT_CONSENSUS       - Reserved/unused in the ResDB path
@@ -27,7 +27,7 @@ namespace veins;
 // 13 = CANCEL_CERT        - Rollback cancel certificate
 // 14 = CANCEL_COMMIT_GOSSIP - Signed post-consensus cancel-commit gossip
 
-packet BFTMessage extends BaseFrame1609_4 {
+packet BFTMessage extends veins::BaseFrame1609_4 {
     int fromReplicaId;        // Source replica ID
     int toReplicaId;          // Destination replica ID (-1 for broadcast)
     int messageType;          // See messageType values above

@@ -25,6 +25,8 @@
 
 #include "v2vbft/crypto/CryptoAuth.h"
 
+namespace v2vbft {
+
 // ---- Trusted identity binding (replicaId -> pubkey), process-global singleton ----
 // Mirrors CryptoAuth::instance()'s lifetime model. Each module registers its own
 // key once at init; a witness signature only counts once the embedded key matches
@@ -133,3 +135,5 @@ public:
 private:
     std::map<std::string, Entry> entries_;
 };
+
+} // namespace v2vbft

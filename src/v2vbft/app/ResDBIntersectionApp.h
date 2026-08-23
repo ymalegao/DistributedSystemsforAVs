@@ -32,9 +32,16 @@
 #include "v2vbft/app/ResDBWitnessCert.h"
 #include "integration/omnet/resdb_omnet_bridge.h"
 
+namespace v2vbft {
+
 class ChannelMetrics;
 
-namespace veins {
+// This app IS a Veins application — it derives from DemoBaseApplLayer, handles
+// Veins frame types and implements a Veins-side interface. Pulling Veins into
+// our namespace keeps those declarations readable instead of qualifying every
+// one. The directive is scoped to namespace v2vbft, so it never reaches an
+// includer's global scope; only our own code sees it.
+using namespace veins;
 
 class BFTMessage;
 
@@ -784,4 +791,4 @@ private:
     ChannelMetrics* channel_metrics_ = nullptr;
 };
 
-} // namespace veins
+} // namespace v2vbft
