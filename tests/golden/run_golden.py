@@ -25,7 +25,8 @@ from tests.golden.invariants import Cell, compare, parse  # noqa: E402
 HERE = Path(__file__).resolve().parent
 BASELINE = HERE / "baseline.json"
 LOG_DIR = HERE / "logs"
-RUN_SCRIPT = REPO_ROOT / "fourway" / "run-resdb-simulation.sh"
+RUN_SCRIPT = REPO_ROOT / "tools" / "run-resdb-simulation.sh"
+SCENARIO_DIR = REPO_ROOT / "scenarios" / "fourway"
 
 # The matrix. Each cell is (name, config, extra flags).
 #
@@ -80,7 +81,7 @@ def run_one(config, flags, log_path) -> bool:
     """
     env = {**os.environ, "LOG_FILE": str(log_path)}
     cmd = ["bash", str(RUN_SCRIPT), "-u", "Cmdenv", "-c", config, *flags]
-    subprocess.run(cmd, cwd=RUN_SCRIPT.parent, env=env,
+    subprocess.run(cmd, cwd=SCENARIO_DIR, env=env,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if not log_path.exists():
         print("NO LOG PRODUCED")

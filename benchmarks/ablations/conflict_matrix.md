@@ -6,7 +6,7 @@ same committed batch). Two movements that are *not* marked safe must be **serial
 crossings in parallel — the mechanism behind the throughput win in Ablation 3.
 
 Source of truth: `kSafe[12][4]` in
-`incubator-resilientdb/integration/omnet/resdb_intersection_scheduler.cc`
+`bridge/resdb_intersection_scheduler.cc`
 (`IsSafeToBatch`). Visual: [figures/conflict_matrix.png](figures/conflict_matrix.png).
 
 ## Encoding

@@ -1,45 +1,56 @@
-# Dual-graph context caches
-omnet.dual-graph/
-benchmarks/.dual-graph/
-.dual-graph/
-.dual-graph-context/
+# ── Vendored dependencies ─────────────────────────────────────────────────────
+# Materialised by ./setup.sh from third_party/versions.lock. Never committed:
+# the repo carries the pinned upstream refs plus our patches instead.
+/.external/
 
-# Build artifacts / generated binaries
-incubator-resilientdb/a.out
-incubator-resilientdb/bazel.gpg
-veins-veins-5.3.1/configure
-fourway/out/
-fourway/results/
-fourway/fourway
-fourway/fourway_dbg
-veins-veins-5.3.1/examples/fourway/fourway
-bin/protoc
+# ── Build output ──────────────────────────────────────────────────────────────
+out/
+*.o
+*.so
+*.dylib
+# The simulation binaries must be rebuilt locally — a committed one carries an
+# rpath to whichever machine built it.
+/scenarios/fourway/fourway
+/scenarios/fourway/fourway_dbg
+# Generated from .msg by opp_msgc.
+*_m.cc
+*_m.h
 
-# Simulation runtime output
-fourway/resdb_crypto*/logs/
+# ── Generated at setup/run time ───────────────────────────────────────────────
+# Replica keys + certs. Regenerate with: tools/gen_crypto_dir.sh <N> <dir>
+# (setup.sh does this for every scenario). Private keys are never committed.
+/scenarios/fourway/resdb_crypto*/
+# Per-run overrides written by tools/run-resdb-simulation.sh.
+/scenarios/fourway/random_scenario.ini
+/scenarios/fourway/leader_override.ini
+/scenarios/fourway/channel_metrics_override.ini
 
-# Generated experiment output
-benchmarks/
-# Anchored: unanchored "figures/" also matched plotter/figures/, which is source
-# code, so the entire figure package was silently untracked.
+# ── Experiment output ─────────────────────────────────────────────────────────
+# Anchored per-directory rather than ignoring benchmarks/ wholesale: an
+# unanchored "benchmarks/" also swallowed the ablation runner itself, which then
+# had to be force-added. Same class of bug as the old unanchored "figures/".
+/benchmarks/ablations/results/
+/benchmarks/*.gif
+/benchmarks/*.png
+# Pre-plotter experiment output, kept on disk but never committed.
+/benchmarks/Priority*cars/
+/benchmarks/leaderrandom/
+/scenarios/fourway/results/
 /figures/
 partner_results/
-bftsmart/library/
+
+# Golden-harness run logs (regenerable).
+/tests/golden/logs/
+
+# Stale vendored protoc from the retired BFTSmart/JNI path. Nothing in the
+# build references it; the bridge uses Bazel's own protoc.
+/bin/
+
+# ── Editor / OS / language caches ─────────────────────────────────────────────
 __pycache__/
 *.pyc
 .DS_Store
-
-# IDE / workspace state
 .metadata/
-
-# Golden-harness run logs (regenerable)
-tests/golden/logs/
-fourway/channel_metrics_override.ini
-
-# Legacy per-run figure output (plotter writes to figures/ instead)
-fourway/graphs/
-
-# Per-user IDE state (project files themselves are tracked)
 .settings/
 .csettings/
 .qtenvrc

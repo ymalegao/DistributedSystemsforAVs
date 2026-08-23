@@ -5,6 +5,11 @@ project and are not maintained** — where one contradicts the code, the code
 wins. Do not follow build or run instructions from anything in here; see the
 top-level `README.md`.
 
+Every file path in this directory also predates the repository restructure.
+`veins-veins-5.3.1/src/veins/modules/application/resDB/` is now `src/v2vbft/`,
+`incubator-resilientdb/integration/omnet/` is now `bridge/`, and `fourway/` is
+now `scenarios/fourway/`.
+
 | Document | What it was |
 |---|---|
 | `PROJECT_HANDOFF.md`, `JAVA_SIDE_HANDOFF.md`, `HANDOFF_rollback_congestion.md` | session handoff notes |

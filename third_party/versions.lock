@@ -1,0 +1,13 @@
+# Pinned upstream revisions for the two vendored dependencies.
+#
+# setup.sh reads this file, clones each upstream at the pinned revision into
+# .external/, and applies the matching patch from this directory. Neither tree
+# is committed: this repo carries the pins plus the patches instead.
+#
+# Format: <name> <url> <ref-kind> <ref> <patch>
+#
+# To move a pin: bump the ref, run setup.sh, fix any patch rejects, then
+# regenerate the patch with tools/regen-patches.sh.
+
+veins       https://github.com/sommer/veins.git                  tag     veins-5.3.1                               veins.patch
+resilientdb https://github.com/apache/incubator-resilientdb.git   commit  1e0896b24e6a1a804abdb66374d455c9c7e56181  resilientdb.patch

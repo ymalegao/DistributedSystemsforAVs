@@ -88,24 +88,24 @@ The ResDB library still runs internal worker threads, but all interaction with V
 
 | File | Role |
 |------|------|
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.h` | Main Veins app declaration. Defines phases, Byzantine modes, arrival-cert structs, transport queues, timers, gossip state, TraCI state, and ResDB callback hooks. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.cc` | App lifecycle, self-message dispatch, radio type dispatch, shared gossip timers, metrics, and fault-injection coordination. Protocol bodies are split into the files below. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.ned` | NED parameters for replica identity, ResDB paths, radio transport, jitter, cert timeout, gossip, view-change timeout, Byzantine injection, and TraCI behavior. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/IV2VTransport.h` | Minimal abstract transport interface. Provides C-compatible adapters for the bridge callback table. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBArrivalProtocol.cc` | Arrival ANN/ECHO/CERT handling, discovery-round closure/drain, announce gossip, cert retries, and stop-zone cert gossip. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBDecision.cc` | Normal and post-CANCEL ORDER construction, optional CLEAR evidence trailer, order callback processing, and movement scheduling. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBTransport.cc` | ResDB outbound/inbound radio transport, bounded PBFT retries, and deterministic cancellable TYPE11 propagation. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResdbV2VWire.h` | Shared signed-envelope helper used by types 8–11, 14, 16, and 17 where an authenticated outer carrier is required. Layout is pubkey, signature length, DER ECDSA signature, then inner bytes. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBDecisionGossip.h/.cc` | Pure relay-dedup logic for three independent mechanisms: (1) decision gossip — serializes `epoch \|\| order_bytes`, parses TYPE9 payloads, counts matching votes per sender via `GossipAccumulator`; (2) cert relay — `CertRelayTracker` deduplicates per-carId ARRIVAL_CERT re-floods so each node relays each validated cert exactly once; (3) announce gossip — serializes `epoch \|\| original_announce_bytes` and deduplicates per `(epoch, carId)` through `AnnouncementRelayTracker`. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBRollbackProtocol.cc` | BLOCKED/CANCEL/CLEAR/WAIT protocol module. Owns types 12–17, local halt, CANCEL consensus, incident state, CLEAR propagation, post-CANCEL round setup, tombstones, and rollback proposal gating. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBWitnessCert.h/.cc` | Shared `f+1` witness statement/certificate validation and immutable replica-id-to-P-256-key registry. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBPropagationTracker.h` | Generic semantic-keyed distinct-carrier tracker. Authentication and membership checks remain at the caller; currently used by CLEAR propagation. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBTraCI.cc` | TraCI helpers extracted from the legacy V2V module: distance-to-lane-end, lane queue discovery, vehicle stop/resume helpers, and clearance detection. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/crypto/CryptoAuth.h/.cc` | OpenSSL ECDSA P-256 helper. Generates per-vehicle EC keys, signs arbitrary byte buffers, verifies signatures, and contains CA certificate helpers. |
-| `incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h` | C ABI between Veins and ResDB. Defines lifecycle, transport callback registration, sim-time update, consensus trigger, order callback, cert-primary/PBFT primary alignment, view-change hooks, and shared packed structs. |
-| `incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc` | ResDB-side integration. Builds socketless PBFT service, installs OMNeT communicator, registers pre-verify function, hosts `IntersectionExecutor`, injects inbound packets, and exposes the C API. |
-| `incubator-resilientdb/platform/consensus/ordering/pbft/omnet_forced_view.h` | Header-only request-scoped active-view registry. Stores proposal-defined epoch membership `M`, quorum `2f+1`, primary, and sender-admission helpers without rewriting static `server.config`. |
-| `incubator-resilientdb/common/utils/sim_time_provider.h/.cpp` | Global simulated-time provider used by ResDB worker threads. Updated by the OMNeT simulation thread. |
+| `src/v2vbft/app/ResDBIntersectionApp.h` | Main Veins app declaration. Defines phases, Byzantine modes, arrival-cert structs, transport queues, timers, gossip state, TraCI state, and ResDB callback hooks. |
+| `src/v2vbft/app/ResDBIntersectionApp.cc` | App lifecycle, self-message dispatch, radio type dispatch, shared gossip timers, metrics, and fault-injection coordination. Protocol bodies are split into the files below. |
+| `src/v2vbft/app/ResDBIntersectionApp.ned` | NED parameters for replica identity, ResDB paths, radio transport, jitter, cert timeout, gossip, view-change timeout, Byzantine injection, and TraCI behavior. |
+| `src/v2vbft/app/IV2VTransport.h` | Minimal abstract transport interface. Provides C-compatible adapters for the bridge callback table. |
+| `src/v2vbft/app/ResDBArrivalProtocol.cc` | Arrival ANN/ECHO/CERT handling, discovery-round closure/drain, announce gossip, cert retries, and stop-zone cert gossip. |
+| `src/v2vbft/app/ResDBDecision.cc` | Normal and post-CANCEL ORDER construction, optional CLEAR evidence trailer, order callback processing, and movement scheduling. |
+| `src/v2vbft/app/ResDBTransport.cc` | ResDB outbound/inbound radio transport, bounded PBFT retries, and deterministic cancellable TYPE11 propagation. |
+| `src/v2vbft/app/ResdbV2VWire.h` | Shared signed-envelope helper used by types 8–11, 14, 16, and 17 where an authenticated outer carrier is required. Layout is pubkey, signature length, DER ECDSA signature, then inner bytes. |
+| `src/v2vbft/app/ResDBDecisionGossip.h/.cc` | Pure relay-dedup logic for three independent mechanisms: (1) decision gossip — serializes `epoch \|\| order_bytes`, parses TYPE9 payloads, counts matching votes per sender via `GossipAccumulator`; (2) cert relay — `CertRelayTracker` deduplicates per-carId ARRIVAL_CERT re-floods so each node relays each validated cert exactly once; (3) announce gossip — serializes `epoch \|\| original_announce_bytes` and deduplicates per `(epoch, carId)` through `AnnouncementRelayTracker`. |
+| `src/v2vbft/app/ResDBRollbackProtocol.cc` | BLOCKED/CANCEL/CLEAR/WAIT protocol module. Owns types 12–17, local halt, CANCEL consensus, incident state, CLEAR propagation, post-CANCEL round setup, tombstones, and rollback proposal gating. |
+| `src/v2vbft/app/ResDBWitnessCert.h/.cc` | Shared `f+1` witness statement/certificate validation and immutable replica-id-to-P-256-key registry. |
+| `src/v2vbft/app/ResDBPropagationTracker.h` | Generic semantic-keyed distinct-carrier tracker. Authentication and membership checks remain at the caller; currently used by CLEAR propagation. |
+| `src/v2vbft/app/ResDBTraCI.cc` | TraCI helpers extracted from the legacy V2V module: distance-to-lane-end, lane queue discovery, vehicle stop/resume helpers, and clearance detection. |
+| `src/v2vbft/crypto/CryptoAuth.h/.cc` | OpenSSL ECDSA P-256 helper. Generates per-vehicle EC keys, signs arbitrary byte buffers, verifies signatures, and contains CA certificate helpers. |
+| `bridge/resdb_omnet_bridge.h` | C ABI between Veins and ResDB. Defines lifecycle, transport callback registration, sim-time update, consensus trigger, order callback, cert-primary/PBFT primary alignment, view-change hooks, and shared packed structs. |
+| `bridge/resdb_omnet_bridge.cc` | ResDB-side integration. Builds socketless PBFT service, installs OMNeT communicator, registers pre-verify function, hosts `IntersectionExecutor`, injects inbound packets, and exposes the C API. |
+| `.external/resilientdb/platform/consensus/ordering/pbft/omnet_forced_view.h` | Header-only request-scoped active-view registry. Stores proposal-defined epoch membership `M`, quorum `2f+1`, primary, and sender-admission helpers without rewriting static `server.config`. |
+| `.external/resilientdb/common/utils/sim_time_provider.h/.cpp` | Global simulated-time provider used by ResDB worker threads. Updated by the OMNeT simulation thread. |
 
 ---
 
@@ -1050,7 +1050,7 @@ python3 experiment_orchestrator.py --config 18 --scenario 15 --reps 1
 The orchestrator expands scenario `15` to:
 
 ```bash
-fourway/run-resdb-simulation.sh ... --rollback-late-emergency
+scenarios/fourway/run-resdb-simulation.sh ... --rollback-late-emergency
 ```
 
 with OMNeT++ config `EighteenVehiclesResDB`.
@@ -1069,7 +1069,7 @@ python3 experiment_orchestrator.py --config 18 --scenario 18 --reps 1
 
 Both rows inject the fault by protocol role after the committed schedule identifies the round-0 CANCEL proposer. This avoids assuming that a fixed replica id will always occupy the next recallable batch. Scenario 17 disables `enableCancelLeaderFailover`; Scenario 18 leaves it enabled. The analyzer records the attacked replica, rotation-timer firings, maximum logical rotation index, staged outcome, and attack-to-CANCEL-commit latency. The expected contrast is `suppressed_cancel_stalled` versus a completed epoch-1 recovery.
 
-`--rollback-late-emergency` writes `fourway/rollback_late_emergency.ini` at run time and selects:
+`--rollback-late-emergency` writes `scenarios/fourway/rollback_late_emergency.ini` at run time and selects:
 
 ```text
 *.manager.launchConfig = xmldoc("resdb_bft_18veh_rollback_late.launchd.xml")
@@ -1120,7 +1120,7 @@ If scenario `15` does not trigger rollback:
 
 - Inspect the manager's `[R0-*]` injection/supervisor logs and `r0SpawnAfterCleared` condition rather than editing a late route departure time.
 - Confirm `totalVehicles=16` and `ambulanceReplicaId=17`; configurations using ambulance 16 describe an older harness.
-- `fourway/analyze_log.py --scenario 15` has dedicated CANCEL/rollback/view parsing and reports a staged failure reason such as `no_echo`, `no_cert`, `rollback_propose_no_commit`, or `ok_epoch1_commit`. Some marker names retain the legacy `ROLLBACK`/`ACTIVE-VIEW` terminology.
+- `scenarios/fourway/analyze_log.py --scenario 15` has dedicated CANCEL/rollback/view parsing and reports a staged failure reason such as `no_echo`, `no_cert`, `rollback_propose_no_commit`, or `ok_epoch1_commit`. Some marker names retain the legacy `ROLLBACK`/`ACTIVE-VIEW` terminology.
 
 ### Scenario 16: crash, WAIT, CLEAR, and recovery ORDER
 
@@ -1481,28 +1481,27 @@ Common log markers used by benchmark scripts and debugging:
 
 ## 21. Build and Run Handoff
 
-When changing the bridge, rebuild ResDB first, then Veins.
-
-Typical sequence:
-
-```bash
-cd incubator-resilientdb
-bazel build //integration/omnet:resdb_omnet_bridge
-
-cd ../veins-veins-5.3.1
-make
-
-cd ../fourway
-runomnetnogui -c BFTOverV2VWithResilientDB
-```
-
-Some local environments use a custom Bazel output root, for example:
+Rebuild bottom-up: bridge, then Veins, then the protocol, then the scenario.
+Each stage links the one above it.
 
 ```bash
-bazel --output_user_root=/tmp/bazel build //integration/omnet:resdb_omnet_bridge
+tools/makeres.sh                            # bridge/ -> libresdb_omnet_bridge.so
+cd .external/veins  && make -j              # libveins.so
+cd ../../src        && make -j              # libv2vbft.so
+cd ../scenarios/fourway && make -j          # the fourway binary
+
+tools/run-resdb-simulation.sh -u Cmdenv -c SixteenVehiclesResDB
 ```
 
-Use the scenario configs in `fourway/omnetpp.ini` for honest, ambulance, batch, Byzantine follower, and Byzantine primary experiments.
+Changing anything under `bridge/` only needs stage 1 and stage 4 — Bazel reaches
+it as `//integration/omnet` through the symlink `setup.sh` creates, and the
+protocol links the resulting `.so` rather than including its objects.
+
+`tools/makeres.sh` carries the Clang and Abseil workarounds this build needs
+(`-xc++`, `-include cstdint`, `--action_env=PATH`); calling `bazel build`
+directly without them fails on `<cstdint> file not found`.
+
+Use the scenario configs in `scenarios/fourway/omnetpp.ini` for honest, ambulance, batch, Byzantine follower, and Byzantine primary experiments.
 
 ### Orchestrator scenario codes (`experiment_orchestrator.py --scenario N`)
 
@@ -1603,7 +1602,7 @@ TYPE11 selection is deterministic and sender-relative, not random, but it does n
 
 ### ResDB log lines can be corrupted by thread interleaving
 
-ResDB worker threads and the simulation thread write to the same stream without one shared line lock. Concurrent writes can splice numeric fields and produce plausible but false IDs. Use anchored full-line parsing and plausibility filters. `scripts/loglens.sh` provides categorized inspection and `scripts/pbft_matrix.py` provides phase/sequence delivery matrices, retry-arm, quorum, forced-view, and corruption views. In PBFT logs, `self=` and `sender=` are ResDB IDs (`OMNeT id + 1`); `omnet_self=` and `r<N>` are zero-based OMNeT/vehicle IDs.
+ResDB worker threads and the simulation thread write to the same stream without one shared line lock. Concurrent writes can splice numeric fields and produce plausible but false IDs. Use anchored full-line parsing and plausibility filters. `tools/loglens.sh` provides categorized inspection and `tools/pbft_matrix.py` provides phase/sequence delivery matrices, retry-arm, quorum, forced-view, and corruption views. In PBFT logs, `self=` and `sender=` are ResDB IDs (`OMNeT id + 1`); `omnet_self=` and `r<N>` are zero-based OMNeT/vehicle IDs.
 
 ---
 
@@ -1641,6 +1640,6 @@ When continuing work on this system, first identify which layer owns the behavio
 5. **BLOCKED / CANCEL / CLEAR / WAIT behavior:** `ResDBRollbackProtocol.cc`, incident/rollback state in `ResDBIntersectionApp.h`, and recovery ORDER evidence/view validation in `resdb_omnet_bridge.cc`.
 6. **Post-consensus catch-up:** `ResDBDecisionGossip.h/.cc` plus `handleDecisionGossip()`.
 7. **Consensus time behavior:** `SimTimeProvider` and `ResdbOmnetUpdateSimTimeUs()`.
-8. **Experiment knobs:** `ResDBIntersectionApp.ned` and `fourway/omnetpp.ini`.
+8. **Experiment knobs:** `ResDBIntersectionApp.ned` and `scenarios/fourway/omnetpp.ini`.
 
 Before changing behavior, archived Java migration docs can be consulted for historical invariants. Implement any still-relevant behavior in the current C++/ResDB ownership boundary rather than reintroducing Java/JNI assumptions.

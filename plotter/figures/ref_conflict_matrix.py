@@ -1,7 +1,7 @@
 """The intersection conflict matrix — which movements may cross together.
 
 Unlike every other figure this reads no logs: it is derived from the kSafe
-table in incubator-resilientdb/integration/omnet/resdb_intersection_scheduler.cc
+table in bridge/resdb_intersection_scheduler.cc
 (IsSafeToBatch), so it documents the scheduler's rule rather than measuring a
 run. The table below MIRRORS that C++ array and must be updated with it.
 

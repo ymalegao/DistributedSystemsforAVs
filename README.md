@@ -1,98 +1,91 @@
-# DistributedSystemsforAVs
+# V2V-BFT — Byzantine fault-tolerant intersection management
 
 BFT consensus for autonomous vehicles at an unsignalled intersection. Vehicles
-agree on a safe crossing order using PBFT, with an arrival-certificate layer
-that proves a vehicle really is where it claims before its entry can enter a
-proposal.
+agree on a safe crossing order using PBFT, with an **arrival-certificate** layer
+that proves a vehicle really is where it claims to be before its entry can enter
+a proposal.
 
-Three layers:
+Each vehicle is one OMNeT++ module embedding its own real ResilientDB PBFT
+replica, talking to its neighbours over a simulated 802.11p radio, driving a
+real SUMO vehicle over TraCI. Nothing about the consensus is mocked.
 
-| Layer | Where | What |
-|---|---|---|
-| Network + mobility | `veins-veins-5.3.1/` | OMNeT++ / Veins 802.11p radio, SUMO via TraCI |
-| Application | `veins-veins-5.3.1/src/veins/modules/application/resDB/` | the protocol — arrival certs, ordering, rollback |
-| Consensus | `incubator-resilientdb/integration/omnet/` | C ABI bridge to a real ResilientDB PBFT replica |
-
-Each vehicle is one `ResDBIntersectionApp` module embedding its own PBFT
-replica. Both vendored trees carry local patches, so they are **not** pristine
-upstream checkouts.
+```
+SUMO ──TraCI──> Veins / OMNeT++ ──802.11p──> ResDBIntersectionApp ──C ABI──> ResilientDB PBFT
+   mobility        radio + PHY                  the protocol                   consensus
+```
 
 ## Layout
 
 ```
-veins-veins-5.3.1/      Veins, patched (TraCI scenario manager +665 lines)
-  .../application/resDB/   the protocol
-    protocol/               shared types: Primitives, Arrival, Rollback, OrderCandidate
-    crypto/                 ECDSA P-256 signing, ambulance certs
-incubator-resilientdb/  ResilientDB, patched (PBFT core +1,154 lines)
-  integration/omnet/       the bridge + deterministic batching/safety table
-fourway/                scenarios, omnetpp.ini, the run script, crypto key dirs
-plotter/                figure generation (see below)
-tests/golden/           structural-invariant harness for safe refactoring
-benchmarks/ablations/   the ablation runner; results are gitignored
-docs/                   ARCHITECTURE.md and the CLEAR/WAIT spec
-writing/                thesis source
+src/v2vbft/           the protocol — this is the interesting part
+  app/                  arrival certs, ordering, rollback, transport, TraCI glue
+  protocol/             shared types: Primitives, Arrival, Rollback, OrderCandidate
+  crypto/               ECDSA P-256 signing, ambulance certificates
+  messages/             the OMNeT++ wire message
+  sinr/                 per-vehicle channel metrics
+bridge/               C ABI bridge into ResilientDB: pre-verification firewall,
+                      the intersection executor, deterministic batching table
+scenarios/fourway/    omnetpp.ini, SUMO networks and routes, radio config
+tools/                run script, key generation, Bazel wrapper, patch regen
+plotter/              figure generation (one pipeline, see below)
+tests/golden/         structural-invariant harness for safe refactoring
+benchmarks/ablations/ the ablation runner
+third_party/          pinned upstream refs + our patches to them
+docs/                 ARCHITECTURE.md and the CLEAR/WAIT spec
+.external/            (gitignored) Veins and ResilientDB, materialised by setup.sh
 ```
+
+**Veins and ResilientDB are not vendored into this repo.** `third_party/`
+carries a pinned upstream revision for each plus a patch, and `setup.sh` clones
+and patches them into `.external/`. See
+[third_party/README.md](third_party/README.md) for what the patches change and
+how to regenerate them after editing.
 
 ## Prerequisites
 
-OMNeT++ 6.2.0 is **not** vendored. Everything builds and runs inside an
-`opp_env` shell:
+- **OMNeT++ 6.2.0** via `opp_env` — not vendored, and every command below
+  assumes you are inside its shell:
+  ```bash
+  opp_env shell -w <workspace> omnetpp-6.2.0 --no-build --no-cleanup
+  ```
+- **SUMO** on `PATH`.
+- **Bazel** (for the ResilientDB bridge) and **OpenSSL** headers.
+
+## Quick start
 
 ```bash
-opp_env shell -w <workspace> omnetpp-6.2.0 --no-build --no-cleanup
+./setup.sh
 ```
 
-SUMO must be on `PATH`. All commands below assume you are inside that shell.
+That clones and patches both upstreams, builds the bridge, Veins, `libv2vbft`
+and the simulation binary, and generates the replica key directories. Cold, it
+takes about ten minutes — nearly all of it Bazel compiling ResilientDB's
+dependencies. It is idempotent, so re-running skips whatever is already done.
 
-## Build
+The four build stages, if you want to drive them individually:
 
-Three stages, in order. The bridge is the slow one (~5 min).
+| Stage | Command | Produces |
+|---|---|---|
+| 1. Bridge | `tools/makeres.sh` | `libresdb_omnet_bridge.so` |
+| 2. Veins | `cd .external/veins && ./configure && make -j` | `libveins.so` |
+| 3. Protocol | `cd src && make -j` | `libv2vbft.so` |
+| 4. Simulation | `cd scenarios/fourway && make -j` | `fourway` |
 
-**1. ResilientDB bridge** — the two flags that matter are `-xc++` (so Nix clang
-finds libstdc++) and `-include cstdint` (for Abseil):
-
-```bash
-cd incubator-resilientdb
-bazel --output_user_root=/tmp/bazel build --spawn_strategy=local \
-  --cxxopt=-xc++ --host_cxxopt=-xc++ \
-  --cxxopt=-Wno-enum-constexpr-conversion --host_cxxopt=-Wno-enum-constexpr-conversion \
-  --copt=-Dfdopen=fdopen --host_copt=-Dfdopen=fdopen \
-  --cxxopt=-include --cxxopt=cstdint --host_cxxopt=-include --host_cxxopt=cstdint \
-  --action_env=PATH="$PATH" --host_action_env=PATH="$PATH" \
-  //integration/omnet:resdb_omnet_bridge //tools:key_generator_tools //tools:certificate_tools
-```
-
-`scripts/makeres.sh` wraps this. Do not point `--output_user_root` at
-`~/.cache/bazel`; that path hits toolchain errors here.
-
-**2. Veins** — `./configure` first on a fresh clone, since `src/Makefile` is generated:
-
-```bash
-cd veins-veins-5.3.1 && ./configure && make -j$(nproc)
-```
-
-**3. Simulation binary:**
-
-```bash
-cd fourway && make -j$(nproc)
-```
-
-The binary must be rebuilt locally — a committed one carries an rpath to
+The binaries must be built locally — a committed one carries an rpath to
 whichever machine built it.
 
 ## Run
 
 ```bash
-fourway/run-resdb-simulation.sh -u Cmdenv -c FourVehiclesResDB   # headless
-fourway/run-resdb-simulation.sh -u Qtenv  -c FourVehiclesResDB   # GUI
+tools/run-resdb-simulation.sh -u Cmdenv -c FourVehiclesResDB   # headless
+tools/run-resdb-simulation.sh -u Qtenv  -c FourVehiclesResDB   # GUI
 ```
 
-Configs live in `fourway/omnetpp.ini`. Useful flags:
+Configs live in `scenarios/fourway/omnetpp.ini`. Useful flags:
 
 | Flag | Effect |
 |---|---|
-| `--byzleader <id> --leader-byz-type <n>` | make a replica Byzantine; `<n>` is a `ByzantineType` from `protocol/Primitives.h` |
+| `--byzleader <id> --leader-byz-type <n>` | make a replica Byzantine; `<n>` is a `ByzantineType` from `src/v2vbft/protocol/Primitives.h` |
 | `--no-firewall` | disable the f+1 pre-verification checks |
 | `--randomize <N> <F>` | generate a random scenario |
 | `--rollback-late-emergency` | late-ambulance rollback scenario |
@@ -103,14 +96,16 @@ consumes the next argument.
 
 Full log goes to `/tmp/resdb-simulation.log`, or `$LOG_FILE` if set.
 
-**Crypto key directories must match the replica count** — the bridge derives N
-from `server.config`. Hence `fourway/resdb_crypto_8`, `_16`, `_rb18` and so on.
-Generate one with `fourway/gen_crypto_dir.sh <N> <dir>` (needs the Bazel tools
-from stage 1).
+**Replica key directories must match the replica count** — the bridge derives N
+from `server.config`, and a directory declaring the wrong N runs with no
+consensus while reporting nothing obviously wrong. `setup.sh` generates all
+eight (`resdb_crypto` = 4 replicas, `_8`, `_12`, `_16`, `_20`, `_24`, `_rb18` =
+18, `_rb_units` = 22). To make one by hand:
+`tools/gen_crypto_dir.sh <N> scenarios/fourway/<dir>`.
 
 ## Figures
 
-Every figure is generated by one pipeline: discover → parse → metrics → figure.
+Every figure comes off one pipeline: discover → parse → metrics → figure.
 
 ```bash
 python3 -m plotter list
@@ -119,8 +114,8 @@ python3 -m plotter build-all          # -> figures/
 ```
 
 Log parsing lives in exactly one place, `plotter/io/logparse.py`. If the C++ log
-format changes, that is the only file to update. Adding a figure means adding
-one module under `plotter/figures/` and one line in `_registry.py`.
+format changes, that is the only file to update. Adding a figure means one
+module under `plotter/figures/` and one line in `_registry.py`.
 
 Results come from `benchmarks/ablations/run_ablations.sh`; both results and
 figures are gitignored.
@@ -152,12 +147,28 @@ roughly 55 minutes. Never run a simulation concurrently with the harness unless
 
 **`OMNETPP_ROOT is not set`** — you are outside the `opp_env` shell.
 
-**`libveins.so: cannot open shared object file`** — rebuild stage 2 and 3
-locally.
+**`libveins.so` / `libv2vbft.so`: cannot open shared object file** — rebuild
+stages 2–4 locally.
 
 **Exit 139 / 133 on 18-vehicle runs** — a known TraCI crash when a node queries
 a departed vehicle after sim overrun. It fires *after* the commit, so metrics
 are unaffected; the golden harness judges the invariants, not the exit code.
 
-**Bazel fails on Boost `int_float_mixture_enum`** — your Clang is newer than the
-pinned Boost expects; `.bazelrc` already passes the suppression.
+**Bazel fails on Boost `int_float_mixture_enum`, or `<cstdint> file not
+found`** — your Clang is newer than the pinned Boost expects. `tools/makeres.sh`
+already passes the necessary suppressions and `-xc++`; use it rather than
+calling `bazel build` directly.
+
+**Patch fails to apply during `setup.sh`** — the pinned upstream revision moved
+or your `.external/` is dirty. Delete the offending tree under `.external/` and
+re-run.
+
+## License
+
+GPL-3.0-or-later. See [LICENSE](LICENSE).
+
+The protocol derives from Veins (GPL-2.0-**or-later**) and links ResilientDB
+(Apache-2.0). Apache-2.0 is incompatible with GPL-2.0-only but compatible with
+GPL-3.0, and Veins' "or later" clause permits the upgrade, so GPL-3.0-or-later
+is the coherent licence for the combined work. See
+[THIRD_PARTY.md](THIRD_PARTY.md).

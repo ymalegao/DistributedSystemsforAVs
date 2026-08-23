@@ -20,7 +20,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
-FOURWAY="$REPO/fourway"
+FOURWAY="$REPO/scenarios/fourway"
 RES="$HERE/results"
 FASTXML="$FOURWAY/config_fast.xml"
 WHICH="${1:-all}"
@@ -87,7 +87,7 @@ run() {   # $1=logname $2=config ; $3.. = extra args
   # LOG_FILE must be per-run: the runner used to hardcode one path, and two
   # interleaved runs produced a log with two finish markers that still parsed.
   ( cd "$FOURWAY" && LOG_FILE="$RES/.${name}.simlog" timeout 900 \
-      ./run-resdb-simulation.sh -f "$FOURWAY/omnetpp.ini" "$@" \
+      "$REPO/tools/run-resdb-simulation.sh" -f "$FOURWAY/omnetpp.ini" "$@" \
       -u Cmdenv -c "$cfg" ) > "$log" 2>&1
   local rc=$?
   echo "    -> rc=$rc decided=$(grep -c Order_Decided_Time "$log") cars=$(grep -c CAR-METRICS "$log")"

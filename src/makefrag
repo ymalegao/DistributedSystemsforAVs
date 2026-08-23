@@ -1,0 +1,47 @@
+#
+# Copyright (C) 2026 Mathesh Kumar
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Settings opp_makemake cannot express. Kept here (not in the generated
+# src/Makefile) so they survive `opp_makemake -f` regenerating it.
+#
+# Veins is wired by the -KVEINS_PROJ / -I / -L flags in src/Makefile; only the
+# ResilientDB bridge and the toolchain flags below need to live here.
+#
+
+# ── Language / crypto ─────────────────────────────────────────────────────────
+# ResilientDB's headers require C++17. OpenSSL is required by CryptoAuth.
+CFLAGS += -std=c++17
+CXXFLAGS += -std=c++17
+LIBS += -lcrypto -lssl
+
+# OMNeT++ 5 needs --msg6 to compile BFTMessage.msg with the modern syntax;
+# OMNeT++ 6 uses it by default and rejects the flag.
+V2VBFT_NEED_MSG6 := $(shell echo ${OMNETPP_VERSION} | grep "^5" >/dev/null 2>&1; echo $$?)
+ifeq ($(V2VBFT_NEED_MSG6),0)
+  MSGCOPTS += --msg6
+endif
+
+# ── ResilientDB bridge ────────────────────────────────────────────────────────
+# ResDBIntersectionApp.h includes "integration/omnet/resdb_omnet_bridge.h", so
+# the include root is RESDB_ROOT itself, not RESDB_ROOT/integration/omnet.
+# setup.sh symlinks this repo's bridge/ to $(RESDB_ROOT)/integration/omnet, so
+# that path resolves to source tracked here.
+# := is load-bearing. MAKEFILE_LIST keeps growing as make pulls in the
+# generated .d files, so a recursively-expanded ?= here resolves against
+# whichever .d was included last — which silently yields
+# src/out/<config>/v2vbft/.external/resilientdb and an unfindable -lresdb.
+# Capture this makefrag's own path once, at read time.
+V2VBFT_MAKEFRAG := $(abspath $(lastword $(MAKEFILE_LIST)))
+REPO_ROOT ?= $(abspath $(dir $(V2VBFT_MAKEFRAG))..)
+RESDB_ROOT ?= $(REPO_ROOT)/.external/resilientdb
+CXXFLAGS += -I$(RESDB_ROOT)
+
+# Link the shared library Bazel produces (build it with tools/makeres.sh).
+RESDB_LIB_DIR ?= $(RESDB_ROOT)/bazel-bin/integration/omnet
+ifneq ($(wildcard $(RESDB_LIB_DIR)/libresdb_omnet_bridge.dylib),)
+  LDFLAGS += -L$(RESDB_LIB_DIR) -lresdb_omnet_bridge -Wl,-rpath,$(RESDB_LIB_DIR)
+else ifneq ($(wildcard $(RESDB_LIB_DIR)/libresdb_omnet_bridge.so),)
+  LDFLAGS += -L$(RESDB_LIB_DIR) -lresdb_omnet_bridge -Wl,-rpath,$(RESDB_LIB_DIR)
+endif

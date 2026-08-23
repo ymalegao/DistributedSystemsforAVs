@@ -1,0 +1,11 @@
+# Veins and libv2vbft are wired by the -KVEINS_PROJ / -KV2VBFT_PROJ / -I / -L
+# flags in Makefile, which also bake in the loader rpaths. Only the toolchain
+# flag below has to live here so it survives `opp_makemake -f`.
+#
+# Build order: libv2vbft (src/) links libveins (.external/veins) and the Bazel
+# bridge, then this binary links all three.
+
+# The Veins headers this scenario pulls in are compiled as C++17 elsewhere in
+# the build; keep the standard consistent across translation units.
+CFLAGS += -std=c++17
+CXXFLAGS += -std=c++17

@@ -1,0 +1,932 @@
+--- a/src/veins/modules/application/ieee80211p/DemoBaseApplLayer.cc
++++ b/src/veins/modules/application/ieee80211p/DemoBaseApplLayer.cc
+@@ -263,8 +263,8 @@
+ 
+ DemoBaseApplLayer::~DemoBaseApplLayer()
+ {
+-    cancelAndDelete(sendBeaconEvt);
+-    cancelAndDelete(sendWSAEvt);
++    if (sendBeaconEvt) cancelAndDelete(sendBeaconEvt);
++    if (sendWSAEvt) cancelAndDelete(sendWSAEvt);
+     findHost()->unsubscribe(BaseMobility::mobilityStateChangedSignal, this);
+ }
+ 
+--- a/src/veins/modules/application/ieee80211p/DemoBaseApplLayer.h
++++ b/src/veins/modules/application/ieee80211p/DemoBaseApplLayer.h
+@@ -178,8 +178,8 @@
+     uint32_t receivedBSMs;
+ 
+     /* messages for periodic events such as beacon and WSA transmissions */
+-    cMessage* sendBeaconEvt;
+-    cMessage* sendWSAEvt;
++    cMessage* sendBeaconEvt = nullptr;
++    cMessage* sendWSAEvt = nullptr;
+ };
+ 
+ } // namespace veins
+--- a/src/veins/modules/application/traci/TraCIDemoTrafficLightApp.cc
++++ b/src/veins/modules/application/traci/TraCIDemoTrafficLightApp.cc
+@@ -34,10 +34,17 @@
+ 
+ TraCIDemoTrafficLightApp::~TraCIDemoTrafficLightApp()
+ {
++    // Defensive teardown: in some embedded/JNI shutdown paths this module's
++    // inherited periodic-event pointers may already be invalid by the time
++    // base destructors run. Null them so DemoBaseApplLayer won't touch them.
++    sendBeaconEvt = nullptr;
++    sendWSAEvt = nullptr;
+ }
+ 
+ void TraCIDemoTrafficLightApp::initialize(int stage)
+ {
++    // Ensure DemoBaseApplLayer allocates and manages its self-messages.
++    DemoBaseApplLayer::initialize(stage);
+ }
+ 
+ void TraCIDemoTrafficLightApp::onBSM(DemoSafetyMessage* bsm)
+--- a/src/veins/modules/mobility/traci/IIntersectionApp.h
++++ b/src/veins/modules/mobility/traci/IIntersectionApp.h
+@@ -0,0 +1,38 @@
++#pragma once
++
++#include <omnetpp.h>
++
++// ── Vehicle-lifecycle hooks the scenario manager needs from an application ────
++//
++// TraCIScenarioManager observes things in SUMO that an intersection application
++// must react to (a vehicle departing the junction, a crash being injected into
++// it). It previously reached those out by including ResDBIntersectionApp.h and
++// dynamic_cast-ing to the concrete class, which made core mobility code depend
++// on the application layer while the application layer already depended on
++// core -- a dependency cycle that pinned the app inside the Veins tree.
++//
++// The consumer owns the interface: core mobility declares what it needs, and
++// the application implements it. Adding a hook means adding a method here and
++// implementing it in the app; core never learns the concrete type.
++//
++// Implemented by: ResDBIntersectionApp.
++//
++// Found via getSubmodulesOfType<IIntersectionApp>() / dynamic_cast from
++// cModule*, which is a valid cross-cast because implementers derive from both
++// cSimpleModule and this interface.
++
++namespace veins {
++
++class IIntersectionApp {
++public:
++    virtual ~IIntersectionApp() = default;
++
++    // The vehicle has left the intersection, at the given simulation time.
++    virtual void recordIntersectionDeparture(omnetpp::simtime_t when) = 0;
++
++    // The vehicle has been crashed by injection; it must stop transmitting.
++    // reason is a short tag for logging, e.g. "crash-inject".
++    virtual void disableCrashComms(const char* reason) = 0;
++};
++
++} // namespace veins
+--- a/src/veins/modules/mobility/traci/TraCICommandInterface.cc
++++ b/src/veins/modules/mobility/traci/TraCICommandInterface.cc
+@@ -150,6 +150,16 @@
+     ASSERT(buf.eof());
+ }
+ 
++void TraCICommandInterface::Vehicle::remove(uint8_t reason)
++{
++    uint8_t variableId = REMOVE;
++    uint8_t variableType = TYPE_BYTE;
++    TraCIBuffer buf = traci->connection.query(
++        CMD_SET_VEHICLE_VARIABLE,
++        TraCIBuffer() << variableId << nodeId << variableType << reason);
++    ASSERT(buf.eof());
++}
++
+ void TraCICommandInterface::Vehicle::setMaxSpeed(double speed)
+ {
+     uint8_t variableId = VAR_MAXSPEED;
+--- a/src/veins/modules/mobility/traci/TraCICommandInterface.h
++++ b/src/veins/modules/mobility/traci/TraCICommandInterface.h
+@@ -158,6 +158,8 @@
+         void setSpeedMode(int32_t bitset);
+         void setSpeed(double speed);
+         void setMaxSpeed(double speed);
++        /** Remove this vehicle from the SUMO simulation (TraCI REMOVE; reason 0x03 = vaporized). */
++        void remove(uint8_t reason = 0x03);
+         TraCIColor getColor();
+         void setColor(const TraCIColor& color);
+         void slowDown(double speed, simtime_t time);
+--- a/src/veins/modules/mobility/traci/TraCIScenarioManager.cc
++++ b/src/veins/modules/mobility/traci/TraCIScenarioManager.cc
+@@ -27,12 +27,14 @@
+ #include <stdexcept>
+ #include <iterator>
+ #include <cstdlib>
++#include <cctype>
+ 
+ #include "veins/modules/mobility/traci/TraCIScenarioManager.h"
+ #include "veins/base/connectionManager/ChannelAccess.h"
+ #include "veins/modules/mobility/traci/TraCICommandInterface.h"
+ #include "veins/modules/mobility/traci/TraCIConstants.h"
+ #include "veins/modules/mobility/traci/TraCIMobility.h"
++#include "veins/modules/mobility/traci/IIntersectionApp.h"
+ #include "veins/modules/obstacle/ObstacleControl.h"
+ #include "veins/modules/world/traci/trafficLight/TraCITrafficLightInterface.h"
+ 
+@@ -63,6 +65,8 @@
+     , commandIfc(nullptr)
+     , connectAndStartTrigger(nullptr)
+     , executeOneTimestepTrigger(nullptr)
++    , r0LateEmergencySpawnTrigger(nullptr)
++    , crashSupervisorPollTrigger_(nullptr)
+     , world(nullptr)
+ {
+ }
+@@ -80,6 +84,14 @@
+         cancelAndDelete(executeOneTimestepTrigger);
+         executeOneTimestepTrigger = nullptr;
+     }
++    if (r0LateEmergencySpawnTrigger) {
++        cancelAndDelete(r0LateEmergencySpawnTrigger);
++        r0LateEmergencySpawnTrigger = nullptr;
++    }
++    if (crashSupervisorPollTrigger_) {
++        cancelAndDelete(crashSupervisorPollTrigger_);
++        crashSupervisorPollTrigger_ = nullptr;
++    }
+ }
+ 
+ namespace {
+@@ -271,6 +283,35 @@
+         throw cRuntimeError("TraCI Port autoconfiguration failed, set 'port' != -1 in omnetpp.ini or provide VEINS_TRACI_PORT environment variable.");
+     }
+     autoShutdown = par("autoShutdown");
++    shutdownOnIntersectionBatchCleared = par("shutdownOnIntersectionBatchCleared").boolValue();
++    intersectionBatchSize = par("intersectionBatchSize").intValue();
++    if (intersectionBatchSize < 1) {
++        throw cRuntimeError("TraCIScenarioManager: intersectionBatchSize must be >= 1");
++    }
++    intersectionDepartureMinMeters = par("intersectionDepartureMinMeters").doubleValue();
++    enableR0Supervisor = par("enableR0Supervisor").boolValue();
++    r0SpawnAfterCleared = par("r0SpawnAfterCleared").intValue();
++    if (r0SpawnAfterCleared < 1) {
++        throw cRuntimeError("TraCIScenarioManager: r0SpawnAfterCleared must be >= 1");
++    }
++    lateEmergencyDeltaSec = par("lateEmergencyDeltaSec");
++    r0LateSpawnDepartPos = par("r0LateSpawnDepartPos").doubleValue();
++    r0LateSpawnRetrySec = par("r0LateSpawnRetrySec");
++    r0LateSpawnMaxRetries = par("r0LateSpawnMaxRetries").intValue();
++    r0LateNormalVehicleId = par("r0LateNormalVehicleId").stdstringValue();
++    r0LateNormalType = par("r0LateNormalType").stdstringValue();
++    r0LateNormalRoute = par("r0LateNormalRoute").stdstringValue();
++    r0LateEmergencyVehicleId = par("r0LateEmergencyVehicleId").stdstringValue();
++    r0LateEmergencyType = par("r0LateEmergencyType").stdstringValue();
++    r0LateEmergencyRoute = par("r0LateEmergencyRoute").stdstringValue();
++    enableCrashSupervisor = par("enableCrashSupervisor").boolValue();
++    crashWreckCount = par("crashWreckCount").intValue();
++    if (crashWreckCount < 1) {
++        throw cRuntimeError("TraCIScenarioManager: crashWreckCount must be >= 1");
++    }
++    crashPollPeriodSec = par("crashPollPeriodSec");
++    crashOnBoxEntrySec = par("crashOnBoxEntrySec");
++    clearDelaySec = par("clearDelaySec");
+ 
+     annotations = AnnotationManagerAccess().getIfExists();
+ 
+@@ -286,7 +327,24 @@
+     activeVehicleCount = 0;
+     parkingVehicleCount = 0;
+     drivingVehicleCount = 0;
++    hadActiveVehicles = false;
++    vehiclesClearedIntersection.clear();
++    r0LateSpawnScheduled = false;
++    r0LateSpawnDone = false;
++    r0LateSpawnRetryCount = 0;
+     autoShutdownTriggered = false;
++    crashBatch0Members_.clear();
++    crashWreckIds_.clear();
++    crashInjected_.clear();
++    crashTowed_.clear();
++    crashConflictOccupantsAtInjection_.clear();
++    crashUnsafeEntrants_.clear();
++    crashPendingInjectAt_.clear();
++    crashTowAt_.clear();
++    physicalApproachByVehicle_.clear();
++    unsafeConflictPairs_.clear();
++    physicalCollisionVehicles_.clear();
++    crashSelectDone_ = false;
+ 
+     world = FindModule<BaseWorldUtility*>::findGlobalModule();
+ 
+@@ -297,6 +355,8 @@
+     scheduleAt(connectAt, connectAndStartTrigger);
+     executeOneTimestepTrigger = new cMessage("step");
+     scheduleAt(firstStepAt, executeOneTimestepTrigger);
++    r0LateEmergencySpawnTrigger = new cMessage("r0LateEmergencySpawn");
++    crashSupervisorPollTrigger_ = new cMessage("crashSupervisorPoll");
+ 
+     EV_DEBUG << "initialized TraCIScenarioManager" << endl;
+ }
+@@ -508,6 +568,14 @@
+         executeOneTimestep();
+         return;
+     }
++    if (msg == r0LateEmergencySpawnTrigger) {
++        tryR0LateEmergencySpawn();
++        return;
++    }
++    if (msg == crashSupervisorPollTrigger_) {
++        pollCrashSupervisor();
++        return;
++    }
+     throw cRuntimeError("TraCIScenarioManager received unknown self-message");
+ }
+ 
+@@ -694,8 +762,13 @@
+     std::string objectId = vehicleId;
+     uint8_t variableNumber = 0;
+ 
+-    TraCIBuffer buf = connection->query(CMD_SUBSCRIBE_VEHICLE_VARIABLE, TraCIBuffer() << beginTime << endTime << objectId << variableNumber);
+-    ASSERT(buf.eof());
++    try {
++        TraCIBuffer buf = connection->query(CMD_SUBSCRIBE_VEHICLE_VARIABLE, TraCIBuffer() << beginTime << endTime << objectId << variableNumber);
++        ASSERT(buf.eof());
++    } catch (cRuntimeError& e) {
++        // SUMO auto-drops subscriptions when a vehicle is removed/teleported; ignore stale unsub.
++        EV_WARN << "Ignoring TraCI unsubscribe for " << vehicleId << ": " << e.what() << endl;
++    }
+ }
+ void TraCIScenarioManager::subscribeToTrafficLightVariables(std::string tlId)
+ {
+@@ -812,6 +885,7 @@
+ 
+             activeVehicleCount += count;
+             drivingVehicleCount += count;
++            if (count > 0) hadActiveVehicles = true;
+         }
+         else if (variable1_resp == VAR_ARRIVED_VEHICLES_IDS) {
+             uint8_t varType;
+@@ -838,7 +912,6 @@
+                 }
+             }
+ 
+-            if ((count > 0) && (count >= activeVehicleCount) && autoShutdown) autoShutdownTriggered = true;
+             activeVehicleCount -= count;
+             drivingVehicleCount -= count;
+         }
+@@ -880,6 +953,7 @@
+ 
+             activeVehicleCount += count;
+             drivingVehicleCount += count;
++            if (count > 0) hadActiveVehicles = true;
+         }
+         else if (variable1_resp == VAR_PARKING_STARTING_VEHICLES_IDS) {
+             uint8_t varType;
+@@ -942,6 +1016,10 @@
+             for (uint32_t i = 0; i < count; ++i) {
+                 std::string idstring;
+                 buf >> idstring;
++                if (physicalCollisionVehicles_.insert(idstring).second) {
++                    std::cout << "[PHYSICAL-COLLISION] vehicle=" << idstring
++                              << " t=" << simTime() << "\n";
++                }
+                 cModule* mod = getManagedModule(idstring);
+                 if (mod) {
+                     auto mobilityModules = getSubmodulesOfType<TraCIMobility>(mod);
+@@ -955,6 +1033,458 @@
+             throw cRuntimeError("Received unhandled sim subscription result");
+         }
+     }
++
++    pollIntersectionCooccupancy();
++
++    // Global, manager-level watchdog:
++    // once traffic existed and all vehicles are gone, end the whole simulation.
++    if (autoShutdown && hadActiveVehicles && activeVehicleCount == 0 && !autoShutdownTriggered) {
++        autoShutdownTriggered = true;
++        EV_INFO << "Auto-shutdown: all vehicles departed, ending simulation." << endl;
++        endSimulation();
++    }
++}
++
++void TraCIScenarioManager::pollIntersectionCooccupancy()
++{
++    if (!commandIfc) return;
++    std::vector<std::pair<std::string, char>> occupants;
++    for (const auto& id : commandIfc->getVehicleIds()) {
++        try {
++            auto vehicle = commandIfc->vehicle(id);
++            const std::string roadId = vehicle.getRoadId();
++            const std::string laneId = vehicle.getLaneId();
++            if (!roadId.empty()) {
++                const char approach = std::toupper(static_cast<unsigned char>(roadId.front()));
++                if ((approach == 'N' || approach == 'S' || approach == 'E' || approach == 'W') &&
++                        roadId.size() >= 3 && roadId[1] == '2') {
++                    physicalApproachByVehicle_[id] = approach;
++                }
++            }
++            if (!laneId.empty() && laneId.front() == ':') {
++                auto it = physicalApproachByVehicle_.find(id);
++                if (it != physicalApproachByVehicle_.end()) occupants.push_back(*it);
++            }
++        } catch (...) {
++        }
++    }
++
++    auto opposite = [](char a, char b) {
++        return (a == 'N' && b == 'S') || (a == 'S' && b == 'N') ||
++               (a == 'E' && b == 'W') || (a == 'W' && b == 'E');
++    };
++    for (size_t i = 0; i < occupants.size(); ++i) {
++        for (size_t j = i + 1; j < occupants.size(); ++j) {
++            char a = occupants[i].second;
++            char b = occupants[j].second;
++            if (a == b || opposite(a, b)) continue; // all configured routes are straight
++            std::string first = occupants[i].first;
++            std::string second = occupants[j].first;
++            if (second < first) {
++                std::swap(first, second);
++                std::swap(a, b);
++            }
++            if (!unsafeConflictPairs_.insert({first, second}).second) continue;
++            std::cout << "[UNSAFE-CONFLICT-COOCCUPANCY] first=" << first
++                      << " first_approach=" << a
++                      << " second=" << second
++                      << " second_approach=" << b
++                      << " t=" << simTime() << "\n";
++        }
++    }
++}
++
++bool TraCIScenarioManager::vehiclePastIntersectionDepartureLeg(const std::string& vehicleId)
++{
++    if (!commandIfc) {
++        return false;
++    }
++    try {
++        TraCICommandInterface::Vehicle v = getCommandInterface()->vehicle(vehicleId);
++        std::string laneId = v.getLaneId();
++        if (laneId.empty()) {
++            return false;
++        }
++        // SUMO internal / junction lanes — still inside the conflict region
++        if (laneId.front() == ':') {
++            return false;
++        }
++
++        std::string roadId = v.getRoadId();
++        bool onDepartureLeg = (roadId.size() >= 2 && std::toupper(static_cast<unsigned char>(roadId[0])) == 'C' && std::toupper(static_cast<unsigned char>(roadId[1])) == '2');
++        if (onDepartureLeg) {
++            bool cleared = v.getLanePosition() >= intersectionDepartureMinMeters;
++            if (cleared) {
++                notifyIntersectionDeparture(vehicleId);
++            }
++            return cleared;
++        }
++        return false;
++    } catch (...) {
++        // Vehicle left the simulation (aligned with V2VTraCI::vehicleHasClearedIntersectionTraCI)
++        return true;
++    }
++}
++
++void TraCIScenarioManager::notifyIntersectionDeparture(const std::string& vehicleId)
++{
++    cModule* car = getManagedModule(vehicleId);
++    if (!car) return;
++
++    for (auto* app : getSubmodulesOfType<IIntersectionApp>(car, true)) {
++        app->recordIntersectionDeparture(simTime());
++    }
++}
++
++void TraCIScenarioManager::tryShutdownOnIntersectionBatchCleared(const std::string& vehicleId)
++{
++    if (!vehiclePastIntersectionDepartureLeg(vehicleId)) {
++        return;
++    }
++    auto inserted = vehiclesClearedIntersection.insert(vehicleId);
++    if (enableR0Supervisor) {
++        maybeScheduleR0LateEmergencySpawn(vehicleId);
++    }
++    if (!shutdownOnIntersectionBatchCleared || autoShutdownTriggered) {
++        return;
++    }
++    if (inserted.second) {
++        tryShutdownOnTerminalVehicleCount(vehicleId, "crossed");
++    }
++}
++
++void TraCIScenarioManager::tryShutdownOnTerminalVehicleCount(
++    const std::string& latestVehicleId, const char* latestOutcome)
++{
++    if (!shutdownOnIntersectionBatchCleared || autoShutdownTriggered) return;
++
++    // A crash-wait-clear run deliberately vaporizes the wrecks rather than
++    // letting them traverse the departure leg.  They are terminal members of
++    // the experiment nonetheless.  Requiring intersectionBatchSize physical
++    // departures made the completion condition impossible (14 crossings + 2
++    // tows in the 16-car scenario), leaving only periodic timers in the FES.
++    std::set<std::string> terminalVehicles = vehiclesClearedIntersection;
++    if (enableCrashSupervisor) {
++        terminalVehicles.insert(crashTowed_.begin(), crashTowed_.end());
++    }
++    EV_INFO << "Intersection batch: " << terminalVehicles.size() << "/"
++            << intersectionBatchSize << " terminal (crossed="
++            << vehiclesClearedIntersection.size() << ", towed="
++            << (enableCrashSupervisor ? crashTowed_.size() : 0)
++            << ", latest=" << latestVehicleId
++            << ":" << (latestOutcome ? latestOutcome : "unknown") << ")" << endl;
++    if ((int) terminalVehicles.size() >= intersectionBatchSize) {
++        autoShutdownTriggered = true;
++        EV_INFO << "Auto-shutdown: " << intersectionBatchSize
++                << " vehicles reached a terminal intersection outcome (crossed or crash-towed)."
++                << endl;
++        endSimulation();
++    }
++}
++
++void TraCIScenarioManager::notifyR0BatchStarted(const std::string& vehicleId, int batchIndex)
++{
++    if (batchIndex != 0) {
++        return;
++    }
++    if (enableCrashSupervisor) {
++        onCrashBatch0Started(vehicleId);
++    }
++    if (!enableR0Supervisor) {
++        return;
++    }
++    if (r0LateSpawnScheduled || r0LateSpawnDone || autoShutdownTriggered) {
++        return;
++    }
++    r0LateSpawnScheduled = true;
++    simtime_t when = simTime() + lateEmergencyDeltaSec;
++    if (r0LateEmergencySpawnTrigger->isScheduled()) {
++        cancelEvent(r0LateEmergencySpawnTrigger);
++    }
++    scheduleAt(when, r0LateEmergencySpawnTrigger);
++    std::cout << "[R0-SUPERVISOR] scheduled late vehicle injection"
++              << " trigger=batch-start"
++              << " trigger_vehicle=" << vehicleId
++              << " batch=" << batchIndex
++              << " at=" << when
++              << " delta=" << lateEmergencyDeltaSec
++              << "\n";
++}
++
++void TraCIScenarioManager::maybeScheduleR0LateEmergencySpawn(const std::string& vehicleId)
++{
++    if (r0LateSpawnScheduled || r0LateSpawnDone || autoShutdownTriggered) {
++        return;
++    }
++    if ((int) vehiclesClearedIntersection.size() < r0SpawnAfterCleared) {
++        return;
++    }
++    r0LateSpawnScheduled = true;
++    simtime_t when = simTime() + lateEmergencyDeltaSec;
++    if (r0LateEmergencySpawnTrigger->isScheduled()) {
++        cancelEvent(r0LateEmergencySpawnTrigger);
++    }
++    scheduleAt(when, r0LateEmergencySpawnTrigger);
++    std::cout << "[R0-SUPERVISOR] scheduled late vehicle injection"
++              << " trigger=clearance"
++              << " trigger_vehicle=" << vehicleId
++              << " cleared=" << vehiclesClearedIntersection.size()
++              << " threshold=" << r0SpawnAfterCleared
++              << " at=" << when
++              << " delta=" << lateEmergencyDeltaSec
++              << "\n";
++}
++
++void TraCIScenarioManager::tryR0LateEmergencySpawn()
++{
++    if (!enableR0Supervisor || r0LateSpawnDone || !commandIfc) {
++        return;
++    }
++
++    bool normalOk = true;
++    bool emergencyOk = true;
++    auto vehicleExists = [this](const std::string& vehicleId) {
++        std::list<std::string> ids = commandIfc->getVehicleIds();
++        return std::find(ids.begin(), ids.end(), vehicleId) != ids.end();
++    };
++    try {
++        normalOk = vehicleExists(r0LateNormalVehicleId) ||
++            commandIfc->addVehicle(
++                r0LateNormalVehicleId, r0LateNormalType, r0LateNormalRoute,
++                simTime(), r0LateSpawnDepartPos, TraCICommandInterface::DEPART_SPEED_MAX,
++                TraCICommandInterface::DEPART_LANE_BEST);
++        emergencyOk = vehicleExists(r0LateEmergencyVehicleId) ||
++            commandIfc->addVehicle(
++                r0LateEmergencyVehicleId, r0LateEmergencyType, r0LateEmergencyRoute,
++                simTime(), r0LateSpawnDepartPos, TraCICommandInterface::DEPART_SPEED_MAX,
++                TraCICommandInterface::DEPART_LANE_BEST);
++    } catch (const std::exception& e) {
++        normalOk = false;
++        emergencyOk = false;
++        std::cout << "[R0-SUPERVISOR] late vehicle injection threw: " << e.what() << "\n";
++    } catch (...) {
++        normalOk = false;
++        emergencyOk = false;
++        std::cout << "[R0-SUPERVISOR] late vehicle injection threw unknown exception\n";
++    }
++
++    if (normalOk && emergencyOk) {
++        r0LateSpawnDone = true;
++        std::cout << "[R0-SUPERVISOR] injected late vehicles"
++                  << " normal=" << r0LateNormalVehicleId
++                  << " route=" << r0LateNormalRoute
++                  << " emergency=" << r0LateEmergencyVehicleId
++                  << " route=" << r0LateEmergencyRoute
++                  << " depart_pos=" << r0LateSpawnDepartPos
++                  << " t=" << simTime()
++                  << "\n";
++        return;
++    }
++
++    r0LateSpawnRetryCount++;
++    std::cout << "[R0-SUPERVISOR] late vehicle injection failed"
++              << " normal_ok=" << normalOk
++              << " emergency_ok=" << emergencyOk
++              << " retry=" << r0LateSpawnRetryCount
++              << "/" << r0LateSpawnMaxRetries
++              << "\n";
++    if (r0LateSpawnMaxRetries <= 0 || r0LateSpawnRetryCount < r0LateSpawnMaxRetries) {
++        scheduleAt(simTime() + r0LateSpawnRetrySec, r0LateEmergencySpawnTrigger);
++    }
++}
++
++void TraCIScenarioManager::onCrashBatch0Started(const std::string& vehicleId)
++{
++    crashBatch0Members_.insert(vehicleId);
++    if (crashSelectDone_) return;
++    if ((int) crashBatch0Members_.size() < crashWreckCount) return;
++
++    std::vector<std::string> members(crashBatch0Members_.begin(), crashBatch0Members_.end());
++    std::sort(members.begin(), members.end(), [](const std::string& a, const std::string& b) {
++        auto idOf = [](const std::string& s) {
++            try {
++                return (s.size() > 3) ? std::stoi(s.substr(3)) : 0;
++            } catch (...) {
++                return 0;
++            }
++        };
++        return idOf(a) < idOf(b);
++    });
++    crashWreckIds_.assign(members.begin(), members.begin() + crashWreckCount);
++    crashSelectDone_ = true;
++
++    std::cout << "[CRASH-SELECT] manager batch=0 wrecks=";
++    for (size_t i = 0; i < crashWreckIds_.size(); ++i) {
++        if (i) std::cout << ",";
++        std::cout << crashWreckIds_[i];
++    }
++    std::cout << " t=" << simTime() << "\n";
++
++    if (crashSupervisorPollTrigger_ && !crashSupervisorPollTrigger_->isScheduled()) {
++        scheduleAt(simTime() + crashPollPeriodSec, crashSupervisorPollTrigger_);
++    }
++}
++
++bool TraCIScenarioManager::vehicleOnInternalConflictLane(const std::string& vehicleId) const
++{
++    if (!commandIfc) return false;
++    try {
++        std::list<std::string> ids = commandIfc->getVehicleIds();
++        if (std::find(ids.begin(), ids.end(), vehicleId) == ids.end()) return false;
++        const std::string laneId = commandIfc->vehicle(vehicleId).getLaneId();
++        return !laneId.empty() && laneId.front() == ':';
++    } catch (...) {
++        return false;
++    }
++}
++
++void TraCIScenarioManager::freezeCrashWreck(const std::string& vehicleId)
++{
++    if (!commandIfc || crashInjected_.count(vehicleId)) return;
++    try {
++        auto v = commandIfc->vehicle(vehicleId);
++        const std::string laneId = v.getLaneId();
++        const double speed = v.getSpeed();
++        // Absolute TraCI hold (speedMode 0). Do not reuse stopVehicle()'s setSpeed(-1).
++        v.setSpeedMode(0);
++        v.setSpeed(0.0);
++        const bool firstCrashInjection = crashInjected_.empty();
++        crashInjected_.insert(vehicleId);
++        crashTowAt_[vehicleId] = simTime() + clearDelaySec;
++
++        // Snapshot vehicles already sharing the box at injection. They are
++        // not evidence that a fabricated recovery ORDER admitted new traffic;
++        // only later entrants while a wreck remains are counted below.
++        if (firstCrashInjection) {
++            for (const auto& id : commandIfc->getVehicleIds()) {
++                if (vehicleOnInternalConflictLane(id))
++                    crashConflictOccupantsAtInjection_.insert(id);
++            }
++        }
++
++        std::cout << "[CRASH-INJECT] manager " << vehicleId
++                  << " t=" << simTime()
++                  << " lane=" << laneId
++                  << " speed=" << speed
++                  << " tow_at=" << crashTowAt_[vehicleId] << "\n";
++
++        if (cModule* host = getManagedModule(vehicleId)) {
++            if (auto* appl = dynamic_cast<IIntersectionApp*>(host->getSubmodule("appl"))) {
++                appl->disableCrashComms("crash-inject");
++            }
++        }
++    } catch (const std::exception& e) {
++        std::cout << "[CRASH-INJECT-FAIL] manager " << vehicleId
++                  << " err=" << e.what() << " t=" << simTime() << "\n";
++    } catch (...) {
++        std::cout << "[CRASH-INJECT-FAIL] manager " << vehicleId
++                  << " err=unknown t=" << simTime() << "\n";
++    }
++}
++
++void TraCIScenarioManager::towCrashWreck(const std::string& vehicleId)
++{
++    if (!commandIfc || crashTowed_.count(vehicleId)) return;
++    try {
++        std::list<std::string> ids = commandIfc->getVehicleIds();
++        if (std::find(ids.begin(), ids.end(), vehicleId) == ids.end()) {
++            crashTowed_.insert(vehicleId);
++            subscribedVehicles.erase(vehicleId);
++            std::cout << "[TOW] manager " << vehicleId
++                      << " already_absent t=" << simTime() << "\n";
++            if (getManagedModule(vehicleId)) deleteManagedModule(vehicleId);
++            tryShutdownOnTerminalVehicleCount(vehicleId, "towed");
++            return;
++        }
++
++        // Unsubscribe while the vehicle still exists. Erasing subscribedVehicles
++        // alone (without unsub) leaves SUMO delivering the next 8 variable
++        // updates as CMD_GET 0xa4 "Vehicle is not known". Unsub-after-remove
++        // instead yields 0xd4 "subscription to remove was not found".
++        if (subscribedVehicles.erase(vehicleId) > 0) {
++            unsubscribeFromVehicleVariables(vehicleId);
++        }
++        commandIfc->vehicle(vehicleId).remove(/* REMOVE_VAPORIZED */ 0x03);
++        crashTowed_.insert(vehicleId);
++        std::cout << "[TOW] manager " << vehicleId << " t=" << simTime() << "\n";
++
++        if (getManagedModule(vehicleId)) {
++            deleteManagedModule(vehicleId);
++        }
++        tryShutdownOnTerminalVehicleCount(vehicleId, "towed");
++    } catch (const std::exception& e) {
++        std::cout << "[TOW-FAIL] manager " << vehicleId
++                  << " err=" << e.what() << " t=" << simTime() << "\n";
++    } catch (...) {
++        std::cout << "[TOW-FAIL] manager " << vehicleId
++                  << " err=unknown t=" << simTime() << "\n";
++    }
++}
++
++void TraCIScenarioManager::pollCrashSupervisor()
++{
++    if (!enableCrashSupervisor || !commandIfc) return;
++
++    int activeWrecksInConflict = 0;
++    for (const auto& wreckId : crashWreckIds_) {
++        if (crashInjected_.count(wreckId) && !crashTowed_.count(wreckId) &&
++                vehicleOnInternalConflictLane(wreckId)) {
++            ++activeWrecksInConflict;
++        }
++    }
++    if (activeWrecksInConflict > 0) {
++        for (const auto& id : commandIfc->getVehicleIds()) {
++            if (std::find(crashWreckIds_.begin(), crashWreckIds_.end(), id) !=
++                    crashWreckIds_.end()) continue;
++            if (crashConflictOccupantsAtInjection_.count(id)) continue;
++            if (!vehicleOnInternalConflictLane(id)) continue;
++            if (crashUnsafeEntrants_.insert(id).second) {
++                std::cout << "[CRASH-COOCCUPANCY] entrant=" << id
++                          << " active_wrecks=" << activeWrecksInConflict
++                          << " t=" << simTime() << "\n";
++            }
++        }
++    }
++
++    bool workRemaining = false;
++    for (const auto& vehicleId : crashWreckIds_) {
++        if (crashTowed_.count(vehicleId)) continue;
++        workRemaining = true;
++
++        if (!crashInjected_.count(vehicleId)) {
++            auto pending = crashPendingInjectAt_.find(vehicleId);
++            if (pending != crashPendingInjectAt_.end()) {
++                if (simTime() >= pending->second) {
++                    freezeCrashWreck(vehicleId);
++                    crashPendingInjectAt_.erase(pending);
++                }
++            } else if (vehicleOnInternalConflictLane(vehicleId)) {
++                if (crashOnBoxEntrySec > SIMTIME_ZERO) {
++                    crashPendingInjectAt_[vehicleId] = simTime() + crashOnBoxEntrySec;
++                    std::cout << "[CRASH-BOX-ENTRY] manager " << vehicleId
++                              << " inject_at=" << crashPendingInjectAt_[vehicleId] << "\n";
++                } else {
++                    freezeCrashWreck(vehicleId);
++                }
++            }
++        } else {
++            // Re-assert freeze so SUMO cannot coast the wreck out of the box.
++            try {
++                auto v = commandIfc->vehicle(vehicleId);
++                v.setSpeedMode(0);
++                v.setSpeed(0.0);
++            } catch (...) {
++            }
++            auto towIt = crashTowAt_.find(vehicleId);
++            if (towIt != crashTowAt_.end() && simTime() >= towIt->second) {
++                towCrashWreck(vehicleId);
++            }
++        }
++    }
++
++    if (workRemaining && crashSupervisorPollTrigger_) {
++        scheduleAt(simTime() + crashPollPeriodSec, crashSupervisorPollTrigger_);
++    }
+ }
+ 
+ void TraCIScenarioManager::processVehicleSubscription(std::string objectId, TraCIBuffer& buf)
+@@ -1126,6 +1656,9 @@
+ 
+     Heading heading = connection->traci2omnetHeading(angle_traci);
+ 
++    // Global: same clearance predicate as V2VProxy (C2* + min m); count distinct vehicles, end at intersectionBatchSize.
++    tryShutdownOnIntersectionBatchCleared(objectId);
++
+     cModule* mod = getManagedModule(objectId);
+ 
+     // is it in the ROI?
+--- a/src/veins/modules/mobility/traci/TraCIScenarioManager.h
++++ b/src/veins/modules/mobility/traci/TraCIScenarioManager.h
+@@ -26,6 +26,9 @@
+ #include <memory>
+ #include <list>
+ #include <queue>
++#include <set>
++#include <string>
++#include <vector>
+ 
+ #include "veins/veins.h"
+ 
+@@ -115,6 +118,8 @@
+         return hosts;
+     }
+ 
++    void notifyR0BatchStarted(const std::string& vehicleId, int batchIndex);
++
+     /**
+      * Predicate indicating a successful connection to the TraCI server.
+      *
+@@ -144,6 +149,26 @@
+     std::vector<std::string> trafficLightModuleIds; /**< list of traffic light module ids that is subscribed to (whitelist) */
+ 
+     bool autoShutdown; /**< Shutdown module as soon as no more vehicles are in the simulation */
++    bool shutdownOnIntersectionBatchCleared; /**< if true, end simulation when N vehicles satisfy departure-leg clearance (see intersectionBatchSize) */
++    int intersectionBatchSize; /**< number of distinct vehicles that must clear intersection before endSimulation */
++    double intersectionDepartureMinMeters; /**< min meters on C2* departure edge (same idea as V2VTraCI clearance) */
++    bool enableR0Supervisor; /**< R0-only manager-side late emergency injector */
++    int r0SpawnAfterCleared; /**< schedule late injection after this many vehicles clear the departure predicate */
++    simtime_t lateEmergencyDeltaSec; /**< delay between trigger and late insertion */
++    double r0LateSpawnDepartPos; /**< position on route's first incoming edge for injected vehicles */
++    simtime_t r0LateSpawnRetrySec; /**< retry delay if SUMO rejects a blocked insertion */
++    int r0LateSpawnMaxRetries;
++    std::string r0LateNormalVehicleId;
++    std::string r0LateNormalType;
++    std::string r0LateNormalRoute;
++    std::string r0LateEmergencyVehicleId;
++    std::string r0LateEmergencyType;
++    std::string r0LateEmergencyRoute;
++    bool enableCrashSupervisor; /**< Scenario 16: manager-side freeze/tow of batch-0 wrecks */
++    int crashWreckCount;
++    simtime_t crashPollPeriodSec;
++    simtime_t crashOnBoxEntrySec;
++    simtime_t clearDelaySec;
+     double penetrationRate;
+     bool ignoreGuiCommands; /**< whether to ignore all TraCI commands that only make sense when the server has a graphical user interface */
+     int order; // specific position in the multi-client execution order of the TraCI server to request upon connecting (-1: do not request a position)
+@@ -163,15 +188,49 @@
+     uint32_t activeVehicleCount; /**< number of vehicles, be it parking or driving **/
+     uint32_t parkingVehicleCount; /**< number of parking vehicles, derived from parking start/end events */
+     uint32_t drivingVehicleCount; /**< number of driving, as reported by sumo */
++    bool hadActiveVehicles; /**< guard against ending simulation before first vehicle departs */
++    std::set<std::string> vehiclesClearedIntersection; /**< vehicle ids that have satisfied departure-leg clearance */
++    bool r0LateSpawnScheduled;
++    bool r0LateSpawnDone;
++    int r0LateSpawnRetryCount;
+     bool autoShutdownTriggered;
++    std::set<std::string> crashBatch0Members_;
++    std::vector<std::string> crashWreckIds_;
++    std::set<std::string> crashInjected_;
++    std::set<std::string> crashTowed_;
++    std::set<std::string> crashConflictOccupantsAtInjection_;
++    std::set<std::string> crashUnsafeEntrants_;
++    std::map<std::string, simtime_t> crashPendingInjectAt_;
++    std::map<std::string, simtime_t> crashTowAt_;
++    std::map<std::string, char> physicalApproachByVehicle_;
++    std::set<std::pair<std::string, std::string>> unsafeConflictPairs_;
++    std::set<std::string> physicalCollisionVehicles_;
++    bool crashSelectDone_;
+     cMessage* connectAndStartTrigger; /**< self-message scheduled for when to connect to TraCI server and start running */
+     cMessage* executeOneTimestepTrigger; /**< self-message scheduled for when to next call executeOneTimestep */
++    cMessage* r0LateEmergencySpawnTrigger; /**< R0 supervisor self-message for controlled late insertion */
++    cMessage* crashSupervisorPollTrigger_; /**< Scenario 16 crash freeze/tow poll */
+ 
+     BaseWorldUtility* world;
+     std::map<const BaseMobility*, const MobileHostObstacle*> vehicleObstacles;
+     VehicleObstacleControl* vehicleObstacleControl;
+ 
+     void executeOneTimestep(); /**< read and execute all commands for the next timestep */
++    void pollIntersectionCooccupancy(); /**< TraCI-ground-truth conflicting internal-lane occupants */
++
++    /** Same predicate as V2VProxyModule::vehicleHasClearedIntersectionTraCI (four-way C2* departure legs). */
++    bool vehiclePastIntersectionDepartureLeg(const std::string& vehicleId);
++    void notifyIntersectionDeparture(const std::string& vehicleId);
++    void tryShutdownOnIntersectionBatchCleared(const std::string& vehicleId);
++    void tryShutdownOnTerminalVehicleCount(const std::string& latestVehicleId,
++                                           const char* latestOutcome);
++    void maybeScheduleR0LateEmergencySpawn(const std::string& vehicleId);
++    void tryR0LateEmergencySpawn();
++    void onCrashBatch0Started(const std::string& vehicleId);
++    void pollCrashSupervisor();
++    void freezeCrashWreck(const std::string& vehicleId);
++    void towCrashWreck(const std::string& vehicleId);
++    bool vehicleOnInternalConflictLane(const std::string& vehicleId) const;
+ 
+     virtual void init_traci();
+ 
+--- a/src/veins/modules/mobility/traci/TraCIScenarioManager.ned
++++ b/src/veins/modules/mobility/traci/TraCIScenarioManager.ned
+@@ -75,6 +75,27 @@
+         int port = default(9999);  // server port (-1: automatic)
+         int seed = default(-1); // seed value to set in launch configuration, if missing (-1: current run number)
+         bool autoShutdown = default(true);  // Shutdown module as soon as no more vehicles are in the simulation
++        bool shutdownOnIntersectionBatchCleared = default(false);  // If true, end simulation globally when intersectionBatchSize distinct vehicles satisfy C2* departure-leg clearance (same idea as V2VTraCI)
++        int intersectionBatchSize = default(4);  // Number of vehicles that must clear (TraCI predicate) before endSimulation
++        double intersectionDepartureMinMeters @unit("m") = default(3m);  // Min lane position on C2* edge to count as cleared
++        bool enableR0Supervisor = default(false);  // R0-only supervisor: inject late emergency pair after initial batch progress
++        int r0SpawnAfterCleared = default(1);  // Schedule late injection after this many vehicles satisfy departure-leg clearance
++        double lateEmergencyDeltaSec @unit("s") = default(0s);  // Delay from the manager trigger to late vehicle insertion
++        double r0LateSpawnDepartPos @unit("m") = default(250m);  // Position on incoming lane for injected vehicles
++        double r0LateSpawnRetrySec @unit("s") = default(0.2s);  // Retry interval if SUMO rejects insertion because the spot is blocked
++        int r0LateSpawnMaxRetries = default(25);
++        string r0LateNormalVehicleId = default("veh16");
++        string r0LateNormalType = default("car");
++        string r0LateNormalRoute = default("rN");
++        string r0LateEmergencyVehicleId = default("veh17");
++        string r0LateEmergencyType = default("ambulance");
++        string r0LateEmergencyRoute = default("rE");
++        // Scenario 16 crash supervisor: freeze two batch-0 vehicles in the conflict box, then tow.
++        bool enableCrashSupervisor = default(false);
++        int crashWreckCount = default(2);  // lowest replica IDs from notified batch-0 members
++        double crashPollPeriodSec @unit("s") = default(0.1s);
++        double crashOnBoxEntrySec @unit("s") = default(0s);  // delay after first internal-lane sighting
++        double clearDelaySec @unit("s") = default(10s);  // tow delay after freeze
+         int margin = default(25);  // margin to add to all received vehicle positions
+         string roiRoads = default("");  // which roads (e.g. "hwy1 hwy2") are considered to consitute the region of interest, if not empty
+         string roiRects = default("");  // which rectangles (e.g. "0,0-10,10 20,20-30,30) are considered to consitute the region of interest, if not empty. Note that these rectangles have to use TraCI (SUMO) coordinates and not OMNeT++. They can be easily read from sumo-gui.
+@@ -83,4 +104,3 @@
+         int order = default(-1); // specific position in the multi-client execution order of the TraCI server to request upon connecting (-1: do not request a position)
+         bool ignoreUnknownSubscriptionResults = default(false); // whether to (try and) ignore any subscription result we did not request (but another client might have)
+ }
+-
+--- a/src/veins/modules/mobility/traci/TraCIScenarioManagerLaunchd.cc
++++ b/src/veins/modules/mobility/traci/TraCIScenarioManagerLaunchd.cc
+@@ -55,11 +55,16 @@
+         return;
+     }
+     launchConfig = par("launchConfig").xmlValue();
++    if (!launchConfig) {
++        throw cRuntimeError("Parameter launchConfig resolved to null XML");
++    }
+     seed = par("seed");
+     cXMLElementList basedir_nodes = launchConfig->getElementsByTagName("basedir");
+     if (basedir_nodes.size() == 0) {
+         // default basedir is where current network file was loaded from
++        std::cout << "No basedir found, using default basedir" << endl;
+         std::string basedir = cSimulation::getActiveSimulation()->getEnvir()->getConfig()->getConfigEntry("network").getBaseDirectory();
++        std::cout << "Default basedir: " << basedir.c_str() << endl;
+         cXMLElement* basedir_node = new cXMLElement("basedir", __FILE__, launchConfig);
+         basedir_node->setAttribute("path", basedir.c_str());
+         launchConfig->appendChild(basedir_node);
+@@ -69,7 +74,7 @@
+         if (seed == -1) {
+             // default seed is current repetition
+             const char* seed_s = cSimulation::getActiveSimulation()->getEnvir()->getConfigEx()->getVariable(CFGVAR_RUNNUMBER);
+-            seed = atoi(seed_s);
++            seed = seed_s ? atoi(seed_s) : 0;
+         }
+         std::stringstream ss;
+         ss << seed;
+@@ -123,6 +128,6 @@
+     if (result != RTYPE_OK) {
+         EV << "Warning: Received non-OK response from TraCI server to command " << CMD_FILE_SEND << ":" << description.c_str() << std::endl;
+     }
+-
++ 
+     TraCIScenarioManager::init_traci();
+ }

@@ -1,0 +1,2678 @@
+--- a/.bazelrc
++++ b/.bazelrc
+@@ -1,4 +1,24 @@
++# Apply build:macos / build:linux / … automatically on the host OS (see blocks below).
++common --enable_platform_specific_config
++
+ build --cxxopt='-std=c++17' --copt=-O3 --jobs=40
++# zlib zutil.h may #define fdopen to NULL on Darwin; that breaks SDK stdio.h. Toolchain
++# builds (e.g. protoc deps, "[for tool]") need host flags too — Nix CC inside opp_env
++# often hits that path even when normal shells do not.
++build --copt=-Dfdopen=fdopen
++build --host_copt=-Dfdopen=fdopen
++# Clang 16+ (e.g. Nix clang in opp_env): Boost.MPL integral_wrapper + enum is ill-formed as constexpr;
++# default -Wenum-constexpr-conversion breaks rules_boost’s pinned Boost with Crow/Asio.
++build --cxxopt=-Wno-enum-constexpr-conversion
++build --host_cxxopt=-Wno-enum-constexpr-conversion
+ #build --action_env=PYTHON_BIN_PATH="/usr/bin/python3.10"
+ #build --action_env=PYTHON_LIB_PATH="/usr/include/python3.10"
+ 
++# macOS + opp_env/Nix: use local spawns and explicit -xc++ like README `buildresdbomnet`.
++# Do not set --action_env=SDKROOT= here — Bazel's XcodeLocalEnvProvider also sets SDKROOT
++# and duplicate keys crash the build. From opp_env, still `unset SDKROOT CPATH ...` before
++# `bazel build`, or use `buildresdbtools` / `buildresdbomnet` in README.
++build:macos --spawn_strategy=local
++build:macos --cxxopt=-xc++
++build:macos --host_cxxopt=-xc++
++
+--- a/common/utils/BUILD
++++ b/common/utils/BUILD
+@@ -20,6 +20,12 @@
+ 
+ cc_library(
+     name = "utils",
+-    srcs = ["utils.cpp"],
+-    hdrs = ["utils.h"],
++    srcs = [
++        "sim_time_provider.cpp",
++        "utils.cpp",
++    ],
++    hdrs = [
++        "sim_time_provider.h",
++        "utils.h",
++    ],
+ )
+--- a/common/utils/sim_time_provider.cpp
++++ b/common/utils/sim_time_provider.cpp
+@@ -0,0 +1,57 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing,
++ * software distributed under the License is distributed on an
++ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++ * KIND, either express or implied.  See the License for the
++ * specific language governing permissions and limitations
++ * under the License.
++ */
++
++#include "common/utils/sim_time_provider.h"
++
++namespace resdb {
++
++std::atomic<uint64_t> SimTimeProvider::now_us_{0};
++std::mutex SimTimeProvider::mutex_;
++std::condition_variable SimTimeProvider::cv_;
++
++uint64_t SimTimeProvider::NowUs() { return now_us_.load(std::memory_order_relaxed); }
++
++void SimTimeProvider::UpdateNowUs(uint64_t now_us) {
++  uint64_t prev = now_us_.load(std::memory_order_relaxed);
++  if (now_us <= prev) {
++    // Still wake waiters; they may be waiting for "any tick" rather than
++    // strictly increasing time.
++    cv_.notify_all();
++    return;
++  }
++  now_us_.store(now_us, std::memory_order_relaxed);
++  std::lock_guard<std::mutex> lk(mutex_);
++  cv_.notify_all();
++}
++
++void SimTimeProvider::SleepUntilUs(uint64_t deadline_us) {
++  if (NowUs() >= deadline_us) {
++    return;
++  }
++  std::unique_lock<std::mutex> lk(mutex_);
++  cv_.wait(lk, [&]() { return NowUs() >= deadline_us; });
++}
++
++void SimTimeProvider::SleepForUs(uint64_t delta_us) {
++  uint64_t now = NowUs();
++  SleepUntilUs(now + delta_us);
++}
++
++}  // namespace resdb
++
+--- a/common/utils/sim_time_provider.h
++++ b/common/utils/sim_time_provider.h
+@@ -0,0 +1,55 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing,
++ * software distributed under the License is distributed on an
++ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++ * KIND, either express or implied.  See the License for the
++ * specific language governing permissions and limitations
++ * under the License.
++ */
++
++#pragma once
++
++#include <atomic>
++#include <cstdint>
++#include <condition_variable>
++#include <mutex>
++
++namespace resdb {
++
++// SimTimeProvider virtualizes "now" for deterministic simulation environments
++// (e.g., OMNeT++). The simulation thread periodically calls UpdateNowUs().
++// Other ResDB worker threads read NowUs() and wait using Sleep*() without
++// touching wall-clock timers.
++class SimTimeProvider {
++ public:
++  // Returns the latest injected simulation time in microseconds.
++  // If no time was ever injected, returns 0.
++  static uint64_t NowUs();
++
++  // Called by the simulation thread to advance time and wake waiters.
++  static void UpdateNowUs(uint64_t now_us);
++
++  // Blocks until NowUs() >= deadline_us. Returns immediately if already past.
++  static void SleepUntilUs(uint64_t deadline_us);
++
++  // Convenience helper.
++  static void SleepForUs(uint64_t delta_us);
++
++ private:
++  static std::atomic<uint64_t> now_us_;
++  static std::mutex mutex_;
++  static std::condition_variable cv_;
++};
++
++}  // namespace resdb
++
+--- a/common/utils/utils.cpp
++++ b/common/utils/utils.cpp
+@@ -21,6 +21,9 @@
+ 
+ #include <stdlib.h>
+ #include <sys/time.h>
++#include <unistd.h>
++
++#include "common/utils/sim_time_provider.h"
+ 
+ namespace resdb {
+ 
+@@ -28,9 +31,25 @@
+ #define TIME_ENABLE true
+ 
+ uint64_t GetCurrentTime() {
++  // Simulation mode: if the OMNeT++ layer injected a sim-time value, use it.
++  uint64_t sim_now = SimTimeProvider::NowUs();
++  if (sim_now != 0) {
++    return sim_now;
++  }
++
+   struct timeval tv;
+   gettimeofday(&tv, nullptr);
+   return (uint64_t)(tv.tv_sec) * 1000000 + tv.tv_usec;
+ }
+ 
++void SleepForUs(uint64_t delta_us) {
++  // If sim-time is active, block on the sim-time condition variable instead
++  // of wall-clock sleep.
++  if (SimTimeProvider::NowUs() != 0) {
++    SimTimeProvider::SleepForUs(delta_us);
++    return;
++  }
++  usleep(delta_us);
++}
++
+ }  // namespace resdb
+--- a/common/utils/utils.h
++++ b/common/utils/utils.h
+@@ -24,5 +24,6 @@
+ namespace resdb {
+ 
+ uint64_t GetCurrentTime();
++void SleepForUs(uint64_t delta_us);
+ 
+ }  // namespace resdb
+--- a/platform/common/queue/batch_queue.h
++++ b/platform/common/queue/batch_queue.h
+@@ -24,6 +24,8 @@
+ #include <condition_variable>
+ #include <list>
+ 
++#include "common/utils/sim_time_provider.h"
++
+ namespace resdb {
+ 
+ template <typename T>
+@@ -54,9 +56,29 @@
+     {
+       std::unique_lock<std::mutex> lk(mutex_);
+       if (timeout_ms > 0) {
+-        cv_.wait_for(lk, std::chrono::microseconds(timeout_ms), [&] {
+-          return !queue_.empty() && queue_.front()->list.size() >= batch_size_;
+-        });
++        if (SimTimeProvider::NowUs() != 0) {
++          const uint64_t start_us = SimTimeProvider::NowUs();
++          const uint64_t deadline_us = start_us + static_cast<uint64_t>(timeout_ms);
++          while (SimTimeProvider::NowUs() < deadline_us &&
++                 (queue_.empty() || queue_.front()->list.size() < batch_size_)) {
++            // Wait for either a push (via cv_) or a sim-time tick (via
++            // SimTimeProvider). We can't wait on both simultaneously, so we
++            // poll at sim-time granularity by sleeping until the next tick.
++            // This keeps determinism and bounds added latency to the tick rate.
++            uint64_t now_us = SimTimeProvider::NowUs();
++            uint64_t next_check_us = now_us + 1000;  // 1ms sim-time quantum
++            if (next_check_us > deadline_us) {
++              next_check_us = deadline_us;
++            }
++            lk.unlock();
++            SimTimeProvider::SleepUntilUs(next_check_us);
++            lk.lock();
++          }
++        } else {
++          cv_.wait_for(lk, std::chrono::microseconds(timeout_ms), [&] {
++            return !queue_.empty() && queue_.front()->list.size() >= batch_size_;
++          });
++        }
+       }
+       if (queue_.empty()) {
+         return std::vector<T>();
+--- a/platform/common/queue/BUILD
++++ b/platform/common/queue/BUILD
+@@ -33,6 +33,7 @@
+     deps = [
+         "//common:boost_lockfree",
+         "//common:comm",
++        "//common/utils:utils",
+     ],
+ )
+ 
+@@ -52,6 +53,7 @@
+     ],
+     deps = [
+         "//common:comm",
++        "//common/utils:utils",
+     ],
+ )
+ 
+--- a/platform/common/queue/lock_free_queue.h
++++ b/platform/common/queue/lock_free_queue.h
+@@ -25,6 +25,7 @@
+ #include <condition_variable>
+ 
+ #include "absl/status/statusor.h"
++#include "common/utils/sim_time_provider.h"
+ 
+ namespace resdb {
+ 
+@@ -53,6 +54,23 @@
+     T* ret = nullptr;
+     if (!queue_.pop(ret)) {
+       if (timeout_ms > 0) {
++        if (SimTimeProvider::NowUs() != 0) {
++          const uint64_t deadline_us =
++              SimTimeProvider::NowUs() + static_cast<uint64_t>(timeout_ms) * 1000ULL;
++          while (SimTimeProvider::NowUs() < deadline_us) {
++            if (queue_.pop(ret)) {
++              return std::unique_ptr<T>(ret);
++            }
++            uint64_t now_us = SimTimeProvider::NowUs();
++            uint64_t next_check_us = now_us + 1000;  // 1ms quantum
++            if (next_check_us > deadline_us) {
++              next_check_us = deadline_us;
++            }
++            SimTimeProvider::SleepUntilUs(next_check_us);
++          }
++          return nullptr;
++        }
++
+         std::unique_lock<std::mutex> lk(mutex_);
+         need_notify_ = true;
+         cv_.wait_for(lk, std::chrono::milliseconds(timeout_ms),
+--- a/platform/consensus/execution/duplicate_manager.cpp
++++ b/platform/consensus/execution/duplicate_manager.cpp
+@@ -19,6 +19,7 @@
+ 
+ #include "platform/consensus/execution/duplicate_manager.h"
+ 
++#include <chrono>
+ #include <glog/logging.h>
+ 
+ #include "common/utils/utils.h"
+@@ -34,10 +35,13 @@
+ }
+ 
+ DuplicateManager::~DuplicateManager() {
++  std::cerr << "[DM-STOP] stop_=true\n" << std::flush;
+   stop_ = true;
++  cv_.notify_one();  // wake UpdateRecentHash from its interruptible sleep
+   if (update_thread_.joinable()) {
+     update_thread_.join();
+   }
++  std::cerr << "[DM-STOP] DONE\n" << std::flush;
+ }
+ 
+ bool DuplicateManager::IsStop() { return stop_; }
+@@ -106,8 +110,18 @@
+   uint64_t time = GetCurrentTime();
+   while (!IsStop()) {
+     time = time + frequency_useconds_;
+-    auto sleep_time = time - GetCurrentTime();
+-    usleep(sleep_time);
++    uint64_t now = GetCurrentTime();
++    // Guard against underflow: if sim-time advanced past the deadline (e.g.
++    // set to UINT64_MAX during shutdown), skip the sleep entirely.
++    if (now < time) {
++      uint64_t sleep_us = time - now;
++      // Cap at frequency so the thread wakes promptly and re-checks IsStop().
++      if (sleep_us > frequency_useconds_) sleep_us = frequency_useconds_;
++      std::unique_lock<std::mutex> lk(cv_mutex_);
++      cv_.wait_for(lk, std::chrono::microseconds(sleep_us),
++                   [this] { return stop_; });
++    }
++    if (IsStop()) break;
+     while (true) {
+       std::lock_guard<std::mutex> lk(prop_mutex_);
+       if (!proposed_hash_time_queue_.empty()) {
+--- a/platform/consensus/execution/duplicate_manager.h
++++ b/platform/consensus/execution/duplicate_manager.h
+@@ -24,6 +24,7 @@
+ 
+ #include <map>
+ #include <memory>
++#include <condition_variable>
+ #include <mutex>
+ #include <queue>
+ #include <set>
+@@ -61,6 +62,8 @@
+   std::thread update_thread_;
+   std::mutex prop_mutex_;
+   std::mutex exec_mutex_;
++  std::mutex cv_mutex_;
++  std::condition_variable cv_;
+   uint64_t frequency_useconds_ = 5000000;  // 5s
+   uint64_t window_useconds_ = 20000000;    // 20s
+   bool stop_ = false;
+--- a/platform/consensus/execution/transaction_executor.cpp
++++ b/platform/consensus/execution/transaction_executor.cpp
+@@ -21,6 +21,8 @@
+ 
+ #include <glog/logging.h>
+ 
++#include <iostream>
++
+ #include "common/utils/utils.h"
+ 
+ namespace resdb {
+@@ -96,23 +98,29 @@
+ }
+ 
+ void TransactionExecutor::Stop() {
++  std::cerr << "[TE-STOP] stop_=true\n" << std::flush;
+   stop_ = true;
+   if (ordering_thread_.joinable()) {
++    std::cerr << "[TE-STOP] joining ordering_thread_\n" << std::flush;
+     ordering_thread_.join();
+   }
+-  for (auto& th : execute_thread_) {
+-    if (th.joinable()) {
+-      th.join();
++  for (size_t i = 0; i < execute_thread_.size(); ++i) {
++    if (execute_thread_[i].joinable()) {
++      std::cerr << "[TE-STOP] joining execute_thread_[" << i << "]\n" << std::flush;
++      execute_thread_[i].join();
+     }
+   }
+-  for (auto& th : prepare_thread_) {
+-    if (th.joinable()) {
+-      th.join();
++  for (size_t i = 0; i < prepare_thread_.size(); ++i) {
++    if (prepare_thread_[i].joinable()) {
++      std::cerr << "[TE-STOP] joining prepare_thread_[" << i << "]\n" << std::flush;
++      prepare_thread_[i].join();
+     }
+   }
+   if (execute_OOO_thread_.joinable()) {
++    std::cerr << "[TE-STOP] joining execute_OOO_thread_\n" << std::flush;
+     execute_OOO_thread_.join();
+   }
++  std::cerr << "[TE-STOP] DONE\n" << std::flush;
+ }
+ 
+ Storage* TransactionExecutor::GetStorage() {
+@@ -139,6 +147,46 @@
+   next_execute_seq_ = seq;
+ }
+ 
++void TransactionExecutor::AdvanceExecuteSeq(uint64_t seq) {
++  const uint64_t current = next_execute_seq_.load();
++  if (seq > 0) {
++    std::unique_lock<std::mutex> lk(mutex_);
++    const int32_t target_last = static_cast<int32_t>(seq - 1);
++    if (last_seq_ < target_last) {
++      std::cout << "[EXECUTOR-GOSSIP-SYNC] advancing last_seq from "
++                << last_seq_ << " to " << target_last << "\n";
++      last_seq_ = target_last;
++    }
++  }
++  if (seq <= current) {
++    for (auto it = candidates_.begin(); it != candidates_.end();) {
++      if (it->first < current) {
++        std::cout << "[ORDERMSG-SKIP] gossip-cancel advance: dropping candidate seq="
++                  << it->first << " next_execute_seq=" << current << "\n";
++        it = candidates_.erase(it);
++      } else {
++        ++it;
++      }
++    }
++    return;
++  }
++  next_execute_seq_ = seq;
++  for (auto it = candidates_.begin(); it != candidates_.end();) {
++    if (it->first < seq) {
++      std::cout << "[ORDERMSG-SKIP] gossip-cancel advance: dropping candidate seq="
++                << it->first << " new_next_execute_seq=" << seq << "\n";
++      it = candidates_.erase(it);
++    } else {
++      ++it;
++    }
++  }
++  std::cout << "[EXECUTOR-GOSSIP-SYNC] advanced next_execute_seq from " << current
++            << " to " << seq << " (gossip-adopted cancel)\n";
++  if (seq_update_notify_func_) {
++    seq_update_notify_func_(seq);
++  }
++}
++
+ bool TransactionExecutor::NeedResponse() {
+   return transaction_manager_ == nullptr ||
+          transaction_manager_->NeedResponse();
+@@ -146,6 +194,14 @@
+ 
+ int TransactionExecutor::Commit(std::unique_ptr<Request> message) {
+   global_stats_->IncPendingExecute();
++  if (message) {
++    std::cout << "[TXEXEC-COMMIT-ENQUEUE] seq=" << message->seq()
++              << " hash=" << message->hash()
++              << " data_bytes=" << message->data().size()
++              << " out_of_order="
++              << (transaction_manager_ && transaction_manager_->IsOutOfOrder())
++              << "\n";
++  }
+   if (transaction_manager_ && transaction_manager_->IsOutOfOrder()) {
+     // LOG(ERROR)<<"add out of order exe:"<<message->seq()<<" from
+     // proxy:"<<message->proxy_id();
+@@ -164,6 +220,11 @@
+ 
+ std::unique_ptr<Request> TransactionExecutor::GetNextData() {
+   if (candidates_.empty() || candidates_.begin()->first != next_execute_seq_) {
++    if (!candidates_.empty()) {
++      std::cout << "[ORDERMSG-GAPWAIT] next_execute_seq=" << next_execute_seq_
++                << " earliest_candidate=" << candidates_.begin()->first
++                << " (waiting for missing seq to arrive)\n";
++    }
+     return nullptr;
+   }
+   auto res = std::move(candidates_.begin()->second);
+@@ -183,6 +244,9 @@
+       if (next_execute_seq_ > seq) {
+         LOG(INFO) << "request seq:" << seq << " has been executed"
+                   << " next seq:" << next_execute_seq_;
++        std::cout << "[ORDERMSG-SKIP] seq=" << seq
++                  << " next_execute_seq=" << next_execute_seq_
++                  << " (dropped — SetNextCommitSeq moved past this seq)\n";
+         continue;
+       }
+ 
+@@ -278,7 +342,16 @@
+     batch_request = std::make_unique<BatchUserRequest>();
+     if (!batch_request->ParseFromString(request->data())) {
+       LOG(ERROR) << "parse data fail";
++      std::cout << "[TXEXEC-PARSE-FAIL] seq=" << request->seq()
++                << " hash=" << request->hash()
++                << " data_bytes=" << request->data().size()
++                << " need_execute=" << need_execute << "\n";
+     }
++    std::cout << "[TXEXEC-EXECUTE] seq=" << request->seq()
++              << " hash=" << request->hash()
++              << " data_bytes=" << request->data().size()
++              << " batch_requests=" << batch_request->user_requests_size()
++              << " need_execute=" << need_execute << "\n";
+     batch_request->set_hash(request->hash());
+     if (request->has_committed_certs()) {
+       *batch_request->mutable_committed_certs() = request->committed_certs();
+@@ -321,11 +394,25 @@
+       }
+ 
+       WaitForExecute(request->seq());
+-      if (last_seq_ == 0) {
+-        last_seq_ = request->seq();
+-      } else {
+-        assert(last_seq_ + 1 == request->seq());
+-        last_seq_++;
++      bool duplicate_execute = false;
++      {
++        std::unique_lock<std::mutex> lk(mutex_);
++        if (last_seq_ == 0) {
++          last_seq_ = request->seq();
++        } else if (request->seq() <= last_seq_) {
++          duplicate_execute = true;
++          std::cout << "[TXEXEC-DUP-EXECUTE] seq=" << request->seq()
++                    << " last_seq=" << last_seq_
++                    << " hash=" << request->hash()
++                    << " dropping duplicate execute request\n";
++        } else {
++          assert(last_seq_ + 1 == request->seq());
++          last_seq_++;
++        }
++      }
++      if (duplicate_execute) {
++        FinishExecute(request->seq());
++        return;
+       }
+       if (data_p->empty() || (*data_p)[0] == nullptr) {
+         response = transaction_manager_->ExecuteBatchWithSeq(request->seq(),
+--- a/platform/consensus/execution/transaction_executor.h
++++ b/platform/consensus/execution/transaction_executor.h
+@@ -54,6 +54,8 @@
+   // The max seq S that can be executed (have received all the seq before S).
+   uint64_t GetMaxPendingExecutedSeq();
+   void SetPendingExecutedSeq(int seq);
++  // Skip past ORDER(e)+CANCEL(e) ledger prefix after gossip-adopted cancel.
++  void AdvanceExecuteSeq(uint64_t seq);
+ 
+   // When a transaction is ready to be executed (have received all the seq
+   // before Txn) PreExecute func will be called.
+--- a/platform/consensus/ordering/pbft/BUILD
++++ b/platform/consensus/ordering/pbft/BUILD
+@@ -74,7 +74,10 @@
+ cc_library(
+     name = "message_manager",
+     srcs = ["message_manager.cpp"],
+-    hdrs = ["message_manager.h"],
++    hdrs = [
++        "message_manager.h",
++        "omnet_forced_view.h",
++    ],
+     deps = [
+         ":checkpoint_manager",
+         ":lock_free_collector_pool",
+@@ -238,7 +241,10 @@
+ cc_library(
+     name = "consensus_manager_pbft",
+     srcs = ["consensus_manager_pbft.cpp"],
+-    hdrs = ["consensus_manager_pbft.h"],
++    hdrs = [
++        "consensus_manager_pbft.h",
++        "omnet_forced_view.h",
++    ],
+     visibility = [
+         "//visibility:public",
+     ],
+--- a/platform/consensus/ordering/pbft/checkpoint_manager.cpp
++++ b/platform/consensus/ordering/pbft/checkpoint_manager.cpp
+@@ -21,6 +21,7 @@
+ 
+ #include <glog/logging.h>
+ 
++#include "common/utils/utils.h"
+ #include "platform/consensus/ordering/pbft/transaction_utils.h"
+ #include "platform/proto/checkpoint_info.pb.h"
+ 
+@@ -38,6 +39,7 @@
+       highest_prepared_seq_(0),
+       sys_info_(sys_info) {
+   current_stable_seq_ = 0;
++  unstable_check_ckpt_ = 0;
+   if (config_.GetConfigData().enable_viewchange()) {
+     config_.EnableCheckPoint(true);
+   }
+@@ -54,16 +56,27 @@
+ CheckPointManager::~CheckPointManager() { Stop(); }
+ 
+ void CheckPointManager::Stop() {
++  std::cerr << "[CKPT-STOP] Stop() called stop_=true\n" << std::flush;
+   stop_ = true;
++  // Wake checkpoint_thread_ which may be blocked in Wait() on cv_.
++  // Without this notify, join() hangs indefinitely when no new data arrives.
++  {
++    std::lock_guard<std::mutex> lk(cv_mutex_);
++    cv_.notify_all();
++  }
++  std::cerr << "[CKPT-STOP] joining checkpoint_thread_\n" << std::flush;
+   if (checkpoint_thread_.joinable()) {
+     checkpoint_thread_.join();
+   }
++  std::cerr << "[CKPT-STOP] joining stable_checkpoint_thread_\n" << std::flush;
+   if (stable_checkpoint_thread_.joinable()) {
+     stable_checkpoint_thread_.join();
+   }
++  std::cerr << "[CKPT-STOP] joining status_thread_\n" << std::flush;
+   if (status_thread_.joinable()) {
+     status_thread_.join();
+   }
++  std::cerr << "[CKPT-STOP] DONE\n" << std::flush;
+ }
+ 
+ void CheckPointManager::SetResetExecute(
+@@ -162,14 +175,14 @@
+ }
+ 
+ bool CheckPointManager::Wait() {
+-  int timeout_ms = 1000;
+   std::unique_lock<std::mutex> lk(cv_mutex_);
+-  return cv_.wait_for(lk, std::chrono::milliseconds(timeout_ms),
+-                      [&] { return new_data_ > 0; });
++  cv_.wait(lk, [&] { return new_data_ > 0 || stop_; });
++  return new_data_ > 0;
+ }
+ 
+ void CheckPointManager::CheckHealthy() {
+-  uint32_t current_time = time(nullptr);
++  uint32_t current_time =
++      static_cast<uint32_t>(GetCurrentTime() / 1000000ULL);
+ 
+   std::map<uint64_t, int> seqs;
+ 
+@@ -306,7 +319,8 @@
+   uint32_t view = checkpoint_data.view();
+ 
+   status_[sender_id] = seq;
+-  last_update_time_[sender_id] = time(nullptr);
++  last_update_time_[sender_id] =
++      static_cast<int>(GetCurrentTime() / 1000000ULL);
+   view_status_[sender_id] = std::make_pair(primary_id, view);
+   LOG(ERROR) << " received from :" << sender_id << " commit status:" << seq
+              << " primary:" << primary_id << " view:" << view;
+@@ -389,7 +403,7 @@
+       last_time = 0;
+     }
+     CheckHealthy();
+-    sleep(10);
++    SleepForUs(10ULL * 1000000ULL);
+     last_time++;
+   }
+ }
+--- a/platform/consensus/ordering/pbft/checkpoint_manager.h
++++ b/platform/consensus/ordering/pbft/checkpoint_manager.h
+@@ -55,6 +55,7 @@
+   StableCheckPoint GetStableCheckpointWithVotes();
+   bool IsValidCheckpointProof(const StableCheckPoint& stable_ckpt);
+ 
++  void SetReplicaCommunicator(ReplicaCommunicator* comm) { replica_communicator_ = comm; }
+   void SetTimeoutHandler(std::function<void(int)> timeout_handler);
+   virtual void UpdateStableCheckPointCallback(
+       int64_t current_stable_checkpoint) {}
+--- a/platform/consensus/ordering/pbft/commitment.cpp
++++ b/platform/consensus/ordering/pbft/commitment.cpp
+@@ -27,6 +27,45 @@
+ 
+ namespace resdb {
+ 
++namespace {
++
++const char* RequestTypeNameForVoteDrop(int type) {
++  switch (type) {
++    case Request::TYPE_PREPARE:
++      return "PREPARE";
++    case Request::TYPE_COMMIT:
++      return "COMMIT";
++    default:
++      return "OTHER";
++  }
++}
++
++bool ShouldLogVoteDrop(const Request& request) {
++  return (request.type() == Request::TYPE_PREPARE ||
++          request.type() == Request::TYPE_COMMIT) &&
++         (request.seq() >= 2 || request.hash().rfind("omnet-tx-", 0) == 0);
++}
++
++void LogVoteDrop(int self_id, const Request& request, const char* reason,
++                 const char* detail = nullptr) {
++  if (!ShouldLogVoteDrop(request)) return;
++  std::cout << "[VOTE-DROP] self=" << self_id
++            << " omnet_self=" << OmnetForcedView::ResdbSenderToOmnet(self_id)
++            << " seq=" << request.seq()
++            << " type=" << RequestTypeNameForVoteDrop(request.type())
++            << " sender=" << request.sender_id()
++            << " omnet_sender="
++            << OmnetForcedView::ResdbSenderToOmnet(request.sender_id())
++            << " hash=" << request.hash()
++            << " reason=" << (reason ? reason : "?");
++  if (detail) {
++    std::cout << " detail=" << detail;
++  }
++  std::cout << "\n";
++}
++
++}  // namespace
++
+ Commitment::Commitment(const ResDBConfig& config,
+                        MessageManager* message_manager,
+                        ReplicaCommunicator* replica_communicator,
+@@ -49,10 +88,13 @@
+ }
+ 
+ Commitment::~Commitment() {
++  std::cerr << "[CMT-STOP] stop_=true\n" << std::flush;
+   stop_ = true;
+   if (executed_thread_.joinable()) {
++    std::cerr << "[CMT-STOP] joining executed_thread_\n" << std::flush;
+     executed_thread_.join();
+   }
++  std::cerr << "[CMT-STOP] DONE\n" << std::flush;
+ }
+ 
+ void Commitment::SetPreVerifyFunc(
+@@ -97,19 +139,38 @@
+     return -3;
+   }
+ 
+-  // check signatures
+-  bool valid = verifier_->VerifyMessage(user_request->data(),
+-                                        user_request->data_signature());
+-  if (!valid) {
+-    LOG(ERROR) << "request is not valid:"
+-               << user_request->data_signature().DebugString();
+-    LOG(ERROR) << " msg:" << user_request->data().size();
+-    return -2;
++  if (verifier_) {
++    bool valid = verifier_->VerifyMessage(user_request->data(),
++                                          user_request->data_signature());
++    if (!valid) {
++      LOG(ERROR) << "request is not valid:"
++                 << user_request->data_signature().DebugString();
++      LOG(ERROR) << " msg:" << user_request->data().size();
++      return -2;
++    }
+   }
+ 
+-  if (pre_verify_func_ && !pre_verify_func_(*user_request)) {
+-    LOG(ERROR) << " check by the user func fail";
+-    return -2;
++  if (pre_verify_func_) {
++    std::cout << "[PBFT-NEW-REQ-PREVERIFY] self=" << config_.GetSelfInfo().id()
++              << " hash=" << user_request->hash()
++              << " seq=" << user_request->seq()
++              << " action=begin\n";
++    if (!pre_verify_func_(*user_request)) {
++      LOG(ERROR) << " check by the user func fail";
++      std::cout << "[PBFT-NEW-REQ-PREVERIFY] self="
++                << config_.GetSelfInfo().id()
++                << " hash=" << user_request->hash()
++                << " seq=" << user_request->seq()
++                << " result=fail\n";
++      return -2;
++    }
++    const bool forced_after =
++        message_manager_->HasForcedViewForRequest(*user_request);
++    std::cout << "[PBFT-NEW-REQ-PREVERIFY] self=" << config_.GetSelfInfo().id()
++              << " hash=" << user_request->hash()
++              << " seq=" << user_request->seq()
++              << " result=pass"
++              << " forced_after=" << (forced_after ? 1 : 0) << "\n";
+   }
+ 
+   global_stats_->IncClientRequest();
+@@ -143,6 +204,10 @@
+   user_request->set_sender_id(config_.GetSelfInfo().id());
+   user_request->set_primary_id(config_.GetSelfInfo().id());
+ 
++  std::cout << "[PBFT-NEW-REQ] primary=" << config_.GetSelfInfo().id()
++            << " broadcasting PRE_PREPARE seq=" << *seq
++            << " hash=" << user_request->hash()
++            << " view=" << user_request->current_view() << "\n";
+   replica_communicator_->BroadCast(*user_request);
+ 
+   return 0;
+@@ -152,9 +217,15 @@
+ // TODO check whether the sender is the primary.
+ int Commitment::ProcessProposeMsg(std::unique_ptr<Context> context,
+                                   std::unique_ptr<Request> request) {
++  std::cout << "[PBFT-PROPOSE] self=" << config_.GetSelfInfo().id()
++            << " seq=" << request->seq()
++            << " sender=" << request->sender_id()
++            << " sig_empty=" << context->signature.signature().empty()
++            << " is_faulty=" << global_stats_->IsFaulty() << "\n";
+   if (global_stats_->IsFaulty() || context == nullptr ||
+       context->signature.signature().empty()) {
+     LOG(ERROR) << "user request doesn't contain signature, reject";
++    std::cout << "[PBFT-PROPOSE] REJECT: sig/faulty check failed\n";
+     return -2;
+   }
+   if (request->is_recovery()) {
+@@ -196,31 +267,69 @@
+                                              std::move(request));
+   }
+ 
++  if (request->sender_id() != config_.GetSelfInfo().id()) {
++    if (pre_verify_func_) {
++      std::cout << "[PBFT-PREPREPARE-PREVERIFY] self="
++                << config_.GetSelfInfo().id()
++                << " seq=" << request->seq()
++                << " hash=" << request->hash()
++                << " sender=" << request->sender_id()
++                << " action=begin\n";
++      if (!pre_verify_func_(*request)) {
++        LOG(ERROR) << " check by the user func fail";
++        std::cout << "[PBFT-PREPREPARE-PREVERIFY] self="
++                  << config_.GetSelfInfo().id()
++                  << " seq=" << request->seq()
++                  << " hash=" << request->hash()
++                  << " sender=" << request->sender_id()
++                  << " result=fail\n";
++        return -2;
++      }
++      const bool forced_after =
++          message_manager_->HasForcedViewForRequest(*request);
++      std::cout << "[PBFT-PREPREPARE-PREVERIFY] self="
++                << config_.GetSelfInfo().id()
++                << " seq=" << request->seq()
++                << " hash=" << request->hash()
++                << " sender=" << request->sender_id()
++                << " result=pass"
++                << " forced_after=" << (forced_after ? 1 : 0) << "\n";
++    }
++  }
++
+   if (request->sender_id() != message_manager_->GetCurrentPrimary()) {
+     LOG(ERROR) << "the request is not from primary. sender:"
+                << request->sender_id() << " seq:" << request->seq();
++    std::cout << "[PBFT-PROPOSE] REJECT: sender=" << request->sender_id()
++              << " != primary=" << message_manager_->GetCurrentPrimary() << "\n";
+     return -2;
+   }
+ 
++  if (message_manager_->HasForcedViewForRequest(*request) &&
++      !message_manager_->IsSelfActiveForRequest(*request)) {
++    std::cout << "[ACTIVE-PASSIVE] self=" << config_.GetSelfInfo().id()
++              << " seq=" << request->seq()
++              << " hash=" << request->hash()
++              << " action=skip_prepare\n";
++    return 0;
++  }
++
+   if (request->sender_id() != config_.GetSelfInfo().id()) {
+-    if (pre_verify_func_ && !pre_verify_func_(*request)) {
+-      LOG(ERROR) << " check by the user func fail";
+-      return -2;
+-    }
+     // global_stats_->GetTransactionDetails(std::move(request));
+     BatchUserRequest batch_request;
+     batch_request.ParseFromString(request->data());
+     batch_request.clear_createtime();
+     std::string data;
+     batch_request.SerializeToString(&data);
+-    // check signatures
+-    bool valid =
+-        verifier_->VerifyMessage(request->data(), request->data_signature());
+-    if (!valid) {
+-      LOG(ERROR) << "request is not valid:"
+-                 << request->data_signature().DebugString();
+-      LOG(ERROR) << " msg:" << request->data().size();
+-      return -2;
++    if (verifier_) {
++      bool valid =
++          verifier_->VerifyMessage(request->data(), request->data_signature());
++      if (!valid) {
++        LOG(ERROR) << "request is not valid:"
++                   << request->data_signature().DebugString();
++        LOG(ERROR) << " msg:" << request->data().size();
++        return -2;
++      }
+     }
+     if (duplicate_manager_->CheckAndAddProposed(request->hash())) {
+       LOG(INFO) << "The request is already proposed, reject";
+@@ -239,7 +348,9 @@
+   // message.
+   CollectorResultCode ret =
+       message_manager_->AddConsensusMsg(context->signature, std::move(request));
++  std::cout << "[PBFT-PROPOSE] AddConsensusMsg ret=" << static_cast<int>(ret) << "\n";
+   if (ret == CollectorResultCode::STATE_CHANGED) {
++    std::cout << "[PBFT-PROPOSE] STATE_CHANGED → broadcasting PREPARE\n";
+     replica_communicator_->BroadCast(*prepare_request);
+   }
+   return ret == CollectorResultCode::INVALID ? -2 : 0;
+@@ -248,6 +359,10 @@
+ // If receive 2f+1 prepare message, broadcast a commit message.
+ int Commitment::ProcessPrepareMsg(std::unique_ptr<Context> context,
+                                   std::unique_ptr<Request> request) {
++  std::cout << "[PBFT-PREPARE] self=" << config_.GetSelfInfo().id()
++            << " seq=" << request->seq()
++            << " hash=" << request->hash()
++            << " sender=" << request->sender_id() << "\n";
+   if (context == nullptr || context->signature.signature().empty()) {
+     LOG(ERROR) << "user request doesn't contain signature, reject";
+     return -2;
+@@ -263,6 +378,16 @@
+     }
+     return ret;
+   }
++  if (message_manager_->HasForcedViewForRequest(*request) &&
++      !message_manager_->IsSelfActiveForRequest(*request)) {
++    std::cout << "[ACTIVE-PASSIVE] self=" << config_.GetSelfInfo().id()
++              << " seq=" << request->seq()
++              << " hash=" << request->hash()
++              << " action=skip_commit\n";
++    LogVoteDrop(config_.GetSelfInfo().id(), *request, "no-view",
++                "inactive-receiver");
++    return 0;
++  }
+   // global_stats_->IncPrepare();
+   std::unique_ptr<Request> commit_request = resdb::NewRequest(
+       Request::TYPE_COMMIT, *request, config_.GetSelfInfo().id());
+@@ -289,7 +414,23 @@
+       //           << commit_request->data_signature().DebugString();
+     }
+     global_stats_->RecordStateTime("prepare");
++    if (seq >= 2 || message_manager_->HasForcedViewForRequest(*commit_request)) {
++      std::cout << "[PBFT-BCAST-COMMIT] self=" << config_.GetSelfInfo().id()
++                << " seq=" << seq
++                << " hash=" << commit_request->hash()
++                << " sender=" << commit_request->sender_id()
++                << " ret=" << static_cast<int>(ret)
++                << "\n";
++    }
+     replica_communicator_->BroadCast(*commit_request);
++  } else {
++    if (seq >= 2 || message_manager_->HasForcedViewForRequest(*commit_request)) {
++      std::cout << "[PBFT-PREPARE-RESULT] self=" << config_.GetSelfInfo().id()
++                << " seq=" << seq
++                << " sender=" << commit_request->sender_id()
++                << " ret=" << static_cast<int>(ret)
++                << " action=no-commit-broadcast\n";
++    }
+   }
+   return ret == CollectorResultCode::INVALID ? -2 : 0;
+ }
+@@ -297,9 +438,15 @@
+ // If receive 2f+1 commit message, commit the request.
+ int Commitment::ProcessCommitMsg(std::unique_ptr<Context> context,
+                                  std::unique_ptr<Request> request) {
++  std::cout << "[PBFT-COMMIT] self=" << config_.GetSelfInfo().id()
++            << " seq=" << request->seq()
++            << " hash=" << request->hash()
++            << " sender=" << request->sender_id() << "\n";
+   if (context == nullptr || context->signature.signature().empty()) {
+     LOG(ERROR) << "user request doesn't contain signature, reject"
+                << " context:" << (context == nullptr);
++    LogVoteDrop(config_.GetSelfInfo().id(), *request, "no-request",
++                "missing-signature");
+     return -2;
+   }
+   uint64_t seq = request->seq();
+@@ -307,6 +454,16 @@
+     return message_manager_->AddConsensusMsg(context->signature,
+                                              std::move(request));
+   }
++  if (message_manager_->HasForcedViewForRequest(*request) &&
++      !message_manager_->IsSelfActiveForRequest(*request)) {
++    std::cout << "[ACTIVE-PASSIVE] self=" << config_.GetSelfInfo().id()
++              << " seq=" << request->seq()
++              << " hash=" << request->hash()
++              << " action=skip_execute\n";
++    LogVoteDrop(config_.GetSelfInfo().id(), *request, "no-view",
++                "inactive-receiver");
++    return 0;
++  }
+   // global_stats_->IncCommit();
+   // Add request to message_manager.
+   // If it has received enough same requests(2f+1), message manager will
+@@ -318,6 +475,15 @@
+     // global_stats_->GetTransactionDetails(request->data());
+     global_stats_->RecordStateTime("commit");
+   }
++  if (seq >= 2) {
++    std::cout << "[PBFT-COMMIT-RESULT] self=" << config_.GetSelfInfo().id()
++              << " seq=" << seq
++              << " ret=" << static_cast<int>(ret)
++              << " action="
++              << (ret == CollectorResultCode::STATE_CHANGED ? "ready-execute" :
++                  (ret == CollectorResultCode::INVALID ? "invalid" : "waiting"))
++              << "\n";
++  }
+   return ret == CollectorResultCode::INVALID ? -2 : 0;
+ }
+ 
+--- a/platform/consensus/ordering/pbft/commitment.h
++++ b/platform/consensus/ordering/pbft/commitment.h
+@@ -48,6 +48,7 @@
+ 
+   void SetPreVerifyFunc(std::function<bool(const Request& request)> func);
+   void SetNeedCommitQC(bool need_qc);
++  void SetReplicaCommunicator(ReplicaCommunicator* comm) { replica_communicator_ = comm; }
+ 
+   std::queue<std::pair<std::unique_ptr<Context>, std::unique_ptr<Request>>>
+       request_complained_;
+--- a/platform/consensus/ordering/pbft/consensus_manager_pbft.cpp
++++ b/platform/consensus/ordering/pbft/consensus_manager_pbft.cpp
+@@ -78,6 +78,15 @@
+   LOG(ERROR) << " recovery is done";
+ }
+ 
++ConsensusManagerPBFT::~ConsensusManagerPBFT() {
++  // Stop() sets IsRunning()=false; recovery_thread_ unblocks from Pop() within
++  // its 100ms timeout and exits. Join here to prevent std::terminate() on
++  // destruction of a joinable std::thread.
++  if (recovery_thread_.joinable()) {
++    recovery_thread_.join();
++  }
++}
++
+ void ConsensusManagerPBFT::SetNeedCommitQC(bool need_qc) {
+   commitment_->SetNeedCommitQC(need_qc);
+ }
+@@ -180,12 +189,23 @@
+   int ret = InternalConsensusCommit(std::move(context), std::move(request));
+   if (config_.GetConfigData().enable_viewchange()) {
+     if (ret == -4) {
++      // New primary elected: drain request_pending_ first (TYPE_NEW_TXNS and
++      // PRE_PREPARE queued during VC), then request_complained_.
++      // Without this, proposeAll()'s TYPE_NEW_TXNS would sit in request_pending_
++      // forever because no further message triggers the else-branch drain.
++      while (true) {
++        auto new_request = PopPendingRequest();
++        if (!new_request.ok()) {
++          break;
++        }
++        InternalConsensusCommit(std::move((*new_request).first),
++                                std::move((*new_request).second));
++      }
+       while (true) {
+         auto new_request = PopComplainedRequest();
+         if (!new_request.ok()) {
+           break;
+         }
+-        // LOG(ERROR) << "[POP COMPLAINED REQUEST]";
+         InternalConsensusCommit(std::move((*new_request).first),
+                                 std::move((*new_request).second));
+       }
+@@ -201,6 +221,13 @@
+              << " seq:" << request->seq()
+              << " primary:" << system_info_->GetPrimaryId()
+              << " is convery:" << request->is_recovery();
++  std::cout << "[PBFT-DISPATCH] self=" << config_.GetSelfInfo().id()
++            << " type=" << request->type()
++            << " sender=" << request->sender_id()
++            << " seq=" << request->seq()
++            << " hash=" << request->hash()
++            << " view=" << request->current_view()
++            << " primary=" << system_info_->GetPrimaryId() << "\n";
+ 
+   switch (request->type()) {
+     case Request::TYPE_CLIENT_REQUEST:
+@@ -254,9 +281,27 @@
+       return checkpoint_manager_->ProcessStatusSync(std::move(context),
+                                                     std::move(request));
+     case Request::TYPE_VIEWCHANGE:
++      if (forced_view_registry_ && forced_view_registry_->HasAny()) {
++        std::cout << "[ROLLBACK-VC-UNSUPPORTED] self="
++                  << config_.GetSelfInfo().id()
++                  << " sender=" << request->sender_id()
++                  << " view=" << request->current_view()
++                  << " seq=" << request->seq()
++                  << " reason=forced_m_view_change_deferred\n";
++        return -2;
++      }
+       return view_change_manager_->ProcessViewChange(std::move(context),
+                                                      std::move(request));
+     case Request::TYPE_NEWVIEW:
++      if (forced_view_registry_ && forced_view_registry_->HasAny()) {
++        std::cout << "[ROLLBACK-VC-UNSUPPORTED] self="
++                  << config_.GetSelfInfo().id()
++                  << " sender=" << request->sender_id()
++                  << " view=" << request->current_view()
++                  << " seq=" << request->seq()
++                  << " reason=forced_m_new_view_deferred\n";
++        return -2;
++      }
+       return view_change_manager_->ProcessNewView(std::move(context),
+                                                   std::move(request));
+     case Request::TYPE_QUERY:
+@@ -285,6 +330,39 @@
+   commitment_->SetPreVerifyFunc(func);
+ }
+ 
++void ConsensusManagerPBFT::SetOmnetForcedViewRegistry(
++    std::shared_ptr<OmnetForcedViewRegistry> registry) {
++  forced_view_registry_ = std::move(registry);
++  if (message_manager_) {
++    message_manager_->SetOmnetForcedViewRegistry(forced_view_registry_);
++  }
++}
++
++bool ConsensusManagerPBFT::InstallOmnetForcedViewForRequest(
++    const Request& request, const OmnetForcedView& view) {
++  if (!forced_view_registry_) return false;
++  if (!forced_view_registry_->InstallForRequest(request, view)) return false;
++  if (system_info_ && view.primary_omnet >= 0) {
++    system_info_->SetPrimary(static_cast<uint32_t>(view.primary_omnet + 1));
++  }
++  return true;
++}
++
++void ConsensusManagerPBFT::InstallOmnetPendingForcedView(
++    const OmnetForcedView& view) {
++  if (!forced_view_registry_) return;
++  forced_view_registry_->InstallPending(view);
++  if (system_info_ && view.primary_omnet >= 0) {
++    system_info_->SetPrimary(static_cast<uint32_t>(view.primary_omnet + 1));
++  }
++}
++
++std::optional<OmnetForcedView> ConsensusManagerPBFT::GetLatestOmnetForcedView()
++    const {
++  if (!forced_view_registry_) return std::nullopt;
++  return forced_view_registry_->Latest();
++}
++
+ int ConsensusManagerPBFT::ProcessRecoveryData(
+     std::unique_ptr<Context> context, std::unique_ptr<Request> request) {
+   RecoveryRequest recovery_data;
+--- a/platform/consensus/ordering/pbft/consensus_manager_pbft.h
++++ b/platform/consensus/ordering/pbft/consensus_manager_pbft.h
+@@ -24,6 +24,7 @@
+ #include "platform/consensus/ordering/pbft/checkpoint_manager.h"
+ #include "platform/consensus/ordering/pbft/commitment.h"
+ #include "platform/consensus/ordering/pbft/message_manager.h"
++#include "platform/consensus/ordering/pbft/omnet_forced_view.h"
+ #include "platform/consensus/ordering/pbft/performance_manager.h"
+ #include "platform/consensus/ordering/pbft/query.h"
+ #include "platform/consensus/ordering/pbft/response_manager.h"
+@@ -38,7 +39,7 @@
+   ConsensusManagerPBFT(const ResDBConfig& config,
+                        std::unique_ptr<TransactionManager> executor,
+                        std::unique_ptr<CustomQuery> query_executor = nullptr);
+-  virtual ~ConsensusManagerPBFT() = default;
++  virtual ~ConsensusManagerPBFT();
+ 
+   int ConsensusCommit(std::unique_ptr<Context> context,
+                       std::unique_ptr<Request> request) override;
+@@ -54,6 +55,12 @@
+ 
+   void SetPreVerifyFunc(std::function<bool(const Request&)>);
+   void SetNeedCommitQC(bool need_qc);
++  void SetOmnetForcedViewRegistry(
++      std::shared_ptr<OmnetForcedViewRegistry> registry);
++  bool InstallOmnetForcedViewForRequest(const Request& request,
++                                        const OmnetForcedView& view);
++  void InstallOmnetPendingForcedView(const OmnetForcedView& view);
++  std::optional<OmnetForcedView> GetLatestOmnetForcedView() const;
+ 
+   int ProcessRecoveryData(std::unique_ptr<Context> context,
+                           std::unique_ptr<Request> request);
+@@ -85,6 +92,7 @@
+   std::unique_ptr<PerformanceManager> performance_manager_;
+   std::unique_ptr<ViewChangeManager> view_change_manager_;
+   std::unique_ptr<Recovery> recovery_;
++  std::shared_ptr<OmnetForcedViewRegistry> forced_view_registry_;
+   Stats* global_stats_;
+   std::queue<std::pair<std::unique_ptr<Context>, std::unique_ptr<Request>>>
+       request_pending_;
+--- a/platform/consensus/ordering/pbft/lock_free_collector_pool.cpp
++++ b/platform/consensus/ordering/pbft/lock_free_collector_pool.cpp
+@@ -54,12 +54,15 @@
+   uint32_t idx = start_seq & mask_;
+   int seq = start_seq;
+   LOG(ERROR) << " reset collector:" << start_seq;
++  std::cout << "[POOL-RESET] start_seq=" << start_seq
++            << " capacity=" << (capacity_ << 1) << "\n";
+   for (size_t i = 0; i < (capacity_ << 1); ++i) {
+     int pos = (i + idx) % (capacity_ << 1);
+     collector_[pos] = std::make_unique<TransactionCollector>(
+         seq++, executor_, enable_viewchange_);
+   }
+-  LOG(ERROR) << " reset collector:" << start_seq;
++  LOG(ERROR) << " reset collector done:" << start_seq;
++  std::cout << "[POOL-RESET-DONE] start_seq=" << start_seq << "\n";
+ }
+ 
+ void LockFreeCollectorPool::Update(uint64_t seq) {
+@@ -76,7 +79,13 @@
+ 
+ TransactionCollector* LockFreeCollectorPool::GetCollector(uint64_t seq) {
+   uint32_t idx = seq & mask_;
+-  return collector_[idx].get();
++  auto* c = collector_[idx].get();
++  if (c && c->Seq() != seq) {
++    std::cout << "[POOL-GETCOLLECTOR-MISMATCH] requested_seq=" << seq
++              << " collector_seq=" << c->Seq()
++              << " idx=" << idx << " (Reset race: collector replaced)\n";
++  }
++  return c;
+ }
+ 
+ }  // namespace resdb
+--- a/platform/consensus/ordering/pbft/message_manager.cpp
++++ b/platform/consensus/ordering/pbft/message_manager.cpp
+@@ -21,10 +21,78 @@
+ 
+ #include <glog/logging.h>
+ 
++#include <iostream>
++
+ #include "common/utils/utils.h"
+ 
+ namespace resdb {
+ 
++namespace {
++
++const char* RequestTypeName(int type) {
++  switch (type) {
++    case Request::TYPE_PRE_PREPARE:
++      return "PRE_PREPARE";
++    case Request::TYPE_PREPARE:
++      return "PREPARE";
++    case Request::TYPE_COMMIT:
++      return "COMMIT";
++    case Request::TYPE_RESPONSE:
++      return "RESPONSE";
++    default:
++      return "OTHER";
++  }
++}
++
++const char* TxnStatusName(TransactionStatue status) {
++  switch (status) {
++    case TransactionStatue::None:
++      return "None";
++    case TransactionStatue::Prepare:
++      return "Prepare";
++    case TransactionStatue::READY_PREPARE:
++      return "READY_PREPARE";
++    case TransactionStatue::READY_COMMIT:
++      return "READY_COMMIT";
++    case TransactionStatue::READY_EXECUTE:
++      return "READY_EXECUTE";
++    case TransactionStatue::EXECUTED:
++      return "EXECUTED";
++    default:
++      return "UNKNOWN";
++  }
++}
++
++bool ShouldDebugPbftRequest(const Request& request) {
++  return request.seq() >= 2 || request.hash().rfind("omnet-tx-", 0) == 0;
++}
++
++bool IsVoteRequestType(int type) {
++  return type == Request::TYPE_PREPARE || type == Request::TYPE_COMMIT;
++}
++
++void LogVoteDrop(int self_id, const Request& request, const char* reason,
++                 const std::string& extra = "") {
++  if (!IsVoteRequestType(request.type()) || !ShouldDebugPbftRequest(request)) {
++    return;
++  }
++  std::cout << "[VOTE-DROP] self=" << self_id
++            << " omnet_self=" << OmnetForcedView::ResdbSenderToOmnet(self_id)
++            << " seq=" << request.seq()
++            << " type=" << RequestTypeName(request.type())
++            << " sender=" << request.sender_id()
++            << " omnet_sender="
++            << OmnetForcedView::ResdbSenderToOmnet(request.sender_id())
++            << " hash=" << request.hash()
++            << " reason=" << (reason ? reason : "?");
++  if (!extra.empty()) {
++    std::cout << " " << extra;
++  }
++  std::cout << "\n";
++}
++
++}  // namespace
++
+ MessageManager::MessageManager(
+     const ResDBConfig& config,
+     std::unique_ptr<TransactionManager> transaction_manager,
+@@ -68,9 +136,11 @@
+ }
+ 
+ MessageManager::~MessageManager() {
++  std::cerr << "[MM-STOP] calling executor Stop()\n" << std::flush;
+   if (transaction_executor_) {
+     transaction_executor_->Stop();
+   }
++  std::cerr << "[MM-STOP] DONE\n" << std::flush;
+ }
+ 
+ std::unique_ptr<BatchUserResponse> MessageManager::GetResponseMsg() {
+@@ -122,49 +192,182 @@
+   if (static_cast<uint64_t>(request.current_view()) != GetCurrentView()) {
+     LOG(ERROR) << "message view :[" << request.current_view()
+                << "] is older than the cur view :[" << GetCurrentView() << "]";
++    std::cout << "[PBFT-VALIDMSG] REJECT view=" << request.current_view()
++              << " curView=" << GetCurrentView()
++              << " type=" << request.type()
++              << " seq=" << request.seq() << "\n";
++    LogVoteDrop(config_.GetSelfInfo().id(), request, "no-view",
++                "detail=view-mismatch cur_view=" +
++                    std::to_string(GetCurrentView()));
+     return false;
+   }
+ 
+   if (static_cast<uint64_t>(request.seq()) <
+       transaction_executor_->GetMaxPendingExecutedSeq()) {
++    std::cout << "[VALIDMSG-REJECT-SEQ] seq=" << request.seq()
++              << " type=" << request.type()
++              << " maxPendingExec=" << transaction_executor_->GetMaxPendingExecutedSeq()
++              << " (seq too old)\n";
++    LogVoteDrop(config_.GetSelfInfo().id(), request, "no-request",
++                "detail=seq-too-old max_pending_exec=" +
++                    std::to_string(
++                        transaction_executor_->GetMaxPendingExecutedSeq()));
+     return false;
+   }
+ 
+   return true;
+ }
+ 
++void MessageManager::SetOmnetForcedViewRegistry(
++    std::shared_ptr<OmnetForcedViewRegistry> registry) {
++  forced_view_registry_ = std::move(registry);
++}
++
++bool MessageManager::HasForcedViewForRequest(const Request& request) {
++  if (!forced_view_registry_) {
++    if (ShouldDebugPbftRequest(request)) {
++      std::cout << "[PBFT-FORCED-CHECK] self=" << config_.GetSelfInfo().id()
++                << " seq=" << request.seq()
++                << " type=" << RequestTypeName(request.type())
++                << " hash=" << request.hash()
++                << " result=miss"
++                << " reason=no-registry\n";
++    }
++    return false;
++  }
++  auto view = forced_view_registry_->FindForRequest(request);
++  if (ShouldDebugPbftRequest(request)) {
++    std::cout << "[PBFT-FORCED-CHECK] self=" << config_.GetSelfInfo().id()
++              << " omnet_self="
++              << OmnetForcedView::ResdbSenderToOmnet(config_.GetSelfInfo().id())
++              << " seq=" << request.seq()
++              << " type=" << RequestTypeName(request.type())
++              << " sender=" << request.sender_id()
++              << " hash=" << request.hash()
++              << " result=" << (view ? "hit" : "miss");
++    if (view) {
++      std::cout << " view_epoch=" << view->epoch
++                << " view_seq=" << view->seq
++                << " N=" << view->active_omnet_ids.size()
++                << " quorum=" << view->quorum
++                << " primary=r" << view->primary_omnet;
++    }
++    std::cout << "\n";
++  }
++  return view.has_value();
++}
++
++bool MessageManager::IsSelfActiveForRequest(const Request& request) {
++  if (!forced_view_registry_) return true;
++  auto view = forced_view_registry_->FindForRequest(request);
++  if (!view) return true;
++  return view->IsActiveOmnet(
++      OmnetForcedView::ResdbSenderToOmnet(config_.GetSelfInfo().id()));
++}
++
++int MessageManager::QuorumForRequest(const Request& request) {
++  if (forced_view_registry_) {
++    auto view = forced_view_registry_->FindForRequest(request);
++    if (view) {
++      if (ShouldDebugPbftRequest(request)) {
++        std::cout << "[PBFT-QUORUM] self=" << config_.GetSelfInfo().id()
++                  << " seq=" << request.seq()
++                  << " hash=" << request.hash()
++                  << " source=forced"
++                  << " quorum=" << view->quorum
++                  << " N=" << view->active_omnet_ids.size()
++                  << " epoch=" << view->epoch << "\n";
++      }
++      return view->quorum;
++    }
++  }
++  if (ShouldDebugPbftRequest(request)) {
++    std::cout << "[PBFT-QUORUM] self=" << config_.GetSelfInfo().id()
++              << " seq=" << request.seq()
++              << " hash=" << request.hash()
++              << " source=static"
++              << " quorum=" << config_.GetMinDataReceiveNum() << "\n";
++  }
++  return config_.GetMinDataReceiveNum();
++}
++
++bool MessageManager::IsSenderActiveForRequest(const Request& request) {
++  if (!forced_view_registry_) return true;
++  auto view = forced_view_registry_->FindForRequest(request);
++  if (!view) return true;
++  bool active = view->IsActiveResdbSender(request.sender_id());
++  if (!active) {
++    std::cout << "[ACTIVE-VOTE-DROP] sender=" << request.sender_id()
++              << " omnet_sender="
++              << OmnetForcedView::ResdbSenderToOmnet(request.sender_id())
++              << " epoch=" << view->epoch
++              << " seq=" << request.seq()
++              << " hash=" << request.hash()
++              << " reason=inactive\n";
++  }
++  return active;
++}
++
+ bool MessageManager::MayConsensusChangeStatus(
+-    int type, int received_count, std::atomic<TransactionStatue>* status,
+-    bool ret) {
++    const Request& request, int type, int received_count,
++    std::atomic<TransactionStatue>* status, bool ret) {
++  const int quorum = QuorumForRequest(request);
++  const TransactionStatue before =
++      status ? status->load(std::memory_order_acquire) : TransactionStatue::None;
++  bool changed = ret;
+   switch (type) {
+     case Request::TYPE_PRE_PREPARE:
+       if (*status == TransactionStatue::None) {
+         TransactionStatue old_status = TransactionStatue::None;
+-        return status->compare_exchange_strong(
++        changed = status->compare_exchange_strong(
+             old_status, TransactionStatue::READY_PREPARE,
+             std::memory_order_acq_rel, std::memory_order_acq_rel);
+       }
+       break;
+     case Request::TYPE_PREPARE:
+       if (*status == TransactionStatue::READY_PREPARE &&
+-          config_.GetMinDataReceiveNum() <= received_count) {
++          quorum <= received_count) {
+         TransactionStatue old_status = TransactionStatue::READY_PREPARE;
+-        return status->compare_exchange_strong(
++        changed = status->compare_exchange_strong(
+             old_status, TransactionStatue::READY_COMMIT,
+             std::memory_order_acq_rel, std::memory_order_acq_rel);
+       }
+       break;
+     case Request::TYPE_COMMIT:
+       if (*status == TransactionStatue::READY_COMMIT &&
+-          config_.GetMinDataReceiveNum() <= received_count) {
++          quorum <= received_count) {
+         TransactionStatue old_status = TransactionStatue::READY_COMMIT;
+-        return status->compare_exchange_strong(
++        changed = status->compare_exchange_strong(
+             old_status, TransactionStatue::READY_EXECUTE,
+             std::memory_order_acq_rel, std::memory_order_acq_rel);
+       }
+       break;
+   }
+-  return ret;
++  const bool forced = HasForcedViewForRequest(request);
++  if ((forced || request.seq() >= 2) &&
++      (type == Request::TYPE_PRE_PREPARE ||
++       type == Request::TYPE_PREPARE ||
++       type == Request::TYPE_COMMIT)) {
++    const TransactionStatue after =
++        status ? status->load(std::memory_order_acquire) : TransactionStatue::None;
++    std::cout << "[PBFT-COUNT] self=" << config_.GetSelfInfo().id()
++              << " omnet_self="
++              << OmnetForcedView::ResdbSenderToOmnet(config_.GetSelfInfo().id())
++              << " seq=" << request.seq()
++              << " type=" << RequestTypeName(type)
++              << " sender=" << request.sender_id()
++              << " omnet_sender="
++              << OmnetForcedView::ResdbSenderToOmnet(request.sender_id())
++              << " hash=" << request.hash()
++              << " count=" << received_count
++              << " quorum=" << quorum
++              << " status_before=" << TxnStatusName(before)
++              << " status_after=" << TxnStatusName(after)
++              << " changed=" << (changed ? 1 : 0)
++              << " forced=" << (forced ? 1 : 0)
++              << "\n";
++  }
++  return changed;
+ }
+ 
+ // Add commit messages and return the number of messages have been received.
+@@ -177,24 +380,70 @@
+     const SignatureInfo& signature, std::unique_ptr<Request> request) {
+   if (request == nullptr || !IsValidMsg(*request)) {
+     LOG(ERROR) << " msg not invalid";
++    std::cout << "[PBFT-ADDMSG] INVALID seq=" << (request ? request->seq() : 0)
++              << " type=" << (request ? request->type() : -1) << "\n";
+     return CollectorResultCode::INVALID;
+   }
+ 
+   int type = request->type();
+   uint64_t seq = request->seq();
++  const int sender_id = request->sender_id();
++  const std::string hash = request->hash();
++  const bool forced = HasForcedViewForRequest(*request);
+   int resp_received_count = 0;
+   int proxy_id = request->proxy_id();
++  if (IsVoteRequestType(type) && !forced && forced_view_registry_ &&
++      forced_view_registry_->HasAny() && ShouldDebugPbftRequest(*request)) {
++    LogVoteDrop(config_.GetSelfInfo().id(), *request, "no-view",
++                "detail=forced-view-miss");
++  }
++  if (!IsSenderActiveForRequest(*request)) {
++    LogVoteDrop(config_.GetSelfInfo().id(), *request, "inactive-sender");
++    if (forced || seq >= 2) {
++      std::cout << "[PBFT-ADD-RESULT] self=" << config_.GetSelfInfo().id()
++                << " seq=" << seq
++                << " type=" << RequestTypeName(type)
++                << " sender=" << sender_id
++                << " hash=" << hash
++                << " result=inactive-sender"
++                << " forced=" << (forced ? 1 : 0)
++                << "\n";
++    }
++    return CollectorResultCode::OK;
++  }
+   if (checkpoint_manager_->IsCommitted(seq)) {
+     LOG(ERROR) << " seq:" << seq << " type:" << type << " has been committed";
++    std::cout << "[ADDMSG-ALREADY-COMMITTED] seq=" << seq << " type=" << type << "\n";
++    LogVoteDrop(config_.GetSelfInfo().id(), *request, "duplicate",
++                "detail=already-committed");
+     return CollectorResultCode::STATE_CHANGED;
+   }
+ 
+-  int ret = collector_pool_->GetCollector(seq)->AddRequest(
++  TransactionCollector* collector = collector_pool_->GetCollector(seq);
++  if (collector != nullptr && IsVoteRequestType(type) &&
++      ShouldDebugPbftRequest(*request)) {
++    if (!collector->HasMainRequest()) {
++      LogVoteDrop(config_.GetSelfInfo().id(), *request, "no-request",
++                  "detail=missing-pre-prepare");
++    } else {
++      const std::string main_hash = collector->MainRequestHash();
++      if (!main_hash.empty() && main_hash != hash) {
++        LogVoteDrop(config_.GetSelfInfo().id(), *request, "hash-mismatch",
++                    "main_hash=" + main_hash);
++      }
++    }
++    if (collector->HasVoteFrom(type, hash, sender_id)) {
++      LogVoteDrop(config_.GetSelfInfo().id(), *request, "duplicate",
++                  "detail=same-sender");
++    }
++  }
++  int ret = collector->AddRequest(
+       std::move(request), signature, type == Request::TYPE_PRE_PREPARE,
+       [&](const Request& request, int received_count,
+           TransactionCollector::CollectorDataType* data,
+           std::atomic<TransactionStatue>* status, bool force) {
+-        if (MayConsensusChangeStatus(type, received_count, status, force)) {
++        if (MayConsensusChangeStatus(request, type, received_count, status,
++                                     force)) {
+           resp_received_count = 1;
+         }
+       });
+@@ -202,6 +451,25 @@
+     SetLastCommittedTime(proxy_id);
+   } else if (ret != 0) {
+     LOG(ERROR) << " add request fail";
++    Request drop_request;
++    drop_request.set_type(type);
++    drop_request.set_seq(seq);
++    drop_request.set_sender_id(sender_id);
++    drop_request.set_hash(hash);
++    LogVoteDrop(config_.GetSelfInfo().id(), drop_request, "no-request",
++                "detail=collector-reject ret=" + std::to_string(ret));
++    if (forced || seq >= 2) {
++      std::cout << "[PBFT-ADD-RESULT] self=" << config_.GetSelfInfo().id()
++                << " seq=" << seq
++                << " type=" << RequestTypeName(type)
++                << " sender=" << sender_id
++                << " hash=" << hash
++                << " result=invalid"
++                << " ret=" << ret
++                << " status=" << TxnStatusName(collector->GetStatus())
++                << " forced=" << (forced ? 1 : 0)
++                << "\n";
++    }
+     return CollectorResultCode::INVALID;
+   }
+   if (resp_received_count > 0) {
+@@ -210,8 +478,30 @@
+         checkpoint_manager_->AddCommitState(seq);
+       }
+     }
++    if (forced || seq >= 2) {
++      std::cout << "[PBFT-ADD-RESULT] self=" << config_.GetSelfInfo().id()
++                << " seq=" << seq
++                << " type=" << RequestTypeName(type)
++                << " sender=" << sender_id
++                << " hash=" << hash
++                << " result=state-changed"
++                << " status=" << TxnStatusName(collector->GetStatus())
++                << " forced=" << (forced ? 1 : 0)
++                << "\n";
++    }
+     return CollectorResultCode::STATE_CHANGED;
+   }
++  if (forced || seq >= 2) {
++    std::cout << "[PBFT-ADD-RESULT] self=" << config_.GetSelfInfo().id()
++              << " seq=" << seq
++              << " type=" << RequestTypeName(type)
++              << " sender=" << sender_id
++              << " hash=" << hash
++              << " result=ok"
++              << " status=" << TxnStatusName(collector->GetStatus())
++              << " forced=" << (forced ? 1 : 0)
++              << "\n";
++  }
+   return CollectorResultCode::OK;
+ }
+ 
+@@ -230,13 +520,52 @@
+ 
+ void MessageManager::SetNextCommitSeq(int seq) {
+   LOG(ERROR) << " set next commit seq:" << seq;
++  std::cout << "[SET-NEXT-COMMIT-SEQ] seq=" << seq
++            << " old_next_seq=" << next_seq_
++            << " old_pending_exec=" << transaction_executor_->GetMaxPendingExecutedSeq() + 1
++            << "\n";
+   SetNextSeq(seq);
+   SetHighestPreparedSeq(seq);
+   collector_pool_->Reset(seq);
+   checkpoint_manager_->SetLastCommit(seq - 1);
++  std::cout << "[SET-NEXT-COMMIT-SEQ-DONE] seq=" << seq << "\n";
+   return transaction_executor_->SetPendingExecutedSeq(seq);
+ }
+ 
++void MessageManager::EnsureNextSeqAheadOfExecuted() {
++  std::unique_lock<std::mutex> lk(seq_mutex_);
++  const uint64_t max_executed = transaction_executor_->GetMaxPendingExecutedSeq();
++  uint64_t need = max_executed + 1;
++  if (checkpoint_manager_) {
++    need = std::max(need, checkpoint_manager_->GetLastCommit() + 1);
++  }
++  if (static_cast<uint64_t>(next_seq_) >= need) return;
++  std::cout << "[SEQ-SYNC] advancing next_seq from " << next_seq_
++            << " to " << need << " max_executed=" << max_executed
++            << " last_commit="
++            << (checkpoint_manager_ ? checkpoint_manager_->GetLastCommit() : 0)
++            << "\n";
++  SetNextSeq(need);
++}
++
++void MessageManager::AdvanceExecutorAfterGossipCancel(uint32_t cancelled_epoch) {
++  // Ledger prefix per epoch: ORDER(e) then CANCEL(e). After gossip-adopting
++  // CANCEL(e), the next executable PBFT seq is 2*(e+1)+1.
++  const uint64_t min_next = 2ULL * (static_cast<uint64_t>(cancelled_epoch) + 1ULL) + 1ULL;
++  const uint64_t current_next = transaction_executor_->GetMaxPendingExecutedSeq() + 1;
++  const uint64_t target = std::max(current_next, min_next);
++  transaction_executor_->AdvanceExecuteSeq(target);
++  if (collector_pool_) {
++    collector_pool_->Update(target - 1);
++  }
++  const uint64_t need = std::max(target, current_next);
++  if (static_cast<uint64_t>(next_seq_) < need) {
++    std::cout << "[SEQ-SYNC] gossip-cancel advancing next_seq from " << next_seq_
++              << " to " << need << " cancelled_epoch=" << cancelled_epoch << "\n";
++    SetNextSeq(need);
++  }
++}
++
+ void MessageManager::SetLastCommittedTime(uint64_t proxy_id) {
+   lct_lock_.lock();
+   last_committed_time_[proxy_id] = GetCurrentTime();
+--- a/platform/consensus/ordering/pbft/message_manager.h
++++ b/platform/consensus/ordering/pbft/message_manager.h
+@@ -32,6 +32,7 @@
+ #include "platform/config/resdb_config.h"
+ #include "platform/consensus/ordering/pbft/checkpoint_manager.h"
+ #include "platform/consensus/ordering/pbft/lock_free_collector_pool.h"
++#include "platform/consensus/ordering/pbft/omnet_forced_view.h"
+ #include "platform/consensus/ordering/pbft/transaction_collector.h"
+ #include "platform/consensus/ordering/pbft/transaction_utils.h"
+ #include "platform/networkstrate/server_comm.h"
+@@ -78,6 +79,12 @@
+   std::vector<RequestInfo> GetPreparedProof(uint64_t seq);
+ 
+   void SetNextCommitSeq(int seq);
++  // Advance next_seq to at least max_executed+1 (needed when cert-primary handoff
++  // promotes a follower that never called AssignNextSeq as the old primary).
++  void EnsureNextSeqAheadOfExecuted();
++  // Newcomers gossip-adopt CANCEL(e) without executing ORDER(e)/CANCEL(e) on the
++  // PBFT executor; advance past that ledger prefix so ORDER(e+1) can run.
++  void AdvanceExecutorAfterGossipCancel(uint32_t cancelled_epoch);
+ 
+   // =============  System information ========
+   // Obtain the current replica list.
+@@ -106,13 +113,20 @@
+   void SendResponse(std::unique_ptr<Request> request);
+ 
+   LockFreeCollectorPool* GetCollectorPool();
++  void SetOmnetForcedViewRegistry(
++      std::shared_ptr<OmnetForcedViewRegistry> registry);
++  bool HasForcedViewForRequest(const Request& request);
++  bool IsSelfActiveForRequest(const Request& request);
+ 
+  private:
+   bool IsValidMsg(const Request& request);
+ 
+-  bool MayConsensusChangeStatus(int type, int received_count,
++  bool MayConsensusChangeStatus(const Request& request, int type,
++                                int received_count,
+                                 std::atomic<TransactionStatue>* status,
+                                 bool force);
++  int QuorumForRequest(const Request& request);
++  bool IsSenderActiveForRequest(const Request& request);
+ 
+  private:
+   ResDBConfig config_;
+@@ -135,6 +149,7 @@
+   std::mutex lct_lock_;
+   std::map<uint64_t, uint64_t> last_committed_time_;
+   std::map<uint64_t, uint32_t> last_update_time_;
++  std::shared_ptr<OmnetForcedViewRegistry> forced_view_registry_;
+ };
+ 
+ }  // namespace resdb
+--- a/platform/consensus/ordering/pbft/omnet_forced_view.h
++++ b/platform/consensus/ordering/pbft/omnet_forced_view.h
+@@ -0,0 +1,237 @@
++#pragma once
++
++#include <algorithm>
++#include <cstdint>
++#include <iostream>
++#include <stdexcept>
++#include <map>
++#include <mutex>
++#include <optional>
++#include <set>
++#include <string>
++#include <vector>
++
++#include "platform/proto/resdb.pb.h"
++
++namespace resdb {
++
++inline int BftQuorumSize(int n, int f) {
++  if (n <= 0) return 0;
++  if (f < 0 || f > (n - 1) / 3) {
++    throw std::invalid_argument("invalid BFT f for active voter set");
++  }
++  return std::max((n + f + 2) / 2, 1);
++}
++
++struct OmnetForcedView {
++  uint32_t epoch = 0;
++  uint64_t seq = 0;
++  std::string request_hash;
++  int primary_omnet = -1;
++  std::vector<int> active_omnet_ids;
++  bool f_override = false;
++  int f = 0;
++  int quorum = 1;
++
++  bool IsActiveOmnet(int replica_id) const {
++    return std::binary_search(active_omnet_ids.begin(), active_omnet_ids.end(),
++                              replica_id);
++  }
++
++  bool IsActiveResdbSender(int64_t sender_id) const {
++    return IsActiveOmnet(ResdbSenderToOmnet(sender_id));
++  }
++
++  int PrimaryResdbId() const { return primary_omnet + 1; }
++
++  static int ResdbSenderToOmnet(int64_t sender_id) {
++    if (sender_id <= 0) return -1;
++    return static_cast<int>(sender_id - 1);
++  }
++};
++
++class OmnetForcedViewRegistry {
++ public:
++  void InstallPending(const OmnetForcedView& view) {
++    std::lock_guard<std::mutex> lk(mu_);
++    OmnetForcedView normalized = Normalize(view);
++    pending_by_hash_[normalized.request_hash] = normalized;
++    latest_ = normalized;
++    LogInstall("pending", normalized);
++  }
++
++  bool InstallForRequest(const Request& request, const OmnetForcedView& view) {
++    if (request.hash().empty()) {
++      std::cout << "[ACTIVE-VIEW-INSTALL] mode=request result=reject"
++                << " reason=empty-hash"
++                << " seq=" << request.seq() << "\n";
++      return false;
++    }
++    std::lock_guard<std::mutex> lk(mu_);
++    OmnetForcedView normalized = Normalize(view);
++    normalized.seq = request.seq();
++    normalized.request_hash = request.hash();
++    ViewKey key{normalized.epoch, normalized.seq, normalized.request_hash};
++    auto it = views_.find(key);
++    if (it != views_.end() &&
++        it->second.active_omnet_ids != normalized.active_omnet_ids) {
++      std::cout << "[ACTIVE-VIEW-REJECT] reason=conflicting-membership"
++                << " epoch=" << normalized.epoch
++                << " seq=" << normalized.seq
++                << " hash=" << normalized.request_hash << "\n";
++      return false;
++    }
++    views_[key] = normalized;
++    pending_by_hash_[normalized.request_hash] = normalized;
++    latest_ = normalized;
++    LogInstall("request", normalized);
++    return true;
++  }
++
++  std::optional<OmnetForcedView> FindForRequest(const Request& request) {
++    if (request.hash().empty()) {
++      if (ShouldDebug(request)) {
++        std::cout << "[ACTIVE-VIEW-FIND] result=miss"
++                  << " reason=empty-hash"
++                  << " seq=" << request.seq() << "\n";
++      }
++      return std::nullopt;
++    }
++    std::lock_guard<std::mutex> lk(mu_);
++    for (const auto& kv : views_) {
++      const OmnetForcedView& view = kv.second;
++      if (view.seq == request.seq() && view.request_hash == request.hash()) {
++        if (ShouldDebug(request)) {
++          LogFind("exact", request, view, views_.size(),
++                  pending_by_hash_.size(), latest_);
++        }
++        return view;
++      }
++    }
++    auto pending = pending_by_hash_.find(request.hash());
++    if (pending == pending_by_hash_.end()) {
++      if (ShouldDebug(request)) {
++        LogFindMiss("no-pending-for-hash", request, views_.size(),
++                    pending_by_hash_.size(), latest_);
++      }
++      return std::nullopt;
++    }
++    OmnetForcedView view = pending->second;
++    if (request.seq() != 0) {
++      view.seq = request.seq();
++      ViewKey key{view.epoch, view.seq, view.request_hash};
++      views_[key] = view;
++      latest_ = view;
++      LogInstall("promoted", view);
++    }
++    if (ShouldDebug(request)) {
++      LogFind("pending", request, view, views_.size(), pending_by_hash_.size(),
++              latest_);
++    }
++    return view;
++  }
++
++  std::optional<OmnetForcedView> Latest() const {
++    std::lock_guard<std::mutex> lk(mu_);
++    return latest_;
++  }
++
++  bool HasAny() const {
++    std::lock_guard<std::mutex> lk(mu_);
++    return latest_.has_value();
++  }
++
++ private:
++  struct ViewKey {
++    uint32_t epoch = 0;
++    uint64_t seq = 0;
++    std::string hash;
++
++    bool operator<(const ViewKey& other) const {
++      if (epoch != other.epoch) return epoch < other.epoch;
++      if (seq != other.seq) return seq < other.seq;
++      return hash < other.hash;
++    }
++  };
++
++  static OmnetForcedView Normalize(OmnetForcedView view) {
++    std::sort(view.active_omnet_ids.begin(), view.active_omnet_ids.end());
++    view.active_omnet_ids.erase(
++        std::unique(view.active_omnet_ids.begin(), view.active_omnet_ids.end()),
++        view.active_omnet_ids.end());
++    int n = static_cast<int>(view.active_omnet_ids.size());
++    if (!view.f_override) {
++      view.f = n > 0 ? (n - 1) / 3 : 0;
++    }
++    view.quorum = BftQuorumSize(n, view.f);
++    return view;
++  }
++
++  static void LogInstall(const char* mode, const OmnetForcedView& view) {
++    std::cout << "[ACTIVE-VIEW] mode=" << (mode ? mode : "?")
++              << " epoch=" << view.epoch
++              << " seq=" << view.seq
++              << " hash=" << view.request_hash
++              << " N=" << view.active_omnet_ids.size()
++              << " f=" << view.f
++              << " quorum=" << view.quorum
++              << " primary=r" << view.primary_omnet
++              << " members=";
++    for (size_t i = 0; i < view.active_omnet_ids.size(); ++i) {
++      if (i) std::cout << ",";
++      std::cout << view.active_omnet_ids[i];
++    }
++    std::cout << "\n";
++  }
++
++  static bool ShouldDebug(const Request& request) {
++    return request.seq() >= 2 || request.hash().rfind("omnet-tx-", 0) == 0;
++  }
++
++  static void LogFind(const char* result, const Request& request,
++                      const OmnetForcedView& view, size_t view_count,
++                      size_t pending_count,
++                      const std::optional<OmnetForcedView>& latest) {
++    std::cout << "[ACTIVE-VIEW-FIND] result=" << (result ? result : "?")
++              << " req_seq=" << request.seq()
++              << " req_hash=" << request.hash()
++              << " view_epoch=" << view.epoch
++              << " view_seq=" << view.seq
++              << " view_hash=" << view.request_hash
++              << " N=" << view.active_omnet_ids.size()
++              << " quorum=" << view.quorum
++              << " primary=r" << view.primary_omnet
++              << " views=" << view_count
++              << " pending=" << pending_count;
++    if (latest) {
++      std::cout << " latest_epoch=" << latest->epoch
++                << " latest_seq=" << latest->seq
++                << " latest_hash=" << latest->request_hash;
++    }
++    std::cout << "\n";
++  }
++
++  static void LogFindMiss(const char* reason, const Request& request,
++                          size_t view_count, size_t pending_count,
++                          const std::optional<OmnetForcedView>& latest) {
++    std::cout << "[ACTIVE-VIEW-FIND] result=miss"
++              << " reason=" << (reason ? reason : "?")
++              << " req_seq=" << request.seq()
++              << " req_hash=" << request.hash()
++              << " views=" << view_count
++              << " pending=" << pending_count;
++    if (latest) {
++      std::cout << " latest_epoch=" << latest->epoch
++                << " latest_seq=" << latest->seq
++                << " latest_hash=" << latest->request_hash;
++    }
++    std::cout << "\n";
++  }
++
++  mutable std::mutex mu_;
++  std::map<ViewKey, OmnetForcedView> views_;
++  std::map<std::string, OmnetForcedView> pending_by_hash_;
++  std::optional<OmnetForcedView> latest_;
++};
++
++}  // namespace resdb
+--- a/platform/consensus/ordering/pbft/performance_manager.cpp
++++ b/platform/consensus/ordering/pbft/performance_manager.cpp
+@@ -80,15 +80,21 @@
+ }
+ 
+ PerformanceManager::~PerformanceManager() {
++  std::cerr << "[PM-STOP] stop_=true\n" << std::flush;
+   stop_ = true;
++  // MonitoringClientTimeOut blocks in sem_wait(); post once to unblock it so
++  // the while(!stop_) condition is re-evaluated and the thread can exit.
++  sem_post(&request_sent_signal_);
+   for (int i = 0; i < 16; ++i) {
+     if (user_req_thread_[i].joinable()) {
+       user_req_thread_[i].join();
+     }
+   }
+   if (checking_timeout_thread_.joinable()) {
++    std::cerr << "[PM-STOP] joining checking_timeout_thread_\n" << std::flush;
+     checking_timeout_thread_.join();
+   }
++  std::cerr << "[PM-STOP] DONE\n" << std::flush;
+ }
+ 
+ // use system info
+@@ -259,7 +265,7 @@
+   while (!stop_) {
+     // std::lock_guard<std::mutex> lk(mutex_);
+     if (send_num_[GetPrimary()] >= config_.GetMaxProcessTxn()) {
+-      usleep(100000);
++      SleepForUs(100000);
+       continue;
+     }
+     if (batch_req.size() < config_.ClientBatchNum()) {
+@@ -396,7 +402,7 @@
+     pm_lock_.unlock();
+ 
+     if (client_timeout.timeout_time > GetCurrentTime()) {
+-      usleep(client_timeout.timeout_time - GetCurrentTime());
++      SleepForUs(client_timeout.timeout_time - GetCurrentTime());
+     }
+ 
+     if (CheckTimeOut(client_timeout.hash)) {
+--- a/platform/consensus/ordering/pbft/response_manager.cpp
++++ b/platform/consensus/ordering/pbft/response_manager.cpp
+@@ -75,13 +75,19 @@
+ }
+ 
+ ResponseManager::~ResponseManager() {
++  std::cerr << "[RM-STOP] stop_=true\n" << std::flush;
+   stop_ = true;
++  // MonitoringClientTimeOut blocks in sem_wait(); post once to unblock it so
++  // the while(!stop_) condition is re-evaluated and the thread can exit.
++  sem_post(&request_sent_signal_);
+   if (user_req_thread_.joinable()) {
+     user_req_thread_.join();
+   }
+   if (checking_timeout_thread_.joinable()) {
++    std::cerr << "[RM-STOP] joining checking_timeout_thread_\n" << std::flush;
+     checking_timeout_thread_.join();
+   }
++  std::cerr << "[RM-STOP] DONE\n" << std::flush;
+ }
+ 
+ // use system info
+@@ -265,7 +271,7 @@
+   while (!stop_) {
+     if (send_num_ > config_.GetMaxProcessTxn()) {
+       LOG(ERROR) << "send num too high, wait:" << send_num_;
+-      usleep(100);
++      SleepForUs(100);
+       continue;
+     }
+     if (batch_req.size() < config_.ClientBatchNum()) {
+@@ -406,7 +412,7 @@
+     pm_lock_.unlock();
+ 
+     if (client_timeout.timeout_time > GetCurrentTime()) {
+-      usleep(client_timeout.timeout_time - GetCurrentTime());
++      SleepForUs(client_timeout.timeout_time - GetCurrentTime());
+     }
+ 
+     if (CheckTimeOut(client_timeout.hash)) {
+--- a/platform/consensus/ordering/pbft/response_manager.h
++++ b/platform/consensus/ordering/pbft/response_manager.h
+@@ -56,6 +56,8 @@
+   int ProcessResponseMsg(std::unique_ptr<Context> context,
+                          std::unique_ptr<Request> request);
+ 
++  void SetReplicaCommunicator(ReplicaCommunicator* comm) { replica_communicator_ = comm; }
++
+  private:
+   // Add response messages which will be sent back to the caller
+   // if there are f+1 same messages.
+--- a/platform/consensus/ordering/pbft/transaction_collector.cpp
++++ b/platform/consensus/ordering/pbft/transaction_collector.cpp
+@@ -21,6 +21,8 @@
+ 
+ #include <glog/logging.h>
+ 
++#include <iostream>
++
+ #include "common/crypto/signature_verifier.h"
+ 
+ namespace resdb {
+@@ -31,6 +33,36 @@
+ 
+ TransactionStatue TransactionCollector::GetStatus() const { return status_; }
+ 
++bool TransactionCollector::HasMainRequest() {
++  return atomic_mian_request_.Reference() != nullptr;
++}
++
++std::string TransactionCollector::MainRequestHash() {
++  auto* main_request = atomic_mian_request_.Reference();
++  if (main_request == nullptr || main_request->request == nullptr) return "";
++  return main_request->request->hash();
++}
++
++bool TransactionCollector::HasVoteFrom(int type, const std::string& hash,
++                                       int sender_id) {
++  if (type < 0 || type >= Request::NUM_OF_TYPE || sender_id < 0 ||
++      sender_id >= 128) {
++    return false;
++  }
++  std::lock_guard<std::mutex> lk(mutex_);
++  auto hash_it = senders_[type].find(hash);
++  if (hash_it == senders_[type].end()) return false;
++  return hash_it->second[static_cast<size_t>(sender_id)];
++}
++
++int TransactionCollector::VoteCount(int type, const std::string& hash) {
++  if (type < 0 || type >= Request::NUM_OF_TYPE) return 0;
++  std::lock_guard<std::mutex> lk(mutex_);
++  auto hash_it = senders_[type].find(hash);
++  if (hash_it == senders_[type].end()) return 0;
++  return static_cast<int>(hash_it->second.count());
++}
++
+ int TransactionCollector::SetContextList(
+     uint64_t seq, std::vector<std::unique_ptr<Context>> context) {
+   if (seq != seq_) {
+@@ -92,6 +124,9 @@
+   if (seq_ != static_cast<uint64_t>(request->seq())) {
+     LOG(ERROR) << "data invalid, seq not the same:" << seq
+                << " collect seq:" << seq_;
++    std::cout << "[COLLECTOR-SEQ-MISMATCH] req_seq=" << seq
++              << " collector_seq=" << seq_
++              << " type=" << type << " (collector was Reset to wrong seq)\n";
+     return -2;
+   }
+ 
+@@ -206,11 +241,17 @@
+   auto main_request = atomic_mian_request_.Reference();
+   if (main_request == nullptr) {
+     LOG(ERROR) << "no main:" << seq_;
++    std::cout << "[COLLECTOR-COMMIT-NOMAIN] seq=" << seq_
++              << " (PRE_PREPARE was never stored — likely Reset race)\n";
+     return -2;
+   }
+ 
+   is_committed_ = true;
+   if (executor_ && main_request->request) {
++    std::cout << "[COLLECTOR-COMMIT] seq=" << seq_
++              << " hash=" << main_request->request->hash()
++              << " data_bytes=" << main_request->request->data().size()
++              << " certs=" << commit_certs_.size() << "\n";
+     if (!commit_certs_.empty()) {
+       for (const auto& sig : commit_certs_) {
+         *main_request->request->mutable_committed_certs()
+--- a/platform/consensus/ordering/pbft/transaction_collector.h
++++ b/platform/consensus/ordering/pbft/transaction_collector.h
+@@ -109,6 +109,10 @@
+ 
+   std::vector<RequestInfo> GetPreparedProof();
+   TransactionStatue GetStatus() const;
++  bool HasMainRequest();
++  std::string MainRequestHash();
++  bool HasVoteFrom(int type, const std::string& hash, int sender_id);
++  int VoteCount(int type, const std::string& hash);
+ 
+   uint64_t Seq();
+ 
+--- a/platform/consensus/ordering/pbft/viewchange_manager.cpp
++++ b/platform/consensus/ordering/pbft/viewchange_manager.cpp
+@@ -19,12 +19,47 @@
+ 
+ #include "platform/consensus/ordering/pbft/viewchange_manager.h"
+ 
++#include <errno.h>
+ #include <glog/logging.h>
++#include <time.h>
+ 
+ #include "common/utils/utils.h"
+ #include "platform/consensus/ordering/pbft/transaction_utils.h"
+ #include "platform/proto/viewchange_message.pb.h"
+ 
++namespace {
++
++// sem_timedwait is GNU/Linux; Darwin only exposes sem_trywait/sem_wait.
++int SemTimedWaitAbs(sem_t* sem, const struct timespec* abs_timeout) {
++#if defined(__APPLE__)
++  for (;;) {
++    if (sem_trywait(sem) == 0) {
++      return 0;
++    }
++    if (errno != EAGAIN && errno != EINTR) {
++      return -1;
++    }
++    struct timespec now {};
++    if (clock_gettime(CLOCK_REALTIME, &now) != 0) {
++      return -1;
++    }
++    if (now.tv_sec > abs_timeout->tv_sec ||
++        (now.tv_sec == abs_timeout->tv_sec &&
++         now.tv_nsec >= abs_timeout->tv_nsec)) {
++      errno = ETIMEDOUT;
++      return -1;
++    }
++    struct timespec sleep_ts {};
++    sleep_ts.tv_nsec = 1000000L;  // 1 ms
++    nanosleep(&sleep_ts, nullptr);
++  }
++#else
++  return sem_timedwait(sem, const_cast<struct timespec*>(abs_timeout));
++#endif
++}
++
++}  // namespace
++
+ namespace resdb {
+ 
+ ComplaningClients::ComplaningClients()
+@@ -95,13 +130,17 @@
+ }
+ 
+ ViewChangeManager::~ViewChangeManager() {
++  std::cerr << "[VC-STOP] stop_=true\n" << std::flush;
++  stop_ = true;
++  // MonitoringCheckpointState uses a ~100ms timed wait; it will wake and
++  // see stop_=true within one timeout interval — no manual sem_post needed.
++  std::cerr << "[VC-STOP] calling checkpoint_manager_->Stop()\n" << std::flush;
+   checkpoint_manager_->Stop();
+-  if (server_checking_timeout_thread_.joinable()) {
+-    server_checking_timeout_thread_.join();
+-  }
++  std::cerr << "[VC-STOP] joining checkpoint_state_thread_\n" << std::flush;
+   if (checkpoint_state_thread_.joinable()) {
+     checkpoint_state_thread_.join();
+   }
++  std::cerr << "[VC-STOP] DONE\n" << std::flush;
+ }
+ 
+ void ViewChangeManager::MayStart() {
+@@ -328,7 +367,7 @@
+   uint64_t max_seq = seq_set.empty() ? max_s : *(--seq_set.end());
+ 
+   SetCurrentViewAndNewPrimary(new_view_message.view_number());
+-  message_manager_->SetNextSeq(max_seq + 1);
++  message_manager_->SetNextCommitSeq(max_seq + 1);
+   LOG(ERROR) << "SetNexSeq: " << max_seq + 1;
+ 
+   // All is fine.
+@@ -525,7 +564,7 @@
+     }
+     auto current_time = GetCurrentTime();
+     if (viewchange_timeout->timeout_time > current_time) {
+-      usleep(viewchange_timeout->timeout_time - current_time);
++      SleepForUs(viewchange_timeout->timeout_time - current_time);
+     }
+     // [DK3] if not enough responses are received, the client broadcasts the
+     // client request to all replicas
+@@ -577,7 +616,19 @@
+ void ViewChangeManager::MonitoringCheckpointState() {
+   uint64_t last_seq_value = 0;
+   while (!stop_) {
+-    sem_wait(checkpoint_manager_->CommitableSeqSignal());
++    // Use a timed wait so the thread wakes periodically to re-check stop_.
++    // sem_wait() blocks indefinitely; if stop_ is set while we're inside
++    // sem_wait() and no further posts arrive, join() in the destructor hangs.
++    struct timespec ts;
++    clock_gettime(CLOCK_REALTIME, &ts);
++    ts.tv_nsec += 100000000LL;  // 100 ms
++    if (ts.tv_nsec >= 1000000000LL) {
++      ts.tv_sec += 1;
++      ts.tv_nsec -= 1000000000LL;
++    }
++    int ret =
++        SemTimedWaitAbs(checkpoint_manager_->CommitableSeqSignal(), &ts);
++    if (ret != 0) continue;  // timeout or EINTR — just re-check stop_
+     auto value = checkpoint_manager_->GetCommittableSeq();
+     if (last_seq_value != value) {
+       last_seq_value = value;
+--- a/platform/consensus/ordering/pbft/viewchange_manager.h
++++ b/platform/consensus/ordering/pbft/viewchange_manager.h
+@@ -108,6 +108,17 @@
+   void CheckComplaintTimeout();
+   void SetDuplicateManager(DuplicateManager* manager);
+   void SetCurrentViewAndNewPrimary(uint64_t view_number);
++  void SetReplicaCommunicator(ReplicaCommunicator* comm) { replica_communicator_ = comm; }
++  void SetTimeoutLength(uint64_t us) { timeout_length_ = us; }
++
++  // Directly initiate a view-change from outside the complaint chain.
++  // Safe to call from any thread; idempotent (ChangeStatue guards re-entry).
++  void TriggerViewChangeNow() {
++    MayStart();
++    if (ChangeStatue(ViewChangeStatus::READY_VIEW_CHANGE)) {
++      SendViewChangeMsg();
++    }
++  }
+ 
+  private:
+   void SendViewChangeMsg();
+--- a/platform/networkstrate/consensus_manager.cpp
++++ b/platform/networkstrate/consensus_manager.cpp
+@@ -46,12 +46,14 @@
+     verifier_ = std::make_unique<SignatureVerifier>(
+         config_.GetPrivateKey(), config_.GetPublicKeyCertificateInfo());
+   }
+-  bc_client_ = GetReplicaClient(config_.GetReplicaInfos(), true);
+ }
+ 
+ ConsensusManager::~ConsensusManager() {
++  std::cerr << "[CM-STOP] bc_client reset\n" << std::flush;
+   bc_client_.reset();
++  std::cerr << "[CM-STOP] Stop()\n" << std::flush;
+   Stop();
++  std::cerr << "[CM-STOP] DONE\n" << std::flush;
+ }
+ 
+ void ConsensusManager::UpdateBroadCastClient() {
+@@ -77,6 +79,11 @@
+ 
+ void ConsensusManager::Start() {
+   ServiceInterface::Start();
++  // Create the broadcast client after derived classes are fully constructed,
++  // so that GetReplicaClient() virtual overrides are respected.
++  if (bc_client_ == nullptr) {
++    UpdateBroadCastClient();
++  }
+   if (config_.HeartBeatEnabled() && verifier_) {
+     heartbeat_thread_ =
+         std::thread(&ConsensusManager::HeartBeat, this);  // pass by reference
+--- a/platform/networkstrate/replica_communicator.cpp
++++ b/platform/networkstrate/replica_communicator.cpp
+@@ -29,7 +29,8 @@
+ 
+ ReplicaCommunicator::ReplicaCommunicator(
+     const std::vector<ReplicaInfo>& replicas, SignatureVerifier* verifier,
+-    bool is_use_long_conn, int epoll_num, int tcp_batch)
++    bool is_use_long_conn, int epoll_num, int tcp_batch,
++    bool start_background_threads)
+     : replicas_(replicas),
+       verifier_(verifier),
+       is_running_(false),
+@@ -45,7 +46,9 @@
+   }
+   LOG(ERROR) << " tcp batch:" << tcp_batch;
+ 
+-  StartBroadcastInBackGround();
++  if (start_background_threads) {
++    StartBroadcastInBackGround();
++  }
+ }
+ 
+ ReplicaCommunicator::~ReplicaCommunicator() {
+--- a/platform/networkstrate/replica_communicator.h
++++ b/platform/networkstrate/replica_communicator.h
+@@ -37,7 +37,7 @@
+   ReplicaCommunicator(const std::vector<ReplicaInfo>& replicas,
+                       SignatureVerifier* verifier = nullptr,
+                       bool is_use_long_conn = false, int epoll_num = 1,
+-                      int tcp_batch = 1);
++                      int tcp_batch = 1, bool start_background_threads = true);
+   virtual ~ReplicaCommunicator();
+ 
+   // HeartBeat message is used to broadcast public keys.
+--- a/platform/networkstrate/service_network.cpp
++++ b/platform/networkstrate/service_network.cpp
+@@ -22,6 +22,7 @@
+ #include <glog/logging.h>
+ #include <signal.h>
+ 
++#include <chrono>
+ #include <thread>
+ 
+ #include "platform/common/network/tcp_socket.h"
+@@ -31,10 +32,16 @@
+ 
+ ServiceNetwork::ServiceNetwork(const ResDBConfig& config,
+                                std::unique_ptr<ServiceInterface> service)
++    : ServiceNetwork(config, std::move(service), /*enable_network_acceptor=*/true) {}
++
++ServiceNetwork::ServiceNetwork(const ResDBConfig& config,
++                               std::unique_ptr<ServiceInterface> service,
++                               bool enable_network_acceptor)
+     : service_(std::move(service)),
+       input_queue_("input"),
+       resp_queue_("resp"),
+-      config_(config) {
++      config_(config),
++      enable_network_acceptor_(enable_network_acceptor) {
+   struct sigaction sa;
+   sa.sa_handler = SIG_IGN;
+   sa.sa_flags = 0;
+@@ -43,15 +50,18 @@
+     exit(EXIT_FAILURE);
+   }
+ 
+-  acceptor_ = std::make_unique<Acceptor>(config, &input_queue_);
+-
+-  async_acceptor_ = std::make_unique<AsyncAcceptor>(
+-      config.GetSelfInfo().ip(), config_.GetSelfInfo().port() + 10000,
+-      config.GetInputWorkerNum(),
+-      std::bind(&ServiceNetwork::AcceptorHandler, this, std::placeholders::_1,
+-                std::placeholders::_2));
+-  async_acceptor_->StartAccept();
+   global_stats_ = Stats::GetGlobalStats();
++
++  if (enable_network_acceptor_) {
++    acceptor_ = std::make_unique<Acceptor>(config, &input_queue_);
++
++    async_acceptor_ = std::make_unique<AsyncAcceptor>(
++        config.GetSelfInfo().ip(), config_.GetSelfInfo().port() + 10000,
++        config.GetInputWorkerNum(),
++        std::bind(&ServiceNetwork::AcceptorHandler, this, std::placeholders::_1,
++                  std::placeholders::_2));
++    async_acceptor_->StartAccept();
++  }
+ }
+ 
+ ServiceNetwork::~ServiceNetwork() {}
+@@ -78,6 +88,25 @@
+   }
+ }
+ 
++int ServiceNetwork::InjectInboundPacket(const char* buffer, size_t data_len) {
++  if (buffer == nullptr || data_len == 0) {
++    return -1;
++  }
++  std::unique_ptr<DataInfo> request_info = std::make_unique<DataInfo>();
++  request_info->data_len = data_len;
++  request_info->buff = new char[request_info->data_len];
++  memcpy(request_info->buff, buffer, request_info->data_len);
++
++  std::unique_ptr<QueueItem> item = std::make_unique<QueueItem>();
++  item->socket = nullptr;
++  item->data = std::move(request_info);
++  if (global_stats_) {
++    global_stats_->ServerCall();
++  }
++  input_queue_.Push(std::move(item));
++  return 0;
++}
++
+ void ServiceNetwork::InputProcess() {
+   std::vector<std::thread> threads;
+ 
+@@ -107,7 +136,14 @@
+   service_->Start();
+   auto input_th = std::thread(&ServiceNetwork::InputProcess, this);
+ 
+-  acceptor_->Run();
++  if (acceptor_) {
++    acceptor_->Run();
++  } else {
++    // Socketless mode (e.g., OMNeT++): wait until Stop() is called.
++    while (IsRunning()) {
++      std::this_thread::sleep_for(std::chrono::milliseconds(10));
++    }
++  }
+ 
+   input_th.join();
+ }
+@@ -132,7 +168,9 @@
+ bool ServiceNetwork::IsRunning() { return service_->IsRunning(); }
+ 
+ void ServiceNetwork::Stop() {
+-  acceptor_->Stop();
++  if (acceptor_) {
++    acceptor_->Stop();
++  }
+   service_->Stop();
+ }
+ 
+--- a/platform/networkstrate/service_network.h
++++ b/platform/networkstrate/service_network.h
+@@ -18,6 +18,7 @@
+  */
+ 
+ #pragma once
++#include <cstddef>
+ #include <memory>
+ 
+ #include "platform/common/data_comm/data_comm.h"
+@@ -40,6 +41,11 @@
+   // While running ServiceNetwork, it will lisenten to ip:port.
+   ServiceNetwork(const ResDBConfig& config,
+                  std::unique_ptr<ServiceInterface> service);
++  // If enable_network_acceptor is false, ServiceNetwork will not bind any real
++  // OS sockets. Inbound messages must be supplied via InjectInboundPacket().
++  ServiceNetwork(const ResDBConfig& config,
++                 std::unique_ptr<ServiceInterface> service,
++                 bool enable_network_acceptor);
+   virtual ~ServiceNetwork();
+ 
+   // Run ServiceNetwork as background.
+@@ -48,6 +54,12 @@
+   // Whether the service is ready to process the request.
+   bool ServiceIsReady() const;
+ 
++  // Inject a raw inbound packet into the server's receive queue. Intended for
++  // deterministic simulation environments (e.g., OMNeT++) where real sockets
++  // are disallowed.
++  // Returns 0 on success, -1 on invalid input.
++  int InjectInboundPacket(const char* buffer, size_t data_len);
++
+  private:
+   void Process();
+   void Process(std::unique_ptr<QueueItem> client_socket);
+@@ -63,6 +75,7 @@
+   std::unique_ptr<AsyncAcceptor> async_acceptor_;
+   ResDBConfig config_;
+   Stats* global_stats_;
++  bool enable_network_acceptor_ = true;
+ };
+ 
+ }  // namespace resdb
+--- a/platform/statistic/BUILD
++++ b/platform/statistic/BUILD
+@@ -18,6 +18,7 @@
+ 
+ package(default_visibility = [
+     "//chain/storage:__subpackages__",
++    "//integration/omnet:__pkg__",
+     "//platform:__subpackages__",
+     "//service:__subpackages__",
+ ])
+--- a/platform/statistic/stats.cpp
++++ b/platform/statistic/stats.cpp
+@@ -84,10 +84,14 @@
+   transaction_summary_.txn_number = 0;
+ }
+ 
+-void Stats::Stop() { stop_ = true; }
++void Stats::Stop() {
++  stop_ = true;
++  cv_.notify_all();
++}
+ 
+ Stats::~Stats() {
+   stop_ = true;
++  cv_.notify_all();
+   if (global_thread_.joinable()) {
+     global_thread_.join();
+   }
+@@ -396,7 +400,14 @@
+   uint64_t time = 0;
+ 
+   while (!stop_) {
+-    sleep(monitor_sleep_time_);
++    {
++      std::unique_lock<std::mutex> lk(mutex_);
++      cv_.wait_for(lk, std::chrono::seconds(monitor_sleep_time_),
++                   [this] { return stop_.load(); });
++    }
++    if (stop_) {
++      break;
++    }
+     time += monitor_sleep_time_;
+     seq_fail = seq_fail_;
+     socket_recv = socket_recv_;
+--- a/repositories.bzl
++++ b/repositories.bzl
+@@ -84,12 +84,9 @@
+         http_archive,
+         name = "net_zlib_zlib",
+         build_file = "@com_resdb_nexres//third_party:z.BUILD",
+-        sha256 = "91844808532e5ce316b3c010929493c0244f3d37593afd6de04f71821d5136d9",
+-        strip_prefix = "zlib-1.2.12",
+-        urls = [
+-            "https://zlib.net/zlib-1.2.12.tar.gz",
+-            "https://storage.googleapis.com/bazel-mirror/zlib.net/zlib-1.2.12.tar.gz",
+-        ],
++        sha256 = "17e88863f3600672ab49182f217281b6fc4d3c762bde361935e436a95214d05c",
++        strip_prefix = "zlib-1.3.1",
++        urls = ["https://github.com/madler/zlib/archive/refs/tags/v1.3.1.tar.gz"],
+     )
+     maybe(
+         http_archive,
+--- a/third_party/BUILD
++++ b/third_party/BUILD
+@@ -19,6 +19,8 @@
+ 
+ package(default_visibility = ["//visibility:public"])
+ 
++exports_files(["protobuf_zlib.BUILD"])
++
+ load("@rules_foreign_cc//foreign_cc:defs.bzl", "configure_make", "make")
+ 
+ cc_library(
+--- a/third_party/protobuf_zlib.BUILD
++++ b/third_party/protobuf_zlib.BUILD
+@@ -0,0 +1,20 @@
++# zlib 1.3.1 for @zlib (protobuf_deps). Registered before protobuf_deps() in WORKSPACE.
++# Kept local/gitignored on macOS alongside z.BUILD mac copts.
++
++licenses(["notice"])
++
++package(default_visibility = ["//visibility:public"])
++
++cc_library(
++    name = "zlib",
++    srcs = glob(["*.c"]),
++    hdrs = glob(["*.h"]),
++    copts = [
++        "-w",
++        "-Dverbose=-1",
++        "-Wno-implicit-function-declaration",
++        "-Wno-deprecated-non-prototype",
++        "-Dfdopen=fdopen",
++    ],
++    includes = ["."],
++)
+--- a/third_party/z.BUILD
++++ b/third_party/z.BUILD
+@@ -29,6 +29,9 @@
+     copts = [
+         "-w",
+         "-Dverbose=-1",
++        "-Wno-implicit-function-declaration",
++        "-Wno-deprecated-non-prototype",
++        "-Dfdopen=fdopen",
+     ],
+     includes = ["."],
+ )
+--- a/third_party/zlib.BUILD
++++ b/third_party/zlib.BUILD
+@@ -57,5 +57,7 @@
+     copts = [
+         "-D_LARGEFILE64_SOURCE=1",
+         "-UNO_FDOPEN",
++        "-Wno-deprecated-non-prototype",
++        "-Dfdopen=fdopen",
+     ],
+ )
+--- a/WORKSPACE
++++ b/WORKSPACE
+@@ -119,6 +119,19 @@
+     tag = "v3.10.0",
+ )
+ 
++# Protobuf's protobuf_deps() pins zlib 1.2.11, whose zutil.h defines fdopen as NULL when
++# TARGET_OS_MAC is set; that breaks Apple SDK stdio.h on modern macOS + Clang. Register a
++# newer zlib first so protobuf_deps skips its fetch (see protobuf_deps.bzl "zlib" rule).
++# Must run before protobuf_deps(); build_file label requires //third_party:protobuf_zlib.BUILD
++# to be exported from third_party/BUILD.
++http_archive(
++    name = "zlib",
++    build_file = "//third_party:protobuf_zlib.BUILD",
++    sha256 = "17e88863f3600672ab49182f217281b6fc4d3c762bde361935e436a95214d05c",
++    strip_prefix = "zlib-1.3.1",
++    urls = ["https://github.com/madler/zlib/archive/refs/tags/v1.3.1.tar.gz"],
++)
++
+ load("@com_google_protobuf//:protobuf_deps.bzl", "protobuf_deps")
+ 
+ protobuf_deps()
+@@ -174,14 +187,9 @@
+ http_archive(
+     name = "net_zlib_zlib",
+     build_file = "@com_resdb_nexres//third_party:z.BUILD",
+-    sha256 = "91844808532e5ce316b3c010929493c0244f3d37593afd6de04f71821d5136d9",
+-    strip_prefix = "zlib-1.2.12",
+-    urls = [
+-        "https://zlib.net/fossils/zlib-1.2.12.tar.gz",
+-        "https://downloads.sourceforge.net/project/libpng/zlib/1.2.12/zlib-1.2.12.tar.gz",
+-        "https://zlib.net/fossils/zlib-1.2.12.tar.gz",
+-        "https://storage.googleapis.com/bazel-mirror/zlib.net/zlib-1.2.12.tar.gz",
+-    ],
++    sha256 = "17e88863f3600672ab49182f217281b6fc4d3c762bde361935e436a95214d05c",
++    strip_prefix = "zlib-1.3.1",
++    urls = ["https://github.com/madler/zlib/archive/refs/tags/v1.3.1.tar.gz"],
+ )
+ 
+ http_archive(
+@@ -226,9 +234,9 @@
+ http_archive(
+     name = "com_zlib",
+     build_file = "@com_resdb_nexres//third_party:zlib.BUILD",
+-    sha256 = "629380c90a77b964d896ed37163f5c3a34f6e6d897311f1df2a7016355c45eff",
+-    strip_prefix = "zlib-1.2.11",
+-    url = "https://github.com/madler/zlib/archive/v1.2.11.tar.gz",
++    sha256 = "17e88863f3600672ab49182f217281b6fc4d3c762bde361935e436a95214d05c",
++    strip_prefix = "zlib-1.3.1",
++    url = "https://github.com/madler/zlib/archive/refs/tags/v1.3.1.tar.gz",
+ )
+ 
+ http_archive(
