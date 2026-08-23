@@ -75,6 +75,8 @@ ResDBIntersectionApp::~ResDBIntersectionApp()
     deleteTimer(discovery_settle_msg_);
     deleteTimer(cert_retry_timer_);
     deleteTimer(arrival_cert_finalize_timer_);
+    deleteTimer(stopped_distance_finalize_timer_);
+    deleteTimer(stopped_distance_attestation_retry_timer_);
     deleteTimer(cert_gossip_timer_);
     deleteTimer(gossip_timer_);
     deleteTimer(discovery_tx_flush_timer_);
@@ -214,13 +216,30 @@ void ResDBIntersectionApp::initialize(int stage)
         is_byzantine_            = par("isByzantine").boolValue();
         byzantine_type_          = static_cast<ByzantineType>(par("byzantineType").intValue());
         byzantine_pbft_silent_   = par("byzantinePbftSilent").boolValue();
+        byzantine_cert_relay_silent_ = par("byzantineCertRelaySilent").boolValue();
+        if (byzantine_cert_relay_silent_) {
+            std::cout << "[CERT-RELAY-MODE] r" << replicaId_
+                      << " withholding=1 isByzantine=" << (is_byzantine_ ? 1 : 0)
+                      << "\n";
+        }
         enableAmbulanceCertGate_ = par("enableAmbulanceCertGate").boolValue();
         direction_eligibility_collection_window_sec_ =
             par("directionEligibilityCollectionWindowSec").doubleValue();
+        direction_eligibility_enabled_ =
+            par("enableDirectionEligibility").boolValue();
+        distance_stationary_speed_mps_ =
+            par("distanceStationarySpeedMps").doubleValue();
+        stopped_distance_attestation_retry_interval_sec_ =
+            par("stoppedDistanceAttestationRetryIntervalSec").doubleValue();
+        stopped_distance_attestation_retry_max_ =
+            par("stoppedDistanceAttestationRetryMax").intValue();
         enable_phase2_cue_trace_ = par("enablePhase2CueTrace").boolValue();
         enable_phase2_controlled_cue_ = par("enablePhase2ControlledCue").boolValue();
         if (direction_eligibility_collection_window_sec_ < 0.0)
             throw cRuntimeError("directionEligibilityCollectionWindowSec must be non-negative");
+        if (stopped_distance_attestation_retry_interval_sec_ <= 0.0 ||
+                stopped_distance_attestation_retry_max_ < 0)
+            throw cRuntimeError("stopped-distance attestation retry settings are invalid");
         for (const auto& token : splitStr(par("falseLaneColluderIds").stdstringValue(), ',')) {
             if (token.empty()) continue;
             try {
@@ -247,13 +266,29 @@ void ResDBIntersectionApp::initialize(int stage)
             phase2_attack_kind_ = Phase2AttackKind::NONE;
         } else if (phase2AttackKind == "WRONG_APPROACH") {
             phase2_attack_kind_ = Phase2AttackKind::WRONG_APPROACH;
+        } else if (phase2AttackKind == "FALSE_PHYSICAL_LANE") {
+            phase2_attack_kind_ = Phase2AttackKind::FALSE_PHYSICAL_LANE;
         } else if (phase2AttackKind == "FALSE_DIRECTION") {
             phase2_attack_kind_ = Phase2AttackKind::FALSE_DIRECTION;
+        } else if (phase2AttackKind == "FALSE_DISTANCE") {
+            phase2_attack_kind_ = Phase2AttackKind::FALSE_DISTANCE;
         } else {
             throw cRuntimeError("invalid phase2AttackKind '%s'", phase2AttackKind.c_str());
         }
         phase2_attack_target_replica_id_ = par("phase2AttackTargetReplicaId").intValue();
         phase2_actual_byzantine_count_ = par("phase2ActualByzantineCount").intValue();
+        phase2_distance_claim_offset_m_ =
+            par("phase2DistanceClaimOffsetM").doubleValue();
+        phase2_lateral_claim_offset_m_ =
+            par("phase2LateralClaimOffsetM").doubleValue();
+        const std::string laneMode = par("laneObservationMode").stdstringValue();
+        if (laneMode == "CATEGORICAL_CARDINAL") {
+            lane_observation_mode_ = LaneObservationMode::CATEGORICAL_CARDINAL;
+        } else if (laneMode == "ADJACENT_LATERAL") {
+            lane_observation_mode_ = LaneObservationMode::ADJACENT_LATERAL;
+        } else {
+            throw cRuntimeError("invalid laneObservationMode '%s'", laneMode.c_str());
+        }
         for (const auto& token : splitStr(par("phase2EvidenceColluderIds").stdstringValue(), ',')) {
             if (token.empty()) continue;
             try {
@@ -272,6 +307,10 @@ void ResDBIntersectionApp::initialize(int stage)
             if (phase2_actual_byzantine_count_ != 0 ||
                     !phase2_evidence_colluder_ids_.empty())
                 throw cRuntimeError("Phase 2 NONE attack requires b=0 and no colluders");
+            if (phase2_distance_claim_offset_m_ != 0.0)
+                throw cRuntimeError("Phase 2 NONE attack requires zero distance offset");
+            if (phase2_lateral_claim_offset_m_ != 0.0)
+                throw cRuntimeError("Phase 2 NONE attack requires zero lateral offset");
         } else {
             if (phase2_attack_target_replica_id_ < 0 ||
                     phase2_attack_target_replica_id_ >= total_vehicles_)
@@ -282,6 +321,15 @@ void ResDBIntersectionApp::initialize(int stage)
             if (phase2_actual_byzantine_count_ !=
                     static_cast<int>(phase2_byzantine_replica_ids_.size()))
                 throw cRuntimeError("Phase 2 actual Byzantine count does not match target+colluders");
+            if (phase2_attack_kind_ != Phase2AttackKind::FALSE_DISTANCE &&
+                    phase2_distance_claim_offset_m_ != 0.0)
+                throw cRuntimeError("distance claim offset requires FALSE_DISTANCE attack");
+            if (phase2_attack_kind_ != Phase2AttackKind::FALSE_PHYSICAL_LANE &&
+                    phase2_lateral_claim_offset_m_ != 0.0)
+                throw cRuntimeError("lateral claim offset requires FALSE_PHYSICAL_LANE attack");
+            if (phase2_attack_kind_ == Phase2AttackKind::FALSE_PHYSICAL_LANE &&
+                    lane_observation_mode_ != LaneObservationMode::ADJACENT_LATERAL)
+                throw cRuntimeError("FALSE_PHYSICAL_LANE requires ADJACENT_LATERAL mode");
         }
         std::cout << "[PHASE2-ATTACK-CONFIG] replica=" << replicaId_
                   << " kind=" << phase2AttackKindName()
@@ -294,7 +342,24 @@ void ResDBIntersectionApp::initialize(int stage)
             std::cout << id;
             firstPhase2Colluder = false;
         }
-        std::cout << "\n";
+        std::cout << " policyTiming=INIT_BEFORE_PERCEPTION\n";
+        std::cout << "[DIRECTION-ABLATION-CONFIG] replica=" << replicaId_
+                  << " eligibility="
+                  << (direction_eligibility_enabled_ ? "ON" : "OFF") << "\n";
+        if (phase2_attack_kind_ == Phase2AttackKind::FALSE_DISTANCE)
+            std::cout << "[DIST-ATTACK-CONFIG] replica=" << replicaId_
+                      << " target=" << phase2_attack_target_replica_id_
+                      << " offsetM=" << phase2_distance_claim_offset_m_ << "\n";
+        if (lane_observation_mode_ == LaneObservationMode::ADJACENT_LATERAL)
+            std::cout << "[LATERAL-GATE-CONFIG] replica=" << replicaId_
+                      << " sigma=" << par("lateralObservationSigmaM").doubleValue()
+                      << " k=" << par("physicalGateK").doubleValue()
+                      << " origin=" << par("adjacentLateralOriginX").doubleValue()
+                      << "," << par("adjacentLateralOriginY").doubleValue()
+                      << " normal=" << par("adjacentLateralNormalX").doubleValue()
+                      << "," << par("adjacentLateralNormalY").doubleValue()
+                      << " separation=" << par("adjacentLaneSeparationM").doubleValue()
+                      << " attackOffset=" << phase2_lateral_claim_offset_m_ << "\n";
         enableRollback_ = par("enableRollback").boolValue();
         crash_mac_grace_sec_ = par("crashMacGraceSec").doubleValue();
         crash_dwell_sec_ = par("crashDwellSec").doubleValue();
@@ -473,11 +538,11 @@ void ResDBIntersectionApp::initialize(int stage)
 
         ResdbOmnetRunServer(resdb_server_handle_);
 
-        // For PBFT omission faults: silence the communicator so this replica drops
-        // outbound PRE_PREPARE/PREPARE/COMMIT traffic. SILENT_PRIMARY keeps its
-        // legacy behavior; byzantinePbftSilent lets randomized followers be quiet too.
-        if (is_byzantine_ &&
-                (byzantine_type_ == BYZANTINE_SILENT_PRIMARY || byzantine_pbft_silent_)) {
+        // Full communicator omission is a separate fault from SILENT_PRIMARY.
+        // A proposal-silent primary omits proposeAll() but must still participate
+        // in view-change so consecutive faulty primaries can be replaced.  Only
+        // the explicit byzantinePbftSilent mode drops all outbound PBFT traffic.
+        if (is_byzantine_ && byzantine_pbft_silent_) {
             ResdbOmnetSetPbftSilent(resdb_server_handle_, 1);
             std::cout << "[BYZANTINE] r" << replicaId_
                       << " PBFT_SILENT: communicator silenced"
@@ -489,6 +554,9 @@ void ResDBIntersectionApp::initialize(int stage)
         discovery_deadline_msg_ = new cMessage("resdbDiscoveryDeadline");
         discovery_settle_msg_ = new cMessage("resdbDiscoverySettle");
         arrival_cert_finalize_timer_ = new cMessage("resdbArrivalCertFinalize");
+        stopped_distance_finalize_timer_ = new cMessage("resdbStoppedDistanceFinalize");
+        stopped_distance_attestation_retry_timer_ =
+            new cMessage("resdbStoppedDistanceAttestationRetry");
         consensus_retry_timer_ = new cMessage("resdbConsensusRetry");
         consensus_relay_timer_ = new cMessage("resdbConsensusRelay");
     }
@@ -500,10 +568,23 @@ void ResDBIntersectionApp::initialize(int stage)
             getRNG(par("perceptionRngIndex").intValue()),
             par("approachConfusionMatrix").stdstringValue(),
             par("approachSigmaM").doubleValue(),
-            par("signalObservationError").doubleValue());
+            par("signalObservationError").doubleValue(),
+            par("lateralObservationSigmaM").doubleValue(),
+            par("longitudinalObservationSigmaM").doubleValue(),
+            lane_observation_mode_ == LaneObservationMode::ADJACENT_LATERAL,
+            par("adjacentLateralOriginX").doubleValue(),
+            par("adjacentLateralOriginY").doubleValue(),
+            par("adjacentLateralNormalX").doubleValue(),
+            par("adjacentLateralNormalY").doubleValue(),
+            par("adjacentLaneSeparationM").doubleValue());
         std::cout << "[PERCEPTION-CONFIG] r" << replicaId_
                   << " sigma=" << par("approachSigmaM").doubleValue()
                   << " signal_error=" << par("signalObservationError").doubleValue()
+                  << " ego_lat_sigma=" << par("egoLateralSigmaM").doubleValue()
+                  << " ego_lon_sigma=" << par("egoLongitudinalSigmaM").doubleValue()
+                  << " witness_lat_sigma=" << par("lateralObservationSigmaM").doubleValue()
+                  << " witness_lon_sigma=" << par("longitudinalObservationSigmaM").doubleValue()
+                  << " gate_k=" << par("physicalGateK").doubleValue()
                   << " rng=" << par("perceptionRngIndex").intValue()
                   << " collection_window=" << direction_eligibility_collection_window_sec_
                   << "\n";
@@ -600,6 +681,39 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
                         (discovery_.state == DiscoveryState::COMPLETE &&
                          current_primary != initial_order_primary)) {
                     order_vc_authoritative_ = true;
+                }
+                // A completed view change consumes the previous one-shot
+                // suspicion timer. Every honest follower must arm a fresh
+                // timeout for the newly installed primary; otherwise a second
+                // consecutive silent primary stalls until the independent
+                // stop-sign fallback releases vehicles outside consensus.
+                if (current_primary != replicaId_ && !order_applied_ &&
+                        discovery_.state == DiscoveryState::COMPLETE &&
+                        current_phase_ != ConsensusPhase::DEPARTED) {
+                    armOrderSuspicionTimer("primary-change");
+                }
+                const bool primary_has_frozen_cert = order_candidate_ &&
+                    std::binary_search(order_candidate_->voterIds.begin(),
+                                       order_candidate_->voterIds.end(),
+                                       current_primary);
+                if (discovery_.state == DiscoveryState::COMPLETE &&
+                        order_candidate_ && !primary_has_frozen_cert &&
+                        !order_applied_ &&
+                        current_phase_ != ConsensusPhase::DEPARTED) {
+                    std::cout << "[CERT-PRIMARY-SKIP] r" << replicaId_
+                              << " epoch=" << current_epoch_
+                              << " uncertified_primary=r" << current_primary
+                              << " eligible=";
+                    for (size_t i = 0; i < order_candidate_->voterIds.size(); ++i) {
+                        if (i) std::cout << ",";
+                        std::cout << "r" << order_candidate_->voterIds[i];
+                    }
+                    std::cout << " action=force-next-pbft-view"
+                              << " t=" << simTime() << "\n";
+                    order_vc_requested_ = true;
+                    ResdbOmnetForceViewChange(resdb_server_handle_);
+                    scheduleAt(simTime() + transport_poll_interval_, transport_poll_msg_);
+                    return;
                 }
                 if (current_primary == replicaId_ && !order_applied_ &&
                     discovery_.state == DiscoveryState::COMPLETE &&
@@ -714,6 +828,16 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
 
     if (msg == arrival_cert_finalize_timer_) {
         finalizeLocalArrivalCert("post-threshold-window");
+        return;
+    }
+
+    if (msg == stopped_distance_finalize_timer_) {
+        finalizeLocalStoppedDistanceCert("post-threshold-window");
+        return;
+    }
+
+    if (msg == stopped_distance_attestation_retry_timer_) {
+        retryStoppedDistanceAttestation();
         return;
     }
 
@@ -1236,6 +1360,11 @@ void ResDBIntersectionApp::handlePositionUpdate(cObject* obj)
     applyPhase2ControlledCue();
     logPhase2CueTrace();
 
+    if (entered_stop_zone_ && !stopped_distance_attestation_sent_ &&
+            !propose_submitted_ && !order_applied_) {
+        maybeBroadcastStoppedDistanceAttestation();
+    }
+
     if (order_applied_) return;
 
     double dist = getDistanceToIntersection();
@@ -1377,6 +1506,8 @@ void ResDBIntersectionApp::finish()
     // for the C++ destructor can touch torn-down ownership state during network
     // deletion (notably when lane noise leaves a vehicle QUIET).
     deleteFinishedTimer(arrival_cert_finalize_timer_);
+    deleteFinishedTimer(stopped_distance_finalize_timer_);
+    deleteFinishedTimer(stopped_distance_attestation_retry_timer_);
     deleteFinishedTimer(discovery_tx_flush_timer_);
     deleteFinishedTimer(consensus_retry_timer_);
     deleteFinishedTimer(consensus_relay_timer_);
@@ -1446,6 +1577,22 @@ void ResDBIntersectionApp::onWSM(BaseFrame1609_4* wsm)
 
     if (msgType == kArrivalCertType) {
         handleArrivalCert(bft);
+        return;
+    }
+
+    if (msgType == kStoppedDistanceAttestationType) {
+        handleStoppedDistanceAttestation(bft);
+        return;
+    }
+
+    if (msgType == kStoppedDistanceEchoType) {
+        if (bft->getToReplicaId() == replicaId_ || bft->getToReplicaId() == -1)
+            handleStoppedDistanceEcho(bft);
+        return;
+    }
+
+    if (msgType == kStoppedDistanceCertType) {
+        handleStoppedDistanceCert(bft);
         return;
     }
 

@@ -399,23 +399,38 @@ RE_PERC_EVAL = re.compile(
     r'\[PERC-EVAL\]\s+witness=(\d+)\s+target=(\S+)\s+epoch=(\d+)\s+'
     r'claimHash=([0-9a-fA-F]+)\s+laneVerdict=(ACCEPT|REJECT).*?'
     r'observedCue=(\S+)\s+knownCueSamples=(\d+)')
+RE_EQUIVOCATION_DETECTED = re.compile(
+    r'\[EQUIVOCATION-DETECTED\]\s+witness=(\d+)\s+target=(\S+)\s+epoch=(\d+)\s+'
+    r'firstHash=([0-9a-fA-F]+)\s+secondHash=([0-9a-fA-F]+)\s+'
+    r'firstDirection=(\S+)\s+secondDirection=(\S+)\s+'
+    r'action=(\S+)\s+perceptionEvaluated=(\d+)\s+echoSent=(\d+)')
+RE_LATERAL_PERC_FIELDS = re.compile(
+    r'mode=(\S+)\s+trueLateralCm=(-?\d+)\s+observedLateralCm=(-?\d+)\s+'
+    r'claimedLateralCm=(-?\d+)\s+lateralResidualCm=(\d+)\s+'
+    r'lateralToleranceCm=(\S+)\s+claimedPhysicalLaneIndex=(-?\d+)\s+'
+    r'projectedPhysicalLaneIndex=(-?\d+)')
 RE_CERT_ASSEMBLE_PERCEPTION = re.compile(
     r'\[CERT-ASSEMBLE\]\s+target=(\S+)\s+epoch=(\d+)\s+echoCount=(\d+)\s+'
     r'threshold=(\d+)\s+reason=(\S+)')
 RE_DIR_ELIGIBILITY = re.compile(
     r'\[DIR-ELIGIBILITY\]\s+target=(\S+)\s+epoch=(\d+)\s+declared=(\S+)\s+'
     r'support=(\d+)\s+threshold=(\d+)\s+echoCount=(\d+)\s+b_sig=(\d+)\s+'
-    r'derivedDirection=(\S+)')
+    r'(?:physicalLaneIndex=-?\d+\s+laneAuthorized=\d+\s+)?derivedDirection=(\S+)')
 RE_DIR_ELIGIBILITY_SELF = re.compile(
     r'\[DIR-ELIGIBILITY\]\s+target=(\S+)\s+epoch=(\d+)\s+declared=(\S+)\s+'
     r'support=(\d+)\s+threshold=(\d+)\s+echoCount=(\d+)\s+'
-    r'selfAttestations=(\d+)\s+b_sig=(\d+)\s+derivedDirection=(\S+)')
+    r'selfAttestations=(\d+)\s+b_sig=(\d+)\s+'
+    r'(?:physicalLaneIndex=-?\d+\s+laneAuthorized=\d+\s+)?derivedDirection=(\S+)')
 RE_SELF_ATTEST = re.compile(
     r'\[SELF-ATTEST\]\s+target=(\S+)\s+epoch=(\d+)\s+signer=(\d+)\s+'
     r'claimHash=([0-9a-fA-F]+)\s+observedCue=(\S+)\s+status=(\S+)')
 RE_CERT_EVIDENCE = re.compile(
     r'\[CERT-EVIDENCE\]\s+target=(\S+)\s+epoch=(\d+)\s+signer=(\d+)\s+'
     r'cue=(\S+)\s+self=(\d+)\s+byzantine=(\d+)\s+supporting=(\d+)')
+RE_ECHO_COLLECT = re.compile(
+    r'\[ECHO-COLLECT\]\s+target=(\S+)\s+epoch=(\d+)\s+signer=(\d+)\s+'
+    r'byzantine=(\d+)\s+self=(\d+)\s+echoCount=(\d+)\s+'
+    r'threshold=(\d+)\s+source=(\S+)')
 RE_PHASE2_ATTACK_CONFIG = re.compile(
     r'\[PHASE2-ATTACK-CONFIG\]\s+replica=(\d+)\s+kind=(\S+)\s+'
     r'target=(-?\d+)\s+actualB=(\d+)\s+colluders=([^\s]*)')
@@ -428,10 +443,52 @@ RE_PHASE2_COLLUSION_ECHO = re.compile(
     r'signer=(\d+)\s+kind=(\S+)\s+claimedLane=(\S+)\s+cue=(\S+)')
 RE_PHASE2_ATTACK_OUTCOME = re.compile(
     r'\[PHASE2-ATTACK-OUTCOME\]\s+target=(\S+)\s+epoch=(\d+)\s+kind=(\S+)\s+'
-    r'laneCertified=(\d+)\s+falseLaneCert=(\d+)\s+falseEligibility=(\d+)\s+'
+    r'laneCertified=(\d+)\s+falseLaneCert=(\d+)\s+'
+    r'(?:physicalLaneIndex=-?\d+\s+actualPhysicalLaneIndex=-?\d+\s+'
+    r'lateralClaimCm=-?\d+\s+)?falseEligibility=(\d+)\s+'
     r'support=(\d+)\s+threshold=(\d+)\s+b_sig=(\d+)')
+RE_PHASE2_LATERAL_ATTACK_OUTCOME = re.compile(
+    r'\[PHASE2-ATTACK-OUTCOME\]\s+target=(\S+)\s+epoch=(\d+)\s+kind=(FALSE_PHYSICAL_LANE)\s+'
+    r'laneCertified=(\d+)\s+falseLaneCert=(\d+)\s+physicalLaneIndex=(-?\d+)\s+'
+    r'actualPhysicalLaneIndex=(-?\d+)\s+lateralClaimCm=(-?\d+)\s+'
+    r'falseEligibility=(\d+)\s+support=(\d+)\s+threshold=(\d+)\s+b_sig=(\d+)')
 RE_TRUST_TIER = re.compile(
     r'\[TRUST-TIER\]\s+target=(\S+)\s+epoch=(\d+)\s+tier=(\S+)')
+RE_PERCEPTION_CONFIG = re.compile(
+    r'\[PERCEPTION-CONFIG\]\s+r(\d+)\s+sigma=(\S+)\s+signal_error=(\S+)\s+'
+    r'ego_lat_sigma=(\S+)\s+ego_lon_sigma=(\S+)\s+witness_lat_sigma=(\S+)\s+'
+    r'witness_lon_sigma=(\S+)\s+gate_k=(\S+)\s+rng=(\d+)\s+collection_window=(\S+)')
+RE_STOPPED_DISTANCE_ATTEST = re.compile(
+    r'\[STOPPED-DISTANCE-ATTEST\]\s+target=(\S+)\s+epoch=(\d+)\s+'
+    r'earlyClaimHash=([0-9a-fA-F]+)\s+distanceToStopCm=(\d+)\s+speed=(\S+)')
+RE_STOPPED_DISTANCE_RETRY = re.compile(
+    r'\[STOPPED-DISTANCE-ATTEST-RETRY\]\s+target=(\S+)\s+epoch=(\d+)\s+'
+    r'attempt=(\d+)\s+max=(\d+)')
+RE_DISTANCE_PERC_EVAL = re.compile(
+    r'\[DIST-PERC-EVAL\]\s+witness=(\d+)\s+target=(\S+)\s+epoch=(\d+)\s+'
+    r'attestationHash=([0-9a-fA-F]+)\s+verdict=(ACCEPT|REJECT)\s+'
+    r'trueDistanceM=(\S+)\s+observedDistanceM=(\S+)\s+'
+    r'claimedDistanceCm=(\d+)\s+residualCm=(\d+)\s+toleranceCm=(\d+)\s+'
+    r'stationary=(\d+)')
+RE_DISTANCE_CERT_ASSEMBLE = re.compile(
+    r'\[DIST-CERT-ASSEMBLE\]\s+target=(\S+)\s+epoch=(\d+)\s+'
+    r'signerCount=(\d+)\s+threshold=(\d+)\s+reason=(\S+)')
+RE_DISTANCE_CERT_COLLECT = re.compile(
+    r'\[DIST-CERT-COLLECT\]\s+target=(\S+)\s+epoch=(\d+)\s+'
+    r'signerCount=(\d+)\s+threshold=(\d+)\s+signer=(\d+)')
+RE_DISTANCE_ATTACK_DECLARE = re.compile(
+    r'\[DIST-ATTACK-DECLARE\]\s+target=(\S+)\s+epoch=(\d+)\s+'
+    r'trueDistanceM=(\S+)\s+claimedDistanceM=(\S+)\s+offsetM=(\S+)')
+RE_DISTANCE_COLLUSION_ECHO = re.compile(
+    r'\[DIST-COLLUSION-ECHO\]\s+target=(\S+)\s+epoch=(\d+)\s+'
+    r'signer=(\d+)\s+claimedDistanceCm=(\d+)')
+RE_DISTANCE_CERT_EVIDENCE = re.compile(
+    r'\[DIST-CERT-EVIDENCE\]\s+target=(\S+)\s+epoch=(\d+)\s+'
+    r'signer=(\d+)\s+self=(\d+)\s+byzantine=(\d+)')
+RE_DISTANCE_ORDER_PAIR = re.compile(
+    r'\[DIST-ORDER-PAIR\]\s+epoch=(\d+)\s+lane=(\S+)\s+a=(\S+)\s+b=(\S+)\s+'
+    r'certAcm=(\d+)\s+certBcm=(\d+)\s+trueAm=(\S+)\s+trueBm=(\S+)\s+'
+    r'inversion=(\d+)')
 
 # ── Data stores ─────────────────────────────────────────────────────────────
 round_metrics = defaultdict(dict)      # epoch → {metric_name: value}
@@ -526,18 +583,32 @@ metrology_config = None
 metrology_releases = {}
 perception_evaluations = {}           # (witness,target,epoch,hash) -> parsed evaluation
 perception_duplicate_evaluations = 0
+equivocation_events = {}               # (witness,target,epoch,secondHash) -> retained proof/log
 cert_assembly_perception = {}         # (target,epoch) -> collection outcome
 direction_eligibility = {}            # (target,epoch) -> support/derived outcome
 trust_tiers = {}                      # (target,epoch) -> final tier
 self_attestations = {}                 # (target,epoch,signer,hash) -> signed local declaration
 self_attestation_duplicates = 0
 cert_evidence = defaultdict(dict)      # (target,epoch) -> signer -> cue/accounting
+arrival_echo_collections = defaultdict(dict)  # (target,epoch) -> signer -> collection accounting
 phase2_attack_config = None
 phase2_attack_config_replicas = set()
 phase2_attack_config_mismatches = 0
 phase2_attack_declarations = {}
 phase2_collusion_echoes = defaultdict(set)
 phase2_attack_outcomes = {}
+perception_config = None
+perception_config_replicas = set()
+stopped_distance_attestations = {}
+stopped_distance_attestation_retries = defaultdict(int)
+distance_perception_evaluations = {}
+distance_perception_duplicate_evaluations = 0
+distance_certificates = {}
+distance_cert_collection = []
+distance_attack_declarations = {}
+distance_collusion_echoes = defaultdict(set)
+distance_cert_evidence = defaultdict(dict)
+distance_order_pairs = {}
 
 # Per-replica message counts and fallback tracking
 replica_messages_sent    = {}   # replica -> messages_sent count (last value seen)
@@ -788,6 +859,98 @@ else:
         _log_lines = list(f)
 
 for line in _log_lines:
+        m_distance = RE_PERCEPTION_CONFIG.search(line)
+        if m_distance:
+            candidate = {
+                "approach_sigma_m": float(m_distance.group(2)),
+                "signal_error": float(m_distance.group(3)),
+                "ego_lateral_sigma_m": float(m_distance.group(4)),
+                "ego_longitudinal_sigma_m": float(m_distance.group(5)),
+                "witness_lateral_sigma_m": float(m_distance.group(6)),
+                "witness_longitudinal_sigma_m": float(m_distance.group(7)),
+                "physical_gate_k": float(m_distance.group(8)),
+                "rng_index": int(m_distance.group(9)),
+                "collection_window_sec": float(m_distance.group(10)),
+            }
+            perception_config_replicas.add(int(m_distance.group(1)))
+            if perception_config is None:
+                perception_config = candidate
+        m_distance = RE_STOPPED_DISTANCE_ATTEST.search(line)
+        if m_distance:
+            stopped_distance_attestations[(m_distance.group(1), int(m_distance.group(2)))] = {
+                "target": m_distance.group(1), "epoch": int(m_distance.group(2)),
+                "early_claim_hash": m_distance.group(3),
+                "distance_to_stop_cm": int(m_distance.group(4)),
+                "speed_mps": float(m_distance.group(5)),
+            }
+        m_distance = RE_STOPPED_DISTANCE_RETRY.search(line)
+        if m_distance:
+            stopped_distance_attestation_retries[(m_distance.group(1), int(m_distance.group(2)))] = max(
+                stopped_distance_attestation_retries[(m_distance.group(1), int(m_distance.group(2)))],
+                int(m_distance.group(3)),
+            )
+        m_distance = RE_DISTANCE_PERC_EVAL.search(line)
+        if m_distance:
+            key = (int(m_distance.group(1)), m_distance.group(2),
+                   int(m_distance.group(3)), m_distance.group(4))
+            if key in distance_perception_evaluations:
+                distance_perception_duplicate_evaluations += 1
+            else:
+                distance_perception_evaluations[key] = {
+                    "witness": key[0], "target": key[1], "epoch": key[2],
+                    "attestation_hash": key[3],
+                    "accept": m_distance.group(5) == "ACCEPT",
+                    "true_distance_m": float(m_distance.group(6)),
+                    "observed_distance_m": float(m_distance.group(7)),
+                    "claimed_distance_cm": int(m_distance.group(8)),
+                    "residual_cm": int(m_distance.group(9)),
+                    "tolerance_cm": int(m_distance.group(10)),
+                    "stationary": bool(int(m_distance.group(11))),
+                }
+        m_distance = RE_DISTANCE_CERT_ASSEMBLE.search(line)
+        if m_distance:
+            distance_certificates[(m_distance.group(1), int(m_distance.group(2)))] = {
+                "signer_count": int(m_distance.group(3)),
+                "threshold": int(m_distance.group(4)), "reason": m_distance.group(5),
+            }
+        m_distance = RE_DISTANCE_CERT_COLLECT.search(line)
+        if m_distance:
+            distance_cert_collection.append({
+                "target": m_distance.group(1), "epoch": int(m_distance.group(2)),
+                "signer_count": int(m_distance.group(3)),
+                "threshold": int(m_distance.group(4)),
+                "signer": int(m_distance.group(5)),
+            })
+        m_distance = RE_DISTANCE_ATTACK_DECLARE.search(line)
+        if m_distance:
+            distance_attack_declarations[(m_distance.group(1), int(m_distance.group(2)))] = {
+                "true_distance_m": float(m_distance.group(3)),
+                "claimed_distance_m": float(m_distance.group(4)),
+                "offset_m": float(m_distance.group(5)),
+            }
+        m_distance = RE_DISTANCE_COLLUSION_ECHO.search(line)
+        if m_distance:
+            distance_collusion_echoes[(m_distance.group(1), int(m_distance.group(2)))].add(
+                int(m_distance.group(3)))
+        m_distance = RE_DISTANCE_CERT_EVIDENCE.search(line)
+        if m_distance:
+            distance_cert_evidence[(m_distance.group(1), int(m_distance.group(2)))][
+                int(m_distance.group(3))] = {
+                    "self": bool(int(m_distance.group(4))),
+                    "byzantine": bool(int(m_distance.group(5))),
+                }
+        m_distance = RE_DISTANCE_ORDER_PAIR.search(line)
+        if m_distance:
+            key = (int(m_distance.group(1)), m_distance.group(2),
+                   m_distance.group(3), m_distance.group(4))
+            distance_order_pairs[key] = {
+                "epoch": key[0], "lane": key[1], "a": key[2], "b": key[3],
+                "cert_a_cm": int(m_distance.group(5)),
+                "cert_b_cm": int(m_distance.group(6)),
+                "true_a_m": float(m_distance.group(7)),
+                "true_b_m": float(m_distance.group(8)),
+                "inversion": bool(int(m_distance.group(9))),
+            }
         m_perc = RE_PERC_EVAL.search(line)
         if m_perc:
             key = (int(m_perc.group(1)), m_perc.group(2), int(m_perc.group(3)), m_perc.group(4))
@@ -800,6 +963,31 @@ for line in _log_lines:
                     "observed_cue": m_perc.group(6),
                     "known_cue_samples": int(m_perc.group(7)),
                 }
+                lateral = RE_LATERAL_PERC_FIELDS.search(line)
+                if lateral:
+                    perception_evaluations[key].update({
+                        "lane_observation_mode": lateral.group(1),
+                        "true_lateral_cm": int(lateral.group(2)),
+                        "observed_lateral_cm": int(lateral.group(3)),
+                        "claimed_lateral_cm": int(lateral.group(4)),
+                        "lateral_residual_cm": int(lateral.group(5)),
+                        "lateral_tolerance_cm": float(lateral.group(6)),
+                        "claimed_physical_lane_index": int(lateral.group(7)),
+                        "projected_physical_lane_index": int(lateral.group(8)),
+                    })
+        m_perc = RE_EQUIVOCATION_DETECTED.search(line)
+        if m_perc:
+            key = (int(m_perc.group(1)), m_perc.group(2),
+                   int(m_perc.group(3)), m_perc.group(5))
+            equivocation_events[key] = {
+                "witness": key[0], "target": key[1], "epoch": key[2],
+                "first_hash": m_perc.group(4), "second_hash": key[3],
+                "first_direction": m_perc.group(6),
+                "second_direction": m_perc.group(7),
+                "action": m_perc.group(8),
+                "perception_evaluated": bool(int(m_perc.group(9))),
+                "echo_sent": bool(int(m_perc.group(10))),
+            }
         m_perc = RE_CERT_ASSEMBLE_PERCEPTION.search(line)
         if m_perc:
             cert_assembly_perception[(m_perc.group(1), int(m_perc.group(2)))] = {
@@ -841,6 +1029,15 @@ for line in _log_lines:
                 "byzantine": bool(int(m_perc.group(6))),
                 "supporting": bool(int(m_perc.group(7))),
             }
+        m_perc = RE_ECHO_COLLECT.search(line)
+        if m_perc:
+            arrival_echo_collections[(m_perc.group(1), int(m_perc.group(2)))][int(m_perc.group(3))] = {
+                "byzantine": bool(int(m_perc.group(4))),
+                "self": bool(int(m_perc.group(5))),
+                "echo_count": int(m_perc.group(6)),
+                "threshold": int(m_perc.group(7)),
+                "source": m_perc.group(8),
+            }
         m_perc = RE_PHASE2_ATTACK_CONFIG.search(line)
         if m_perc:
             candidate = {
@@ -864,18 +1061,41 @@ for line in _log_lines:
         m_perc = RE_PHASE2_COLLUSION_ECHO.search(line)
         if m_perc:
             phase2_collusion_echoes[(m_perc.group(1), int(m_perc.group(2)))].add(int(m_perc.group(3)))
-        m_perc = RE_PHASE2_ATTACK_OUTCOME.search(line)
+        m_perc = RE_PHASE2_LATERAL_ATTACK_OUTCOME.search(line)
         if m_perc:
             phase2_attack_outcomes[(m_perc.group(1), int(m_perc.group(2)))] = {
                 "kind": m_perc.group(3), "lane_certified": bool(int(m_perc.group(4))),
                 "false_lane_certificate": bool(int(m_perc.group(5))),
-                "false_eligibility": bool(int(m_perc.group(6))),
-                "support": int(m_perc.group(7)), "threshold": int(m_perc.group(8)),
-                "b_sig_logged": int(m_perc.group(9)),
+                "physical_lane_index": int(m_perc.group(6)),
+                "actual_physical_lane_index": int(m_perc.group(7)),
+                "lateral_claim_cm": int(m_perc.group(8)),
+                "false_eligibility": bool(int(m_perc.group(9))),
+                "support": int(m_perc.group(10)), "threshold": int(m_perc.group(11)),
+                "b_sig_logged": int(m_perc.group(12)),
             }
+        else:
+            m_perc = RE_PHASE2_ATTACK_OUTCOME.search(line)
+        if m_perc:
+            if m_perc.re is RE_PHASE2_ATTACK_OUTCOME:
+                phase2_attack_outcomes[(m_perc.group(1), int(m_perc.group(2)))] = {
+                    "kind": m_perc.group(3), "lane_certified": bool(int(m_perc.group(4))),
+                    "false_lane_certificate": bool(int(m_perc.group(5))),
+                    "false_eligibility": bool(int(m_perc.group(6))),
+                    "support": int(m_perc.group(7)), "threshold": int(m_perc.group(8)),
+                    "b_sig_logged": int(m_perc.group(9)),
+                }
         m_perc = RE_TRUST_TIER.search(line)
         if m_perc:
-            trust_tiers[(m_perc.group(1), int(m_perc.group(2)))] = m_perc.group(3)
+            key = (m_perc.group(1), int(m_perc.group(2)))
+            tier = m_perc.group(3)
+            # QUIET may be emitted again during post-departure state cleanup.
+            # Preserve the strongest scheduling authority observed for the
+            # committed epoch rather than treating the last lifecycle log as
+            # the committed trust tier.
+            tier_rank = {"QUIET": 0, "SIGNED-UNKNOWN": 1, "SIGNED-DIRECTION": 2}
+            previous = trust_tiers.get(key)
+            if previous is None or tier_rank.get(tier, -1) > tier_rank.get(previous, -1):
+                trust_tiers[key] = tier
 
         # Crash/recovery timeline extraction is deliberately non-consuming:
         # the same lines must remain available to the existing rollback and
@@ -2131,7 +2351,27 @@ def _phase2_attack_summary():
     honest_lane_accepts = len({
         row["witness"] for row in lane_rows if row["lane_accept"]
     })
-    q0_lane = honest_lane_accepts / h_lane if h_lane else None
+    lane_accept_rate = honest_lane_accepts / h_lane if h_lane else None
+    kind = config["kind"]
+    false_lane_attack = kind in ("WRONG_APPROACH", "FALSE_PHYSICAL_LANE")
+    q0_lane = lane_accept_rate if false_lane_attack else None
+    q1_lane = lane_accept_rate if kind == "NONE" else None
+    lateral_rows = [row for row in lane_rows if "true_lateral_cm" in row]
+    lateral_delta_m = None
+    q0_lane_model = None
+    if lateral_rows:
+        lateral_delta_m = abs(
+            lateral_rows[0]["claimed_lateral_cm"] - lateral_rows[0]["true_lateral_cm"]
+        ) / 100.0
+        sigma_lat = float((perception_config or {}).get("witness_lateral_sigma_m", 0.0))
+        gate_k = float((perception_config or {}).get("physical_gate_k", 3.0))
+        if false_lane_attack:
+            if sigma_lat == 0.0:
+                q0_lane_model = 1.0 if lateral_delta_m == 0.0 else 0.0
+            else:
+                normal_cdf = lambda x: 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+                ratio = lateral_delta_m / sigma_lat
+                q0_lane_model = normal_cdf(ratio + gate_k) - normal_cdf(ratio - gate_k)
 
     evidence = cert_evidence.get(key, {})
     honest_external = {
@@ -2142,11 +2382,53 @@ def _phase2_attack_summary():
     honest_direction_support = sum(1 for row in honest_external.values() if row["supporting"])
     q0_dir = honest_direction_support / h_dir if h_dir else None
     b_sig_lane = sum(1 for signer in evidence if signer in byzantine_ids)
+    collected_echoes = arrival_echo_collections.get(key, {})
+    b_sig_lane_attempt_signers = sorted(
+        signer for signer, row in collected_echoes.items()
+        if signer in byzantine_ids and row["byzantine"]
+    )
+    b_sig_lane_attempt = (
+        len(b_sig_lane_attempt_signers)
+        if collected_echoes else None
+    )
+    generated_self_attestations = {
+        signer for (attest_target, attest_epoch, signer, _), row in self_attestations.items()
+        if attest_target == target and attest_epoch == epoch and row["status"] == "VALID"
+    }
+    b_sig_lane_attempt_source = "ECHO-COLLECT" if collected_echoes else "UNAVAILABLE"
+    if b_sig_lane_attempt is None and false_lane_attack:
+        if (config.get("actual_b") == 1 and
+                config.get("target_replica_id") in generated_self_attestations):
+            b_sig_lane_attempt = 1
+            b_sig_lane_attempt_signers = [config["target_replica_id"]]
+            b_sig_lane_attempt_source = "SELF-ATTEST-RECOVERY"
+        elif evidence:
+            b_sig_lane_attempt = b_sig_lane
+            b_sig_lane_attempt_signers = sorted(
+                signer for signer in evidence if signer in byzantine_ids
+            )
+            b_sig_lane_attempt_source = "FINALIZED-CERT-RECOVERY"
     b_sig_dir = sum(
         1 for signer, row in evidence.items()
         if signer in byzantine_ids and row["supporting"]
     )
     self_count = sum(1 for row in evidence.values() if row["self"])
+    distance_rows = [
+        row for row in distance_perception_evaluations.values()
+        if row["target"] == target and row["epoch"] == epoch and
+           row["witness"] not in byzantine_ids
+    ]
+    h_distance = len({row["witness"] for row in distance_rows})
+    honest_distance_accepts = len({
+        row["witness"] for row in distance_rows if row["accept"]
+    })
+    q0_distance = honest_distance_accepts / h_distance if h_distance else None
+    distance_evidence = distance_cert_evidence.get(key, {})
+    b_sig_distance = sum(
+        1 for signer, row in distance_evidence.items()
+        if signer in byzantine_ids and row["byzantine"]
+    )
+    distance_self_count = sum(1 for row in distance_evidence.values() if row["self"])
     eligibility = direction_eligibility.get(key, {})
     # A rejected false-lane claim has no target certificate and therefore no
     # target DIR-ELIGIBILITY row.  The f+1 threshold is nevertheless defined
@@ -2163,14 +2445,28 @@ def _phase2_attack_summary():
         or experiment_fault_tolerance.get("cert_threshold")
         or 0
     )
-    kind = config["kind"]
+    distance_threshold = int(
+        distance_certificates.get(key, {}).get("threshold")
+        or next((row.get("threshold") for row in distance_certificates.values()), 0)
+        or experiment_fault_tolerance.get("cert_threshold")
+        or 0
+    )
     if kind == "WRONG_APPROACH":
-        h_used, q_used, b_used = h_lane, q0_lane, b_sig_lane
+        h_used, q_used, b_used = h_lane, q0_lane, b_sig_lane_attempt
+    elif kind == "FALSE_PHYSICAL_LANE":
+        h_used, q_used, b_used = h_lane, q0_lane_model, b_sig_lane_attempt
     elif kind == "FALSE_DIRECTION":
         h_used, q_used, b_used = h_dir, q0_dir, b_sig_dir
+    elif kind == "FALSE_DISTANCE":
+        h_used, q_used, b_used = h_distance, q0_distance, b_sig_distance
+        threshold = distance_threshold
     else:
-        h_used, q_used, b_used = 0, None, 0
-    required_honest = max(0, threshold - b_used)
+        h_used, q_used, b_used = 0, None, None
+    required_honest = max(0, threshold - b_used) if b_used is not None else None
+    binomial_prediction = (
+        _binomial_tail(h_used, q_used, required_honest)
+        if required_honest is not None else None
+    )
     outcome = phase2_attack_outcomes.get(key, {})
     return {
         **config,
@@ -2181,24 +2477,47 @@ def _phase2_attack_summary():
         "configured_byzantine_ids": sorted(byzantine_ids),
         "declaration": phase2_attack_declarations.get(key),
         "collusion_echo_signers": sorted(phase2_collusion_echoes.get(key, set())),
+        "distance_collusion_echo_signers": sorted(distance_collusion_echoes.get(key, set())),
         "certificate_signers": sorted(evidence),
+        "distance_certificate_signers": sorted(distance_evidence),
         "self_attestation_count": self_count,
+        "self_attestation_generated_count": len(generated_self_attestations),
+        "distance_self_attestation_count": distance_self_count,
         "h_lane": h_lane,
         "h_dir": h_dir,
+        "h_distance": h_distance,
         "h_lane_signers": sorted({row["witness"] for row in lane_rows}),
         "h_dir_signers": sorted(honest_external),
+        "h_distance_signers": sorted({row["witness"] for row in distance_rows}),
         "honest_lane_accepts": honest_lane_accepts,
         "honest_direction_support": honest_direction_support,
+        "honest_distance_accepts": honest_distance_accepts,
         "q0_lane": q0_lane,
+        "q0_lane_empirical_run": q0_lane,
+        "q0_lane_model": q0_lane_model,
+        "q1_lane": q1_lane,
+        "q1_lane_empirical_run": q1_lane,
+        "lane_accept_rate": lane_accept_rate,
+        "lateral_delta_m": lateral_delta_m,
         "q0_dir": q0_dir,
+        "q0_distance": q0_distance,
         "b_sig_lane": b_sig_lane,
+        "b_sig_lane_cert": b_sig_lane,
+        "b_sig_lane_attempt": b_sig_lane_attempt,
+        "b_sig_lane_attempt_signers": b_sig_lane_attempt_signers,
+        "b_sig_lane_attempt_source": (
+            b_sig_lane_attempt_source
+        ),
         "b_sig_dir": b_sig_dir,
+        "b_sig_distance": b_sig_distance,
         "threshold": threshold,
         "required_honest_support": required_honest,
-        "binomial_tail_prediction": _binomial_tail(h_used, q_used, required_honest),
+        "binomial_tail_prediction": binomial_prediction,
         "lane_certified": key_text in {
             f"{cert_target}@{cert_epoch}" for cert_target, cert_epoch in cert_assembly_perception
         },
+        "distance_declaration": distance_attack_declarations.get(key),
+        "distance_certified": key in distance_certificates,
         "outcome": outcome,
     }
 
@@ -2229,6 +2548,14 @@ def _movement_metrology_summary():
 
 def _perception_summary():
     evaluations = list(perception_evaluations.values())
+    evaluated_variants = defaultdict(set)
+    for witness, target, epoch, claim_hash in perception_evaluations:
+        evaluated_variants[(witness, target, epoch)].add(claim_hash)
+    cross_variant_evaluations = {
+        f"r{witness}:{target}@{epoch}": sorted(hashes)
+        for (witness, target, epoch), hashes in evaluated_variants.items()
+        if len(hashes) > 1
+    }
     configured_byzantine = set(replica_byzantine_types)
     measured_h_lane = defaultdict(set)
     measured_h_dir = defaultdict(set)
@@ -2262,7 +2589,11 @@ def _perception_summary():
     left_singletons = sum(
         1 for row in direction_eligibility.values() if row["derived"] == "L"
     )
+    distance_rows = list(distance_perception_evaluations.values())
+    distance_accepts = sum(1 for row in distance_rows if row["accept"])
     return {
+        "configuration": perception_config,
+        "configuration_replica_count": len(perception_config_replicas),
         "lane_evaluation_count": len(evaluations),
         "lane_accept_count": accepted,
         "lane_accept_rate": accepted / len(evaluations) if evaluations else None,
@@ -2275,7 +2606,26 @@ def _perception_summary():
             if cue_support_opportunities else None
         ),
         "duplicate_evaluation_count": perception_duplicate_evaluations,
-        "single_evaluation_invariant_ok": perception_duplicate_evaluations == 0,
+        "cross_variant_evaluation_count": sum(
+            len(hashes) - 1 for hashes in evaluated_variants.values()
+            if len(hashes) > 1
+        ),
+        "cross_variant_evaluations": cross_variant_evaluations,
+        "single_evaluation_invariant_ok": (
+            perception_duplicate_evaluations == 0 and
+            not cross_variant_evaluations
+        ),
+        "equivocation_event_count": len(equivocation_events),
+        "equivocation_events": {
+            f"r{witness}:{target}@{epoch}:{second_hash}": row
+            for (witness, target, epoch, second_hash), row
+            in sorted(equivocation_events.items())
+        },
+        "equivocation_rejections_without_perception_or_echo": all(
+            row["action"] == "REJECT_SECOND_VARIANT" and
+            not row["perception_evaluated"] and not row["echo_sent"]
+            for row in equivocation_events.values()
+        ),
         # measured_h is retained as the lane-channel compatibility alias.
         "measured_h": {key: len(value) for key, value in sorted(measured_h_lane.items())},
         "measured_h_lane": {
@@ -2300,6 +2650,12 @@ def _perception_summary():
             }
             for (target, epoch), signers in sorted(cert_evidence.items())
         },
+        "arrival_echo_collections": {
+            f"{target}@{epoch}": {
+                str(signer): row for signer, row in sorted(signers.items())
+            }
+            for (target, epoch), signers in sorted(arrival_echo_collections.items())
+        },
         "phase2_attack": _phase2_attack_summary(),
         "certificates": {
             f"{target}@{epoch}": row
@@ -2321,6 +2677,39 @@ def _perception_summary():
         "signed_direction_count": signed_direction,
         "left_table_forced_singleton_count": left_singletons,
         "signed_unknown_singleton_count": tier_counts.get("SIGNED-UNKNOWN", 0),
+        "stopped_distance": {
+            "attestation_count": len(stopped_distance_attestations),
+            "attestations": {
+                f"{target}@{epoch}": row
+                for (target, epoch), row in sorted(stopped_distance_attestations.items())
+            },
+            "retry_count_by_target": {
+                f"{target}@{epoch}": count
+                for (target, epoch), count in sorted(stopped_distance_attestation_retries.items())
+            },
+            "evaluation_count": len(distance_rows),
+            # Preserve the one cached physical observation per witness/target
+            # so k can be re-thresholded offline without re-running SUMO.  The
+            # wire protocol still carries only the signed verdict/certificate.
+            "evaluations": [
+                row for _, row in sorted(distance_perception_evaluations.items())
+            ],
+            "accept_count": distance_accepts,
+            "accept_rate": distance_accepts / len(distance_rows) if distance_rows else None,
+            "duplicate_evaluation_count": distance_perception_duplicate_evaluations,
+            "single_evaluation_invariant_ok": distance_perception_duplicate_evaluations == 0,
+            "certificates": {
+                f"{target}@{epoch}": row
+                for (target, epoch), row in sorted(distance_certificates.items())
+            },
+            "collection_order": distance_cert_collection,
+            "certificate_count": len(distance_certificates),
+            "order_pairs": list(distance_order_pairs.values()),
+            "order_pair_count": len(distance_order_pairs),
+            "order_inversion_count": sum(
+                1 for row in distance_order_pairs.values() if row["inversion"]
+            ),
+        },
     }
 
 def write_metrics_json(path):

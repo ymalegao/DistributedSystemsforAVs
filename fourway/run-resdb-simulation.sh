@@ -34,6 +34,22 @@
 #   latency-curve experiments. When used with --randomize, writes
 #   *.node[*].appl.toleratedFaults = F into random_scenario.ini.
 #
+# --cert-relay-silent-ids <CSV>
+#   Mark the listed replicas Byzantine and suppress only their validated
+#   ARRIVAL_CERT epidemic relays. Origin certificate broadcasts and PBFT stay on.
+#
+# --pbft-silent-ids <CSV>
+#   Mark the listed replicas Byzantine silent primaries/followers. Used by the
+#   consecutive-Byzantine-successor recovery validation.
+#
+# --distance-reference-separation <METRES>
+#   Generate the calibrated N=16 stopped-queue fixture whose TraCI front-
+#   reference separation is one of 5, 5.5, 6.5, 7.5, 9.5, or 12.5 m.
+#   Requires -c SixteenVehiclesDistanceGridResDB. The generated override defines
+#   that config as a child of SixteenVehiclesResDB, ensuring the fixture launch
+#   file overrides (rather than competes with) the parent's launchConfig.
+#   ordinary 16-vehicle routes and differ only in vType minGap.
+#
 # --baseline
 #   SUMO-controlled baseline mode. Reuses ambulance randomization, but disables
 #   Byzantine and leader mutations.
@@ -204,6 +220,22 @@ has_ned_path_arg() {
 }
 
 # ---------------------------------------------------------------------------
+# Replica/node mapping
+# ---------------------------------------------------------------------------
+# OMNeT++ orders node[] by SUMO vehicle ID lexicographically. For n>9 this
+# differs from numeric replica order (veh10 sorts before veh2), so every
+# replica-specific generated override must use this conversion.
+replica_to_node_idx() {
+    local _n="$1" _r="$2"
+    local _count=0 _i
+    local _target="veh${_r}"
+    for (( _i=0; _i<_n; _i++ )); do
+        [[ $_i -ne $_r && "veh${_i}" < "${_target}" ]] && (( _count++ ))
+    done
+    echo $_count
+}
+
+# ---------------------------------------------------------------------------
 # Random scenario generation
 # ---------------------------------------------------------------------------
 # Writes fourway/random_scenario.ini with randomized ambulance + Byzantine
@@ -231,23 +263,6 @@ generate_random_scenario() {
 
     # Pure-bash random sampling — no Python subprocess needed, avoids LD_LIBRARY_PATH
     # conflicts between Nix libs and the system Python binary.
-
-    # ---------------------------------------------------------------------------
-    # replica_to_node_idx <n> <replica_id>
-    # OMNeT++ orders node[] by SUMO vehicle ID lexicographically.
-    # For n<=9 the order is numeric, so node[i]=vehi.
-    # For n>9 it differs: e.g. n=16 → veh10<veh2, so node[2]=veh10 (replica 10).
-    # This function counts how many veh{j} (j≠replica, 0≤j<n) sort before veh{replica}.
-    # ---------------------------------------------------------------------------
-    replica_to_node_idx() {
-        local _n="$1" _r="$2"
-        local _count=0 _i
-        local _target="veh${_r}"
-        for (( _i=0; _i<_n; _i++ )); do
-            [[ $_i -ne $_r && "veh${_i}" < "${_target}" ]] && (( _count++ ))
-        done
-        echo $_count
-    }
 
     # 1. Pick ambulance (replica ID) from all replicas except the byz leader,
     #    unless --no-ambulance is set.
@@ -356,6 +371,32 @@ generate_random_scenario() {
                 fi
             done
         fi
+        if [[ -n "${CERT_RELAY_SILENT_IDS:-}" ]]; then
+            local explicit_id explicit_node
+            IFS=',' read -r -a explicit_cert_ids <<< "${CERT_RELAY_SILENT_IDS}"
+            for explicit_id in "${explicit_cert_ids[@]}"; do
+                explicit_node="$(replica_to_node_idx "${n}" "${explicit_id}")"
+                echo "*.node[${explicit_node}].appl.isByzantine = true"
+                echo "*.node[${explicit_node}].appl.byzantineCertRelaySilent = true   # cert-relay withholding replica ${explicit_id}"
+            done
+        fi
+        if [[ -n "${PBFT_SILENT_IDS:-}" ]]; then
+            local explicit_id explicit_node
+            IFS=',' read -r -a explicit_pbft_ids <<< "${PBFT_SILENT_IDS}"
+            for explicit_id in "${explicit_pbft_ids[@]}"; do
+                explicit_node="$(replica_to_node_idx "${n}" "${explicit_id}")"
+                echo "*.node[${explicit_node}].appl.isByzantine = true"
+                if [[ "${explicit_id}" -ne "${byz_leader}" ]]; then
+                    echo "*.node[${explicit_node}].appl.byzantineType = 4   # consecutive silent Byzantine replica ${explicit_id}"
+                fi
+                echo "*.node[${explicit_node}].appl.byzantinePbftSilent = true   # explicit PBFT silence replica ${explicit_id}"
+            done
+        fi
+        # OMNeT++ uses the first matching parameter assignment. Keep wildcard
+        # defaults after every replica-specific true assignment or the reset
+        # masks the requested fault.
+        echo "*.node[*].appl.byzantinePbftSilent = false"
+        echo "*.node[*].appl.byzantineCertRelaySilent = false"
         # Cert gate override (written when --cert-gate is passed)
         if [[ -n "${CERT_GATE_LINE:-}" ]]; then
             echo "${CERT_GATE_LINE}"
@@ -391,11 +432,32 @@ TOLERATED_F=""
 APPROACH_SIGMA=""
 SIGNAL_ERROR=""
 DIRECTION_COLLECTION_WINDOW=""
+EGO_LONGITUDINAL_SIGMA=""
+LONGITUDINAL_SIGMA=""
+LANE_OBSERVATION_MODE=""
+LATERAL_SIGMA=""
+ADJACENT_LATERAL_ORIGIN_X=""
+ADJACENT_LATERAL_ORIGIN_Y=""
+ADJACENT_LATERAL_NORMAL_X=""
+ADJACENT_LATERAL_NORMAL_Y=""
+ADJACENT_LANE_SEPARATION=""
+PHYSICAL_GATE_K=""
+DIRECTION_ELIGIBILITY=""
+ALL_SINGLETON_SCHEDULING=0
+DISTANCE_STATIONARY_SPEED=""
+DISTANCE_ATTEST_RETRY_INTERVAL=""
+DISTANCE_ATTEST_RETRY_MAX=""
+DISTANCE_REFERENCE_SEPARATION=""
 SIMULATION_SEED=""
 PHASE2_ATTACK_KIND=""
 PHASE2_ATTACK_TARGET=""
 PHASE2_EVIDENCE_COLLUDERS=""
 PHASE2_ACTUAL_B=""
+PHASE2_DISTANCE_CLAIM_OFFSET=""
+PHASE2_LATERAL_CLAIM_OFFSET=""
+CERT_RELAY_SILENT_IDS=""
+PBFT_SILENT_IDS=""
+PROPOSAL_SILENT_PRIMARY_IDS=""
 COMPACT_LOG=0
 EXTRA_INI_ARG=()
 
@@ -438,6 +500,54 @@ while [[ $i -lt ${#args[@]} ]]; do
         --direction-collection-window)
             i=$(( i + 1 )); DIRECTION_COLLECTION_WINDOW="${args[$i]}"
             ;;
+        --ego-longitudinal-sigma)
+            i=$(( i + 1 )); EGO_LONGITUDINAL_SIGMA="${args[$i]}"
+            ;;
+        --longitudinal-sigma)
+            i=$(( i + 1 )); LONGITUDINAL_SIGMA="${args[$i]}"
+            ;;
+        --lane-observation-mode)
+            i=$(( i + 1 )); LANE_OBSERVATION_MODE="${args[$i]}"
+            ;;
+        --lateral-sigma)
+            i=$(( i + 1 )); LATERAL_SIGMA="${args[$i]}"
+            ;;
+        --adjacent-lateral-origin-x)
+            i=$(( i + 1 )); ADJACENT_LATERAL_ORIGIN_X="${args[$i]}"
+            ;;
+        --adjacent-lateral-origin-y)
+            i=$(( i + 1 )); ADJACENT_LATERAL_ORIGIN_Y="${args[$i]}"
+            ;;
+        --adjacent-lateral-normal-x)
+            i=$(( i + 1 )); ADJACENT_LATERAL_NORMAL_X="${args[$i]}"
+            ;;
+        --adjacent-lateral-normal-y)
+            i=$(( i + 1 )); ADJACENT_LATERAL_NORMAL_Y="${args[$i]}"
+            ;;
+        --adjacent-lane-separation)
+            i=$(( i + 1 )); ADJACENT_LANE_SEPARATION="${args[$i]}"
+            ;;
+        --physical-gate-k)
+            i=$(( i + 1 )); PHYSICAL_GATE_K="${args[$i]}"
+            ;;
+        --direction-eligibility)
+            i=$(( i + 1 )); DIRECTION_ELIGIBILITY="${args[$i]}"
+            ;;
+        --all-singleton-scheduling)
+            ALL_SINGLETON_SCHEDULING=1
+            ;;
+        --distance-stationary-speed)
+            i=$(( i + 1 )); DISTANCE_STATIONARY_SPEED="${args[$i]}"
+            ;;
+        --distance-attestation-retry-interval)
+            i=$(( i + 1 )); DISTANCE_ATTEST_RETRY_INTERVAL="${args[$i]}"
+            ;;
+        --distance-attestation-retry-max)
+            i=$(( i + 1 )); DISTANCE_ATTEST_RETRY_MAX="${args[$i]}"
+            ;;
+        --distance-reference-separation)
+            i=$(( i + 1 )); DISTANCE_REFERENCE_SEPARATION="${args[$i]}"
+            ;;
         --simulation-seed)
             i=$(( i + 1 )); SIMULATION_SEED="${args[$i]}"
             ;;
@@ -452,6 +562,21 @@ while [[ $i -lt ${#args[@]} ]]; do
             ;;
         --phase2-actual-b)
             i=$(( i + 1 )); PHASE2_ACTUAL_B="${args[$i]}"
+            ;;
+        --phase2-distance-claim-offset)
+            i=$(( i + 1 )); PHASE2_DISTANCE_CLAIM_OFFSET="${args[$i]}"
+            ;;
+        --phase2-lateral-claim-offset)
+            i=$(( i + 1 )); PHASE2_LATERAL_CLAIM_OFFSET="${args[$i]}"
+            ;;
+        --cert-relay-silent-ids)
+            i=$(( i + 1 )); CERT_RELAY_SILENT_IDS="${args[$i]}"
+            ;;
+        --pbft-silent-ids)
+            i=$(( i + 1 )); PBFT_SILENT_IDS="${args[$i]}"
+            ;;
+        --proposal-silent-primary-ids)
+            i=$(( i + 1 )); PROPOSAL_SILENT_PRIMARY_IDS="${args[$i]}"
             ;;
         --compact-log)
             COMPACT_LOG=1
@@ -521,6 +646,18 @@ if [[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 && "${CRASH_WAIT_CLEAR}" -eq 1 ]]; then
     echo "ERROR: --rollback-late-emergency and --crash-wait-clear are mutually exclusive." >&2
     exit 1
 fi
+
+validate_replica_csv() {
+    local label="$1" csv="$2" n="$3" token
+    [[ -z "${csv}" ]] && return 0
+    IFS=',' read -r -a tokens <<< "${csv}"
+    for token in "${tokens[@]}"; do
+        if ! [[ "${token}" =~ ^[0-9]+$ ]] || (( token < 0 || token >= n )); then
+            echo "ERROR: ${label} contains invalid replica '${token}' for N=${n}." >&2
+            exit 1
+        fi
+    done
+}
 if [[ "${SUPPRESS_INITIAL_CANCEL_LEADER}" -eq 1 &&
       "${ROLLBACK_LATE_EMERGENCY}" -ne 1 && "${CRASH_WAIT_CLEAR}" -ne 1 ]]; then
     echo "ERROR: --suppress-initial-cancel-leader requires a rollback/crash scenario." >&2
@@ -596,11 +733,20 @@ SIM_DIR="$(cd "${SIM_DIR}" && pwd)"
 # (e.g. scenario 15's rollback_late_emergency.ini) cannot linger on disk and
 # get re-applied by a later -f chain or a manual opp_run.
 [[ "${RANDOMIZE}" -eq 1 ]] || rm -f "${SIM_DIR}/random_scenario.ini"
+rm -f "${SIM_DIR}/attack_defense_silence_override.ini"
 [[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 ]] || rm -f "${SIM_DIR}/rollback_late_emergency.ini"
 [[ "${CRASH_WAIT_CLEAR}" -eq 1 ]] || rm -f "${SIM_DIR}/crash_wait_clear.ini"
 [[ -n "${INITIAL_LEADER}" ]] || rm -f "${SIM_DIR}/leader_override.ini"
 [[ -n "${CHANNEL_METRICS_DIR}" ]] || rm -f "${SIM_DIR}/channel_metrics_override.ini"
 [[ -n "${PHASE2_ATTACK_KIND}${PHASE2_ATTACK_TARGET}${PHASE2_EVIDENCE_COLLUDERS}${PHASE2_ACTUAL_B}" ]] || rm -f "${SIM_DIR}/phase2_attack_override.ini"
+if [[ -z "${DISTANCE_REFERENCE_SEPARATION}" ]]; then
+    rm -f \
+        "${SIM_DIR}/distance_fixture_override.ini" \
+        "${SIM_DIR}/distance_grid_16veh.rou.xml" \
+        "${SIM_DIR}/distance_grid_16veh.sumo.cfg" \
+        "${SIM_DIR}/distance_grid_16veh.launchd.xml" \
+        "${SIM_DIR}/distance_grid_fixture_metadata.json"
+fi
 if [[ -z "${APPROACH_SIGMA}${SIGNAL_ERROR}${DIRECTION_COLLECTION_WINDOW}${SIMULATION_SEED}" ]]; then
     rm -f "${SIM_DIR}/perception_override.ini"
 fi
@@ -611,6 +757,9 @@ if [[ "${RANDOMIZE}" -eq 1 ]]; then
         echo "ERROR: --randomize requires <N> <F> arguments" >&2
         exit 1
     fi
+    validate_replica_csv "--cert-relay-silent-ids" "${CERT_RELAY_SILENT_IDS}" "${RANDOMIZE_N}"
+    validate_replica_csv "--pbft-silent-ids" "${PBFT_SILENT_IDS}" "${RANDOMIZE_N}"
+    validate_replica_csv "--proposal-silent-primary-ids" "${PROPOSAL_SILENT_PRIMARY_IDS}" "${RANDOMIZE_N}"
     if [[ -n "${TOLERATED_F}" ]]; then
         if ! [[ "${TOLERATED_F}" =~ ^[0-9]+$ ]]; then
             echo "ERROR: --tolerated-f requires a non-negative integer." >&2
@@ -641,6 +790,10 @@ if [[ "${RANDOMIZE}" -eq 1 ]]; then
     EXTRA_INI_ARG=(-f "omnetpp.ini" -f "${RANDOM_INI}")
 elif [[ -n "${TOLERATED_F}" ]]; then
     echo "ERROR: --tolerated-f currently requires --randomize so toleratedFaults can be written into random_scenario.ini." >&2
+    exit 1
+fi
+if [[ "${RANDOMIZE}" -ne 1 && -n "${CERT_RELAY_SILENT_IDS}${PBFT_SILENT_IDS}${PROPOSAL_SILENT_PRIMARY_IDS}" ]]; then
+    echo "ERROR: explicit Byzantine silence IDs require --randomize so the node overrides are generated." >&2
     exit 1
 fi
 
@@ -774,9 +927,56 @@ if [[ -n "${INITIAL_LEADER}" ]]; then
     fi
 fi
 
+# Deterministic N=16 distance fixture. Keep this as a launch-config overlay so
+# protocol configuration, routes, IDs, and the ordinary runner lifecycle remain
+# unchanged. The orchestrator runs cells sequentially because these generated
+# filenames are intentionally stable within fourway/.
+if [[ -n "${DISTANCE_REFERENCE_SEPARATION}" ]]; then
+    if [[ "${ACTIVE_CONFIG}" != "SixteenVehiclesDistanceGridResDB" ]]; then
+        echo "ERROR: --distance-reference-separation requires -c SixteenVehiclesDistanceGridResDB." >&2
+        exit 1
+    fi
+    if ! DISTANCE_FIXTURE_JSON="$(python3 "${SIM_DIR}/generate_distance_grid_fixture.py" \
+            --reference-separation "${DISTANCE_REFERENCE_SEPARATION}" \
+            --output-dir "${SIM_DIR}" 2>/dev/null)"; then
+        echo "ERROR: invalid --distance-reference-separation ${DISTANCE_REFERENCE_SEPARATION}; expected 5, 5.5, 6.5, 7.5, 9.5, or 12.5." >&2
+        exit 1
+    fi
+    DISTANCE_FIXTURE_INI="${SIM_DIR}/distance_fixture_override.ini"
+    {
+        echo "# Auto-generated by run-resdb-simulation.sh --distance-reference-separation"
+        echo "[Config ${ACTIVE_CONFIG}]"
+        echo "extends = SixteenVehiclesResDB"
+        echo "*.manager.launchConfig = xmldoc(\"distance_grid_16veh.launchd.xml\")"
+    } > "${DISTANCE_FIXTURE_INI}"
+    echo "  Distance fixture: reference_separation=${DISTANCE_REFERENCE_SEPARATION}m ${DISTANCE_FIXTURE_JSON}" >&2
+    if [[ ${#EXTRA_INI_ARG[@]} -gt 0 ]]; then
+        EXTRA_INI_ARG+=(-f "${DISTANCE_FIXTURE_INI}")
+    else
+        EXTRA_INI_ARG=(-f "omnetpp.ini" -f "${DISTANCE_FIXTURE_INI}")
+    fi
+fi
+
 # Perception parameters are applied under the active named config so they also
 # override values inherited through OMNeT++ config extension chains.
-if [[ -n "${APPROACH_SIGMA}${SIGNAL_ERROR}${DIRECTION_COLLECTION_WINDOW}${SIMULATION_SEED}" ]]; then
+if [[ -n "${APPROACH_SIGMA}${SIGNAL_ERROR}${DIRECTION_COLLECTION_WINDOW}${SIMULATION_SEED}${EGO_LONGITUDINAL_SIGMA}${LONGITUDINAL_SIGMA}${LANE_OBSERVATION_MODE}${LATERAL_SIGMA}${ADJACENT_LATERAL_ORIGIN_X}${ADJACENT_LATERAL_ORIGIN_Y}${ADJACENT_LATERAL_NORMAL_X}${ADJACENT_LATERAL_NORMAL_Y}${ADJACENT_LANE_SEPARATION}${PHYSICAL_GATE_K}${DISTANCE_STATIONARY_SPEED}${DISTANCE_ATTEST_RETRY_INTERVAL}${DISTANCE_ATTEST_RETRY_MAX}" ]]; then
+    # Preserve existing runner commands: the stopped-distance options default
+    # to the NED regression values when only the original four perception
+    # options are supplied.
+    EGO_LONGITUDINAL_SIGMA="${EGO_LONGITUDINAL_SIGMA:-0}"
+    LONGITUDINAL_SIGMA="${LONGITUDINAL_SIGMA:-0}"
+    LANE_OBSERVATION_MODE="${LANE_OBSERVATION_MODE:-CATEGORICAL_CARDINAL}"
+    LATERAL_SIGMA="${LATERAL_SIGMA:-0}"
+    ADJACENT_LATERAL_ORIGIN_X="${ADJACENT_LATERAL_ORIGIN_X:-0}"
+    ADJACENT_LATERAL_ORIGIN_Y="${ADJACENT_LATERAL_ORIGIN_Y:-0}"
+    ADJACENT_LATERAL_NORMAL_X="${ADJACENT_LATERAL_NORMAL_X:-0}"
+    ADJACENT_LATERAL_NORMAL_Y="${ADJACENT_LATERAL_NORMAL_Y:-1}"
+    ADJACENT_LANE_SEPARATION="${ADJACENT_LANE_SEPARATION:-3.2}"
+    PHYSICAL_GATE_K="${PHYSICAL_GATE_K:-3}"
+    DIRECTION_ELIGIBILITY="${DIRECTION_ELIGIBILITY:-on}"
+    DISTANCE_STATIONARY_SPEED="${DISTANCE_STATIONARY_SPEED:-0.1}"
+    DISTANCE_ATTEST_RETRY_INTERVAL="${DISTANCE_ATTEST_RETRY_INTERVAL:-0.5}"
+    DISTANCE_ATTEST_RETRY_MAX="${DISTANCE_ATTEST_RETRY_MAX:-4}"
     if [[ -z "${APPROACH_SIGMA}" || -z "${SIGNAL_ERROR}" ||
           -z "${DIRECTION_COLLECTION_WINDOW}" || -z "${SIMULATION_SEED}" ]]; then
         echo "ERROR: perception overrides require --approach-sigma, --signal-error, --direction-collection-window, and --simulation-seed together." >&2
@@ -798,6 +998,44 @@ if [[ -n "${APPROACH_SIGMA}${SIGNAL_ERROR}${DIRECTION_COLLECTION_WINDOW}${SIMULA
         echo "ERROR: --direction-collection-window must be nonnegative." >&2
         exit 1
     fi
+    if ! python3 -c 'import sys; assert all(float(x) >= 0.0 for x in sys.argv[1:])' \
+            "${EGO_LONGITUDINAL_SIGMA}" "${LONGITUDINAL_SIGMA}" "${LATERAL_SIGMA}" "${DISTANCE_STATIONARY_SPEED}" 2>/dev/null; then
+        echo "ERROR: longitudinal sigmas and stationary speed must be nonnegative." >&2
+        exit 1
+    fi
+    if [[ "${LANE_OBSERVATION_MODE}" != "CATEGORICAL_CARDINAL" &&
+          "${LANE_OBSERVATION_MODE}" != "ADJACENT_LATERAL" ]]; then
+        echo "ERROR: --lane-observation-mode must be CATEGORICAL_CARDINAL or ADJACENT_LATERAL." >&2
+        exit 1
+    fi
+    if [[ "${LANE_OBSERVATION_MODE}" == "ADJACENT_LATERAL" &&
+          "${ACTIVE_CONFIG}" != "SixteenVehiclesAdjacentLaneResDB" &&
+          "${ACTIVE_CONFIG}" != "SixteenVehiclesTwoLaneResDB" &&
+          "${ACTIVE_CONFIG}" != "SixteenVehiclesTwoLaneConflictReleaseResDB" &&
+          "${ACTIVE_CONFIG}" != "SixteenVehiclesTwoLaneSweepResDB" &&
+          "${ACTIVE_CONFIG}" != "FourVehiclesTwoLaneScaleResDB" &&
+          "${ACTIVE_CONFIG}" != "EightVehiclesTwoLaneScaleResDB" &&
+          "${ACTIVE_CONFIG}" != "TwentyVehiclesTwoLaneScaleResDB" ]]; then
+        echo "ERROR: ADJACENT_LATERAL is scoped to the adjacent-lane or full two-lane validation configs." >&2
+        exit 1
+    fi
+    if ! python3 -c 'import sys, math; xs=[float(x) for x in sys.argv[1:]]; assert all(math.isfinite(x) for x in xs); assert math.hypot(xs[2], xs[3]) > 0 and xs[4] > 0' \
+            "${ADJACENT_LATERAL_ORIGIN_X}" "${ADJACENT_LATERAL_ORIGIN_Y}" \
+            "${ADJACENT_LATERAL_NORMAL_X}" "${ADJACENT_LATERAL_NORMAL_Y}" \
+            "${ADJACENT_LANE_SEPARATION}" 2>/dev/null; then
+        echo "ERROR: invalid adjacent-lane origin, normal, or separation." >&2
+        exit 1
+    fi
+    if ! python3 -c 'import sys; assert float(sys.argv[1]) > 0.0 and float(sys.argv[2]) > 0.0 and int(sys.argv[3]) >= 0' \
+            "${PHYSICAL_GATE_K}" "${DISTANCE_ATTEST_RETRY_INTERVAL}" "${DISTANCE_ATTEST_RETRY_MAX}" 2>/dev/null; then
+        echo "ERROR: invalid physical-gate or stopped-distance retry settings." >&2
+        exit 1
+    fi
+    if [[ "${DIRECTION_ELIGIBILITY}" != "on" &&
+          "${DIRECTION_ELIGIBILITY}" != "off" ]]; then
+        echo "ERROR: --direction-eligibility must be on or off." >&2
+        exit 1
+    fi
     if ! PERCEPTION_MATRIX="$(python3 "${SIM_DIR}/generate_perception_matrices.py" --lookup "${APPROACH_SIGMA}" 2>/dev/null)"; then
         echo "ERROR: unsupported --approach-sigma ${APPROACH_SIGMA}; see perception_matrices.csv." >&2
         exit 1
@@ -815,8 +1053,26 @@ if [[ -n "${APPROACH_SIGMA}${SIGNAL_ERROR}${DIRECTION_COLLECTION_WINDOW}${SIMULA
         echo "*.node[*].appl.approachConfusionMatrix = \"${PERCEPTION_MATRIX}\""
         echo "*.node[*].appl.signalObservationError = ${SIGNAL_ERROR}"
         echo "*.node[*].appl.directionEligibilityCollectionWindowSec = ${DIRECTION_COLLECTION_WINDOW}s"
+        echo "*.node[*].appl.egoLongitudinalSigmaM = ${EGO_LONGITUDINAL_SIGMA}"
+        echo "*.node[*].appl.longitudinalObservationSigmaM = ${LONGITUDINAL_SIGMA}"
+        echo "*.node[*].appl.laneObservationMode = \"${LANE_OBSERVATION_MODE}\""
+        echo "*.node[*].appl.lateralObservationSigmaM = ${LATERAL_SIGMA}"
+        echo "*.node[*].appl.adjacentLateralOriginX = ${ADJACENT_LATERAL_ORIGIN_X}m"
+        echo "*.node[*].appl.adjacentLateralOriginY = ${ADJACENT_LATERAL_ORIGIN_Y}m"
+        echo "*.node[*].appl.adjacentLateralNormalX = ${ADJACENT_LATERAL_NORMAL_X}"
+        echo "*.node[*].appl.adjacentLateralNormalY = ${ADJACENT_LATERAL_NORMAL_Y}"
+        echo "*.node[*].appl.adjacentLaneSeparationM = ${ADJACENT_LANE_SEPARATION}m"
+        echo "*.node[*].appl.physicalGateK = ${PHYSICAL_GATE_K}"
+        if [[ "${DIRECTION_ELIGIBILITY}" == "on" ]]; then
+            echo "*.node[*].appl.enableDirectionEligibility = true"
+        else
+            echo "*.node[*].appl.enableDirectionEligibility = false"
+        fi
+        echo "*.node[*].appl.distanceStationarySpeedMps = ${DISTANCE_STATIONARY_SPEED}mps"
+        echo "*.node[*].appl.stoppedDistanceAttestationRetryIntervalSec = ${DISTANCE_ATTEST_RETRY_INTERVAL}s"
+        echo "*.node[*].appl.stoppedDistanceAttestationRetryMax = ${DISTANCE_ATTEST_RETRY_MAX}"
     } > "${PERCEPTION_INI}"
-    echo "  Perception: sigma=${APPROACH_SIGMA}m matrix=sigma_${APPROACH_SIGMA} signal_error=${SIGNAL_ERROR} collection_window=${DIRECTION_COLLECTION_WINDOW}s seed=${SIMULATION_SEED}" >&2
+    echo "  Perception: cardinal_sigma=${APPROACH_SIGMA}m matrix=sigma_${APPROACH_SIGMA} lane_mode=${LANE_OBSERVATION_MODE} lateral_sigma=${LATERAL_SIGMA}m adjacent_origin=${ADJACENT_LATERAL_ORIGIN_X},${ADJACENT_LATERAL_ORIGIN_Y} adjacent_normal=${ADJACENT_LATERAL_NORMAL_X},${ADJACENT_LATERAL_NORMAL_Y} separation=${ADJACENT_LANE_SEPARATION}m signal_error=${SIGNAL_ERROR} collection_window=${DIRECTION_COLLECTION_WINDOW}s ego_lon_sigma=${EGO_LONGITUDINAL_SIGMA}m witness_lon_sigma=${LONGITUDINAL_SIGMA}m k=${PHYSICAL_GATE_K} direction_eligibility=${DIRECTION_ELIGIBILITY} stationary_speed=${DISTANCE_STATIONARY_SPEED}mps distance_retry=${DISTANCE_ATTEST_RETRY_INTERVAL}s/${DISTANCE_ATTEST_RETRY_MAX} seed=${SIMULATION_SEED}" >&2
     if [[ ${#EXTRA_INI_ARG[@]} -gt 0 ]]; then
         EXTRA_INI_ARG+=(-f "${PERCEPTION_INI}")
     else
@@ -824,11 +1080,20 @@ if [[ -n "${APPROACH_SIGMA}${SIGNAL_ERROR}${DIRECTION_COLLECTION_WINDOW}${SIMULA
     fi
 fi
 
+if [[ "${ALL_SINGLETON_SCHEDULING}" -eq 1 ]]; then
+    export RESDB_ALL_SINGLETON=1
+    echo "  Scheduler ablation: all-singleton (RESDB_ALL_SINGLETON=1)" >&2
+else
+    unset RESDB_ALL_SINGLETON || true
+fi
+
 # Checkpoint 2C authenticated evidence-attack configuration. This overlay does
 # not use the legacy random_scenario.ini Byzantine roles: target and colluders
 # continue normal PBFT behavior and deviate only in authenticated arrival
 # declarations/evidence.
-if [[ -n "${PHASE2_ATTACK_KIND}${PHASE2_ATTACK_TARGET}${PHASE2_EVIDENCE_COLLUDERS}${PHASE2_ACTUAL_B}" ]]; then
+if [[ -n "${PHASE2_ATTACK_KIND}${PHASE2_ATTACK_TARGET}${PHASE2_EVIDENCE_COLLUDERS}${PHASE2_ACTUAL_B}${PHASE2_DISTANCE_CLAIM_OFFSET}${PHASE2_LATERAL_CLAIM_OFFSET}" ]]; then
+    PHASE2_DISTANCE_CLAIM_OFFSET="${PHASE2_DISTANCE_CLAIM_OFFSET:-0}"
+    PHASE2_LATERAL_CLAIM_OFFSET="${PHASE2_LATERAL_CLAIM_OFFSET:-0}"
     if [[ -z "${PHASE2_ATTACK_KIND}" || -z "${PHASE2_ATTACK_TARGET}" || -z "${PHASE2_ACTUAL_B}" ]]; then
         echo "ERROR: Phase 2 attack overrides require kind, target, colluders (possibly empty), and actual-b." >&2
         exit 1
@@ -838,8 +1103,32 @@ if [[ -n "${PHASE2_ATTACK_KIND}${PHASE2_ATTACK_TARGET}${PHASE2_EVIDENCE_COLLUDER
         exit 1
     fi
     if [[ "${PHASE2_ATTACK_KIND}" != "NONE" && "${PHASE2_ATTACK_KIND}" != "WRONG_APPROACH" &&
-          "${PHASE2_ATTACK_KIND}" != "FALSE_DIRECTION" ]]; then
+          "${PHASE2_ATTACK_KIND}" != "FALSE_DIRECTION" &&
+          "${PHASE2_ATTACK_KIND}" != "FALSE_PHYSICAL_LANE" &&
+          "${PHASE2_ATTACK_KIND}" != "FALSE_DISTANCE" ]]; then
         echo "ERROR: invalid --phase2-attack-kind ${PHASE2_ATTACK_KIND}." >&2
+        exit 1
+    fi
+    if ! python3 -c 'import sys, math; assert math.isfinite(float(sys.argv[1]))' \
+            "${PHASE2_DISTANCE_CLAIM_OFFSET}" 2>/dev/null; then
+        echo "ERROR: --phase2-distance-claim-offset must be finite numeric." >&2
+        exit 1
+    fi
+    if ! python3 -c 'import sys, math; assert math.isfinite(float(sys.argv[1]))' \
+            "${PHASE2_LATERAL_CLAIM_OFFSET}" 2>/dev/null; then
+        echo "ERROR: --phase2-lateral-claim-offset must be finite numeric." >&2
+        exit 1
+    fi
+    if [[ "${PHASE2_ATTACK_KIND}" != "FALSE_DISTANCE" &&
+          "${PHASE2_DISTANCE_CLAIM_OFFSET}" != "0" &&
+          "${PHASE2_DISTANCE_CLAIM_OFFSET}" != "0.0" ]]; then
+        echo "ERROR: nonzero distance claim offset requires FALSE_DISTANCE." >&2
+        exit 1
+    fi
+    if [[ "${PHASE2_ATTACK_KIND}" != "FALSE_PHYSICAL_LANE" &&
+          "${PHASE2_LATERAL_CLAIM_OFFSET}" != "0" &&
+          "${PHASE2_LATERAL_CLAIM_OFFSET}" != "0.0" ]]; then
+        echo "ERROR: nonzero lateral claim offset requires FALSE_PHYSICAL_LANE." >&2
         exit 1
     fi
     if ! [[ "${PHASE2_ATTACK_TARGET}" =~ ^-?[0-9]+$ && "${PHASE2_ACTUAL_B}" =~ ^[0-9]+$ ]]; then
@@ -859,14 +1148,70 @@ if [[ -n "${PHASE2_ATTACK_KIND}${PHASE2_ATTACK_TARGET}${PHASE2_EVIDENCE_COLLUDER
         echo "*.node[*].appl.phase2AttackTargetReplicaId = ${PHASE2_ATTACK_TARGET}"
         echo "*.node[*].appl.phase2EvidenceColluderIds = \"${PHASE2_EVIDENCE_COLLUDERS}\""
         echo "*.node[*].appl.phase2ActualByzantineCount = ${PHASE2_ACTUAL_B}"
+        echo "*.node[*].appl.phase2DistanceClaimOffsetM = ${PHASE2_DISTANCE_CLAIM_OFFSET}m"
+        echo "*.node[*].appl.phase2LateralClaimOffsetM = ${PHASE2_LATERAL_CLAIM_OFFSET}m"
         echo "*.node[*].appl.enablePhase2ControlledCue = true"
         echo "*.node[*].appl.enablePhase2CueTrace = true"
     } > "${PHASE2_ATTACK_INI}"
-    echo "  Phase 2 attack: kind=${PHASE2_ATTACK_KIND} target=${PHASE2_ATTACK_TARGET} b=${PHASE2_ACTUAL_B} colluders=${PHASE2_EVIDENCE_COLLUDERS:-none} (phase2_attack_override.ini)" >&2
+    echo "  Phase 2 attack: kind=${PHASE2_ATTACK_KIND} target=${PHASE2_ATTACK_TARGET} b=${PHASE2_ACTUAL_B} colluders=${PHASE2_EVIDENCE_COLLUDERS:-none} distance_offset=${PHASE2_DISTANCE_CLAIM_OFFSET}m lateral_offset=${PHASE2_LATERAL_CLAIM_OFFSET}m (phase2_attack_override.ini)" >&2
     if [[ ${#EXTRA_INI_ARG[@]} -gt 0 ]]; then
         EXTRA_INI_ARG+=(-f "${PHASE2_ATTACK_INI}")
     else
         EXTRA_INI_ARG=(-f "omnetpp.ini" -f "${PHASE2_ATTACK_INI}")
+    fi
+fi
+
+# Explicit attack-defense silence must live in the active named config.  A
+# [General]-only assignment can lose to parameters inherited by the selected
+# config, silently turning a withholding test into an honest run.  Load this
+# overlay late and log it before launch so the attack provenance is auditable.
+if [[ -n "${CERT_RELAY_SILENT_IDS}${PBFT_SILENT_IDS}${PROPOSAL_SILENT_PRIMARY_IDS}" ]]; then
+    if [[ -z "${ACTIVE_CONFIG}" ]]; then
+        echo "ERROR: explicit Byzantine silence IDs require a forwarded -c <ConfigName>." >&2
+        exit 1
+    fi
+    ATTACK_DEFENSE_SILENCE_INI="${SIM_DIR}/attack_defense_silence_override.ini"
+    {
+        echo "# Auto-generated by run-resdb-simulation.sh explicit silence options"
+        echo "# Named-config placement is required so these values win over inherited defaults."
+        echo "[Config ${ACTIVE_CONFIG}]"
+        if [[ -n "${CERT_RELAY_SILENT_IDS}" ]]; then
+            IFS=',' read -r -a explicit_cert_ids <<< "${CERT_RELAY_SILENT_IDS}"
+            for explicit_id in "${explicit_cert_ids[@]}"; do
+                explicit_node="$(replica_to_node_idx "${RANDOMIZE_N}" "${explicit_id}")"
+                echo "*.node[${explicit_node}].appl.isByzantine = true"
+                echo "*.node[${explicit_node}].appl.byzantineCertRelaySilent = true   # cert-relay withholding replica ${explicit_id}"
+            done
+        fi
+        if [[ -n "${PBFT_SILENT_IDS}" ]]; then
+            IFS=',' read -r -a explicit_pbft_ids <<< "${PBFT_SILENT_IDS}"
+            for explicit_id in "${explicit_pbft_ids[@]}"; do
+                explicit_node="$(replica_to_node_idx "${RANDOMIZE_N}" "${explicit_id}")"
+                echo "*.node[${explicit_node}].appl.isByzantine = true"
+                if [[ "${explicit_id}" -ne "${BYZ_LEADER}" ]]; then
+                    echo "*.node[${explicit_node}].appl.byzantineType = 4   # consecutive silent Byzantine replica ${explicit_id}"
+                fi
+                echo "*.node[${explicit_node}].appl.byzantinePbftSilent = true   # explicit PBFT silence replica ${explicit_id}"
+            done
+        fi
+        if [[ -n "${PROPOSAL_SILENT_PRIMARY_IDS}" ]]; then
+            IFS=',' read -r -a explicit_proposal_silent_ids <<< "${PROPOSAL_SILENT_PRIMARY_IDS}"
+            for explicit_id in "${explicit_proposal_silent_ids[@]}"; do
+                explicit_node="$(replica_to_node_idx "${RANDOMIZE_N}" "${explicit_id}")"
+                echo "*.node[${explicit_node}].appl.isByzantine = true"
+                echo "*.node[${explicit_node}].appl.byzantineType = 4   # proposal-silent primary replica ${explicit_id}"
+            done
+        fi
+        # First-match precedence: defaults belong after explicit per-node
+        # assignments so they apply only to the remaining replicas.
+        echo "*.node[*].appl.byzantineCertRelaySilent = false"
+        echo "*.node[*].appl.byzantinePbftSilent = false"
+    } > "${ATTACK_DEFENSE_SILENCE_INI}"
+    echo "  Attack-defense silence: cert-relay=${CERT_RELAY_SILENT_IDS:-none} pbft=${PBFT_SILENT_IDS:-none} proposal-primary=${PROPOSAL_SILENT_PRIMARY_IDS:-none} config=${ACTIVE_CONFIG} (attack_defense_silence_override.ini)" >&2
+    if [[ ${#EXTRA_INI_ARG[@]} -gt 0 ]]; then
+        EXTRA_INI_ARG+=(-f "${ATTACK_DEFENSE_SILENCE_INI}")
+    else
+        EXTRA_INI_ARG=(-f "omnetpp.ini" -f "${ATTACK_DEFENSE_SILENCE_INI}")
     fi
 fi
 

@@ -1,0 +1,49 @@
+{
+  "name": "adjacent_lane_full_400",
+  "matrix_version": 2,
+  "n": 16,
+  "f": 5,
+  "target_replica_id": 0,
+  "execution": "strictly sequential",
+  "paired_seed_policy": "same repetition uses the same seed across parameter cells",
+  "main_operating_point": {
+    "b": 5,
+    "sigma_lat_m": 0.5,
+    "delta_m": 1.75,
+    "k": 3.0
+  },
+  "slices": {
+    "delta_shoulder": {
+      "fixed": "b=5, sigma_lat=0.5 m, k=3",
+      "delta_m": [1.61, 1.75, 2.0, 2.4, 3.2],
+      "repetitions": 20,
+      "raw_runs": 100
+    },
+    "sigma_sensitivity": {
+      "fixed": "b=5, delta=1.75 m, k=3",
+      "sigma_lat_m": [0.0, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0],
+      "repetitions": 20,
+      "raw_runs": 160
+    },
+    "byzantine_boundary": {
+      "fixed": "sigma_lat=0.5 m, delta=1.75 m, k=3",
+      "b": [0, 1, 2, 3, 4, 6],
+      "repetitions": 20,
+      "raw_runs": 120,
+      "note": "b=5 is supplied by the overlapping 20-repetition headline cell; BOUNDARY_REPS raised 5→20 so the b-panel matches δ/k seed budget"
+    },
+    "k_tradeoff": {
+      "fixed": "b=5, sigma_lat=0.5 m, delta=1.75 m",
+      "k": [2.0, 2.5, 3.0],
+      "repetitions": 20,
+      "raw_runs": 60
+    }
+  },
+  "deduplication": {
+    "raw_slice_memberships": 440,
+    "overlap_memberships_removed": 40,
+    "unique_runs": 400
+  },
+  "cliff_policy": "b=f+1 is a Byzantine cliff/control; use b_sig actually present in the finalized certificate",
+  "cardinal_policy": "The existing categorical N/S/E/W 384-run suite is immutable regression evidence and is not replaced by this matrix"
+}

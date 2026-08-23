@@ -293,6 +293,7 @@ void TraCIScenarioManager::initialize(int stage)
     enablePhase2MetrologyCalibration = par("enablePhase2MetrologyCalibration").boolValue();
     phase2CalibrationSpeedMode = par("phase2CalibrationSpeedMode").intValue();
     phase2CalibrationSpeedMps = par("phase2CalibrationSpeedMps").doubleValue();
+    endOnFirstConflictingCooccupancy = par("endOnFirstConflictingCooccupancy").boolValue();
     if (phase2CalibrationSpeedMps <= 0) {
         throw cRuntimeError("TraCIScenarioManager: phase2CalibrationSpeedMps must be positive");
     }
@@ -381,6 +382,7 @@ void TraCIScenarioManager::initialize(int stage)
     conflictZoneOccupants_.clear();
     phase2CalibrationApplied_.clear();
     unsafeConflictPairs_.clear();
+    conflictingCooccupancyEndTriggered_ = false;
     physicalCollisionVehicles_.clear();
     crashSelectDone_ = false;
 
@@ -1210,6 +1212,15 @@ void TraCIScenarioManager::pollIntersectionCooccupancy()
                       << " second=" << second.id
                       << " second_approach=" << secondMovement.front()
                       << " t=" << simTime() << "\n";
+            if (endOnFirstConflictingCooccupancy && !conflictingCooccupancyEndTriggered_) {
+                conflictingCooccupancyEndTriggered_ = true;
+                std::cout << "[METROLOGY-END] reason=first-conflicting-cooccupancy"
+                          << " first=" << first.id
+                          << " second=" << second.id
+                          << " t=" << simTime() << "\n";
+                endSimulation();
+                return;
+            }
         }
     }
 }

@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<launch>
+    <copy file="bft_intersection.net.xml" />
+    <copy file="phase2_metrology_conflicting.rou.xml" />
+    <copy file="phase2_metrology_conflicting.sumo.cfg" type="config" />
+</launch>

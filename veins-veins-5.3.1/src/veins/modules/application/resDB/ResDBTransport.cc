@@ -382,7 +382,10 @@ bool ResDBIntersectionApp::isDiscoveryAirMsgType(int msgType) const
     return msgType == kArrivalAnnounceType
         || msgType == kArrivalAnnounceGossipType
         || msgType == kArrivalEchoType
-        || msgType == kArrivalCertType;
+        || msgType == kArrivalCertType
+        || msgType == kStoppedDistanceAttestationType
+        || msgType == kStoppedDistanceEchoType
+        || msgType == kStoppedDistanceCertType;
 }
 
 bool ResDBIntersectionApp::discoveryAcceptsNewTx(int msgType, bool localCert,
@@ -393,11 +396,20 @@ bool ResDBIntersectionApp::discoveryAcceptsNewTx(int msgType, bool localCert,
             cancel_state_ == CancelState::CONSENSUS) return false;
     // A replica with no active round can still attest to a late vehicle's
     // physical announcement. This does not reopen or mutate its own view.
-    if (witnessTraffic && msgType == kArrivalEchoType) return true;
+    if (witnessTraffic && msgType == kArrivalEchoType)
+        return !stopped_distance_collection_active_;
+    if (witnessTraffic && msgType == kStoppedDistanceEchoType) return true;
     if (order_applied_ || propose_submitted_) return false;
-    if (discovery_.state == DiscoveryState::COLLECTING) return true;
-    return discovery_.state == DiscoveryState::DRAINING_CERTS &&
-        msgType == kArrivalCertType && localCert && !discovery_.localCertAired();
+    if (discovery_.state == DiscoveryState::COLLECTING) {
+        if (!stopped_distance_collection_active_) return true;
+        return msgType == kStoppedDistanceAttestationType ||
+            msgType == kStoppedDistanceEchoType ||
+            msgType == kStoppedDistanceCertType;
+    }
+    return discovery_.state == DiscoveryState::DRAINING_CERTS && localCert &&
+        ((msgType == kArrivalCertType && !discovery_.localCertAired()) ||
+         (msgType == kStoppedDistanceCertType &&
+          !discovery_.localDistanceCertAired()));
 }
 
 void ResDBIntersectionApp::sendBFTMessageNow(int toReplicaId,
@@ -486,13 +498,15 @@ void ResDBIntersectionApp::flushDueDiscoveryTxs()
     }
     for (const auto& pending : due) {
         const bool witnessAllowed = pending.witnessTraffic &&
-            pending.msgType == kArrivalEchoType &&
+            (pending.msgType == kArrivalEchoType ||
+             pending.msgType == kStoppedDistanceEchoType) &&
             current_phase_ != ConsensusPhase::DEPARTED;
         if (!witnessAllowed && (pending.epoch != discovery_.epoch ||
                 discovery_.state == DiscoveryState::INACTIVE ||
                 discovery_.state == DiscoveryState::COMPLETE ||
                 (discovery_.state == DiscoveryState::DRAINING_CERTS &&
-                 pending.msgType != kArrivalCertType))) {
+                 pending.msgType != kArrivalCertType &&
+                 pending.msgType != kStoppedDistanceCertType))) {
             continue;
         }
         std::cout << "[AIR-TX] r" << replicaId_
@@ -508,6 +522,11 @@ void ResDBIntersectionApp::flushDueDiscoveryTxs()
                       << " t=" << simTime() << "\n";
             if (discovery_.state == DiscoveryState::DRAINING_CERTS)
                 stopCertBroadcastRetries();
+        }
+        if (pending.msgType == kStoppedDistanceCertType && pending.localCert) {
+            discovery_.localDistanceCert = LocalCertState::AIRED;
+            std::cout << "[DISCOVERY-DIST-CERT-AIRED] r" << replicaId_
+                      << " epoch=" << pending.epoch << " t=" << simTime() << "\n";
         }
     }
     scheduleDiscoveryTxFlush();
@@ -537,7 +556,8 @@ void ResDBIntersectionApp::discardPendingDiscoveryNonCerts(const char* reason)
 {
     size_t dropped = 0;
     for (auto it = pending_discovery_txs_.begin(); it != pending_discovery_txs_.end();) {
-        if (it->msgType != kArrivalCertType) {
+        if (it->msgType != kArrivalCertType &&
+                it->msgType != kStoppedDistanceCertType) {
             it = pending_discovery_txs_.erase(it);
             ++dropped;
         } else {
@@ -559,7 +579,8 @@ void ResDBIntersectionApp::discardPendingDiscoveryNonCerts(const char* reason)
 bool ResDBIntersectionApp::hasPendingDiscoveryCerts(uint32_t epoch) const
 {
     for (const auto& pending : pending_discovery_txs_) {
-        if (pending.epoch == epoch && pending.msgType == kArrivalCertType) return true;
+        if (pending.epoch == epoch && (pending.msgType == kArrivalCertType ||
+                pending.msgType == kStoppedDistanceCertType)) return true;
     }
     return false;
 }
@@ -579,12 +600,25 @@ void ResDBIntersectionApp::sendBFTMessage(int toReplicaId,
     }
 
     double delaySec = 0;
-    if (msgType == kArrivalEchoType) {
+    if (msgType == kArrivalEchoType || msgType == kStoppedDistanceEchoType) {
         delaySec = replicaId_ * par("viewAgreementSlotSec").doubleValue()
             + uniform(par("viewJitterMin").doubleValue(), par("viewJitterMax").doubleValue());
-    } else if (msgType == kArrivalCertType) {
+    } else if (msgType == kArrivalCertType || msgType == kStoppedDistanceCertType) {
         delaySec = replicaId_ * par("arrivalSlotSec").doubleValue()
             + uniform(par("viewJitterMin").doubleValue(), par("viewJitterMax").doubleValue());
+        if (msgType == kStoppedDistanceCertType) {
+            // A node can learn many Type-20 certificates in one radio event.
+            // Scheduling all of them in the same replica slot creates a
+            // deterministic collision burst. Add a payload-derived sub-slot:
+            // identical cert bytes retain the same slot at every carrier,
+            // while distinct certs from one carrier are spread without RNG or
+            // an additional timer.
+            uint32_t hash = 2166136261u;
+            for (uint8_t byte : payload) hash = (hash ^ byte) * 16777619u;
+            const int slots = std::max(1, total_vehicles_);
+            delaySec += (hash % static_cast<uint32_t>(slots)) *
+                par("broadcastSlotSec").doubleValue();
+        }
     } else if (msgType == kArrivalAnnounceType || msgType == kArrivalAnnounceGossipType) {
         delaySec = replicaId_ * par("arrivalSlotSec").doubleValue()
             + uniform(par("broadcastJitterMin").doubleValue(), par("broadcastJitterMax").doubleValue());
@@ -598,6 +632,9 @@ void ResDBIntersectionApp::sendBFTMessage(int toReplicaId,
                            : (msgType == kArrivalAnnounceGossipType) ? "ANN-GOSSIP"
                            : (msgType == kArrivalEchoType)         ? "ECHO"
                            : (msgType == kArrivalCertType)         ? "CERT"
+                           : (msgType == kStoppedDistanceAttestationType) ? "DIST-ATTEST"
+                           : (msgType == kStoppedDistanceEchoType) ? "DIST-ECHO"
+                           : (msgType == kStoppedDistanceCertType) ? "DIST-CERT"
                            : "?";
         std::cout << "[CERT-DEBUG] sendBFT r" << replicaId_ << " kind=" << kind
                   << " type=" << msgType << " toReplicaId=" << toReplicaId

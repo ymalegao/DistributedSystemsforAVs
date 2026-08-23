@@ -85,7 +85,7 @@ int ResdbOmnetUpdateSimTimeUs(void* server_handle, int64_t now_us);
 
 /* ── Step 5: wire format (shared between Veins and ResDB bridge) ───────────── */
 
-/* One vehicle's arrival state.  17 bytes, no padding.
+/* One vehicle's certified scheduling state. 22 bytes, no padding.
  * Appears in the ProposeAll payload (Veins → ResDB bridge).
  * lane:     0=N, 1=S, 2=E, 3=W
  * direction: 0=Straight, 1=Left, 2=Right, 3=Unknown (signed singleton)
@@ -100,14 +100,16 @@ typedef struct ResdbVehicleEntry {
     uint8_t  direction;         /* 1 byte  — 0=Straight,1=Left,2=Right,3=Unknown */
     uint8_t  position_in_lane;  /* 1 byte  — 1=front,2=second,… */
     uint8_t  cyber_status;      /* 1 byte  — 0=QUIET,1=SIGNED */
-} ResdbVehicleEntry;            /* 17 bytes total */
+    uint8_t  physical_lane_index; /* 1 byte — 0=outer/T,1=inner/L */
+    int32_t  lateral_claim_cm;    /* 4 bytes — signed lane-normal claim */
+} ResdbVehicleEntry;            /* 22 bytes total */
 
 /* Header of the payload passed to ResdbOmnetTriggerConsensus:
  *   [0..3]   uint32_t epoch
  *   [4..7]   int32_t  leader_id
  *   [8..15]  uint64_t propose_sim_time_us
  *   [16..19] uint32_t n_vehicles
- *   [20..]   n_vehicles × ResdbVehicleEntry (17 bytes each)
+ *   [20..]   n_vehicles × ResdbVehicleEntry (22 bytes each)
  */
 typedef struct ResdbProposeHdr {
     uint32_t epoch;
@@ -337,7 +339,9 @@ typedef struct ResdbCertEntry {
     uint8_t position_in_lane; /* 1=front, 2=second, … */
     uint8_t direction;        /* 0=Straight,1=Left,2=Right,3=Unknown */
     uint8_t is_ambulance;     /* 0 or 1 */
-} ResdbCertEntry;             /* 8 bytes */
+    uint8_t physical_lane_index; /* 0=outer/T,1=inner/L */
+    int32_t lateral_claim_cm;    /* signed lane-normal declaration */
+} ResdbCertEntry;             /* 13 bytes */
 #pragma pack(pop)
 
 /* Callback filled in by the OMNeT++ app to give the bridge a snapshot of the

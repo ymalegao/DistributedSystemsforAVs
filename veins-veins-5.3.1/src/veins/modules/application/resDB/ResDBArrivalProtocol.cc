@@ -4,19 +4,36 @@
 #include "veins/modules/application/resDB/messages/BFTMessage_m.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <set>
 #include <sstream>
 #include <vector>
+#include <unistd.h>
 #include <openssl/evp.h>
 
 using namespace veins;
 using namespace veins::resdb_app_util;
 
 namespace {
+
+void writeArrivalAtomicLogLine(const std::string& line)
+{
+    const std::string record = line + "\n";
+    const char* data = record.data();
+    size_t remaining = record.size();
+    while (remaining > 0) {
+        const ssize_t written = ::write(STDOUT_FILENO, data, remaining);
+        if (written < 0 && errno == EINTR) continue;
+        if (written <= 0) return;
+        data += written;
+        remaining -= static_cast<size_t>(written);
+    }
+}
 
 std::vector<uint8_t> payloadBytes(BFTMessage* msg)
 {
@@ -50,6 +67,8 @@ std::vector<uint8_t> ResDBIntersectionApp::serializeArrivalAnnouncement(
     ss << ann.carId          << "|"
        << ann.laneId         << "|"
        << ann.lane           << "|"
+       << ann.physicalLaneIndex << "|"
+       << ann.lateralClaimCm << "|"
        << ann.positionInLane << "|"
        << dirToStr(ann.direction) << "|"
        << (ann.isAmbulance ? "1" : "0") << "|"
@@ -73,20 +92,22 @@ ResDBIntersectionApp::deserializeArrivalAnnouncement(BFTMessage* msg)
     std::string s(payload.begin(), payload.end());
     auto parts = splitStr(s, '|');
     ArrivalAnnouncement ann;
-    if (parts.size() >= 11) {
+    if (parts.size() >= 13) {
         ann.carId              = parts[0];
         ann.laneId             = parts[1];
         ann.lane               = parts[2];
-        ann.positionInLane     = std::stoi(parts[3]);
-        ann.direction          = strToDir(parts[4]);
-        ann.isAmbulance        = (parts[5] == "1");
-        ann.claimedArrivalTime = std::stod(parts[6]);
-        ann.epoch              = std::stoi(parts[7]);
-        ann.ambulanceCertBytes = fromHex(parts[8]);
-        ann.ambulanceSigBytes  = fromHex(parts[9]);
-        int siglen = std::stoi(parts[10]);
+        ann.physicalLaneIndex  = std::stoi(parts[3]);
+        ann.lateralClaimCm     = static_cast<int32_t>(std::stol(parts[4]));
+        ann.positionInLane     = std::stoi(parts[5]);
+        ann.direction          = strToDir(parts[6]);
+        ann.isAmbulance        = (parts[7] == "1");
+        ann.claimedArrivalTime = std::stod(parts[8]);
+        ann.epoch              = std::stoi(parts[9]);
+        ann.ambulanceCertBytes = fromHex(parts[10]);
+        ann.ambulanceSigBytes  = fromHex(parts[11]);
+        int siglen = std::stoi(parts[12]);
         size_t p = s.find('|');
-        for (int k = 1; k < 11 && p != std::string::npos; ++k) p = s.find('|', p + 1);
+        for (int k = 1; k < 13 && p != std::string::npos; ++k) p = s.find('|', p + 1);
         size_t offset = (p != std::string::npos) ? p + 1 : s.size();
         if (offset < payload.size() && offset + (size_t)siglen <= payload.size())
             ann.signature.assign(payload.begin() + offset, payload.begin() + offset + siglen);
@@ -102,6 +123,8 @@ std::vector<uint8_t> ResDBIntersectionApp::serializeArrivalEcho(const ArrivalEch
     ss << echo.echoingReplicaId << "|"
        << echo.targetCarId      << "|"
        << echo.lane             << "|"
+       << echo.physicalLaneIndex << "|"
+       << echo.lateralClaimCm   << "|"
        << echo.positionInLane   << "|"
        << dirToStr(echo.direction) << "|"
        << static_cast<int>(echo.observedCue) << "|"
@@ -125,19 +148,21 @@ ResDBIntersectionApp::deserializeArrivalEcho(BFTMessage* msg)
     std::memset(echo.signerPubKey, 0, CRYPTO_PUBKEY_BYTES);
     std::memset(echo.signature, 0, CRYPTO_SIG_MAX_BYTES);
     echo.signatureLen = 0;
-    if (parts.size() >= 10) {
+    if (parts.size() >= 12) {
         echo.echoingReplicaId = std::stoi(parts[0]);
         echo.targetCarId      = parts[1];
         echo.lane             = parts[2];
-        echo.positionInLane   = std::stoi(parts[3]);
-        echo.direction        = strToDir(parts[4]);
-        echo.observedCue      = ResDBPerception::cueFromCode(static_cast<uint8_t>(std::stoi(parts[5])));
-        auto hashBytes        = fromHex(parts[6]);
+        echo.physicalLaneIndex = std::stoi(parts[3]);
+        echo.lateralClaimCm   = static_cast<int32_t>(std::stol(parts[4]));
+        echo.positionInLane   = std::stoi(parts[5]);
+        echo.direction        = strToDir(parts[6]);
+        echo.observedCue      = ResDBPerception::cueFromCode(static_cast<uint8_t>(std::stoi(parts[7])));
+        auto hashBytes        = fromHex(parts[8]);
         if (hashBytes.size() == echo.claimHash.size())
             std::copy(hashBytes.begin(), hashBytes.end(), echo.claimHash.begin());
-        echo.isAmbulance      = (parts[7] == "1");
-        echo.epoch            = std::stoi(parts[8]);
-        const std::string& sf = parts[9];
+        echo.isAmbulance      = (parts[9] == "1");
+        echo.epoch            = std::stoi(parts[10]);
+        const std::string& sf = parts[11];
         size_t firstComma = sf.find(',');
         size_t secondComma = firstComma == std::string::npos
             ? std::string::npos : sf.find(',', firstComma + 1);
@@ -163,6 +188,8 @@ std::vector<uint8_t> ResDBIntersectionApp::serializeArrivalCert(const ArrivalCer
     std::stringstream ss;
     ss << cert.carId          << "|"
        << cert.lane           << "|"
+       << cert.physicalLaneIndex << "|"
+       << cert.lateralClaimCm << "|"
        << cert.positionInLane << "|"
        << dirToStr(cert.direction) << "|"
        << hashHex(cert.claimHash) << "|"
@@ -188,17 +215,19 @@ ResDBIntersectionApp::deserializeArrivalCert(BFTMessage* msg)
     std::string s(payload.begin(), payload.end());
     auto parts = splitStr(s, '|');
     ArrivalCert cert;
-    if (parts.size() < 7) return cert;
+    if (parts.size() < 9) return cert;
     cert.carId          = parts[0];
     cert.lane           = parts[1];
-    cert.positionInLane = std::stoi(parts[2]);
-    cert.direction      = strToDir(parts[3]);
-    auto claimHashBytes = fromHex(parts[4]);
+    cert.physicalLaneIndex = std::stoi(parts[2]);
+    cert.lateralClaimCm = static_cast<int32_t>(std::stol(parts[3]));
+    cert.positionInLane = std::stoi(parts[4]);
+    cert.direction      = strToDir(parts[5]);
+    auto claimHashBytes = fromHex(parts[6]);
     if (claimHashBytes.size() != cert.claimHash.size()) return ArrivalCert{};
     std::copy(claimHashBytes.begin(), claimHashBytes.end(), cert.claimHash.begin());
-    cert.isAmbulance    = (parts[5] == "1");
-    cert.epoch          = std::stoi(parts[6]);
-    for (size_t i = 7; i < parts.size(); i++) {
+    cert.isAmbulance    = (parts[7] == "1");
+    cert.epoch          = std::stoi(parts[8]);
+    for (size_t i = 9; i < parts.size(); i++) {
         size_t firstColon = parts[i].find(':');
         size_t secondColon = firstColon == std::string::npos
             ? std::string::npos : parts[i].find(':', firstColon + 1);
@@ -229,6 +258,8 @@ ResDBIntersectionApp::deserializeArrivalCert(BFTMessage* msg)
         }
         echo.targetCarId      = cert.carId;
         echo.lane             = cert.lane;
+        echo.physicalLaneIndex = cert.physicalLaneIndex;
+        echo.lateralClaimCm   = cert.lateralClaimCm;
         echo.positionInLane   = cert.positionInLane;
         echo.direction        = cert.direction;
         echo.claimHash        = cert.claimHash;
@@ -245,6 +276,7 @@ std::string ResDBIntersectionApp::canonicalArrivalAnnouncementPayload(
     std::ostringstream ss;
     ss << std::setprecision(17)
        << ann.carId << "|" << ann.epoch << "|" << ann.laneId << "|" << ann.lane << "|"
+       << ann.physicalLaneIndex << "|" << ann.lateralClaimCm << "|"
        << ann.positionInLane << "|" << dirToStr(ann.direction) << "|"
        << (ann.isAmbulance ? "1" : "0") << "|" << ann.claimedArrivalTime << "|"
        << toHex(ann.ambulanceCertBytes) << "|" << toHex(ann.ambulanceSigBytes);
@@ -287,6 +319,8 @@ bool ResDBIntersectionApp::verifyArrivalAnnouncementOrigin(const ArrivalAnnounce
 std::string ResDBIntersectionApp::arrivalEchoSigningPayload(const ArrivalEcho& echo) const
 {
     return echo.targetCarId + ":" + echo.lane + ":" +
+        std::to_string(echo.physicalLaneIndex) + ":" +
+        std::to_string(echo.lateralClaimCm) + ":" +
         std::to_string(echo.positionInLane) + ":" + dirToStr(echo.direction) + ":" +
         std::to_string(static_cast<int>(echo.observedCue)) + ":" + hashHex(echo.claimHash) + ":" +
         (echo.isAmbulance ? "1" : "0") + ":" + std::to_string(echo.epoch) + ":" +
@@ -340,6 +374,13 @@ void ResDBIntersectionApp::startDiscoveryRound(const char* reason)
 {
     if (current_phase_ == ConsensusPhase::DEPARTED || is_departed_) return;
     cancelArrivalCertFinalizeTimer();
+    cancelStoppedDistanceFinalizeTimer();
+    my_received_distance_echoes_.clear();
+    local_distance_attestation_ = StoppedDistanceAttestation{};
+    stopped_distance_attestation_sent_ = false;
+    stopped_distance_cert_broadcast_ = false;
+    stopped_distance_attestation_retry_count_ = 0;
+    stopped_distance_collection_active_ = false;
     if (discovery_deadline_msg_->isScheduled()) cancelEvent(discovery_deadline_msg_);
     if (discovery_settle_msg_->isScheduled()) cancelEvent(discovery_settle_msg_);
     discovery_.reset(current_epoch_, simTime());
@@ -413,7 +454,7 @@ bool ResDBIntersectionApp::discoveryViewCertified(std::vector<int>* missing) con
         if (cancel_pending_ && !shouldIncludeInRollbackMembership(rid)) continue;
         hasEligibleIntent = true;
         if (carId == localCarId) hasLocalIntent = true;
-        if (!collected_certs_.count(carId)) {
+        if (!collected_certs_.count(carId) || !collected_distance_certs_.count(carId)) {
             if (missing) missing->push_back(rid);
             else return false;
         }
@@ -421,11 +462,66 @@ bool ResDBIntersectionApp::discoveryViewCertified(std::vector<int>* missing) con
     return hasEligibleIntent && hasLocalIntent && (!missing || missing->empty());
 }
 
+bool ResDBIntersectionApp::arrivalViewCertified() const
+{
+    bool hasEligibleIntent = false;
+    std::lock_guard<std::mutex> lk(certs_mutex_);
+    for (const auto& carId : observed_intent_cars_) {
+        const int rid = extractReplicaId(carId);
+        if (cancel_pending_ && !shouldIncludeInRollbackMembership(rid)) continue;
+        hasEligibleIntent = true;
+        if (!collected_certs_.count(carId)) return false;
+    }
+    return hasEligibleIntent;
+}
+
+void ResDBIntersectionApp::beginStoppedDistanceCollection(const char* reason)
+{
+    if (stopped_distance_collection_active_ ||
+            discovery_.state != DiscoveryState::COLLECTING) return;
+    stopped_distance_collection_active_ = true;
+    if (discovery_settle_msg_ && discovery_settle_msg_->isScheduled())
+        cancelEvent(discovery_settle_msg_);
+    if (broadcastArrivalAnnouncement_timer_) {
+        if (broadcastArrivalAnnouncement_timer_->isScheduled())
+            cancelEvent(broadcastArrivalAnnouncement_timer_);
+        delete broadcastArrivalAnnouncement_timer_;
+        broadcastArrivalAnnouncement_timer_ = nullptr;
+    }
+    stopStopZoneCertGossip();
+    for (auto it = pending_discovery_txs_.begin(); it != pending_discovery_txs_.end();) {
+        if (it->msgType == kStoppedDistanceAttestationType ||
+                it->msgType == kStoppedDistanceEchoType ||
+                it->msgType == kStoppedDistanceCertType) {
+            ++it;
+        } else {
+            it = pending_discovery_txs_.erase(it);
+        }
+    }
+    if (discovery_tx_flush_timer_ && discovery_tx_flush_timer_->isScheduled())
+        cancelEvent(discovery_tx_flush_timer_);
+    scheduleDiscoveryTxFlush();
+    if (discovery_deadline_msg_ && discovery_deadline_msg_->isScheduled())
+        cancelEvent(discovery_deadline_msg_);
+    scheduleAt(simTime() + cert_collection_timeout_, discovery_deadline_msg_);
+    std::cout << "[DISTANCE-COLLECTION-BEGIN] r" << replicaId_
+              << " epoch=" << discovery_.epoch
+              << " reason=" << (reason ? reason : "early-deadline")
+              << " deadline=" << simTime() + cert_collection_timeout_
+              << " earlyCerts=" << collected_certs_.size()
+              << " distanceCerts=" << collected_distance_certs_.size() << "\n";
+}
+
 void ResDBIntersectionApp::maybeAdvanceDiscovery(const char* reason, bool deadline)
 {
     if (discovery_.state != DiscoveryState::COLLECTING || !entered_stop_zone_ ||
             propose_submitted_ || order_applied_) return;
     if (deadline) {
+        if (!stopped_distance_collection_active_ && arrivalViewCertified() &&
+                !discoveryViewCertified()) {
+            beginStoppedDistanceCollection(reason);
+            return;
+        }
         beginDiscoveryDrain(reason, true);
         return;
     }
@@ -439,7 +535,7 @@ void ResDBIntersectionApp::maybeAdvanceDiscovery(const char* reason, bool deadli
     // Only the hard per-round deadline may close epoch 0 early. Later
     // epochs (post-CANCEL reconvergence) keep the eager path below, since
     // by then the topology is already established.
-    if (discovery_.epoch == 0) return;
+    if (discovery_.epoch == 0 && !stopped_distance_collection_active_) return;
     if (!discoveryViewCertified()) return;
     beginDiscoveryDrain(reason, false);
 }
@@ -450,7 +546,9 @@ void ResDBIntersectionApp::beginDiscoveryDrain(const char* reason, bool deadline
     // A local claimant that already reached f+1 must not lose its certificate
     // merely because the view closes before the post-threshold window expires.
     finalizeLocalArrivalCert(reason ? reason : "discovery-drain");
+    finalizeLocalStoppedDistanceCert(reason ? reason : "discovery-drain");
     discovery_.state = DiscoveryState::DRAINING_CERTS;
+    stopped_distance_collection_active_ = false;
     discovery_.closeReason = deadline
         ? DiscoveryCloseReason::DEADLINE
         : DiscoveryCloseReason::STABILIZED;
@@ -473,6 +571,10 @@ void ResDBIntersectionApp::beginDiscoveryDrain(const char* reason, bool deadline
               << " deadline=" << (deadline ? 1 : 0)
               << " local_cert_assembled=" << (discovery_.localCertAssembled() ? 1 : 0)
               << " local_cert_aired=" << (discovery_.localCertAired() ? 1 : 0)
+              << " local_distance_cert_assembled="
+              << (discovery_.localDistanceCertAssembled() ? 1 : 0)
+              << " local_distance_cert_aired="
+              << (discovery_.localDistanceCertAired() ? 1 : 0)
               << " t=" << simTime() << "\n";
     maybeCompleteDiscoveryDrain(reason);
 }
@@ -481,6 +583,8 @@ void ResDBIntersectionApp::maybeCompleteDiscoveryDrain(const char* reason)
 {
     if (discovery_.state != DiscoveryState::DRAINING_CERTS) return;
     if (discovery_.localCertAssembled() && !discovery_.localCertAired()) return;
+    if (discovery_.localDistanceCertAssembled() &&
+            !discovery_.localDistanceCertAired()) return;
     if (hasPendingDiscoveryCerts(discovery_.epoch)) return;
     finishDiscoveryRound(reason);
 }
@@ -504,6 +608,8 @@ void ResDBIntersectionApp::finishDiscoveryRound(const char* reason)
         std::cout << "r" << missing[i];
     }
     std::cout << " local_cert_aired=" << (discovery_.localCertAired() ? 1 : 0)
+              << " local_distance_cert_aired="
+              << (discovery_.localDistanceCertAired() ? 1 : 0)
               << " t=" << simTime() << "\n";
 
     evaluateOrderReadiness("discovery-complete");
@@ -512,6 +618,7 @@ void ResDBIntersectionApp::finishDiscoveryRound(const char* reason)
 void ResDBIntersectionApp::deactivateDiscovery(const char* reason)
 {
     cancelArrivalCertFinalizeTimer();
+    cancelStoppedDistanceFinalizeTimer();
     if (discovery_deadline_msg_ && discovery_deadline_msg_->isScheduled())
         cancelEvent(discovery_deadline_msg_);
     if (discovery_settle_msg_ && discovery_settle_msg_->isScheduled())
@@ -520,6 +627,7 @@ void ResDBIntersectionApp::deactivateDiscovery(const char* reason)
     stopStopZoneCertGossip();
     cancelPendingDiscoveryTxs(reason ? reason : "inactive");
     discovery_.state = DiscoveryState::INACTIVE;
+    stopped_distance_collection_active_ = false;
 }
 
 // ── attachAmbulanceCryptoToAnnouncement (ported from legacy arrival path) ────
@@ -564,7 +672,8 @@ void ResDBIntersectionApp::attachAmbulanceCryptoToAnnouncement(ArrivalAnnounceme
 
 void ResDBIntersectionApp::broadcastArrivalAnnouncement()
 {
-    if (discovery_.state != DiscoveryState::COLLECTING || propose_submitted_ ||
+    if (stopped_distance_collection_active_ ||
+            discovery_.state != DiscoveryState::COLLECTING || propose_submitted_ ||
             current_phase_ == ConsensusPhase::DEPARTED || order_applied_ ||
             crashCommsDisabled_) return;
     if (!mobility) return;
@@ -618,6 +727,28 @@ void ResDBIntersectionApp::broadcastArrivalAnnouncement()
     } else {
         ann.lane = "N";
     }
+    ann.physicalLaneIndex = 0;
+    ann.lateralClaimCm = 0;
+    if (lane_observation_mode_ == LaneObservationMode::ADJACENT_LATERAL) {
+        ann.lateralClaimCm = perception_ ? perception_->ownLateralClaimCm(simTime()) : 0;
+        if (phase2_attack_kind_ == Phase2AttackKind::FALSE_PHYSICAL_LANE &&
+                replicaId_ == phase2_attack_target_replica_id_) {
+            ann.lateralClaimCm += static_cast<int32_t>(
+                std::llround(phase2_lateral_claim_offset_m_ * 100.0));
+        }
+        ann.physicalLaneIndex = perception_
+            ? perception_->projectPhysicalLaneIndex(ann.lateralClaimCm) : -1;
+        const size_t suffix = ann.laneId.rfind('_');
+        if (suffix != std::string::npos && ann.physicalLaneIndex >= 0)
+            ann.laneId = ann.laneId.substr(0, suffix + 1) +
+                std::to_string(ann.physicalLaneIndex);
+        std::cout << "[LATERAL-CLAIM] target=" << myCarId
+                  << " epoch=" << current_epoch_
+                  << " claimCm=" << ann.lateralClaimCm
+                  << " physicalLaneIndex=" << ann.physicalLaneIndex
+                  << " offsetM=" << (phase2_attack_kind_ == Phase2AttackKind::FALSE_PHYSICAL_LANE
+                         ? phase2_lateral_claim_offset_m_ : 0.0) << "\n";
+    }
 
     if (is_byzantine_ && byzantine_type_ == BYZANTINE_FALSE_LANE) {
         ann.laneId = "BYZANTINE_FAKE_LANE";
@@ -647,7 +778,8 @@ void ResDBIntersectionApp::broadcastArrivalAnnouncement()
     std::cout << "[ANN-BROADCAST] Replica " << replicaId_ << " positionInLane: " << rank << "\n";
 
     ann.direction          = strToDir(intended_direction_);
-    if (phase2_attack_kind_ == Phase2AttackKind::FALSE_DIRECTION &&
+    if ((phase2_attack_kind_ == Phase2AttackKind::FALSE_DIRECTION ||
+            phase2_attack_kind_ == Phase2AttackKind::FALSE_PHYSICAL_LANE) &&
             replicaId_ == phase2_attack_target_replica_id_) {
         ann.direction = DIR_RIGHT;
     }
@@ -692,6 +824,8 @@ void ResDBIntersectionApp::broadcastArrivalAnnouncement()
         VehicleState selfVS;
         selfVS.vehicleId       = myCarId;
         selfVS.lane            = ann.lane;
+        selfVS.physicalLaneIndex = ann.physicalLaneIndex;
+        selfVS.lateralClaimCm  = ann.lateralClaimCm;
         selfVS.positionInLane  = ann.positionInLane;
         selfVS.direction       = ann.direction;
         selfVS.isAmbulance     = ann.isAmbulance;
@@ -710,16 +844,37 @@ void ResDBIntersectionApp::broadcastArrivalAnnouncement()
     addLocalSelfAttestation(ann);
 
     if (is_byzantine_ && byzantine_type_ == BYZANTINE_EQUIVOCATOR) {
+        // Construct exactly two authenticated byte variants and reuse each one
+        // for its peer subset. Re-signing separately for every peer would make
+        // randomized ECDSA encodings create N distinct claim hashes even when
+        // the semantic declaration is the same, obscuring the intended
+        // LEFT-vs-RIGHT equivocation experiment.
+        ArrivalAnnouncement annLeft = ann;
+        if (annLeft.direction != DIR_LEFT) {
+            annLeft.direction = DIR_LEFT;
+            signAnnouncement(annLeft);
+        }
+        ArrivalAnnouncement annRight = ann;
+        if (annRight.direction != DIR_RIGHT) {
+            annRight.direction = DIR_RIGHT;
+            signAnnouncement(annRight);
+        }
+        const std::string leftHash = hashHex(arrivalAnnouncementHash(annLeft));
+        const std::string rightHash = hashHex(arrivalAnnouncementHash(annRight));
         int n = total_vehicles_;
         for (int peerId = 0; peerId < n; ++peerId) {
             if (peerId == replicaId_) continue;
-            ArrivalAnnouncement annByz = ann;
-            annByz.direction = (peerId < n / 2) ? DIR_LEFT : DIR_RIGHT;
-            signAnnouncement(annByz);
+            const ArrivalAnnouncement& annByz =
+                (peerId < n / 2) ? annLeft : annRight;
             cached_local_announcements_[std::to_string(current_epoch_) +
                                         ":peer:" + std::to_string(peerId)] = annByz;
-            std::cout << "[BYZANTINE] r" << replicaId_ << " EQUIVOCATOR: peer "
-                      << peerId << " dir=" << (peerId < n/2 ? "L" : "R") << "\n";
+            std::ostringstream attackRecord;
+            attackRecord << "[BYZANTINE] r" << replicaId_
+                         << " EQUIVOCATOR: peer " << peerId
+                         << " dir=" << (peerId < n/2 ? "L" : "R")
+                         << " claimHash=" << (peerId < n/2 ? leftHash : rightHash)
+                         << "\n";
+            std::cout << attackRecord.str() << std::flush;
             sendBFTMessage(peerId, serializeArrivalAnnouncement(annByz), kArrivalAnnounceType);
         }
     } else {
@@ -806,9 +961,10 @@ void ResDBIntersectionApp::handleArrivalAnnouncementGossip(BFTMessage* msg)
 }
 
 void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
-                                                     bool viaGossip,
-                                                     int carrierReplicaId)
+                                                      bool viaGossip,
+                                                      int carrierReplicaId)
 {
+    if (stopped_distance_collection_active_) return;
     if (discovery_.state != DiscoveryState::COLLECTING || propose_submitted_ ||
             order_applied_ || crashCommsDisabled_ ||
             current_phase_ == ConsensusPhase::DEPARTED) return;
@@ -830,6 +986,41 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
     const std::string claimHashHex = hashHex(claimHash);
     const std::string cacheKey = std::to_string(ann.epoch) + ":" + ann.carId + ":" +
         claimHashHex;
+    const std::string variantKey = std::to_string(ann.epoch) + ":" + ann.carId;
+
+    // One-variant-per-witness invariant. The first origin-authenticated claim
+    // observed for (target, epoch) is the only variant this honest witness may
+    // evaluate or echo. A second hash is retained as cryptographic evidence,
+    // rejected before perception, and never given another noise trial.
+    if (!is_byzantine_) {
+        auto firstVariant = first_arrival_claim_hashes_.find(variantKey);
+        auto& variants = authenticated_arrival_claim_variants_[variantKey];
+        if (firstVariant == first_arrival_claim_hashes_.end()) {
+            first_arrival_claim_hashes_[variantKey] = claimHash;
+            variants.emplace(claimHashHex, ann);
+        } else if (firstVariant->second != claimHash) {
+            const std::string firstHashHex = hashHex(firstVariant->second);
+            const bool firstConflictObservation = variants.emplace(claimHashHex, ann).second;
+            cached_arrival_rejections_.insert(cacheKey);
+            if (firstConflictObservation) {
+                auto acceptedVariant = variants.find(firstHashHex);
+                const std::string firstDirection = acceptedVariant != variants.end()
+                    ? dirToStr(acceptedVariant->second.direction) : "?";
+                std::cout << "[EQUIVOCATION-DETECTED] witness=" << replicaId_
+                          << " target=" << ann.carId
+                          << " epoch=" << ann.epoch
+                          << " firstHash=" << firstHashHex
+                          << " secondHash=" << claimHashHex
+                          << " firstDirection=" << firstDirection
+                          << " secondDirection=" << dirToStr(ann.direction)
+                          << " action=REJECT_SECOND_VARIANT"
+                          << " perceptionEvaluated=0 echoSent=0\n";
+            }
+            return;
+        } else {
+            variants.emplace(claimHashHex, ann);
+        }
+    }
     std::cout << "[ANN-RECV] Replica " << replicaId_ << " received ARRIVAL_ANNOUNCE from "
               << ann.carId << " frameFrom=" << msg->getFromReplicaId()
               << " via=" << (viaGossip ? "gossip" : "direct");
@@ -857,7 +1048,9 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
     const std::string sampleKey = cacheKey;
     ArrivalPerceptionSample sample;
     if (colludingFalseLane ||
-            (phase2Collusion && phase2_attack_kind_ == Phase2AttackKind::WRONG_APPROACH)) {
+            (phase2Collusion &&
+             (phase2_attack_kind_ == Phase2AttackKind::WRONG_APPROACH ||
+              phase2_attack_kind_ == Phase2AttackKind::FALSE_PHYSICAL_LANE))) {
         result = {true,
                   phase2Collusion ? "PHASE2_COLLUSION" : "BYZANTINE_COLLUSION",
                   ann.laneId,
@@ -868,6 +1061,10 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
         sample.observedCue = static_cast<ObservedCue>(ann.direction);
         sample.trueCue = sample.observedCue;
         sample.knownCueSamples = 1;
+        sample.lateralCoordinateValid =
+            lane_observation_mode_ == LaneObservationMode::ADJACENT_LATERAL;
+        sample.trueLateralCm = ann.lateralClaimCm;
+        sample.observedLateralCm = ann.lateralClaimCm;
         sample.observedAt = simTime();
         arrival_perception_samples_[sampleKey] = sample;
     } else {
@@ -885,10 +1082,33 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
             sample.knownCueSamples = 1;
             arrival_perception_samples_[sampleKey] = sample;
         }
-        const bool laneMatch = sample.detected && ann.lane.size() == 1 &&
+        const bool cardinalMatch = sample.detected && ann.lane.size() == 1 &&
             sample.observedApproach == ann.lane.front();
+        const bool adjacentMode =
+            lane_observation_mode_ == LaneObservationMode::ADJACENT_LATERAL;
+        const int projectedLane = perception_
+            ? perception_->projectPhysicalLaneIndex(ann.lateralClaimCm) : -1;
+        const bool claimSemanticsValid = !adjacentMode ||
+            ((ann.physicalLaneIndex == 0 || ann.physicalLaneIndex == 1) &&
+             projectedLane == ann.physicalLaneIndex);
+        const int64_t lateralResidualCm = adjacentMode && sample.lateralCoordinateValid
+            ? std::llabs(static_cast<int64_t>(sample.observedLateralCm) -
+                         static_cast<int64_t>(ann.lateralClaimCm))
+            : 0;
+        const double lateralToleranceCm = adjacentMode
+            ? par("physicalGateK").doubleValue() *
+              par("lateralObservationSigmaM").doubleValue() * 100.0
+            : 0.0;
+        const bool lateralMatch = !adjacentMode ||
+            (sample.lateralCoordinateValid && claimSemanticsValid &&
+             static_cast<double>(lateralResidualCm) <= lateralToleranceCm + 1e-9);
+        const bool laneMatch = cardinalMatch && lateralMatch;
+        const char* laneReason = !sample.detected ? "NO_PERCEPTION" :
+            !cardinalMatch ? "WRONG_APPROACH" :
+            !claimSemanticsValid ? "INVALID_PHYSICAL_LANE" :
+            !lateralMatch ? "LATERAL_RESIDUAL" : "OK";
         result = {laneMatch,
-                  !sample.detected ? "NO_PERCEPTION" : laneMatch ? "OK" : "WRONG_APPROACH",
+                  laneReason,
                   sample.detected ? std::string(1, sample.observedApproach) : std::string(),
                   static_cast<double>(ann.positionInLane)};
         std::cout << "[PERC-EVAL] witness=" << replicaId_
@@ -899,6 +1119,22 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
                   << " trueLane=" << sample.trueApproach
                   << " claimedLane=" << ann.lane
                   << " observedLane=" << sample.observedApproach
+                  << " mode=" << (adjacentMode ? "ADJACENT_LATERAL" : "CATEGORICAL_CARDINAL")
+                  << " trueLateralCm=" << sample.trueLateralCm
+                  << " observedLateralCm=" << sample.observedLateralCm
+                  << " claimedLateralCm=" << ann.lateralClaimCm
+                  << " lateralResidualCm=" << lateralResidualCm
+                  << " lateralToleranceCm=" << lateralToleranceCm
+                  << " claimedPhysicalLaneIndex=" << ann.physicalLaneIndex
+                  << " projectedPhysicalLaneIndex=" << projectedLane
+                  << " trueXY=" << sample.trueX << "," << sample.trueY
+                  << " observedXY=" << sample.observedX << "," << sample.observedY
+                  << " continuousValid=" << (sample.continuousPositionValid ? 1 : 0)
+                  << " truePhysicalLaneIndex=" << sample.truePhysicalLaneIndex
+                  << " observedPhysicalLaneIndex=" << sample.observedPhysicalLaneIndex
+                  << " trueDistanceToStopM=" << sample.trueDistanceToStopM
+                  << " observedDistanceToStopM=" << sample.observedDistanceToStopM
+                  << " longitudinalValid=" << (sample.longitudinalDistanceValid ? 1 : 0)
                   << " observedCue=" << ResDBPerception::cueName(sample.observedCue)
                   << " knownCueSamples=" << sample.knownCueSamples << "\n";
     }
@@ -911,6 +1147,8 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
         vs.vehicleId      = ann.carId;
         char c = result.actualLaneId.empty() ? 'N' : std::toupper(result.actualLaneId[0]);
         vs.lane           = (c=='N'||c=='S'||c=='E'||c=='W') ? std::string(1,c) : "N";
+        vs.physicalLaneIndex = ann.physicalLaneIndex;
+        vs.lateralClaimCm = ann.lateralClaimCm;
         vs.positionInLane = ann.positionInLane;
         vs.direction      = ann.direction;
         vs.isAmbulance    = false;  // don't trust ambulance claim from lane-liar
@@ -978,6 +1216,8 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
     VehicleState vs;
     vs.vehicleId       = ann.carId;
     vs.lane            = ann.lane;
+    vs.physicalLaneIndex = ann.physicalLaneIndex;
+    vs.lateralClaimCm  = ann.lateralClaimCm;
     vs.positionInLane  = ann.positionInLane;
     vs.direction       = ann.direction;
     vs.isAmbulance     = ann.isAmbulance;
@@ -1022,10 +1262,26 @@ void ResDBIntersectionApp::addLocalSelfAttestation(const ArrivalAnnouncement& an
             order_applied_ || crashCommsDisabled_ ||
             current_phase_ == ConsensusPhase::DEPARTED) return;
 
+    if (lane_observation_mode_ == LaneObservationMode::ADJACENT_LATERAL) {
+        const int projectedLane = perception_
+            ? perception_->projectPhysicalLaneIndex(ann.lateralClaimCm) : -1;
+        if ((ann.physicalLaneIndex != 0 && ann.physicalLaneIndex != 1) ||
+                projectedLane != ann.physicalLaneIndex) {
+            std::cout << "[SELF-ATTEST] target=" << ann.carId
+                      << " epoch=" << ann.epoch << " signer=" << replicaId_
+                      << " status=INVALID_PHYSICAL_LANE\n";
+            return;
+        }
+    } else if (ann.physicalLaneIndex != 0 || ann.lateralClaimCm != 0) {
+        return;
+    }
+
     ArrivalEcho echo;
     echo.echoingReplicaId = replicaId_;
     echo.targetCarId      = ann.carId;
     echo.lane             = ann.lane;
+    echo.physicalLaneIndex = ann.physicalLaneIndex;
+    echo.lateralClaimCm   = ann.lateralClaimCm;
     echo.positionInLane   = ann.positionInLane;
     echo.direction        = ann.direction;
     echo.observedCue      = static_cast<ObservedCue>(ann.direction);
@@ -1084,6 +1340,8 @@ void ResDBIntersectionApp::sendArrivalEcho(const ArrivalAnnouncement& ann)
     echo.echoingReplicaId = replicaId_;
     echo.targetCarId      = ann.carId;
     echo.lane             = ann.lane;
+    echo.physicalLaneIndex = ann.physicalLaneIndex;
+    echo.lateralClaimCm   = ann.lateralClaimCm;
     echo.positionInLane   = ann.positionInLane;
     echo.direction        = ann.direction;
     echo.claimHash        = claimHash;
@@ -1124,10 +1382,13 @@ void ResDBIntersectionApp::sendArrivalEcho(const ArrivalAnnouncement& ann)
     cached_arrival_echoes_[cacheKey] = echo;
     sendBFTMessage(-1, serializeArrivalEcho(echo), kArrivalEchoType,
                    false, true);
-    std::cout << "[ECHO-SEND] Replica " << replicaId_ << " → " << ann.carId
-              << " ARRIVAL_ECHO cue=" << ResDBPerception::cueName(echo.observedCue)
-              << " claimHash=" << hashHex(echo.claimHash)
-              << " sigLen=" << (int)echo.signatureLen << "\n";
+    std::ostringstream echoSendRecord;
+    echoSendRecord << "[ECHO-SEND] Replica " << replicaId_ << " → " << ann.carId
+                   << " ARRIVAL_ECHO cue="
+                   << ResDBPerception::cueName(echo.observedCue)
+                   << " claimHash=" << hashHex(echo.claimHash)
+                   << " sigLen=" << (int)echo.signatureLen << "\n";
+    std::cout << echoSendRecord.str() << std::flush;
     if (collusionEcho) {
         std::cout << "[FALSE-LANE-COLLUSION-ECHO] target=" << ann.carId
                   << " signer=" << replicaId_
@@ -1162,7 +1423,9 @@ const char* ResDBIntersectionApp::phase2AttackKindName() const
 {
     switch (phase2_attack_kind_) {
     case Phase2AttackKind::WRONG_APPROACH: return "WRONG_APPROACH";
+    case Phase2AttackKind::FALSE_PHYSICAL_LANE: return "FALSE_PHYSICAL_LANE";
     case Phase2AttackKind::FALSE_DIRECTION: return "FALSE_DIRECTION";
+    case Phase2AttackKind::FALSE_DISTANCE: return "FALSE_DISTANCE";
     case Phase2AttackKind::NONE: return "NONE";
     }
     return "NONE";
@@ -1205,7 +1468,10 @@ void ResDBIntersectionApp::collectArrivalEcho(const ArrivalEcho& echo, const cha
     auto hashIt = local_claim_hashes_.find(myCarId);
     if (hashIt == local_claim_hashes_.end()) return;
     if (echo.epoch != static_cast<int>(current_epoch_) ||
-            echo.lane != state.lane || echo.positionInLane != state.positionInLane ||
+            echo.lane != state.lane ||
+            echo.physicalLaneIndex != state.physicalLaneIndex ||
+            echo.lateralClaimCm != state.lateralClaimCm ||
+            echo.positionInLane != state.positionInLane ||
             echo.direction != state.direction || echo.isAmbulance != state.isAmbulance ||
             echo.claimHash != hashIt->second) {
         return;
@@ -1226,6 +1492,18 @@ void ResDBIntersectionApp::collectArrivalEcho(const ArrivalEcho& echo, const cha
 
     const int f = tolerated_faults_ >= 0 ? tolerated_faults_ : (total_vehicles_ - 1) / 3;
     const int required = f + 1;
+    const bool selfEcho = echo.echoingReplicaId == replicaId_;
+    const bool byzantineEcho = isReplicaConfiguredByzantine(echo.echoingReplicaId);
+    std::ostringstream collectRecord;
+    collectRecord << "[ECHO-COLLECT] target=" << myCarId
+                  << " epoch=" << current_epoch_
+                  << " signer=" << echo.echoingReplicaId
+                  << " byzantine=" << (byzantineEcho ? 1 : 0)
+                  << " self=" << (selfEcho ? 1 : 0)
+                  << " echoCount=" << echoes.size()
+                  << " threshold=" << required
+                  << " source=" << (source ? source : "unknown") << "\n";
+    std::cout << collectRecord.str() << std::flush;
     std::cout << "[ECHO-RECV] Replica " << replicaId_ << " received echo from "
               << echo.echoingReplicaId << " (" << echoes.size() << " so far)\n";
     if (state.lane == "X") {
@@ -1283,6 +1561,8 @@ bool ResDBIntersectionApp::finalizeLocalArrivalCert(const char* reason)
     ArrivalCert cert;
     cert.carId = myCarId;
     cert.lane = state.lane;
+    cert.physicalLaneIndex = state.physicalLaneIndex;
+    cert.lateralClaimCm = state.lateralClaimCm;
     cert.positionInLane = state.positionInLane;
     cert.direction = state.direction;
     cert.claimHash = hashIt->second;
@@ -1304,6 +1584,7 @@ bool ResDBIntersectionApp::finalizeLocalArrivalCert(const char* reason)
               << " threshold=" << required
               << " reason=" << (reason ? reason : "unspecified") << "\n";
     const int support = directionSupport(cert);
+    const bool laneAuthorized = physicalLaneAuthorizesDirection(cert);
     const Direction derived = eligibleDirection(cert);
     int bSig = 0;
     int selfAttestations = 0;
@@ -1331,6 +1612,8 @@ bool ResDBIntersectionApp::finalizeLocalArrivalCert(const char* reason)
               << " echoCount=" << cert.echoes.size()
               << " selfAttestations=" << selfAttestations
               << " b_sig=" << bSig
+              << " physicalLaneIndex=" << cert.physicalLaneIndex
+              << " laneAuthorized=" << (laneAuthorized ? 1 : 0)
               << " derivedDirection=" << dirToStr(derived) << "\n";
     std::cout << "[TRUST-TIER] target=" << cert.carId
               << " epoch=" << cert.epoch
@@ -1338,9 +1621,14 @@ bool ResDBIntersectionApp::finalizeLocalArrivalCert(const char* reason)
               << "\n";
     if (replicaId_ == phase2_attack_target_replica_id_ &&
             phase2_attack_kind_ != Phase2AttackKind::NONE) {
+        const int actualPhysicalLane = perception_
+            ? perception_->projectPhysicalLaneIndex(
+                  perception_->ownLateralClaimCm(simTime())) : 0;
         const bool falseLaneCert =
-            phase2_attack_kind_ == Phase2AttackKind::WRONG_APPROACH &&
-            cert.lane != intended_lane_;
+            (phase2_attack_kind_ == Phase2AttackKind::WRONG_APPROACH &&
+             cert.lane != intended_lane_) ||
+            (phase2_attack_kind_ == Phase2AttackKind::FALSE_PHYSICAL_LANE &&
+             cert.physicalLaneIndex != actualPhysicalLane);
         const bool falseEligibility =
             phase2_attack_kind_ == Phase2AttackKind::FALSE_DIRECTION &&
             derived == cert.direction;
@@ -1349,6 +1637,9 @@ bool ResDBIntersectionApp::finalizeLocalArrivalCert(const char* reason)
                   << " kind=" << phase2AttackKindName()
                   << " laneCertified=1"
                   << " falseLaneCert=" << (falseLaneCert ? 1 : 0)
+                  << " physicalLaneIndex=" << cert.physicalLaneIndex
+                  << " actualPhysicalLaneIndex=" << actualPhysicalLane
+                  << " lateralClaimCm=" << cert.lateralClaimCm
                   << " falseEligibility=" << (falseEligibility ? 1 : 0)
                   << " support=" << support
                   << " threshold=" << required
@@ -1371,6 +1662,7 @@ bool ResDBIntersectionApp::finalizeLocalArrivalCert(const char* reason)
 
 void ResDBIntersectionApp::handleArrivalEcho(BFTMessage* msg)
 {
+    if (stopped_distance_collection_active_) return;
     ArrivalEcho echo = deserializeArrivalEcho(msg);
     if (debug_cert_protocol_)
         std::cout << "[CERT-DEBUG] handleArrivalEcho r" << replicaId_
@@ -1434,6 +1726,17 @@ void ResDBIntersectionApp::broadcastCollectedCerts(const char* reason)
         }
     }
     if (certs.empty()) return;
+
+    if (byzantine_cert_relay_silent_) {
+        std::ostringstream line;
+        line << "[CERT-GOSSIP-WITHHELD] r" << replicaId_
+             << " epoch=" << current_epoch_
+             << " certCount=" << certs.size()
+             << " reason=" << (reason ? reason : "stop-zone")
+             << " stored=1 t=" << simTime();
+        writeArrivalAtomicLogLine(line.str());
+        return;
+    }
 
     for (const auto& cert : certs) {
         sendBFTMessage(-1, serializeArrivalCert(cert), kArrivalCertType);
@@ -1551,6 +1854,8 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
         std::lock_guard<std::mutex> lk(certs_mutex_);
         collected_certs_[cert.carId] = cert;
     }
+    local_claim_hashes_[cert.carId] = cert.claimHash;
+    processPendingStoppedDistanceAttestation(cert.carId);
     int staticCerts = 0;
     int allCerts = 0;
     int certPrimary = -1;
@@ -1570,6 +1875,8 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
         VehicleState vs;
         vs.vehicleId      = cert.carId;
         vs.lane           = cert.lane;
+        vs.physicalLaneIndex = cert.physicalLaneIndex;
+        vs.lateralClaimCm = cert.lateralClaimCm;
         vs.positionInLane = cert.positionInLane;
         vs.direction      = cert.direction;
         vs.isAmbulance    = cert.isAmbulance;
@@ -1589,9 +1896,18 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
                   << " discovery_state=" << discoveryStateName()
                   << " t=" << simTime() << "\n";
     } else if (cert_relay_tracker_.tryRelay(cert.carId)) {
-        sendBFTMessage(-1, serializeArrivalCert(cert), kArrivalCertType);
-        std::cout << "[CERT-RELAY] r" << replicaId_ << " relayed cert for "
-                  << cert.carId << " t=" << simTime() << "\n";
+        if (byzantine_cert_relay_silent_) {
+            std::ostringstream line;
+            line << "[CERT-RELAY-WITHHELD] r" << replicaId_
+                 << " car=" << cert.carId
+                 << " epoch=" << current_epoch_
+                 << " stored=1 valid=1 t=" << simTime();
+            writeArrivalAtomicLogLine(line.str());
+        } else {
+            sendBFTMessage(-1, serializeArrivalCert(cert), kArrivalCertType);
+            std::cout << "[CERT-RELAY] r" << replicaId_ << " relayed cert for "
+                      << cert.carId << " t=" << simTime() << "\n";
+        }
     }
     if (entered_stop_zone_ && discovery_.state == DiscoveryState::COLLECTING) {
         startStopZoneCertGossip("cert-stored", replicaId_ == certPrimary);
@@ -1608,6 +1924,14 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
 bool ResDBIntersectionApp::validateArrivalCert(const ArrivalCert& cert)
 {
     if (cert.direction == DIR_UNKNOWN || cert.carId.empty()) return false;
+    if (lane_observation_mode_ == LaneObservationMode::ADJACENT_LATERAL) {
+        const int projectedLane = perception_
+            ? perception_->projectPhysicalLaneIndex(cert.lateralClaimCm) : -1;
+        if ((cert.physicalLaneIndex != 0 && cert.physicalLaneIndex != 1) ||
+                projectedLane != cert.physicalLaneIndex) return false;
+    } else if (cert.physicalLaneIndex != 0 || cert.lateralClaimCm != 0) {
+        return false;
+    }
     int f = tolerated_faults_ >= 0 ? tolerated_faults_ : (total_vehicles_ - 1) / 3;
     int required = f + 1;
     if ((int)cert.echoes.size() < required) {
@@ -1646,7 +1970,10 @@ bool ResDBIntersectionApp::validateArrivalCert(const ArrivalCert& cert)
             continue;
         }
         if (echo.targetCarId != cert.carId || echo.epoch != cert.epoch ||
-                echo.lane != cert.lane || echo.positionInLane != cert.positionInLane ||
+                echo.lane != cert.lane ||
+                echo.physicalLaneIndex != cert.physicalLaneIndex ||
+                echo.lateralClaimCm != cert.lateralClaimCm ||
+                echo.positionInLane != cert.positionInLane ||
                 echo.direction != cert.direction || echo.isAmbulance != cert.isAmbulance ||
                 echo.claimHash != cert.claimHash) {
             if (debug_cert_protocol_)
@@ -1700,7 +2027,10 @@ bool ResDBIntersectionApp::isValidArrivalEchoForCert(
 {
     if (!isArrivalSignerEligible(echo.echoingReplicaId) || echo.signatureLen == 0 ||
             echo.targetCarId != cert.carId || echo.epoch != cert.epoch ||
-            echo.lane != cert.lane || echo.positionInLane != cert.positionInLane ||
+            echo.lane != cert.lane ||
+            echo.physicalLaneIndex != cert.physicalLaneIndex ||
+            echo.lateralClaimCm != cert.lateralClaimCm ||
+            echo.positionInLane != cert.positionInLane ||
             echo.direction != cert.direction || echo.isAmbulance != cert.isAmbulance ||
             echo.claimHash != cert.claimHash ||
             !WitnessKeyRegistry::instance().matches(echo.echoingReplicaId, echo.signerPubKey)) {
@@ -1715,6 +2045,21 @@ bool ResDBIntersectionApp::isValidArrivalEchoForCert(
 ResDBIntersectionApp::Direction ResDBIntersectionApp::eligibleDirection(
     const ArrivalCert& cert) const
 {
+    // Paper ablation only: the cert and Check 10 remain intact, but replicas
+    // deterministically derive scheduling direction from the declaration.
+    if (!direction_eligibility_enabled_) return cert.direction;
     const int f = tolerated_faults_ >= 0 ? tolerated_faults_ : (total_vehicles_ - 1) / 3;
-    return directionSupport(cert) >= f + 1 ? cert.direction : DIR_UNKNOWN;
+    return physicalLaneAuthorizesDirection(cert) && directionSupport(cert) >= f + 1
+        ? cert.direction : DIR_UNKNOWN;
+}
+
+bool ResDBIntersectionApp::physicalLaneAuthorizesDirection(
+    const ArrivalCert& cert) const
+{
+    if (lane_observation_mode_ != LaneObservationMode::ADJACENT_LATERAL) return true;
+    if (cert.physicalLaneIndex == 0)
+        return cert.direction == DIR_STRAIGHT || cert.direction == DIR_RIGHT;
+    if (cert.physicalLaneIndex == 1)
+        return cert.direction == DIR_LEFT;
+    return false;
 }

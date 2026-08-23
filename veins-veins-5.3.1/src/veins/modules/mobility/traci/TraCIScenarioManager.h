@@ -174,6 +174,7 @@ protected:
     std::set<std::string> phase2CalibrationVehicleIds;
     int phase2CalibrationSpeedMode;
     double phase2CalibrationSpeedMps;
+    bool endOnFirstConflictingCooccupancy;
     bool ignoreGuiCommands; /**< whether to ignore all TraCI commands that only make sense when the server has a graphical user interface */
     int order; // specific position in the multi-client execution order of the TraCI server to request upon connecting (-1: do not request a position)
     bool ignoreUnknownSubscriptionResults; // whether to (try and) ignore any subscription result we did not request (but another client might have)
@@ -215,6 +216,7 @@ protected:
     std::set<std::string> conflictZoneOccupants_;
     std::set<std::string> phase2CalibrationApplied_;
     std::set<std::pair<std::string, std::string>> unsafeConflictPairs_;
+    bool conflictingCooccupancyEndTriggered_;
     std::set<std::string> physicalCollisionVehicles_;
     bool crashSelectDone_;
     cMessage* connectAndStartTrigger; /**< self-message scheduled for when to connect to TraCI server and start running */

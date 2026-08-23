@@ -829,16 +829,21 @@ class IntersectionExecutor : public resdb::TransactionManager {
     // Diagnostic: dump every entry so we can verify is_ambulance / position_in_lane.
     static const char* kLaneName[] = {"N","S","E","W"};
     static const char* kDirName[]  = {"Str","L","R"};
-    std::cout << "[EXECUTOR] entries epoch=" << hdr.epoch << " n=" << hdr.n_vehicles << ":";
+    std::ostringstream executor_entries;
+    executor_entries << "[EXECUTOR] entries epoch=" << hdr.epoch
+                     << " n=" << hdr.n_vehicles << ":";
     for (const auto& e : entries) {
-      std::cout << " r" << e.replica_id
-                << "(lane=" << (e.lane < 4 ? kLaneName[e.lane] : "?")
-                << " pos=" << (int)e.position_in_lane
-                << " dir=" << (e.direction < 3 ? kDirName[e.direction] : "?")
-                << " ambu=" << (int)e.is_ambulance
-                << " cyber=" << (int)e.cyber_status << ")";
+      executor_entries << " r" << e.replica_id
+                       << "(lane=" << (e.lane < 4 ? kLaneName[e.lane] : "?")
+                       << " pos=" << (int)e.position_in_lane
+                       << " dir=" << (e.direction < 3 ? kDirName[e.direction] : "?")
+                       << " ambu=" << (int)e.is_ambulance
+                       << " cyber=" << (int)e.cyber_status
+                       << " physicalLane=" << (int)e.physical_lane_index
+                       << " lateralClaimCm=" << e.lateral_claim_cm << ")";
     }
-    std::cout << "\n";
+    executor_entries << "\n";
+    std::cout << executor_entries.str() << std::flush;
 
     auto schedule = resdb::omnet::BuildIntersectionSchedule(hdr, entries);
     std::string result = schedule.order_bytes;
@@ -1497,7 +1502,8 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
       }
     }
     // Check 5+6: non-zero timestamps (UINT64_MAX allowed as QUIET sentinel),
-    //           boolean is_ambulance, valid cyber_status, and direction code.
+    //           boolean is_ambulance, valid cyber_status/direction, and a
+    //           physical-lane index that can be bound by Check 10.
     {
       const uint8_t* ep = view.data + sizeof(ResdbProposeHdr);
       for (uint32_t i = 0; i < hdr.n_vehicles; ++i) {
@@ -1524,6 +1530,12 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
         if (e.direction > 3) {
           LOG(ERROR) << "[OMNET-PREVERIFY] reject: invalid direction"
                      << " value=" << static_cast<int>(e.direction)
+                     << " replica_id=" << e.replica_id;
+          return false;
+        }
+        if (e.physical_lane_index > 1) {
+          LOG(ERROR) << "[OMNET-PREVERIFY] reject: invalid physical_lane_index"
+                     << " value=" << static_cast<int>(e.physical_lane_index)
                      << " replica_id=" << e.replica_id;
           return false;
         }
@@ -1584,7 +1596,8 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
     //          Up to f omissions tolerated as plausible channel loss.
     //
     // Check 10: for every SIGNED entry whose cert this follower holds, the
-    //           proposal's lane/position_in_lane/direction/is_ambulance must
+    //           proposal's lane/physical-lane/lateral-claim/position/direction/
+    //           is_ambulance must
     //           match the cert-attested values.  Any mismatch is Byzantine
     //           state-field tampering; zero tolerance (cert is ground truth).
     {
@@ -1615,6 +1628,20 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
         std::unordered_set<int32_t> cert_backed_ids;
         for (uint32_t i = 0; i < cert_count; ++i) {
           cert_backed_ids.insert(cert_entries[i].replica_id);
+        }
+
+        // A proposal's SIGNED bit is not a leader-eligibility proof.  Require
+        // this voting replica's validated snapshot to contain the leader's
+        // arrival + stopped-distance evidence.  Static PBFT successors that
+        // are QUIET/uncertified are skipped by the application via another
+        // authenticated view change rather than being allowed to propose.
+        if (!view.is_rollback() &&
+            cert_backed_ids.find(hdr.leader_id) == cert_backed_ids.end()) {
+          LOG(ERROR) << "[OMNET-PREVERIFY] reject: leader lacks local certificate evidence"
+                     << " leader_id=" << hdr.leader_id
+                     << " local_cert_count=" << cert_count
+                     << " epoch=" << hdr.epoch;
+          return false;
         }
 
         if (!view.is_rollback() && normal_leader_is_cert_primary) {
@@ -1662,17 +1689,23 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
           if (pe.lane             != ce.lane             ||
               pe.position_in_lane != ce.position_in_lane ||
               pe.direction        != ce.direction        ||
-              pe.is_ambulance     != ce.is_ambulance) {
+              pe.is_ambulance     != ce.is_ambulance     ||
+              pe.physical_lane_index != ce.physical_lane_index ||
+              pe.lateral_claim_cm != ce.lateral_claim_cm) {
             LOG(ERROR) << "[OMNET-PREVERIFY] reject: state-field mismatch"
                        << " replica_id=" << ce.replica_id
                        << " cert(lane=" << (int)ce.lane
                        << " pos="       << (int)ce.position_in_lane
                        << " dir="       << (int)ce.direction
-                       << " ambu="      << (int)ce.is_ambulance << ")"
+                       << " ambu="      << (int)ce.is_ambulance
+                       << " physicalLane=" << (int)ce.physical_lane_index
+                       << " lateralClaimCm=" << ce.lateral_claim_cm << ")"
                        << " proposal(lane=" << (int)pe.lane
                        << " pos="           << (int)pe.position_in_lane
                        << " dir="           << (int)pe.direction
-                       << " ambu="          << (int)pe.is_ambulance << ")"
+                       << " ambu="          << (int)pe.is_ambulance
+                       << " physicalLane=" << (int)pe.physical_lane_index
+                       << " lateralClaimCm=" << pe.lateral_claim_cm << ")"
                        << " epoch=" << hdr.epoch;
             return false;
           }

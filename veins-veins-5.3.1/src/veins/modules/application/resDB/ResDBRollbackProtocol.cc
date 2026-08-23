@@ -1477,6 +1477,7 @@ void ResDBIntersectionApp::beginPostCancelDiscovery(
     order_applied_ = false;
     cert_broadcast_ = false;
     cancelArrivalCertFinalizeTimer();
+    cancelStoppedDistanceFinalizeTimer();
     stopCertBroadcastRetries();
     // Drop any leftover epoch-0 discovery frames still waiting on the stagger
     // queue before epoch-1 discovery starts filling it again.
@@ -1485,15 +1486,25 @@ void ResDBIntersectionApp::beginPostCancelDiscovery(
     {
         std::lock_guard<std::mutex> lk(certs_mutex_);
         collected_certs_.clear();
+        collected_distance_certs_.clear();
         local_vehicle_states_.clear();
         observed_intent_cars_.clear();
     }
     my_received_echoes_.clear();
+    my_received_distance_echoes_.clear();
+    stopped_distance_samples_.clear();
+    pending_distance_attestations_.clear();
+    local_distance_attestation_ = StoppedDistanceAttestation{};
+    stopped_distance_attestation_sent_ = false;
+    stopped_distance_cert_broadcast_ = false;
+    stopped_distance_attestation_retry_count_ = 0;
     arrival_perception_samples_.clear();
     cached_arrival_echoes_.clear();
     cached_local_announcements_.clear();
     cached_arrival_rejections_.clear();
     local_claim_hashes_.clear();
+    first_arrival_claim_hashes_.clear();
+    authenticated_arrival_claim_variants_.clear();
     arrival_announcements_received_.clear();
     echoed_cars_.clear();
     announcement_relay_tracker_.reset();
@@ -2141,12 +2152,20 @@ ResDBIntersectionApp::buildOrderCandidate() const
     {
         std::lock_guard<std::mutex> lk(certs_mutex_);
         candidate->certs = collected_certs_;
+        candidate->distanceCerts = collected_distance_certs_;
         candidate->vehicleStates = local_vehicle_states_;
         candidate->observedIntents = observed_intent_cars_;
     }
 
     for (const auto& kv : candidate->certs) {
         const int rid = extractReplicaId(kv.first);
+        // ORDER eligibility requires both physical stages.  An arrival-only
+        // claimant is packed QUIET by proposeAll(), so it must not become the
+        // application/PBFT primary merely because its early certificate
+        // arrived.  This is also the frozen candidate set used to skip an
+        // uncertified static successor after view change.
+        if (candidate->distanceCerts.find(kv.first) ==
+                candidate->distanceCerts.end()) continue;
         // An external/late ambulance may be carried as a proposal entry, but
         // it is not an epoch-e voter until the recovery ORDER installs the
         // newly discovered epoch-(e+1) membership.  This mirrors CertPrimary()

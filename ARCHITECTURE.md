@@ -103,6 +103,7 @@ The ResDB library still runs internal worker threads, but all interaction with V
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBIntersectionApp.ned` | NED parameters for replica identity, ResDB paths, radio transport, jitter, cert timeout, gossip, view-change timeout, Byzantine injection, and TraCI behavior. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/IV2VTransport.h` | Minimal abstract transport interface. Provides C-compatible adapters for the bridge callback table. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBArrivalProtocol.cc` | Arrival ANN/ECHO/CERT handling, discovery-round closure/drain, announce gossip, cert retries, and stop-zone cert gossip. |
+| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBDistanceProtocol.cc` | Stopped-distance Type-18/19/20 authentication, cached witness evaluation, bounded attestation retransmission, distance-certificate assembly/validation, and deterministic queue-rank derivation. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBDecision.cc` | Normal and post-CANCEL ORDER construction, optional CLEAR evidence trailer, order callback processing, and movement scheduling. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBTransport.cc` | ResDB outbound/inbound radio transport, bounded PBFT retries, and deterministic cancellable TYPE11 propagation. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResdbV2VWire.h` | Shared signed-envelope helper used by types 8–11, 14, 16, and 17 where an authenticated outer carrier is required. Layout is pubkey, signature length, DER ECDSA signature, then inner bytes. |
@@ -111,7 +112,7 @@ The ResDB library still runs internal worker threads, but all interaction with V
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBWitnessCert.h/.cc` | Shared `f+1` witness statement/certificate validation and immutable replica-id-to-P-256-key registry. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBPropagationTracker.h` | Generic semantic-keyed distinct-carrier tracker. Authentication and membership checks remain at the caller; currently used by CLEAR propagation. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBTraCI.cc` | TraCI helpers extracted from the legacy V2V module: distance-to-lane-end, lane queue discovery, vehicle stop/resume helpers, and clearance detection. |
-| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBPerception.h/.cc` | Witness-local imperfect-perception adapter. Reads target approach and signal state as hidden simulator truth, applies configured categorical corruption using a dedicated RNG stream, and returns `ArrivalPerceptionSample` without exposing uncorrupted truth to the admission rule. |
+| `veins-veins-5.3.1/src/veins/modules/application/resDB/ResDBPerception.h/.cc` | Witness-local imperfect-perception adapter. Reads target approach, signal state, world pose, and stop-line distance as hidden simulator truth; applies categorical and continuous corruption on the dedicated perception RNG stream; and returns early-arrival or stopped-distance samples without exposing uncorrupted truth to the admission rule. |
 | `veins-veins-5.3.1/src/veins/modules/application/resDB/crypto/CryptoAuth.h/.cc` | OpenSSL ECDSA P-256 helper. Generates per-vehicle EC keys, signs arbitrary byte buffers, verifies signatures, and contains CA certificate helpers. |
 | `incubator-resilientdb/integration/omnet/resdb_omnet_bridge.h` | C ABI between Veins and ResDB. Defines lifecycle, transport callback registration, sim-time update, consensus trigger, order callback, cert-primary/PBFT primary alignment, view-change hooks, and shared packed structs. |
 | `incubator-resilientdb/integration/omnet/resdb_omnet_bridge.cc` | ResDB-side integration. Builds socketless PBFT service, installs OMNeT communicator, registers pre-verify function, hosts `IntersectionExecutor`, injects inbound packets, and exposes the C API. |
@@ -184,7 +185,9 @@ The key split is between ResDB worker threads and the OMNeT++ simulation thread.
 9. Configures the PBFT view-change timeout through `ResdbOmnetSetVcTimeoutUs()`.
 10. Starts sim-time ticking through `ResdbOmnetUpdateSimTimeUs()`.
 11. Runs the socketless ResDB server thread through `ResdbOmnetRunServer()`.
-12. If `BYZANTINE_SILENT_PRIMARY` is enabled, calls `ResdbOmnetSetPbftSilent()` after the server starts.
+12. Applies full PBFT communicator muting only when the explicit
+    `byzantinePbftSilent` test flag is enabled. `BYZANTINE_SILENT_PRIMARY`
+    suppresses proposal submission but leaves view-change traffic enabled.
 
 ### Stage 1 initialization
 
@@ -264,7 +267,9 @@ typedef struct ResdbVehicleEntry {
     uint8_t  direction;
     uint8_t  position_in_lane;
     uint8_t  cyber_status;
-} ResdbVehicleEntry;  // 17 bytes
+    uint8_t  physical_lane_index;
+    int32_t  lateral_claim_cm;
+} ResdbVehicleEntry;  // 22 bytes
 
 typedef struct ResdbProposeHdr {
     uint32_t epoch;
@@ -407,8 +412,25 @@ isAmbulance | claimedArrivalTime | ambulanceCertBytes | ambulanceSigBytes
 The receiver verifies this signature using the origin replica's immutable
 registered public key. `claimHash` is SHA-256 over the authenticated serialized
 announcement and binds every witness signature to that exact claim variant.
-The carried `positionInLane` remains a queue-order field; the imperfect-
-perception gate does not claim to verify a continuous position measurement.
+The carried `positionInLane` is a queue-order field, separate from lane
+verification.
+
+`lane_observation_mode_` selects how the gate verifies the claimed lane:
+
+- `CATEGORICAL_CARDINAL` — the gate does not verify a continuous position
+  measurement; it only checks the witness's sampled cardinal approach against
+  the declaration (Phase B step 3).
+- `ADJACENT_LATERAL` (current default on the two-lane fixture) — the
+  claimant also carries `lateralClaimCm` and `physicalLaneIndex`. In addition
+  to the cardinal check, the witness compares its own noisy lateral
+  observation against the claim: `lateralResidualCm = |observedLateralCm -
+  ann.lateralClaimCm|` must fall within `lateralToleranceCm = physicalGateK *
+  lateralObservationSigmaM * 100` (the τ = kσ tolerance from the operating
+  point), and `ann.physicalLaneIndex` must match the lane the claimed
+  lateral position itself projects to. This is the continuous-lateral gate
+  that resolves the cardinal-only mode's inability to distinguish adjacent
+  same-approach lanes. See `ResDBArrivalProtocol.cc` (`cardinalMatch` /
+  `lateralMatch` / `laneMatch = cardinalMatch && lateralMatch`).
 
 When the claimant creates the announcement, it also creates exactly one signed
 local self-attestation with `observedCue=declaredDirection`. This signature is
@@ -426,7 +448,11 @@ When an honest external replica receives an authenticated announcement:
    and signal state are hidden truth inputs to configured categorical corruption,
    not values compared directly with the declaration.
 3. It accepts the lane claim only when the target is detected and
-   `observedApproach == ann.lane`, plus the existing ambulance checks.
+   `observedApproach == ann.lane` (`cardinalMatch`), plus the existing
+   ambulance checks. Under `ADJACENT_LATERAL` mode this is necessary but not
+   sufficient: the claim must also pass the continuous lateral-residual check
+   described above (`lateralMatch`); the final verdict is
+   `cardinalMatch && lateralMatch`.
 4. Signal evidence never vetoes the lane echo. The sampled cue is carried as
    `observedCue in {STRAIGHT,LEFT,RIGHT,UNKNOWN}`.
 5. On lane acceptance, it stores the intent and original announcement, signs
@@ -443,12 +469,20 @@ claimHash : isAmbulance : epoch : echoingReplicaId
 Each echo includes the signer's compressed P-256 public key and DER ECDSA
 signature. The key must match the immutable replica-key registry.
 
-Perception and the complete signed result are cached by
-`(witness,target,epoch,claimHash)`. A re-announcement reuses the cached accept
-or reject verdict; an accepted replay can retransmit the byte-identical logical
-echo for radio reliability but cannot resample the sensor or add another
-distinct signer. Phase 1 uses `K=1`; the buffer/cache is the substrate for the
+The first authenticated `claimHash` is locked by `(witness,target,epoch)`, and
+the resulting perception verdict and signed echo are cached for that hash. A
+re-announcement of the same hash reuses the cached verdict; an accepted replay
+can retransmit the byte-identical logical echo for radio reliability but cannot
+resample the sensor or add another distinct signer. A different authenticated
+hash is retained as equivocation evidence and rejected before perception or
+echo generation. Phase 1 uses `K=1`; the buffer/cache is the substrate for the
 deferred repeated-sampling experiment.
+
+The focused equivocation experiment constructs one signed LEFT announcement
+and one signed RIGHT announcement and reuses those byte-identical variants
+across the corresponding peer subsets. It does not re-sign per peer, because
+randomized ECDSA encodings would otherwise create multiple wire hashes for the
+same semantic variant.
 
 ### Announce gossip and custody relay
 
@@ -574,15 +608,24 @@ support is SIGNED-UNKNOWN.
 
 ### Cert-primary selection
 
-Normal proposal leadership is derived from the current arrival-cert set, not from the static `leaderReplicaId` ini default. `ResDBIntersectionApp::CertPrimary()` returns the smallest eligible replica id in `collected_certs_`:
+Normal initial proposal leadership is derived from complete physical evidence, not from the static `leaderReplicaId` ini default. The frozen `OrderCandidate::voterIds` contains only static replicas present in both `collected_certs_` and `collected_distance_certs_`; its smallest id is the initial primary:
 
 ```text
-CertPrimary = min { rid | collected_certs_ contains veh<rid>, 0 <= rid < totalVehicles }
+InitialPrimary = min { rid | arrivalCert(rid) and stoppedDistanceCert(rid),
+                            0 <= rid < totalVehicles }
 ```
 
-If no static cert exists, no node proposes. Nodes continue arrival announcement gossip, cert retries, and timer rechecks until at least one static cert is known.
+If no jointly certified static candidate exists, no node proposes. The system
+fails safe rather than assigning proposal authority to a QUIET or partially
+certified vehicle.
 
-This means a Byzantine replica 0 that never forms a cert is not selected as the initial proposer. A node that knows a lower certified id than itself behaves as a follower for that local run. If cert visibility is temporarily split, bridge pre-verify prevents a proposal from a higher id from committing at any follower that already holds a lower cert.
+This means a Byzantine replica 0 that lacks either stage is not selected as the
+initial proposer. For the initial view, a node that knows a lower jointly
+certified id behaves as a follower. After a valid PBFT view change, the current
+PBFT primary may become the recovery proposer even when it is not the initial
+minimum, but only if it is itself jointly certified in the validator's local
+snapshot. An uncertified static successor is skipped through another ordinary
+PBFT view change.
 
 ---
 
@@ -689,7 +732,11 @@ This is required because real TCP deployments count a replica's own votes, while
 
 ### PBFT silent mode
 
-`ResdbOmnetSetPbftSilent()` toggles `OmnetReplicaCommunicator::SetPbftSilent()`. When enabled, the node drops all outbound PBFT messages. This is used by the `BYZANTINE_SILENT_PRIMARY` fault to force followers into complaint/view-change behavior.
+`ResdbOmnetSetPbftSilent()` toggles `OmnetReplicaCommunicator::SetPbftSilent()`.
+When enabled, the node drops all outbound PBFT messages. This is an explicit
+full-communicator fault; it is separate from proposal-only
+`BYZANTINE_SILENT_PRIMARY`, which must retain complaint/view-change traffic so
+followers can replace the silent proposer.
 
 ---
 
@@ -714,13 +761,18 @@ These verify the binary proposal is well-formed for this cluster:
 
 Per-entry field sanity (part of the above gate): `sim_time_us ≠ 0` (UINT64_MAX is the QUIET sentinel), `is_ambulance ∈ {0,1}`, `cyber_status ∈ {0,1}`, `direction ∈ {0,1,2,3}`, and `leader_id ∈ [0, expected)`. Direction `3` is the signed UNKNOWN sentinel. The leader must also be a member of the request's proposed entry set.
 
-For normal proposals, the bridge also enforces cert-primary leadership before PBFT accepts the PRE_PREPARE:
+For normal proposals, the bridge also enforces certified-candidate leadership before PBFT accepts the PRE_PREPARE:
 
-1. `leader_id` must equal the smallest SIGNED static replica id in the proposal.
-2. The leader's own entry must be SIGNED, not QUIET.
-3. If the follower's local cert snapshot contains a lower static cert than `leader_id`, reject the proposal.
+1. The leader's own entry must be SIGNED, not QUIET.
+2. In the initial view, `leader_id` must equal the smallest SIGNED static replica id in the proposal; if the follower's local snapshot contains a lower certified id, reject.
+3. After authenticated view change, `leader_id` may instead equal the current PBFT primary.
+4. In either case, the follower's local snapshot must contain validated arrival and stopped-distance evidence for `leader_id`. A proposal SIGNED bit alone cannot establish leader eligibility.
 
-When those checks pass for an incoming normal PRE_PREPARE, the follower installs `leader_id + 1` into PBFT `SystemInfo` for that request's view before ResDB's primary-sender check runs. This keeps the app-level cert-primary, `ResdbProposeHdr.leader_id`, `ResdbOmnetGetPrimary()`, and ResDB's 1-based PBFT primary aligned on every replica.
+When those checks pass for an incoming normal PRE_PREPARE, the follower installs
+`leader_id + 1` into PBFT `SystemInfo` for that request's view before ResDB's
+primary-sender check runs. This keeps the frozen initial primary or authenticated
+view-change successor, `ResdbProposeHdr.leader_id`, `ResdbOmnetGetPrimary()`, and
+ResDB's 1-based PBFT primary aligned on every replica.
 
 ### Semantic checks (9–10) — cert-based
 
@@ -1315,6 +1367,13 @@ else:
 
 This prevents late PBFT/control traffic after an `[EXECUTOR] OrderDecision` from keeping a stale app-level VC timer alive and forcing a view change after consensus is already over.
 
+After a primary change, every non-primary replica that still has complete
+discovery evidence and no pending/applied order rearms the one-shot suspicion
+timer. This is necessary for consecutive faulty primaries: the timer consumed
+while replacing `r0` cannot also detect a silent `r1`. The next timeout advances
+the view again; the validated corner case reaches honest `r2` after
+`r0 -> r1 -> r2`.
+
 ### Primary change polling
 
 Every transport poll, the app checks:
@@ -1323,16 +1382,22 @@ Every transport poll, the app checks:
 current_primary = ResdbOmnetGetPrimary(handle)
 ```
 
-If the primary changed and the new primary is this replica, and no order has been applied/submitted for this replica, it calls `proposeAll()` again. `proposeAll()` still enforces `replicaId_ == CertPrimary()`, so PBFT primary polling cannot make a non-cert-primary submit a normal proposal. This keeps view-change recovery aligned with the certified-set leader rule.
+If the primary changed, the app first checks the frozen jointly certified
+candidate set. An uncertified successor logs `[CERT-PRIMARY-SKIP]` and triggers
+the next authenticated PBFT view change; it does not propose. If the new primary
+is this replica, is in the certified candidate set, and no order has been
+applied/submitted, the app calls `proposeAll()` under PBFT-view-change authority.
+Bridge preverification repeats the local certificate-backed leader check before
+any follower votes.
 
 ### Silent primary mode
 
-`BYZANTINE_SILENT_PRIMARY` has two effects:
-
-1. `proposeAll()` suppresses the client proposal.
-2. After `ResdbOmnetRunServer()`, the app calls `ResdbOmnetSetPbftSilent(handle, 1)` so the ResDB communicator drops outbound PBFT messages.
-
-This creates a realistic primary-silence fault at both app and PBFT transport levels.
+`BYZANTINE_SILENT_PRIMARY` suppresses `proposeAll()` while leaving PBFT
+complaint and view-change traffic enabled. Full communicator silence is a
+separate, explicit `byzantinePbftSilent` fault used only when the experiment
+intends to mute every outbound PBFT message. Keeping these controls separate
+lets the primary-silence experiment test recovery rather than accidentally
+preventing the faulty primary from participating in its own replacement.
 
 ### Bad proposal mode
 
@@ -1369,12 +1434,53 @@ Examples:
 | `0` | Honest | Normal behavior. | Not a fault. |
 | `1` | `FALSE_LANE` | Vehicle claims a fake lane in `ARRIVAL_ANNOUNCE`. | Honest witnesses fail TraCI verification and refuse to echo. Vehicle becomes QUIET if it cannot assemble f+1 echoes. |
 | `2` | `INVALID_SIG` | Vehicle corrupts echo signatures with garbage bytes. | `validateArrivalCert()` rejects those echoes. With enough honest witnesses, other cars still collect f+1 valid echoes. |
-| `3` | `EQUIVOCATOR` | Vehicle sends different directions to different peers. | Echo signatures diverge by direction; cert validity depends on f+1 echoes agreeing on the cert fields. |
-| `4` | `SILENT_PRIMARY` | Primary suppresses app proposal and drops outbound PBFT messages. | Followers' VC triggers force ResDB view-change; normal reproposal still must pass the cert-primary rule. |
+| `3` | `EQUIVOCATOR` | Vehicle sends one signed LEFT byte variant to one peer subset and one signed RIGHT byte variant to the other. | Each honest witness locks its first `(target,epoch)` claim hash, rejects later variants before perception/echo, and signatures from different hashes cannot be merged. Either variant may still independently reach f+1. |
+| `4` | `SILENT_PRIMARY` | Primary suppresses app proposal but retains PBFT/view-change communication. | Followers' VC triggers force ResDB view-change; normal reproposal still must pass the cert-primary rule. Full communicator muting is configured separately. |
 | `5` | `BAD_PROPOSAL` | Primary corrupts proposal shape. | Bridge pre-verify rejects PRE_PREPARE; view-change path should recover. |
 | `6` | `FAKE_AMBULANCE` | Primary flips `is_ambulance` 0→1 for the first non-ambulance entry in the proposal. | Pre-verify Check 10 catches the `is_ambulance` mismatch vs cert. Without the firewall (`RESDB_NO_FIREWALL=1`), the fake car receives ambulance crossing priority. |
 | `7` | `FAKE_AMBULANCE_FOLLOWER` | Follower injects `isAmbulance=true` with empty cert bytes into its own `ARRIVAL_ANNOUNCE`. | When `enableAmbulanceCertGate=true`, the echo path rejects uncertified ambulance claims. With the cert gate off, honest echoes accept the claim and the wrong car gets priority. |
 | `8` | `TAMPER_LANE` | Primary disguises the front E-lane car as S-lane (`position=0`) in the proposal so the scheduler sees N-STRAIGHT + "S"-STRAIGHT as safe to co-batch. The N car (going south) and the E car (going west) are released simultaneously and cross in the intersection center. | Pre-verify Check 10 catches the cert-lane vs proposal-lane mismatch. Without the firewall, the unsafe order is committed and `[CRASH_DETECTED]` is logged post-consensus by each replica. |
+| `9` | `UPGRADE_UNKNOWN_DIRECTION` | Certified proposer changes a derived `UNKNOWN` direction to `STRAIGHT`. | Check 10 compares against the locally recomputed certificate snapshot, rejects the upgrade, and recovery commits `UNKNOWN`. |
+| `10` | `TAMPER_DISTANCE_RANK` | Certified proposer changes a certificate-derived queue rank. | Check 10 rejects the position mismatch and recovery commits the certified rank. |
+| `11` | `TAMPER_PHYSICAL_LANE` | Certified proposer changes `physical_lane_index` and `lateral_claim_cm`. | Check 10 rejects both certified-state mismatches and recovery commits the original physical authority. |
+| `12` | `SUPPRESS_CERTS` | Certified proposer marks exactly `f+1` other certified entries QUIET while leaving its own entry SIGNED. | Keeping the proposer certified isolates Check 9: it rejects the `f+1` omissions, then recovery commits the locally certified entries as SIGNED. |
+
+### Proposal-integrity recovery and certificate availability
+
+Checks 9 and 10 are detection mechanisms, not in-place repair mechanisms. A
+proposal that fails either check receives no honest PREPARE quorum. Progress
+therefore requires PBFT view change, followed by a new proposal assembled from
+the successor's own authenticated certificate snapshot. The successor logs an
+atomic `[PROPOSER-CERT-STATE]` record containing its authority, certificate
+count, and certificate IDs; the E--H validation requires a non-Byzantine
+successor whose snapshot covers the deposed proposer's certified set. It also
+requires the correct certificate-derived values to commit after recovery.
+
+Certificate-relay withholding is independent of proposal mutation. The J
+experiment configures exactly `f` replicas to store valid certificates but
+withhold both certificate-forwarding paths. Origin broadcasts, PBFT, and honest
+relays remain enabled. Success requires every honest replica to reach the full
+16-certificate set through honest-to-honest paths, then commit and depart.
+
+The consecutive-primary corner configures proposal-only silence at `r0` and
+`r1`. Honest replicas rearm suspicion after the first primary change, advance
+through `r0 -> r1 -> r2`, and accept only an `r2` proposal backed by all 16
+certificates. This demonstrates recovery within `f+1` primary attempts for the
+tested two-fault prefix; it is not a dynamic-membership claim.
+
+Equivocation uses a one-variant-per-`(witness,target,epoch)` invariant. An
+honest witness may support its first authenticated variant but never evaluates
+or signs a second one. Consequently, one variant may independently certify;
+the validated claim is that honest witnesses do not double-sign and two
+conflicting variants do not both produce an unsafe committed schedule.
+
+The full binary-integrity suite runs D, E, F, G, H, J, and the consecutive-
+primary corner strictly sequentially over multiple seed indices. F deliberately
+uses `signal_error=1.0` to force the `SIGNED-UNKNOWN` state targeted by the
+UNKNOWN-upgrade mutation; other rows use the locked `0.2` operating point.
+The consistent-liar case (declare RIGHT, cue RIGHT, execute STRAIGHT) remains a
+post-commit conformance-monitoring limitation rather than a certification-gate
+defense claim.
 
 ### Experiment scenario wrappers
 
@@ -1536,7 +1642,8 @@ Common log markers used by benchmark scripts and debugging:
 | `[METRICS r] Resume_Time` | Vehicle resumed movement. |
 | `[CAR-METRICS]` | Per-car wait/departure summary. |
 | `[ANN-RECV]` | Arrival announcement received. Includes `via=direct` or `via=gossip`; gossiped messages also log the carrier replica. |
-| `[PERC-EVAL]` | The single cached external perception evaluation for `(witness,target,epoch,claimHash)`, including true/claimed/observed approach and derived cue. The analyzer rejects duplicate evaluations for the same key. |
+| `[PERC-EVAL]` | The single cached external perception evaluation for the first authenticated claim variant at `(witness,target,epoch)`, including its `claimHash`, true/claimed/observed approach, and derived cue. The analyzer rejects exact duplicates and cross-variant evaluations. |
+| `[EQUIVOCATION-DETECTED]` | A witness received a second origin-authenticated hash for the same target and epoch. Records both hashes/directions and confirms the second variant received no perception evaluation or echo. |
 | `[SELF-ATTEST]` | Claimant's one local signed echo. It consumes no perception draw and produces no Type-4 transmission. |
 | `[CERT-COLLECT]`, `[CERT-ASSEMBLE]` | First-threshold/finalize timing and the final distinct echo count, including why the one-shot collection window closed. |
 | `[CERT-EVIDENCE]` | Per-signature certificate accounting: signer, cue, self flag, Byzantine flag, and whether the cue supports the declaration. |
@@ -1616,6 +1723,7 @@ ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py --phase2-att
 ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py --phase2-metrology-validation
 ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py --phase2-pilots --phase2-pilot-profile grid
 ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py --phase2-pilots --phase2-pilot-profile full
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py --two-lane-validation
 ```
 
 The grid profile is one repetition per E1-E4 parameter cell (88 sequential,
@@ -1623,23 +1731,26 @@ resumable runs). The full profile has 384 unique cells/repetitions and reuses
 the completed grid `run_0` artifacts. Only the full profile supports shoulder
 and prediction-versus-empirical claims.
 
-### Imperfect-perception validation status (2026-08-10)
+### Imperfect-perception validation status (2026-08-15)
 
 The checked summaries report PASS for Phase 1, the N=16 mixed fixture (2A),
 self-attestation and Check 10 recovery (2B), authenticated E2/E4 attacks (2C),
 actual-movement metrology/calibration (2D), and all 88 runs in the one-seed
-grid. The 384-run `full` profile is the remaining Phase 2 exit gate. Phase 2 is
-complete only when `benchmarks/Phase2Pilots/phase2_pilot_summary.json` records
-`profile=full`, all 384 runs completed, `passed=true`, and
-`theory_consistent=true`.
+grid. The 384-run `full` Phase 2 pilot profile now passes with all 384 runs
+completed and `theory_consistent=true`. The separate N=16 longitudinal grid
+also passes all 186 runs.
 
 The paper-facing interpretation is prediction and calibration, not simply
 "noise causes errors": empirical false-certification/false-eligibility
-intervals are compared with a Binomial tail parameterized by the honest
-opportunities and Byzantine supporting signatures found in each finalized
-certificate. Configured Byzantine count does not substitute for measured
-`b_sig`, because the fixed collection window may close before every configured
-colluder contributes.
+intervals are compared with a Binomial tail parameterized by honest
+opportunities and support actually available to each attempt. For longitudinal
+certificate formation the predictor uses `b_sig_available`: the claimant's
+self-attestation plus distinct Byzantine supporting echoes actually collected.
+`b_sig_cert` remains a separate forensic count from finalized certificate
+bytes. Using `b_sig_cert=0` for an attempt that failed to finalize would
+condition the theory input on the predicted outcome. Configured Byzantine count
+also cannot substitute for `b_sig_available`, because the fixed collection
+window may close before every configured colluder contributes.
 
 ### Orchestrator scenario codes (`experiment_orchestrator.py --scenario N`)
 
@@ -1668,11 +1779,206 @@ colluder contributes.
 
 ## 22. Known Limitations and Technical Debt
 
-### Deferred imperfect-perception experiments
+### Imperfect-perception experiment status
 
-The implemented Phase 1/2 baseline remains `K=1` with independent categorical
-errors. Follow-on work is deliberately separated from the current Phase 2 exit
-gate:
+The completed Phase 1/2 cardinal baseline remains `K=1` with independent
+categorical N/S/E/W errors. Continuous lateral evidence is deliberately not
+forced onto cardinal approach substitution: realistic position noise around
+orthogonal N/E roads does not represent an adjacent-lane boundary. A dedicated
+`SixteenVehiclesAdjacentLaneResDB` fixture instead uses the same scalar
+lane-normal residual rule as the standalone adjacent-lane calibration. The
+runtime derives the normal from TraCI lane-0/lane-1 centerlines after coordinate
+conversion, quantizes observations and signed claims to centimetres, and accepts
+when `abs(u_obs-u_claim) <= k*sigma_lat`. Authenticated arrival evidence binds
+both `lateralClaimCm` and the derived physical-lane index.
+
+The active post-Phase-2 path is therefore a two-stage physical-evidence
+protocol: an early cardinal-or-adjacent-lane/cue certificate while approaching,
+followed by a separate stopped-distance certificate bound to the early claim
+hash. Ordinary single-lane cardinal fixtures use physical lane index `0`.
+The focused adjacent-lane validation passes 4/4: zero-noise lane centres are
+preserved; `b=f` with zero noise is blocked; the fixed `b=f` shoulder requires
+one honest noisy acceptance; and the `b=f+1` cliff is attributed to the six
+Byzantine signatures actually present in the certificate. The statistical
+adjacent-lane grid remains pending.
+
+The focused sequential regression command is:
+
+```bash
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
+  --adjacent-lane-validation
+```
+
+The former 310-run straight-road matrix was stopped after three development
+cells and is calibration-only. It is replaced by the full four-way two-lane net
+and `two_lane_route_manifest.csv`. Lane 0 is outer/T and permits STRAIGHT or
+RIGHT; lane 1 is inner/L and permits LEFT. The N=16 fixture covers all twelve
+movements with two vehicles in each `(approach,physicalLaneIndex)` queue.
+
+The runtime derives a lane-normal frame from the target vehicle's inbound lane
+pair for every perception evaluation. This target-relative frame is necessary:
+using the witness's own cached normal is valid on the old one-road fixture but
+wrong across orthogonal approaches. Direction eligibility now additionally
+requires that the certified physical lane authorize the declaration. Failure
+produces SIGNED-UNKNOWN and the existing singleton behavior; the executor and
+`kSafe` table are unchanged.
+
+`ResdbVehicleEntry` and `ResdbCertEntry` carry the certified physical-lane index
+and centimetre lateral claim. Proposal packing and `certSnapshotCallback`
+populate the same values, and Check 10 rejects any mismatch as well as a derived
+direction upgrade. The mechanically reviewed hazard pair is actual `N-L + S-S`
+(conflicting) versus claimed `N-R + S-S` (allowed by `kSafe`).
+
+Checkpoint 1 calibration and the standalone N=16 route validation pass. The
+first honest zero-error protocol smoke also passes with 16/16 lane-authorized
+certificates, zero perception RNG draws, no Check 10 rejection, no physical
+collision/teleport, and all vehicles departed.
+
+The sequential `--two-lane-validation` checkpoint now passes 5/5. Its `b=f`,
+zero-noise guard leaves the attacked target QUIET; its `b=f`,
+`sigma_lat=.5 m` shoulder forms with certificate-local `b_sig=5` plus honest
+support; and its `b=f+1`, zero-noise cliff forms from the six Byzantine
+signatures actually present. The honest `sigma_long=1 m` run partitions rank
+comparisons by `(approach,physicalLaneIndex)`. Byzantine fault type `11`
+mutates the certified physical-lane/lateral fields, is rejected by Check 10,
+and recovers through an honest view. The report is
+`benchmarks/Phase2TwoLaneValidation/two_lane_validation_summary.json`.
+
+The deterministic conflict-release smoke now closes the physical chain. With
+certificate-local `b_sig=6`, false physical-lane evidence authorizes the actual
+North-left target as claimed North-right; the unchanged `kSafe` rule places it
+in committed batch 0 with the South-straight counterpart; SUMO ground truth
+classifies the actual movements as conflicting; and the pair overlaps in the
+conflict zone. The run pins `speedMode=0`, `jmIgnoreFoeProb=1`, junction
+collision checking, `collision.action=none`, and teleport disabled. Its report
+is `benchmarks/Phase2TwoLaneValidation/conflict_release_cliff/run_0/two_lane_conflict_release_validation.json`.
+
+The unlocked statistical replacement is launched with
+`python3 experiment_orchestrator.py --two-lane-grid` (prefix
+`ORCHESTRATOR_SKIP_OMNET_SOURCE=1` inside an already activated environment).
+It contains 400 exact, resumable, strictly sequential cells on the full
+two-lane intersection and uses the conflict-release route ordering in every
+cell. Aggregation reports false-certification and actual conflicting
+co-occupancy Wilson intervals. The `b=0` cell is explicitly an honest control
+with effective offset zero and reports `q1`; only `b>=1` false-claim cells
+report `q0`. Theory uses collection-time `b_sig_attempt` in
+`r=max(0,f+1-b_sig_attempt)`, while finalized-byte `b_sig_cert` is retained for
+forensics. `[ECHO-COLLECT]` makes the former observable even when no certificate
+forms. The retired straight-road artifacts are excluded.
+The controlled-fixture validation is strict: false certificate, reviewed
+co-batch, and physical co-occupancy must agree end to end. Co-occupancy without
+a false certificate, or a false certificate without the expected physical
+consequence, fails the cell and remains separately classified for diagnosis.
+The Byzantine-boundary slice uses 20 repetitions per off-headline `b` (same
+seed budget as the δ / k / σ panels); the prior 5-rep scout is not a publishable
+b-panel.
+The replacement statistical matrix is therefore unlocked, with sigma axis
+`{0,.25,.5,.75,1,1.5,2,3}`.
+
+The stopped-distance stage uses one signed centimetre-quantized claim after the
+target is stationary, one cached noisy longitudinal verdict per witness, a
+bounded retransmission of identical Type-18 bytes, `f+1` distinct signers, and
+a compact Type-20 certificate. The origin sends the finalized Type-20 once and
+queues one byte-identical reliability copy in the existing cancellable discovery
+queue; this adds no timer, sampling, or certificate variant, and discovery drain
+waits for the copy. Proposal packing sorts certified distance within each
+approach/lane group and maps that order to the scheduler's unchanged rank byte.
+Missing distance evidence leaves the entry QUIET. PBFT, Check 10, kSafe,
+direction eligibility, and executor behavior remain unchanged.
+
+The generic authenticated longitudinal-offset attack is wired with separate
+attempt-local `b_sig_available` prediction accounting, certificate-local
+`b_sig_cert` forensic accounting, and actual-vs-certified same-lane ordering
+metrology. Its N=16 `b=f+1` boundary smoke has 16/16 stopped-distance
+certificates, zero QUIET entries, and the intended ordering inversion; the
+complete Phase 1 regression suite remains green. Byzantine fault type `10`
+mutates only the proposal's certificate-derived queue rank; the focused
+`--distance-rank-check10-validation` regression confirms Check 10 rejects the
+position mismatch, view change occurs, and an honest order commits. Continuous
+lateral claim certification and the focused N=16 adjacent-lane fixture are now
+wired and their four-cell validation preset passes. The full-intersection
+two-lane five-cell protocol validation also passes, including boundary,
+rank-noise, and physical-field Check 10 recovery. Conflict-release fixture
+ordering and the statistical grid remain active work.
+The full N=16 longitudinal measured-`h` grid and
+nonzero statistical calibration are complete. Later work is deliberately
+separated from this checkpoint:
+
+Operating-point selection also has an attack-free, completion-capable N=16
+two-lane preset. `--two-lane-honest-operating-sweep smoke|k-full|full` crosses
+`k={1,2,3}` with `sigma_lat={0,.1,.3,.5,.7,1,1.5,2}` while fixing the honest
+claim displacement to its only meaningful value, `delta=0`. It reports global
+witness `q1`, lane-certification/QUIET outcomes, throughput, batch size, and
+wait. The one-repetition 24-cell smoke is required first. `k-full` then runs
+only the 60 operating-point-selection runs at `sigma_lat=.5`; the optional
+480-run full surface reuses those artifacts and fills the other sigma cells.
+Selection candidates are reported at `sigma_lat=.5`, but no runtime default is
+changed automatically.
+
+The `b=f+1` ordering inversion is treated only as an end-to-end Byzantine-cliff
+smoke. Longitudinal shoulder claims use `b=f`, where certificate
+success requires honest noisy support. Raw two-observation inversions use
+`Phi(-s/(sqrt(2)*sigma_long))`; committed certificate-derived pair inversions
+remain a separate metric governed by the per-target gate and attempt-local
+`b_sig_available`/measured-`h` composition.
+
+Unlike lateral and longitudinal evidence, direction is not modeled as a graded
+physical state whose false-acceptance shoulder proves future maneuver intent.
+It is a committed declaration whose cue evidence only unlocks co-batching.
+Accordingly, direction is evaluated by a safe-throughput ablation: eligibility
+ON, eligibility OFF, and co-batching OFF. The analyzer already separates QUIET,
+SIGNED-UNKNOWN, and LEFT/table-forced singleton causes. The eligibility-off
+mode is implemented with `enableDirectionEligibility=false`; co-batching-off is
+implemented with `RESDB_ALL_SINGLETON=1`. The N=16 smoke passes all six matched
+rows (honest and `FALSE_DIRECTION`, crossed with the three modes). The full
+profile runs 20 paired repetitions per row, strictly sequentially, with the
+attack policy fixed and logged before perception draws:
+
+```bash
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
+  --two-lane-direction-ablation-full
+```
+
+The multiscale two-lane fixture checkpoint uses N=`4,8,16,20`, balances every
+approach, and preserves a `50% LEFT / 25% STRAIGHT / 25% RIGHT` maneuver mix.
+All scales use the same lane policy and reviewed `veh0=N-L`, `veh1=S-S`
+conflict pair. The honest operating-point smoke runs strictly sequentially:
+
+```bash
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
+  --two-lane-scale-smoke
+```
+
+The four-cell smoke passes with all vehicles certified and departed, no unsafe
+conflicting co-occupancy, no SUMO collision or teleport, and no committed rank
+inversion. Byzantine consensus roles are intentionally not inferred from an
+evidence-lying claimant; leader/follower attack rows are added only after their
+threat-model roles are named explicitly.
+
+The corrected longitudinal fixture uses generated config
+`SixteenVehiclesDistanceGridResDB`, which extends `SixteenVehiclesResDB`. This
+is required because another `launchConfig` assignment in the parent section
+does not supersede the parent's first matching parameter. The 4-cell smoke
+passes with requested `s=5 m` measured near `5.0021 m`, a committed inversion
+at `b=f`, the expected `b=f+1` cliff, and a clean `s=12.5 m` tail. The full
+186-run grid now passes. At `b=f`, `s=5 m`, `sigma_long=1 m`, the observed
+committed inversion rate is `4/20=0.20` versus `0.1799` predicted; the
+`s=5.5 m` point is `1/20=0.05` versus `0.0452`. Cached offline re-thresholding
+at `k={2,2.5,3}` produces false-certificate outcomes `{0,2,4}/20` and honest
+true-accept rates `{0.961,0.988,0.998}`. The run and analysis-only commands are:
+
+```bash
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
+  --longitudinal-grid --longitudinal-grid-profile full
+
+python3 experiment_orchestrator.py \
+  --longitudinal-grid-reanalyze --longitudinal-grid-profile full
+```
+
+The longitudinal preset honors `--physical-gate-k`. Nonlegacy values use a
+separate artifact root (`Phase2DistanceGridK<k>/fixture_v3`) and exact metadata
+matching, so an executed `k=2` run cannot silently resume the prior `k=3`
+grid.
 
 - E5 repeated sampling over `K in {1,3,5}` and `tau_lane`, using the existing
   per-target sample cache;
@@ -1684,7 +1990,7 @@ gate:
   independent Binomial model;
 - final paper-scale repetitions and plotting after pilot confidence intervals
   are inspected; and
-- richer sensing such as occlusion, latency, continuous pose, noisy queue rank,
+- richer sensing such as occlusion, latency, correlated pose errors,
   asymmetric signal channels, Bayesian direction distributions, or
   CARLA/hardware-calibrated channels.
 

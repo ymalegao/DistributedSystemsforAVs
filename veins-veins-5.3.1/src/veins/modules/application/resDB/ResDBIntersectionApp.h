@@ -63,12 +63,22 @@ private:
         BYZANTINE_FAKE_AMBULANCE_FOLLOWER = 7,  // Follower claims isAmbulance=true without cert — cert gate catches this
         BYZANTINE_TAMPER_LANE             = 8,  // Primary: quiet real S car + reassign E car's lane to S → scheduler batches N+E simultaneously → CRASH
         BYZANTINE_UPGRADE_UNKNOWN_DIRECTION = 9, // Primary changes SIGNED-UNKNOWN to declared STRAIGHT — Check 10 rejects
+        BYZANTINE_TAMPER_DISTANCE_RANK = 10, // Primary changes certificate-derived queue rank — Check 10 rejects
+        BYZANTINE_TAMPER_PHYSICAL_LANE = 11, // Primary changes certified physical-lane/lateral fields — Check 10 rejects
+        BYZANTINE_SUPPRESS_CERTS = 12, // Primary marks f+1 certified entries QUIET — Check 9 rejects
     };
 
     enum class Phase2AttackKind {
         NONE,
         WRONG_APPROACH,
+        FALSE_PHYSICAL_LANE,
         FALSE_DIRECTION,
+        FALSE_DISTANCE,
+    };
+
+    enum class LaneObservationMode {
+        CATEGORICAL_CARDINAL,
+        ADJACENT_LATERAL,
     };
 
     // Consensus phases
@@ -107,6 +117,7 @@ private:
         simtime_t lastNewIntentAt = -1;
         simtime_t collectionStartedAt = SIMTIME_ZERO;
         LocalCertState localCert = LocalCertState::NOT_ASSEMBLED;
+        LocalCertState localDistanceCert = LocalCertState::NOT_ASSEMBLED;
         DiscoveryCloseReason closeReason = DiscoveryCloseReason::NONE;
 
         void reset(uint32_t newEpoch, simtime_t now)
@@ -116,6 +127,7 @@ private:
             lastNewIntentAt = now;
             collectionStartedAt = SIMTIME_ZERO;
             localCert = LocalCertState::NOT_ASSEMBLED;
+            localDistanceCert = LocalCertState::NOT_ASSEMBLED;
             closeReason = DiscoveryCloseReason::NONE;
         }
 
@@ -128,6 +140,16 @@ private:
         {
             return localCert == LocalCertState::AIRED;
         }
+
+        bool localDistanceCertAssembled() const
+        {
+            return localDistanceCert != LocalCertState::NOT_ASSEMBLED;
+        }
+
+        bool localDistanceCertAired() const
+        {
+            return localDistanceCert == LocalCertState::AIRED;
+        }
     };
 
     // ── Arrival-cert direction ────────────────────────────────────────────────
@@ -137,6 +159,8 @@ private:
         std::string vehicleId;
         std::string lane;
         int         positionInLane  = 1;
+        int         physicalLaneIndex = 0;
+        int32_t     lateralClaimCm = 0;
         Direction   direction       = DIR_STRAIGHT;
         bool        isAmbulance     = false;
         uint64_t    arrival_time_us = 0;
@@ -147,6 +171,8 @@ private:
         std::string          laneId;
         std::string          lane;
         int                  positionInLane      = 1;
+        int                  physicalLaneIndex   = 0;
+        int32_t              lateralClaimCm      = 0;
         Direction            direction           = DIR_STRAIGHT;
         bool                 isAmbulance         = false;
         double               claimedArrivalTime  = 0.0;
@@ -161,6 +187,8 @@ private:
         std::string targetCarId;
         std::string lane;
         int         positionInLane = 1;
+        int         physicalLaneIndex = 0;
+        int32_t     lateralClaimCm = 0;
         Direction   direction      = DIR_STRAIGHT;
         ObservedCue observedCue    = ObservedCue::UNKNOWN;
         std::array<uint8_t, 32> claimHash{};
@@ -175,11 +203,38 @@ private:
         std::string              carId;
         std::string              lane;
         int                      positionInLane = 1;
+        int                      physicalLaneIndex = 0;
+        int32_t                  lateralClaimCm = 0;
         Direction                direction      = DIR_STRAIGHT;
         std::array<uint8_t, 32>  claimHash{};
         bool                     isAmbulance    = false;
         int                      epoch          = 0;
         std::vector<ArrivalEcho> echoes;
+    };
+
+    struct StoppedDistanceAttestation {
+        std::string targetCarId;
+        int epoch = 0;
+        std::array<uint8_t, 32> earlyClaimHash{};
+        int32_t distanceToStopCm = 0;
+        std::vector<uint8_t> signature;
+    };
+
+    struct StoppedDistanceEcho {
+        int echoingReplicaId = -1;
+        std::string targetCarId;
+        int epoch = 0;
+        std::array<uint8_t, 32> earlyClaimHash{};
+        std::array<uint8_t, 32> attestationHash{};
+        int32_t distanceToStopCm = 0;
+        uint8_t signerPubKey[CRYPTO_PUBKEY_BYTES] = {};
+        uint8_t signature[CRYPTO_SIG_MAX_BYTES] = {};
+        uint8_t signatureLen = 0;
+    };
+
+    struct StoppedDistanceCert {
+        StoppedDistanceAttestation attestation;
+        std::vector<StoppedDistanceEcho> echoes;
     };
 
     enum CancelReason {
@@ -197,6 +252,7 @@ private:
         CancelReason rollbackReason = CANCEL_CRASH;
         int initialPrimary = -1;
         std::map<std::string, ArrivalCert> certs;
+        std::map<std::string, StoppedDistanceCert> distanceCerts;
         std::map<std::string, VehicleState> vehicleStates;
         std::set<std::string> observedIntents;
         std::vector<uint8_t> cancelJustification;
@@ -439,6 +495,8 @@ private:
     void armDiscoveryTimers(const char* reason);
     void noteDiscoveryIntent(const std::string& carId, const char* source);
     bool discoveryViewCertified(std::vector<int>* missing = nullptr) const;
+    bool arrivalViewCertified() const;
+    void beginStoppedDistanceCollection(const char* reason);
     void maybeAdvanceDiscovery(const char* reason, bool deadline = false);
     void beginDiscoveryDrain(const char* reason, bool deadline);
     void maybeCompleteDiscoveryDrain(const char* reason);
@@ -463,6 +521,7 @@ private:
     bool finalizeLocalArrivalCert(const char* reason);
     void cancelArrivalCertFinalizeTimer();
     Direction eligibleDirection(const ArrivalCert& cert) const;
+    bool physicalLaneAuthorizesDirection(const ArrivalCert& cert) const;
     int directionSupport(const ArrivalCert& cert) const;
     bool isValidArrivalEchoForCert(const ArrivalEcho& echo,
                                    const ArrivalCert& cert) const;
@@ -486,6 +545,34 @@ private:
     void stopStopZoneCertGossip();
     void broadcastCollectedCerts(const char* reason);
     void handleArrivalCert(BFTMessage* msg);
+    void maybeBroadcastStoppedDistanceAttestation();
+    void retryStoppedDistanceAttestation();
+    void scheduleStoppedDistanceAttestationRetry();
+    void cancelStoppedDistanceAttestationRetry();
+    void handleStoppedDistanceAttestation(BFTMessage* msg);
+    void handleStoppedDistanceEcho(BFTMessage* msg);
+    void handleStoppedDistanceCert(BFTMessage* msg);
+    void processPendingStoppedDistanceAttestation(const std::string& carId);
+    void collectStoppedDistanceEcho(const StoppedDistanceEcho& echo);
+    bool finalizeLocalStoppedDistanceCert(const char* reason);
+    void cancelStoppedDistanceFinalizeTimer();
+    bool validateStoppedDistanceAttestation(const StoppedDistanceAttestation& att) const;
+    bool validateStoppedDistanceCert(const StoppedDistanceCert& cert) const;
+    std::string canonicalStoppedDistanceAttestationPayload(
+        const StoppedDistanceAttestation& att) const;
+    std::string stoppedDistanceEchoSigningPayload(const StoppedDistanceEcho& echo) const;
+    std::array<uint8_t, 32> stoppedDistanceAttestationHash(
+        const StoppedDistanceAttestation& att) const;
+    std::vector<uint8_t> serializeStoppedDistanceAttestation(
+        const StoppedDistanceAttestation& att) const;
+    StoppedDistanceAttestation deserializeStoppedDistanceAttestation(BFTMessage* msg) const;
+    std::vector<uint8_t> serializeStoppedDistanceEcho(const StoppedDistanceEcho& echo) const;
+    StoppedDistanceEcho deserializeStoppedDistanceEcho(BFTMessage* msg) const;
+    std::vector<uint8_t> serializeStoppedDistanceCert(const StoppedDistanceCert& cert) const;
+    StoppedDistanceCert deserializeStoppedDistanceCert(BFTMessage* msg) const;
+    std::map<std::string, uint8_t> deriveQueueRanks(
+        const std::map<std::string, ArrivalCert>& arrivals,
+        const std::map<std::string, StoppedDistanceCert>& distances) const;
 
     // ── Post-consensus order gossip (Type 9) ──────────────────────────────────
     void triggerGossip(uint32_t epoch, const std::vector<uint8_t>& order_bytes);
@@ -664,6 +751,9 @@ private:
     void applyByzantineFakeAmbulance(uint8_t* base, uint32_t n);
     void applyByzantineTamperLane(uint8_t* base, uint32_t n);
     void applyByzantineUpgradeUnknownDirection(uint8_t* base, uint32_t n);
+    void applyByzantineTamperDistanceRank(uint8_t* base, uint32_t n);
+    void applyByzantineTamperPhysicalLane(uint8_t* base, uint32_t n);
+    void applyByzantineSuppressCerts(uint8_t* base, uint32_t n);
     int countStaticCollectedCerts() const;
     int CertPrimary() const;
 
@@ -676,6 +766,7 @@ private:
     bool   vehicleInConflictBoxTraCI(const std::string& carId) const;
     bool   anyVehicleInConflictBoxTraCI() const;
     double vehicleSpeedTraCI(const std::string& carId) const;
+    double vehicleDistanceToStopTraCI(const std::string& carId) const;
     void   stopVehicle();
     void   resumeVehicle(int position_in_order);
     bool   isApproachingIntersection();
@@ -700,6 +791,8 @@ private:
     cMessage* discovery_settle_msg_    = nullptr;
     cMessage* cert_retry_timer_        = nullptr;
     cMessage* arrival_cert_finalize_timer_ = nullptr;
+    cMessage* stopped_distance_finalize_timer_ = nullptr;
+    cMessage* stopped_distance_attestation_retry_timer_ = nullptr;
     cMessage* cert_gossip_timer_       = nullptr;
     cMessage* initial_announce_msg_    = nullptr;
     cMessage* stop_sign_timeout_msg_   = nullptr;
@@ -813,7 +906,15 @@ private:
     mutable std::mutex                              certs_mutex_;
     std::map<std::string, VehicleState>             local_vehicle_states_;
     std::map<std::string, ArrivalCert>              collected_certs_;
+    std::map<std::string, StoppedDistanceCert>      collected_distance_certs_;
     std::map<std::string, std::vector<ArrivalEcho>> my_received_echoes_;
+    std::vector<StoppedDistanceEcho>                my_received_distance_echoes_;
+    std::map<std::string, StoppedDistancePerceptionSample> stopped_distance_samples_;
+    std::map<std::string, StoppedDistanceAttestation> pending_distance_attestations_;
+    StoppedDistanceAttestation local_distance_attestation_;
+    bool stopped_distance_attestation_sent_ = false;
+    bool stopped_distance_cert_broadcast_ = false;
+    int stopped_distance_attestation_retry_count_ = 0;
     std::map<std::string, ArrivalPerceptionSample>  arrival_perception_samples_;
     std::map<std::string, ArrivalEcho>              cached_arrival_echoes_;
     // Periodic retransmissions in one epoch must be byte-identical.  In
@@ -822,12 +923,20 @@ private:
     std::map<std::string, ArrivalAnnouncement>      cached_local_announcements_;
     std::set<std::string>                           cached_arrival_rejections_;
     std::map<std::string, std::array<uint8_t, 32>>  local_claim_hashes_;
+    // An honest witness signs at most one authenticated declaration variant
+    // for a target in an epoch. Replays of that first hash retain the existing
+    // per-hash verdict cache; a different hash is retained as signed
+    // equivocation evidence and rejected without another perception draw.
+    std::map<std::string, std::array<uint8_t, 32>>  first_arrival_claim_hashes_;
+    std::map<std::string, std::map<std::string, ArrivalAnnouncement>>
+                                                    authenticated_arrival_claim_variants_;
     std::set<std::string>                           observed_intent_cars_;
     std::set<std::string>                           arrival_announcements_received_;
     std::set<std::string>                           echoed_cars_;  // cars we actually sent an echo to (not FALSE_LANE)
     std::set<std::string>                           uncertified_ambulance_claimers_;
     std::set<std::string>                           cert_gate_rejected_ambulance_claimers_;
     DiscoveryRound discovery_;
+    bool stopped_distance_collection_active_ = false;
 
     bool   enable_cert_retries_      = true;
     double cert_retry_interval_      = 0.1;
@@ -837,6 +946,9 @@ private:
     bool cert_broadcast_          = false;
     simtime_t arrival_cert_threshold_reached_at_ = -1;
     double direction_eligibility_collection_window_sec_ = 0.25;
+    bool direction_eligibility_enabled_ = true;
+    double stopped_distance_attestation_retry_interval_sec_ = 0.5;
+    int stopped_distance_attestation_retry_max_ = 4;
     simtime_t cert_gossip_deadline_ = -1;
 
     // ── Post-consensus order gossip (Type 9) ──────────────────────────────────
@@ -849,6 +961,9 @@ private:
     static constexpr int kClearEchoType = 15;
     static constexpr int kClearCertType = 16;
     static constexpr int kWaitHeartbeatType = 17;
+    static constexpr int kStoppedDistanceAttestationType = 18;
+    static constexpr int kStoppedDistanceEchoType = 19;
+    static constexpr int kStoppedDistanceCertType = 20;
 
     resdb_gossip::GossipAccumulator  gossip_acc_;
     resdb_gossip::CertRelayTracker   cert_relay_tracker_;
@@ -881,6 +996,7 @@ private:
     // ── TraCI lane state ──────────────────────────────────────────────────────
     bool        lane_discovered_ = false;
     bool        is_stopped_      = false;
+    double      distance_stationary_speed_mps_ = 0.1;
     bool        is_departed_ = false;
     std::string my_lane_id_;
     std::string car_ahead_;
@@ -923,18 +1039,25 @@ private:
     bool          is_byzantine_          = false;
     ByzantineType byzantine_type_        = BYZANTINE_HONEST;
     bool          byzantine_pbft_silent_ = false;
+    bool          byzantine_cert_relay_silent_ = false;
     bool          enableAmbulanceCertGate_ = false;  // when true, rejects ambulance claims with no ambulanceCertBytes
     std::set<int> false_lane_colluder_ids_;
     Phase2AttackKind phase2_attack_kind_ = Phase2AttackKind::NONE;
     int phase2_attack_target_replica_id_ = -1;
     int phase2_actual_byzantine_count_ = 0;
     std::set<int> phase2_evidence_colluder_ids_;
+    double phase2_distance_claim_offset_m_ = 0.0;
+    double phase2_lateral_claim_offset_m_ = 0.0;
+    LaneObservationMode lane_observation_mode_ = LaneObservationMode::CATEGORICAL_CARDINAL;
     std::set<int> phase2_byzantine_replica_ids_;
     int           last_known_primary_ = 0;
     bool          bad_proposal_injected_ = false;
     int           fake_ambulance_proposal_replica_id_ = -1;
     int           tamper_lane_proposal_replica_id_ = -1;
     int           upgraded_unknown_proposal_replica_id_ = -1;
+    int           tampered_distance_rank_proposal_replica_id_ = -1;
+    int           tampered_physical_lane_proposal_replica_id_ = -1;
+    std::vector<int> suppressed_cert_proposal_replica_ids_;
     double        pbft_vc_timeout_sec_ = 3.0;
     bool          enableRollback_ = false;
     double        cancel_cert_retry_interval_sec_ = 0.1;

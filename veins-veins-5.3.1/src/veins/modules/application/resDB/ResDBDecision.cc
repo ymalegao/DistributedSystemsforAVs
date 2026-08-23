@@ -149,6 +149,33 @@ void ResDBIntersectionApp::proposeAll()
         std::cout << " stop_to_propose_sec=" << (simTime() - stop_time_).dbl();
     std::cout << "\n";
 
+    // Structured recovery provenance.  This records the immutable candidate
+    // available to each actual proposer, so attack-defense validation can show
+    // that a post-view-change proposer independently held the certificates
+    // omitted or mutated by its predecessor.
+    {
+        std::vector<int> certIds;
+        certIds.reserve(candidate.certs.size());
+        for (const auto& kv : candidate.certs) {
+            const int rid = extractReplicaId(kv.first);
+            if (rid >= 0) certIds.push_back(rid);
+        }
+        std::sort(certIds.begin(), certIds.end());
+        certIds.erase(std::unique(certIds.begin(), certIds.end()), certIds.end());
+        std::ostringstream line;
+        line << "[PROPOSER-CERT-STATE] replica=" << replicaId_
+             << " epoch=" << current_epoch_
+             << " pbftPrimary=" << ResdbOmnetGetPrimary(resdb_server_handle_)
+             << " authority=" << (order_vc_authoritative_ ? "view-change" : "cert-primary")
+             << " certCount=" << certIds.size()
+             << " ids=";
+        for (size_t i = 0; i < certIds.size(); ++i) {
+            if (i) line << ',';
+            line << certIds[i];
+        }
+        writeAtomicLogLine(line.str());
+    }
+
     std::string myCarId = "veh" + std::to_string(replicaId_);
     // Ensure own arrival_time_us is set if missing.
     // Pack ResdbProposeHdr + ResdbVehicleEntry per collected cert.
@@ -156,6 +183,42 @@ void ResDBIntersectionApp::proposeAll()
     // Missing vehicles → QUIET (cyber_status=0, sim_time_us=UINT64_MAX).
     std::set<int> present_ids;
     std::vector<ResdbVehicleEntry> entries;
+    const auto certifiedRanks = deriveQueueRanks(candidate.certs, candidate.distanceCerts);
+    // Experiment metrology only: compare pair order induced by certified
+    // per-car distances with the stopped physical order. Neither truth nor
+    // this classification enters proposal bytes.
+    std::map<std::string, std::vector<std::string>> distanceQueues;
+    for (const auto& kv : candidate.distanceCerts) {
+        const auto arrival = candidate.certs.find(kv.first);
+        if (arrival != candidate.certs.end())
+            distanceQueues[arrival->second.lane + ":" +
+                std::to_string(arrival->second.physicalLaneIndex)].push_back(kv.first);
+    }
+    for (const auto& queue : distanceQueues) {
+        for (size_t i = 0; i < queue.second.size(); ++i) {
+            for (size_t j = i + 1; j < queue.second.size(); ++j) {
+                const std::string& a = queue.second[i];
+                const std::string& b = queue.second[j];
+                const double trueA = vehicleDistanceToStopTraCI(a);
+                const double trueB = vehicleDistanceToStopTraCI(b);
+                if (trueA < 0.0 || trueB < 0.0) continue;
+                const int32_t certA =
+                    candidate.distanceCerts.at(a).attestation.distanceToStopCm;
+                const int32_t certB =
+                    candidate.distanceCerts.at(b).attestation.distanceToStopCm;
+                const bool certifiedAhead = certA < certB || (certA == certB && a < b);
+                const bool trueAhead = trueA < trueB || (trueA == trueB && a < b);
+                std::ostringstream line;
+                line << "[DIST-ORDER-PAIR] epoch=" << current_epoch_
+                     << " lane=" << queue.first
+                     << " a=" << a << " b=" << b
+                     << " certAcm=" << certA << " certBcm=" << certB
+                     << " trueAm=" << trueA << " trueBm=" << trueB
+                     << " inversion=" << (certifiedAhead != trueAhead ? 1 : 0);
+                writeAtomicLogLine(line.str());
+            }
+        }
+    }
     for (const auto& kv : candidate.certs) {
         const int rid = extractReplicaId(kv.first);
         const bool eligible = rollbackOrderEpoch
@@ -166,6 +229,14 @@ void ResDBIntersectionApp::proposeAll()
                       << " skip regular late/static-external cert rid=" << rid
                       << " car=" << kv.first
                       << " totalVehicles=" << total_vehicles_
+                      << " epoch=" << current_epoch_ << "\n";
+            continue;
+        }
+        const auto rankIt = certifiedRanks.find(kv.first);
+        if (candidate.distanceCerts.find(kv.first) == candidate.distanceCerts.end() ||
+                rankIt == certifiedRanks.end()) {
+            std::cout << "[PROPOSE-PACK] r" << replicaId_
+                      << " no stopped-distance cert; keep QUIET car=" << kv.first
                       << " epoch=" << current_epoch_ << "\n";
             continue;
         }
@@ -180,7 +251,9 @@ void ResDBIntersectionApp::proposeAll()
         const ArrivalCert& cert = kv.second;
         e.lane             = laneCode(cert.lane);
         e.direction        = directionCode(eligibleDirection(cert));
-        e.position_in_lane = static_cast<uint8_t>(std::min(cert.positionInLane, 255));
+        e.position_in_lane = rankIt->second;
+        e.physical_lane_index = static_cast<uint8_t>(cert.physicalLaneIndex);
+        e.lateral_claim_cm = cert.lateralClaimCm;
         if (candidate.vehicleStates.count(kv.first)) {
             const VehicleState& vs = candidate.vehicleStates.at(kv.first);
             e.sim_time_us      = vs.arrival_time_us;
@@ -191,6 +264,8 @@ void ResDBIntersectionApp::proposeAll()
                   << " entry rid=" << e.replica_id
                   << " lane=" << (int)e.lane
                   << " pos=" << (int)e.position_in_lane
+                  << " physicalLane=" << (int)e.physical_lane_index
+                  << " lateralClaimCm=" << e.lateral_claim_cm
                   << " direction=" << (int)e.direction
                   << " ambu=" << (int)e.is_ambulance
                   << " cert.isAmbu=" << (kv.second.isAmbulance ? 1 : 0) << "\n";
@@ -336,6 +411,12 @@ void ResDBIntersectionApp::proposeAll()
     if (is_byzantine_ && byzantine_type_ == BYZANTINE_TAMPER_LANE)     applyByzantineTamperLane(buf.data() + sizeof(ResdbProposeHdr), n);
     if (is_byzantine_ && byzantine_type_ == BYZANTINE_UPGRADE_UNKNOWN_DIRECTION)
         applyByzantineUpgradeUnknownDirection(buf.data() + sizeof(ResdbProposeHdr), n);
+    if (is_byzantine_ && byzantine_type_ == BYZANTINE_TAMPER_DISTANCE_RANK)
+        applyByzantineTamperDistanceRank(buf.data() + sizeof(ResdbProposeHdr), n);
+    if (is_byzantine_ && byzantine_type_ == BYZANTINE_TAMPER_PHYSICAL_LANE)
+        applyByzantineTamperPhysicalLane(buf.data() + sizeof(ResdbProposeHdr), n);
+    if (is_byzantine_ && byzantine_type_ == BYZANTINE_SUPPRESS_CERTS)
+        applyByzantineSuppressCerts(buf.data() + sizeof(ResdbProposeHdr), n);
 
     int rc = ResdbOmnetTriggerConsensus(resdb_server_handle_, buf.data(), (uint32_t)buf.size());
     if (rollbackOrderEpoch) {
@@ -558,6 +639,28 @@ void ResDBIntersectionApp::detectConsensusAttackOutcome(
                        "target=veh" + std::to_string(upgraded_unknown_proposal_replica_id_));
         }
         break;
+    case BYZANTINE_TAMPER_DISTANCE_RANK:
+        if (tampered_distance_rank_proposal_replica_id_ >= 0) {
+            logOutcome("TAMPER_DISTANCE_RANK",
+                       "STATE_FIELD_MISMATCH_REJECTED_AND_RECOVERED",
+                       "target=veh" + std::to_string(tampered_distance_rank_proposal_replica_id_));
+        }
+        break;
+    case BYZANTINE_TAMPER_PHYSICAL_LANE:
+        if (tampered_physical_lane_proposal_replica_id_ >= 0) {
+            logOutcome("TAMPER_PHYSICAL_LANE",
+                       "STATE_FIELD_MISMATCH_REJECTED_AND_RECOVERED",
+                       "target=veh" + std::to_string(tampered_physical_lane_proposal_replica_id_));
+        }
+        break;
+    case BYZANTINE_SUPPRESS_CERTS:
+        if (!suppressed_cert_proposal_replica_ids_.empty()) {
+            logOutcome("SUPPRESS_CERTS",
+                       "CERT_OMISSION_REJECTED_AND_RECOVERED",
+                       "omitted=" + std::to_string(
+                           suppressed_cert_proposal_replica_ids_.size()));
+        }
+        break;
     case BYZANTINE_HONEST:
         break;
     }
@@ -567,6 +670,11 @@ void ResDBIntersectionApp::detectConsensusAttackOutcome(
 
 void ResDBIntersectionApp::applyByzantineSilentPrimary()
 {
+    std::ostringstream line;
+    line << "[ATTACK-PROPOSER] replica=" << replicaId_
+         << " epoch=" << current_epoch_
+         << " mutation=SILENT_PRIMARY attempted=1 t=" << simTime();
+    writeAtomicLogLine(line.str());
     std::cout << "[BYZANTINE] r" << replicaId_
               << " SILENT_PRIMARY: suppressing propose at " << simTime() << "\n";
 }
@@ -646,12 +754,111 @@ void ResDBIntersectionApp::applyByzantineUpgradeUnknownDirection(uint8_t* base, 
             e.direction = directionCode(DIR_STRAIGHT);
             std::memcpy(base + i * sizeof(e), &e, sizeof(e));
             upgraded_unknown_proposal_replica_id_ = e.replica_id;
+            std::ostringstream provenance;
+            provenance << "[ATTACK-PROPOSER] replica=" << replicaId_
+                       << " epoch=" << current_epoch_
+                       << " mutation=UPGRADE_UNKNOWN_DIRECTION attempted=1"
+                       << " target=" << e.replica_id << " t=" << simTime();
+            writeAtomicLogLine(provenance.str());
             std::cout << "[BYZANTINE] r" << replicaId_
                       << " UPGRADE_UNKNOWN_DIRECTION: replica " << e.replica_id
                       << " direction UNKNOWN->STRAIGHT at " << simTime() << "\n";
             return;
         }
     }
+}
+
+void ResDBIntersectionApp::applyByzantineTamperDistanceRank(uint8_t* base, uint32_t n)
+{
+    for (uint32_t i = 0; i < n; ++i) {
+        ResdbVehicleEntry e;
+        std::memcpy(&e, base + i * sizeof(e), sizeof(e));
+        if (e.cyber_status != 1) continue;
+
+        const uint8_t original = e.position_in_lane;
+        e.position_in_lane = original == UINT8_MAX
+            ? static_cast<uint8_t>(UINT8_MAX - 1)
+            : static_cast<uint8_t>(original + 1);
+        std::memcpy(base + i * sizeof(e), &e, sizeof(e));
+        tampered_distance_rank_proposal_replica_id_ = e.replica_id;
+
+        std::ostringstream line;
+        line << "[BYZANTINE] r" << replicaId_
+             << " TAMPER_DISTANCE_RANK: replica " << e.replica_id
+             << " position " << static_cast<int>(original)
+             << "->" << static_cast<int>(e.position_in_lane)
+             << " at " << simTime();
+        writeAtomicLogLine(line.str());
+        return;
+    }
+}
+
+void ResDBIntersectionApp::applyByzantineTamperPhysicalLane(uint8_t* base, uint32_t n)
+{
+    for (uint32_t i = 0; i < n; ++i) {
+        ResdbVehicleEntry e;
+        std::memcpy(&e, base + i * sizeof(e), sizeof(e));
+        if (e.cyber_status != 1 || e.physical_lane_index > 1) continue;
+
+        const uint8_t originalLane = e.physical_lane_index;
+        const int32_t originalClaim = e.lateral_claim_cm;
+        e.physical_lane_index = originalLane == 0 ? 1 : 0;
+        e.lateral_claim_cm = e.physical_lane_index == 0 ? 0 : 320;
+        std::memcpy(base + i * sizeof(e), &e, sizeof(e));
+        tampered_physical_lane_proposal_replica_id_ = e.replica_id;
+
+        std::ostringstream provenance;
+        provenance << "[ATTACK-PROPOSER] replica=" << replicaId_
+                   << " epoch=" << current_epoch_
+                   << " mutation=TAMPER_PHYSICAL_LANE attempted=1"
+                   << " target=" << e.replica_id << " t=" << simTime();
+        writeAtomicLogLine(provenance.str());
+
+        std::ostringstream line;
+        line << "[BYZANTINE] r" << replicaId_
+             << " TAMPER_PHYSICAL_LANE: replica " << e.replica_id
+             << " physicalLane " << static_cast<int>(originalLane)
+             << "->" << static_cast<int>(e.physical_lane_index)
+             << " lateralClaimCm " << originalClaim
+             << "->" << e.lateral_claim_cm
+             << " at " << simTime();
+        writeAtomicLogLine(line.str());
+        return;
+    }
+}
+
+void ResDBIntersectionApp::applyByzantineSuppressCerts(uint8_t* base, uint32_t n)
+{
+    suppressed_cert_proposal_replica_ids_.clear();
+    const int f = tolerated_faults_ >= 0
+        ? tolerated_faults_ : (total_vehicles_ - 1) / 3;
+    const size_t required = static_cast<size_t>(f + 1);
+    for (uint32_t i = 0; i < n &&
+            suppressed_cert_proposal_replica_ids_.size() < required; ++i) {
+        ResdbVehicleEntry e;
+        std::memcpy(&e, base + i * sizeof(e), sizeof(e));
+        // Keep the proposing replica certified so the earlier leader-authority
+        // guard passes.  G is specifically a Check-9 isolation test: suppress
+        // f+1 *other* locally certified entries, not the leader itself.
+        if (e.replica_id == replicaId_ || e.cyber_status != 1 ||
+                e.sim_time_us == UINT64_MAX) continue;
+        suppressed_cert_proposal_replica_ids_.push_back(e.replica_id);
+        e.cyber_status = 0;
+        e.sim_time_us = UINT64_MAX;
+        std::memcpy(base + i * sizeof(e), &e, sizeof(e));
+    }
+
+    std::ostringstream line;
+    line << "[ATTACK-PROPOSER] replica=" << replicaId_
+         << " epoch=" << current_epoch_
+         << " mutation=SUPPRESS_CERTS attempted=1 omitted="
+         << suppressed_cert_proposal_replica_ids_.size() << " ids=";
+    for (size_t i = 0; i < suppressed_cert_proposal_replica_ids_.size(); ++i) {
+        if (i) line << ',';
+        line << suppressed_cert_proposal_replica_ids_[i];
+    }
+    line << " threshold=" << required << " t=" << simTime();
+    writeAtomicLogLine(line.str());
 }
 
 // ── certSnapshotCallback (ResDB worker thread) ───────────────────────────────
@@ -664,18 +871,24 @@ void ResDBIntersectionApp::applyByzantineUpgradeUnknownDirection(uint8_t* base, 
     std::lock_guard<std::mutex> lk(app->certs_mutex_);
     uint32_t capacity = *cnt;
     uint32_t i = 0;
+    const auto certifiedRanks = app->deriveQueueRanks(
+        app->collected_certs_, app->collected_distance_certs_);
     for (const auto& kv : app->collected_certs_) {
         if (i >= capacity) break;
         const std::string& carId = kv.first;
         if (carId.size() > 3) {
             try {
                 const ArrivalCert& cert = kv.second;
+                const auto rank = certifiedRanks.find(carId);
+                if (rank == certifiedRanks.end() ||
+                        !app->collected_distance_certs_.count(carId)) continue;
                 out[i].replica_id       = std::stoi(carId.substr(3));
                 out[i].lane             = laneCode(cert.lane);
-                out[i].position_in_lane = static_cast<uint8_t>(
-                    std::min(cert.positionInLane, 255));
+                out[i].position_in_lane = rank->second;
                 out[i].direction        = directionCode(app->eligibleDirection(cert));
                 out[i].is_ambulance     = cert.isAmbulance ? 1 : 0;
+                out[i].physical_lane_index = static_cast<uint8_t>(cert.physicalLaneIndex);
+                out[i].lateral_claim_cm = cert.lateralClaimCm;
                 ++i;
             } catch (...) {}
         }

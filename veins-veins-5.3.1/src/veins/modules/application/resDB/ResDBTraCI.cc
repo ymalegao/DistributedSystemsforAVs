@@ -35,9 +35,13 @@ void ResDBIntersectionApp::applyPhase2ControlledCue()
         signals.set(VehicleSignal::blinker_left, false);
         signals.set(VehicleSignal::blinker_right, false);
         signals.set(VehicleSignal::blinker_emergency, false);
-        if (intended_direction_ == "L")
+        std::string controlledDirection = intended_direction_;
+        if (phase2_attack_kind_ == Phase2AttackKind::FALSE_PHYSICAL_LANE &&
+                replicaId_ == phase2_attack_target_replica_id_)
+            controlledDirection = "R";
+        if (controlledDirection == "L")
             signals.set(VehicleSignal::blinker_left);
-        else if (intended_direction_ == "R")
+        else if (controlledDirection == "R")
             signals.set(VehicleSignal::blinker_right);
 
         // SUMO applies a TraCI signal override for one simulation step, so this
@@ -48,7 +52,7 @@ void ResDBIntersectionApp::applyPhase2ControlledCue()
             phase2_controlled_cue_logged_ = true;
             std::cout << "[PHASE2-CUE-CONTROL] vehicle=" << carId
                       << " source=controlled"
-                      << " declaredDirection=" << intended_direction_
+                      << " declaredDirection=" << controlledDirection
                       << " start=" << simTime() << "\n";
         }
     } catch (...) {
@@ -295,6 +299,22 @@ double ResDBIntersectionApp::vehicleSpeedTraCI(const std::string& carId) const
     }
 }
 
+double ResDBIntersectionApp::vehicleDistanceToStopTraCI(
+    const std::string& carId) const
+{
+    if (!mobility || !mobility->getCommandInterface()) return -1.0;
+    try {
+        auto vehicle = mobility->getCommandInterface()->vehicle(carId);
+        const std::string laneId = vehicle.getLaneId();
+        if (laneId.empty() || laneId.front() == ':') return -1.0;
+        const double laneLength =
+            mobility->getCommandInterface()->lane(laneId).getLength();
+        return std::max(0.0, laneLength - vehicle.getLanePosition());
+    } catch (...) {
+        return -1.0;
+    }
+}
+
 bool ResDBIntersectionApp::isApproachingIntersection()
 {
     double distance = getDistanceToIntersection();
@@ -422,9 +442,19 @@ void ResDBIntersectionApp::resumeVehicle(int position_in_order)
     TraCICommandInterface::Vehicle* vc = mobility ? mobility->getVehicleCommandInterface() : nullptr;
     if (!vc) return;
     is_stopped_ = false;
-    std::cout << "[V2VResDB r" << replicaId_ << "] resumeVehicle position=" << position_in_order
-              << " speed=" << cruise_speed_mps_ << " t=" << simTime() << "\n";
-    vc->setSpeedMode(0);        // re-enable SUMO safety checks (mirrors stopVehicle)
+    // Assemble first so the merged OMNeT/ResDB stdout pipe receives this as a
+    // single stream insertion instead of exposing every field to interleave.
+    std::ostringstream releaseRecord;
+    releaseRecord << "[V2VResDB r" << replicaId_ << "] resumeVehicle position=" << position_in_order
+                  << " speed=" << cruise_speed_mps_
+                  << " speedMode=0"
+                  << " junctionChecks=ignored"
+                  << " t=" << simTime() << "\n";
+    std::cout << releaseRecord.str() << std::flush;
+    // Execute the committed schedule without SUMO's right-of-way/safe-speed
+    // vetoes masking an unsafe protocol decision.  The experiment SUMO config
+    // separately pins collision checking/action and disables teleportation.
+    vc->setSpeedMode(0);
 
     vc->setSpeed(cruise_speed_mps_);
     if (position_in_order == 0) {
@@ -479,6 +509,7 @@ void ResDBIntersectionApp::disableCrashComms(const char* reason)
     if (crashCommsDisabled_) return;
     crashCommsDisabled_ = true;
     cancelArrivalCertFinalizeTimer();
+    cancelStoppedDistanceFinalizeTimer();
 
     {
         std::lock_guard<std::mutex> lk(outbound_mutex_);

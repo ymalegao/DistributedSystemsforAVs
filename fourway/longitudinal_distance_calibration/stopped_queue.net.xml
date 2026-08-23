@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- One-lane stopped-queue calibration edge. Lane position is longitudinal. -->
+<net version="1.20" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/net_file.xsd">
+    <location netOffset="0.00,0.00" convBoundary="0.00,-1.60,300.00,1.60" origBoundary="0.00,-1.60,300.00,1.60" projParameter="!"/>
+    <edge id="Q2STOP" from="Q" to="STOP" priority="1">
+        <lane id="Q2STOP_0" index="0" speed="13.89" length="300.00" width="3.20" shape="0.00,0.00 300.00,0.00"/>
+    </edge>
+    <junction id="Q" type="dead_end" x="0.00" y="0.00" incLanes="" intLanes="" shape="0.00,-1.60 0.00,1.60"/>
+    <junction id="STOP" type="dead_end" x="300.00" y="0.00" incLanes="Q2STOP_0" intLanes="" shape="300.00,1.60 300.00,-1.60"/>
+</net>

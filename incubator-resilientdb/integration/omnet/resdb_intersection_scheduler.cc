@@ -1,6 +1,7 @@
 #include "integration/omnet/resdb_intersection_scheduler.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <unordered_set>
@@ -66,6 +67,10 @@ IntersectionScheduleResult BuildIntersectionSchedule(
     const ResdbProposeHdr& hdr,
     const std::vector<ResdbVehicleEntry>& entries) {
   IntersectionScheduleResult result;
+  const char* singleton_env = std::getenv("RESDB_ALL_SINGLETON");
+  const bool all_singleton = singleton_env && std::string(singleton_env) == "1";
+  std::cout << "[SCHEDULER-MODE] allSingleton="
+            << (all_singleton ? 1 : 0) << "\n";
 
   for (const auto& e : entries) {
     if (e.is_ambulance && e.cyber_status == 1) {
@@ -150,6 +155,11 @@ IntersectionScheduleResult BuildIntersectionSchedule(
     batch.push_back(head);
     placed.insert(head.replica_id);
 
+    if (all_singleton) {
+      batches_out.push_back(std::move(batch));
+      continue;
+    }
+
     if (IsQuietEntry(head)) {
       batches_out.push_back(std::move(batch));
       continue;
@@ -163,6 +173,13 @@ IntersectionScheduleResult BuildIntersectionSchedule(
         if (!AllSameLaneFrontPlaced(cand, entries, placed)) continue;
         if (IsQuietEntry(cand)) continue;
         if (!SafeWithWholeBatch(cand, batch)) continue;
+        std::cout << "[SCHEDULER-BATCH-ADMIT] head=" << head.replica_id
+                  << " headLane=" << static_cast<int>(head.lane)
+                  << " headDirection=" << static_cast<int>(head.direction)
+                  << " candidate=" << cand.replica_id
+                  << " candidateLane=" << static_cast<int>(cand.lane)
+                  << " candidateDirection=" << static_cast<int>(cand.direction)
+                  << " rule=kSafe\n";
         batch.push_back(cand);
         placed.insert(cand.replica_id);
         grew = true;

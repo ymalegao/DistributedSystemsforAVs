@@ -82,6 +82,7 @@ simple TraCIScenarioManager
         string phase2CalibrationVehicleIds = default("");
         int phase2CalibrationSpeedMode = default(0);
         double phase2CalibrationSpeedMps @unit("mps") = default(14mps);
+        bool endOnFirstConflictingCooccupancy = default(false);  // Validation only: stop after the first measured unsafe overlap
         bool enableR0Supervisor = default(false);  // R0-only supervisor: inject late emergency pair after initial batch progress
         int r0SpawnAfterCleared = default(1);  // Schedule late injection after this many vehicles satisfy departure-leg clearance
         double lateEmergencyDeltaSec @unit("s") = default(0s);  // Delay from the manager trigger to late vehicle insertion

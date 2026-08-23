@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<launch>
+    <copy file="bft_intersection_2lane.net.xml" />
+    <copy file="bft_8veh_2lane_scale.rou.xml" />
+    <copy file="bft_8veh_2lane_scale.sumo.cfg" type="config" />
+</launch>

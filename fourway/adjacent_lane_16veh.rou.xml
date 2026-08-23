@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes>
+    <vType id="car" accel="2.6" decel="4.5" sigma="0" length="4.5"
+           minGap="2.5" maxSpeed="13.89" color="1,1,0"/>
+    <route id="west_to_east" edges="W2E"/>
+
+    <!-- veh0 is the fixed graded-lie target on physical lane 0.  The other
+         vehicles are split evenly between the same two adjacent lanes. -->
+    <vehicle id="veh0"  type="car" route="west_to_east" depart="0" departLane="0" departPos="10" departSpeed="max"/>
+    <vehicle id="veh1"  type="car" route="west_to_east" depart="0" departLane="1" departPos="10" departSpeed="max"/>
+    <vehicle id="veh2"  type="car" route="west_to_east" depart="0" departLane="0" departPos="30" departSpeed="max"/>
+    <vehicle id="veh3"  type="car" route="west_to_east" depart="0" departLane="1" departPos="30" departSpeed="max"/>
+    <vehicle id="veh4"  type="car" route="west_to_east" depart="0" departLane="0" departPos="50" departSpeed="max"/>
+    <vehicle id="veh5"  type="car" route="west_to_east" depart="0" departLane="1" departPos="50" departSpeed="max"/>
+    <vehicle id="veh6"  type="car" route="west_to_east" depart="0" departLane="0" departPos="70" departSpeed="max"/>
+    <vehicle id="veh7"  type="car" route="west_to_east" depart="0" departLane="1" departPos="70" departSpeed="max"/>
+    <vehicle id="veh8"  type="car" route="west_to_east" depart="0" departLane="0" departPos="90" departSpeed="max"/>
+    <vehicle id="veh9"  type="car" route="west_to_east" depart="0" departLane="1" departPos="90" departSpeed="max"/>
+    <vehicle id="veh10" type="car" route="west_to_east" depart="0" departLane="0" departPos="110" departSpeed="max"/>
+    <vehicle id="veh11" type="car" route="west_to_east" depart="0" departLane="1" departPos="110" departSpeed="max"/>
+    <vehicle id="veh12" type="car" route="west_to_east" depart="0" departLane="0" departPos="130" departSpeed="max"/>
+    <vehicle id="veh13" type="car" route="west_to_east" depart="0" departLane="1" departPos="130" departSpeed="max"/>
+    <vehicle id="veh14" type="car" route="west_to_east" depart="0" departLane="0" departPos="150" departSpeed="max"/>
+    <vehicle id="veh15" type="car" route="west_to_east" depart="0" departLane="1" departPos="150" departSpeed="max"/>
+</routes>

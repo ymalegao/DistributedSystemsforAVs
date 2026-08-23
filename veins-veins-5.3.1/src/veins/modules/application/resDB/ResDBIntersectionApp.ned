@@ -84,19 +84,37 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         bool   isAmbulance         = default(false);  // ambulance gets top priority in schedule
         int    ambulanceReplicaId  = default(-1);     // if >=0, marks veh<id> as ambulance after SUMO identity binding
         bool   isByzantine         = default(false);  // enables Byzantine fault injection
-        int    byzantineType       = default(0);      // 0=honest 1=false_lane 2=invalid_sig 3=equivocator 4=silent_primary 5=bad_proposal 6=fake_ambulance 7=fake_ambulance_follower 8=tamper_lane 9=upgrade_unknown_direction
+        int    byzantineType       = default(0);      // 0=honest 1=false_lane 2=invalid_sig 3=equivocator 4=silent_primary 5=bad_proposal 6=fake_ambulance 7=fake_ambulance_follower 8=tamper_lane 9=upgrade_unknown_direction 10=tamper_distance_rank 11=tamper_physical_lane 12=suppress_f_plus_1_certs
         bool   byzantinePbftSilent = default(false);  // when true, Byzantine replica drops PBFT outbound messages
+        bool   byzantineCertRelaySilent = default(false); // when true, Byzantine replica stores valid ARRIVAL_CERTs but withholds epidemic forwarding
         bool   enableAmbulanceCertGate = default(false); // when true, rejects ambulance claims with empty ambulanceCertBytes (ablation toggle)
         string falseLaneColluderIds = default(""); // comma-separated replica IDs selected by --randomize N F
-        string phase2AttackKind = default("NONE"); // NONE, WRONG_APPROACH, FALSE_DIRECTION
+        string phase2AttackKind = default("NONE"); // NONE, WRONG_APPROACH, FALSE_DIRECTION, FALSE_DISTANCE
         int phase2AttackTargetReplicaId = default(-1);
         string phase2EvidenceColluderIds = default(""); // excludes claimant
         int phase2ActualByzantineCount = default(0); // claimant plus evidence colluders
+        double phase2DistanceClaimOffsetM @unit(m) = default(0m); // signed: claim=true+offset
         double approachSigmaM = default(0);
         string approachConfusionMatrix = default("1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1");
+        double egoLateralSigmaM = default(0);
+        double egoLongitudinalSigmaM = default(0);
+        double lateralObservationSigmaM = default(0);
+        string laneObservationMode = default("CATEGORICAL_CARDINAL"); // or ADJACENT_LATERAL
+        double adjacentLateralOriginX @unit(m) = default(0m);
+        double adjacentLateralOriginY @unit(m) = default(0m);
+        double adjacentLateralNormalX = default(0);
+        double adjacentLateralNormalY = default(1);
+        double adjacentLaneSeparationM @unit(m) = default(3.2m);
+        double phase2LateralClaimOffsetM @unit(m) = default(0m);
+        double longitudinalObservationSigmaM = default(0);
+        double physicalGateK = default(3);
+        double distanceStationarySpeedMps @unit(mps) = default(0.1mps);
+        double stoppedDistanceAttestationRetryIntervalSec @unit(s) = default(0.5s);
+        int stoppedDistanceAttestationRetryMax = default(4);
         double signalObservationError = default(0);
         int perceptionRngIndex = default(1);
         double directionEligibilityCollectionWindowSec @unit(s) = default(0.25s);
+        bool enableDirectionEligibility = default(true); // false is the declared-direction ablation only
         bool enablePhase2CueTrace = default(false); // observation-only mixed-route/cue trace
         bool enablePhase2ControlledCue = default(false); // deterministic route-consistent TraCI blinkers during discovery
 

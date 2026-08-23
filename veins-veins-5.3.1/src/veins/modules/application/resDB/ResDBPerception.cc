@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <vector>
 
+#include <omnetpp/crandom.h>
+
 #include "veins/base/utils/FindModule.h"
 #include "veins/modules/mobility/traci/TraCIMobility.h"
 #include "veins/modules/mobility/traci/TraCIScenarioManager.h"
@@ -52,17 +54,67 @@ void ResDBPerception::configure(TraCIMobility* mobility,
                                 cRNG* rng,
                                 const std::string& matrixSpec,
                                 double approachSigmaM,
-                                double signalError)
+                                double signalError,
+                                double lateralObservationSigmaM,
+                                double longitudinalObservationSigmaM,
+                                bool adjacentLateralEnabled,
+                                double lateralOriginX,
+                                double lateralOriginY,
+                                double lateralNormalX,
+                                double lateralNormalY,
+                                double adjacentLaneSeparationM)
 {
     mobility_ = mobility;
     rng_ = rng;
     approach_sigma_m_ = approachSigmaM;
     signal_error_ = signalError;
+    lateral_observation_sigma_m_ = lateralObservationSigmaM;
+    longitudinal_observation_sigma_m_ = longitudinalObservationSigmaM;
+    adjacent_lateral_enabled_ = adjacentLateralEnabled;
+    lateral_origin_x_ = lateralOriginX;
+    lateral_origin_y_ = lateralOriginY;
+    double configuredNormalX = lateralNormalX;
+    double configuredNormalY = lateralNormalY;
+    if (adjacent_lateral_enabled_) {
+        // Validate the caller's own inbound pair now. Observations derive the
+        // same frame from the target's lane, so a four-way fixture never uses
+        // the witness approach's normal to project another approach.
+        try {
+            auto vehicle = mobility_->getCommandInterface()->vehicle(mobility_->getExternalId());
+            const std::string ownLaneId = vehicle.getLaneId();
+            double derivedSeparation = 0.0;
+            if (!deriveAdjacentLaneFrame(ownLaneId, lateral_origin_x_, lateral_origin_y_,
+                    configuredNormalX, configuredNormalY, derivedSeparation))
+                throw cRuntimeError("adjacent lane frame unavailable for %s", ownLaneId.c_str());
+            if (std::abs(derivedSeparation - adjacentLaneSeparationM) > 0.01)
+                throw cRuntimeError(
+                    "adjacent lane separation mismatch: geometry=%g configured=%g",
+                    derivedSeparation, adjacentLaneSeparationM);
+            adjacent_lane_separation_m_ = derivedSeparation;
+        } catch (const cRuntimeError&) {
+            throw;
+        } catch (...) {
+            throw cRuntimeError("failed to derive adjacent-lane geometry from TraCI");
+        }
+    }
+    const double normalLength = std::hypot(configuredNormalX, configuredNormalY);
+    if (adjacent_lateral_enabled_ && normalLength <= 0.0)
+        throw cRuntimeError("adjacent lateral normal must be non-zero");
+    lateral_normal_x_ = normalLength > 0.0 ? configuredNormalX / normalLength : 0.0;
+    lateral_normal_y_ = normalLength > 0.0 ? configuredNormalY / normalLength : 1.0;
+    if (!adjacent_lateral_enabled_)
+        adjacent_lane_separation_m_ = adjacentLaneSeparationM;
     random_draw_count_ = 0;
     if (approach_sigma_m_ < 0.0)
         throw cRuntimeError("approachSigmaM must be non-negative");
     if (signal_error_ < 0.0 || signal_error_ > 1.0)
         throw cRuntimeError("signalObservationError must be in [0,1]");
+    if (lateral_observation_sigma_m_ < 0.0)
+        throw cRuntimeError("lateralObservationSigmaM must be non-negative");
+    if (longitudinal_observation_sigma_m_ < 0.0)
+        throw cRuntimeError("longitudinalObservationSigmaM must be non-negative");
+    if (adjacent_lateral_enabled_ && adjacent_lane_separation_m_ <= 0.0)
+        throw cRuntimeError("adjacentLaneSeparationM must be positive");
 
     const std::vector<double> values = parseMatrix(matrixSpec);
     if (values.size() != matrix_.size())
@@ -108,6 +160,55 @@ ArrivalPerceptionSample ResDBPerception::observeArrival(const std::string& targe
         sample.detected = true;
         sample.trueApproach = approach;
         sample.observedApproach = sampleApproach(approach);
+        auto targetVehicle = targetMobility->getCommandInterface()->vehicle(targetCarId);
+        const std::string physicalLaneId = targetVehicle.getLaneId();
+        const Coord truePosition = targetMobility->getPositionAt(now);
+        sample.continuousPositionValid = true;
+        sample.trueX = truePosition.x;
+        sample.trueY = truePosition.y;
+        if (adjacent_lateral_enabled_) {
+            double targetOriginX = 0.0;
+            double targetOriginY = 0.0;
+            double targetNormalX = 0.0;
+            double targetNormalY = 0.0;
+            double targetSeparationM = 0.0;
+            if (!deriveAdjacentLaneFrame(physicalLaneId, targetOriginX, targetOriginY,
+                    targetNormalX, targetNormalY, targetSeparationM) ||
+                    std::abs(targetSeparationM - adjacent_lane_separation_m_) > 0.01)
+                return sample;
+            const double trueLateral =
+                (sample.trueX - targetOriginX) * targetNormalX +
+                (sample.trueY - targetOriginY) * targetNormalY;
+            const double observedLateral =
+                trueLateral + sampleGaussian(lateral_observation_sigma_m_);
+            sample.trueLateralCm = static_cast<int32_t>(std::llround(trueLateral * 100.0));
+            sample.observedLateralCm =
+                static_cast<int32_t>(std::llround(observedLateral * 100.0));
+            sample.lateralCoordinateValid = true;
+            const double observedDelta = observedLateral - trueLateral;
+            sample.observedX = sample.trueX + observedDelta * targetNormalX;
+            sample.observedY = sample.trueY + observedDelta * targetNormalY;
+        } else {
+            // Cardinal mode is driven by the checked-in categorical matrix.
+            // It intentionally does not consume continuous-lateral draws.
+            sample.observedX = sample.trueX;
+            sample.observedY = sample.trueY;
+        }
+        sample.truePhysicalLaneIndex = targetVehicle.getLaneIndex();
+        // The single-lane checkpoint has exactly one lane per approach, so
+        // projection is identity. Multi-lane projection is added with its
+        // reviewed lane geometry; never infer it from the cardinal code.
+        sample.observedPhysicalLaneIndex = sample.truePhysicalLaneIndex;
+        if (!physicalLaneId.empty() && physicalLaneId.front() != ':') {
+            const double laneLength = targetMobility->getCommandInterface()
+                ->lane(physicalLaneId).getLength();
+            sample.trueDistanceToStopM = std::max(0.0, laneLength - targetVehicle.getLanePosition());
+            // Early arrival evidence does not observe or certify longitudinal
+            // distance. Keep truth for analysis-only logging, but do not draw
+            // longitudinal noise or mark an early distance observation valid.
+            sample.observedDistanceToStopM = sample.trueDistanceToStopM;
+            sample.longitudinalDistanceValid = false;
+        }
         sample.trueCue = readNativeCue(targetMobility);
         sample.observedCue = sampleCue(sample.trueCue);
         sample.knownCueSamples = sample.observedCue == ObservedCue::UNKNOWN ? 0 : 1;
@@ -115,6 +216,107 @@ ArrivalPerceptionSample ResDBPerception::observeArrival(const std::string& targe
     } catch (...) {
         return sample;
     }
+}
+
+int32_t ResDBPerception::ownLateralClaimCm(simtime_t now) const
+{
+    if (!adjacent_lateral_enabled_ || !mobility_) return 0;
+    double originX = 0.0;
+    double originY = 0.0;
+    double normalX = 0.0;
+    double normalY = 0.0;
+    double separationM = 0.0;
+    try {
+        auto ownVehicle = mobility_->getCommandInterface()->vehicle(
+            mobility_->getExternalId());
+        if (!deriveAdjacentLaneFrame(ownVehicle.getLaneId(), originX, originY,
+                normalX, normalY, separationM)) return 0;
+    } catch (...) {
+        return 0;
+    }
+    const Coord p = mobility_->getPositionAt(now);
+    const double u = (p.x - originX) * normalX + (p.y - originY) * normalY;
+    return static_cast<int32_t>(std::llround(u * 100.0));
+}
+
+bool ResDBPerception::deriveAdjacentLaneFrame(const std::string& physicalLaneId,
+                                               double& originX,
+                                               double& originY,
+                                               double& normalX,
+                                               double& normalY,
+                                               double& separationM) const
+{
+    if (!mobility_ || !mobility_->getCommandInterface() || physicalLaneId.empty() ||
+            physicalLaneId.front() == ':') return false;
+    const size_t suffix = physicalLaneId.rfind('_');
+    if (suffix == std::string::npos) return false;
+    const std::string laneBase = physicalLaneId.substr(0, suffix + 1);
+    try {
+        const auto lane0Shape = mobility_->getCommandInterface()->lane(laneBase + "0").getShape();
+        const auto lane1Shape = mobility_->getCommandInterface()->lane(laneBase + "1").getShape();
+        if (lane0Shape.empty() || lane1Shape.empty()) return false;
+        const Coord lane0 = lane0Shape.front();
+        const Coord lane1 = lane1Shape.front();
+        const double dx = lane1.x - lane0.x;
+        const double dy = lane1.y - lane0.y;
+        separationM = std::hypot(dx, dy);
+        if (separationM <= 0.0) return false;
+        originX = lane0.x;
+        originY = lane0.y;
+        normalX = dx / separationM;
+        normalY = dy / separationM;
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+int ResDBPerception::projectPhysicalLaneIndex(int32_t lateralCm) const
+{
+    if (!adjacent_lateral_enabled_) return 0;
+    const double boundaryCm = adjacent_lane_separation_m_ * 50.0;
+    if (std::abs(static_cast<double>(lateralCm) - boundaryCm) < 0.5) return -1;
+    return static_cast<double>(lateralCm) < boundaryCm ? 0 : 1;
+}
+
+StoppedDistancePerceptionSample ResDBPerception::observeStoppedDistance(
+    const std::string& targetCarId, simtime_t now, double stationarySpeedMps) const
+{
+    StoppedDistancePerceptionSample sample;
+    sample.observedAt = now;
+    if (!mobility_ || !mobility_->getManager()) return sample;
+    const auto& managedHosts = mobility_->getManager()->getManagedHosts();
+    auto hostIt = managedHosts.find(targetCarId);
+    if (hostIt == managedHosts.end()) return sample;
+    TraCIMobility* targetMobility =
+        FindModule<TraCIMobility*>::findSubModule(hostIt->second);
+    if (!targetMobility) return sample;
+
+    try {
+        auto targetVehicle = targetMobility->getCommandInterface()->vehicle(targetCarId);
+        const std::string laneId = targetVehicle.getLaneId();
+        sample.detected = true;
+        sample.stationary = targetVehicle.getSpeed() <= stationarySpeedMps;
+        if (laneId.empty() || laneId.front() == ':') return sample;
+        const double laneLength = targetMobility->getCommandInterface()
+            ->lane(laneId).getLength();
+        sample.trueDistanceToStopM =
+            std::max(0.0, laneLength - targetVehicle.getLanePosition());
+        sample.observedDistanceToStopM = std::max(
+            0.0, sample.trueDistanceToStopM
+                + sampleGaussian(longitudinal_observation_sigma_m_));
+        sample.distanceValid = true;
+    } catch (...) {
+    }
+    return sample;
+}
+
+double ResDBPerception::sampleGaussian(double sigma) const
+{
+    if (sigma == 0.0) return 0.0;
+    if (!rng_) return 0.0;
+    ++random_draw_count_;
+    return omnetpp::normal(rng_, 0.0, sigma);
 }
 
 int ResDBPerception::approachIndex(char approach)
