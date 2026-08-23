@@ -169,12 +169,3 @@ calling `bazel build` directly.
 or your `.external/` is dirty. Delete the offending tree under `.external/` and
 re-run.
 
-## License
-
-GPL-3.0-or-later. See [LICENSE](LICENSE).
-
-The protocol derives from Veins (GPL-2.0-**or-later**) and links ResilientDB
-(Apache-2.0). Apache-2.0 is incompatible with GPL-2.0-only but compatible with
-GPL-3.0, and Veins' "or later" clause permits the upgrade, so GPL-3.0-or-later
-is the coherent licence for the combined work. See
-[THIRD_PARTY.md](THIRD_PARTY.md).

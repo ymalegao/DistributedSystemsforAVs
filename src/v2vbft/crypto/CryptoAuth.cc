@@ -1,6 +1,3 @@
-// Copyright (C) 2026 Mathesh Kumar
-// SPDX-License-Identifier: GPL-3.0-or-later
-
 // CryptoAuth.cc — ECDSA P-256 certificate engine for V2V authentication.
 //
 // The singleton generates two CA keypairs at startup:

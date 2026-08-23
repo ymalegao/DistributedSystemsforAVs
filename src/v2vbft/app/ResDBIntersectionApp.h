@@ -1,8 +1,5 @@
 #pragma once
 
-// Copyright (C) 2026 Mathesh Kumar
-// SPDX-License-Identifier: GPL-3.0-or-later
-
 #include <deque>
 #include <array>
 #include <cstdint>

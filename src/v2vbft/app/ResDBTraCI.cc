@@ -1,6 +1,3 @@
-// Copyright (C) 2026 Mathesh Kumar
-// SPDX-License-Identifier: GPL-3.0-or-later
-
 //
 // ResDBTraCI.cc
 // TraCI and vehicle control helpers for ResDBIntersectionApp.

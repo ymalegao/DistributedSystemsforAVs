@@ -1,8 +1,4 @@
 #
-# Copyright (C) 2026 Mathesh Kumar
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-#
 # Settings opp_makemake cannot express. Kept here (not in the generated
 # src/Makefile) so they survive `opp_makemake -f` regenerating it.
 #

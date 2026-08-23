@@ -1,10 +1,4 @@
 //
-// Copyright (C) 2026 Mathesh Kumar
-//
-// SPDX-License-Identifier: GPL-3.0-or-later
-//
-
-//
 // @titlepage
 // <h1>V2VBFT</h1>
 //

@@ -1,6 +1,3 @@
-// Copyright (C) 2026 Mathesh Kumar
-// SPDX-License-Identifier: GPL-3.0-or-later
-
 //
 // BFTMessage.msg
 // OMNeT++ message definition for V2V cert-protocol frames (ResDB path)

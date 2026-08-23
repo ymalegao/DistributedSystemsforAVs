@@ -1,8 +1,5 @@
 #pragma once
 
-// Copyright (C) 2026 Mathesh Kumar
-// SPDX-License-Identifier: GPL-3.0-or-later
-
 // CryptoAuth.h — Lightweight ECDSA (P-256) certificate authority for V2V authentication.
 //
 // Design:
