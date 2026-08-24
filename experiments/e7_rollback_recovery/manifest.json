@@ -1,0 +1,5 @@
+{
+  "name": "e7_rollback_recovery",
+  "status": "implemented_and_deferred_extensions",
+  "scenarios": ["late_emergency_rollback", "crash_wait_clear", "fabricated_clearance"]
+}

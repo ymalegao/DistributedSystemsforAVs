@@ -78,6 +78,11 @@ simple TraCIScenarioManager
         bool shutdownOnIntersectionBatchCleared = default(false);  // If true, end simulation globally when intersectionBatchSize distinct vehicles satisfy C2* departure-leg clearance (same idea as V2VTraCI)
         int intersectionBatchSize = default(4);  // Number of vehicles that must clear (TraCI predicate) before endSimulation
         double intersectionDepartureMinMeters @unit("m") = default(3m);  // Min lane position on C2* edge to count as cleared
+        bool enablePhase2MetrologyCalibration = default(false);  // Calibration only: force the named pair through simultaneously
+        string phase2CalibrationVehicleIds = default("");
+        int phase2CalibrationSpeedMode = default(0);
+        double phase2CalibrationSpeedMps @unit("mps") = default(14mps);
+        bool endOnFirstConflictingCooccupancy = default(false);  // Validation only: stop after the first measured unsafe overlap
         bool enableR0Supervisor = default(false);  // R0-only supervisor: inject late emergency pair after initial batch progress
         int r0SpawnAfterCleared = default(1);  // Schedule late injection after this many vehicles satisfy departure-leg clearance
         double lateEmergencyDeltaSec @unit("s") = default(0s);  // Delay from the manager trigger to late vehicle insertion

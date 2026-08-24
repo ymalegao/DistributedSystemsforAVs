@@ -1,0 +1,17 @@
+fixture_id,vehicle_id,node_index,ingress_edge,egress_edge,sumo_lane_index,logical_lane,intended_lane,intended_direction,expected_signal,depart_position_m
+2,veh0,0,N2C,C2E,1,L,N,L,LEFT,60
+2,veh1,1,S2C,C2N,0,T,S,S,NONE,60
+2,veh2,8,N2C,C2S,0,T,N,S,NONE,60
+2,veh3,9,S2C,C2N,0,T,S,S,NONE,20
+2,veh4,10,N2C,C2W,0,T,N,R,RIGHT,20
+2,veh5,11,S2C,C2W,1,L,S,L,LEFT,60
+2,veh6,12,E2C,C2N,0,T,E,R,RIGHT,60
+2,veh7,13,E2C,C2W,0,T,E,S,NONE,20
+2,veh8,14,E2C,C2S,1,L,E,L,LEFT,60
+2,veh9,15,W2C,C2S,0,T,W,R,RIGHT,60
+2,veh10,2,W2C,C2E,0,T,W,S,NONE,20
+2,veh11,3,W2C,C2N,1,L,W,L,LEFT,60
+2,veh12,4,N2C,C2S,0,T,N,S,NONE,5
+2,veh13,5,S2C,C2E,0,T,S,R,RIGHT,5
+2,veh14,6,E2C,C2W,0,T,E,S,NONE,5
+2,veh15,7,W2C,C2E,0,T,W,S,NONE,5

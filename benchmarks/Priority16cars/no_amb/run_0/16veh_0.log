@@ -1,27 +1,52 @@
-[ROUND-METRICS] Epoch 0 Avg_Messages_Sent_PerReplica: 634.125 (count=16)
-[ROUND-METRICS] Epoch 0 Avg_Messages_Received_PerReplica: 2183.438 (count=16)
+[ROUND-METRICS] Epoch 0 Avg_Messages_Sent_PerReplica: 744.625 (count=16)
+[ROUND-METRICS] Epoch 0 Avg_Messages_Received_PerReplica: 2922.375 (count=16)
+[ROUND-METRICS] Epoch 0 Avg_Bytes_Sent_PerReplica: 224390.438 (count=16)
+[ROUND-METRICS] Epoch 0 Total_Bytes_Sent: 3590247
 [ROUND-METRICS] Epoch 0 Avg_StopSign_Failures: 0.000 (count)
 [ROUND-METRICS] Epoch 1 Avg_StopSign_Failures: 0.000 (count)
 [ROUND-METRICS] Epoch 2 Avg_StopSign_Failures: 0.000 (count)
 [ROUND-METRICS] Epoch 3 Avg_StopSign_Failures: 0.000 (count)
-[RUN-METRICS] Throughput_User_Definition: 0.573328 seconds_per_vehicle
-[RUN-METRICS] Throughput_Vehicles_Per_Second: 1.744202 vehicles_per_second
-[RUN-METRICS] Wait_Intersection_All_Mean: 9.173250 seconds
-[RUN-METRICS] Wait_Intersection_All_P95: 11.767250 seconds
-[RUN-METRICS] Wait_Intersection_Normal_Mean: 9.173250 seconds
-[RUN-METRICS] Stop_To_Resume_Mean: 7.698562 seconds
-[RUN-METRICS] Resume_To_Depart_Mean: 1.474688 seconds
-[RUN-METRICS] Jains_Fairness_All: 0.951592
-[RUN-METRICS] Jains_Fairness_Normal: 0.951592
+[RUN-METRICS] Cert_Creation_Latency_Mean: 0.049474 seconds
+[RUN-METRICS] Cert_Creation_Latency_P95: 0.082271 seconds
+[RUN-METRICS] Throughput_User_Definition: 0.829297 seconds_per_vehicle
+[RUN-METRICS] Throughput_Vehicles_Per_Second: 1.205841 vehicles_per_second
+[RUN-METRICS] Wait_Intersection_All_Mean: 13.268750 seconds
+[RUN-METRICS] Wait_Intersection_All_P95: 16.075000 seconds
+[RUN-METRICS] Wait_Intersection_Normal_Mean: 13.268750 seconds
+[RUN-METRICS] Stop_To_Resume_Mean: 10.656250 seconds
+[RUN-METRICS] Resume_To_Depart_Mean: 2.612500 seconds
+[RUN-METRICS] Jains_Fairness_All: 0.982247
+[RUN-METRICS] Jains_Fairness_Normal: 0.982247
 [RUN-METRICS] Byzantine_Injections_Total: 0
+[RUN-METRICS] Fabricated_Clearance_Attempts: 0
+[RUN-METRICS] Fabricated_Clearance_PreVerify_Rejections: 0
+[RUN-METRICS] Unsafe_Recovery_Order_Replicas: 0
+[RUN-METRICS] Unsafe_Recovery_Order_Box_Occupied_Replicas: 0
+[RUN-METRICS] Crash_Injected_Vehicles: 0
+[RUN-METRICS] Crash_Towed_Vehicles: 0
+[RUN-METRICS] Crash_Cooccupancy_Entrants: 0
+[RUN-METRICS] Wait_Heartbeat_Sends: 0
+[RUN-METRICS] Clear_Cert_Initial_Broadcasts: 0
 [RUN-METRICS] Byzantine_Injections_Epoch0: 0
 [RUN-METRICS] Byzantine_Injections_Epoch1: 0
 [RUN-METRICS] Byzantine_Injections_Epoch2: 0
 [RUN-METRICS] Byzantine_Injections_Epoch3: 0
-[RUN-METRICS] Delivery_Ratio: 0.228814
-[RUN-METRICS] Estimated_Loss_Rate: 0.771186
+[RUN-METRICS] Attack_Success: 0
+[RUN-METRICS] Attack_Failures_Total: 0
+[RUN-METRICS] Attack_Outcome_Lines_Total: 0
+[RUN-METRICS] Attack_Failures_Epoch0: 0
+[RUN-METRICS] Attack_Failures_Epoch1: 0
+[RUN-METRICS] Attack_Failures_Epoch2: 0
+[RUN-METRICS] Attack_Failures_Epoch3: 0
+[RUN-METRICS] Delivery_Ratio: 0.262197
+[RUN-METRICS] Estimated_Loss_Rate: 0.737803
 [RUN-METRICS] Fallback_Count: 0
 [RUN-METRICS] Fallback_Rate: 0.000000
-[ROUND-METRICS] Epoch 0 Throughput_User_Definition: 0.573328 seconds_per_vehicle
-[ROUND-METRICS] Epoch 0 Throughput_Vehicles_Per_Second: 1.744202 vehicles_per_second
-[ROUND-METRICS] Epoch 0 Wait_Normal_Mean: 9.173250 seconds
+[RUN-METRICS] Bytes_Sent_Total: 3590247
+[RUN-METRICS] Megabytes_Sent_Total: 3.423926
+[RUN-METRICS] Quiet_Honest_Count: 0
+[RUN-METRICS] Quiet_Honest_Opportunities: 16
+[RUN-METRICS] Quiet_Honest_Rate: 0.000000
+[ROUND-METRICS] Epoch 0 Throughput_User_Definition: 0.829297 seconds_per_vehicle
+[ROUND-METRICS] Epoch 0 Throughput_Vehicles_Per_Second: 1.205841 vehicles_per_second
+[ROUND-METRICS] Epoch 0 Wait_Normal_Mean: 13.268750 seconds

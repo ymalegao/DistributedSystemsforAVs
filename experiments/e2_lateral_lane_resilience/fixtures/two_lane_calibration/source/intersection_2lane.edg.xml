@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Two inbound + two outbound lanes per arm.
+  Lane width 3.2 m → inbound centerline separation 3.2 m on every approach.
+  SUMO lane 0 = rightmost = outer = T (straight+right).
+  SUMO lane 1 = leftmost  = inner = L (left only).
+-->
+<edges>
+    <!-- Inbound -->
+    <edge id="N2C" from="N" to="C" numLanes="2" speed="13.90" width="3.20" priority="-1"/>
+    <edge id="S2C" from="S" to="C" numLanes="2" speed="13.90" width="3.20" priority="-1"/>
+    <edge id="E2C" from="E" to="C" numLanes="2" speed="13.90" width="3.20" priority="-1"/>
+    <edge id="W2C" from="W" to="C" numLanes="2" speed="13.90" width="3.20" priority="-1"/>
+    <!-- Outbound -->
+    <edge id="C2N" from="C" to="N" numLanes="2" speed="13.90" width="3.20" priority="-1"/>
+    <edge id="C2S" from="C" to="S" numLanes="2" speed="13.90" width="3.20" priority="-1"/>
+    <edge id="C2E" from="C" to="E" numLanes="2" speed="13.90" width="3.20" priority="-1"/>
+    <edge id="C2W" from="C" to="W" numLanes="2" speed="13.90" width="3.20" priority="-1"/>
+</edges>

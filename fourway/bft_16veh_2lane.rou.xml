@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes>
+    <vType id="car" accel="2.6" decel="4.5" sigma="0.0" length="4.5"
+           minGap="2.5" maxSpeed="13.90" color="1,1,0" speedFactor="1"/>
+
+    <!-- Locked two-lane policy on every inbound approach:
+         lane 0 (T/outer) = STRAIGHT or RIGHT; lane 1 (L/inner) = LEFT only. -->
+    <route id="rN_T_straight" edges="N2C C2S"/>
+    <route id="rN_T_right"    edges="N2C C2W"/>
+    <route id="rN_L_left"     edges="N2C C2E"/>
+    <route id="rS_T_straight" edges="S2C C2N"/>
+    <route id="rS_T_right"    edges="S2C C2E"/>
+    <route id="rS_L_left"     edges="S2C C2W"/>
+    <route id="rE_T_straight" edges="E2C C2W"/>
+    <route id="rE_T_right"    edges="E2C C2N"/>
+    <route id="rE_L_left"     edges="E2C C2S"/>
+    <route id="rW_T_straight" edges="W2C C2E"/>
+    <route id="rW_T_right"    edges="W2C C2S"/>
+    <route id="rW_L_left"     edges="W2C C2N"/>
+
+    <!-- Four vehicles per approach and two per physical lane. The front/rear
+         split exercises certified rank within (approach,physicalLaneIndex). -->
+    <vehicle id="veh0"  type="car" route="rN_L_left"     depart="0" departLane="1" departPos="60" departSpeed="max"/>
+    <vehicle id="veh1"  type="car" route="rN_T_straight" depart="0" departLane="0" departPos="60" departSpeed="max"/>
+    <vehicle id="veh2"  type="car" route="rN_T_right"    depart="0" departLane="0" departPos="20" departSpeed="max"/>
+    <vehicle id="veh12" type="car" route="rN_L_left"     depart="0" departLane="1" departPos="20" departSpeed="max"/>
+
+    <vehicle id="veh3"  type="car" route="rS_L_left"     depart="0" departLane="1" departPos="60" departSpeed="max"/>
+    <vehicle id="veh4"  type="car" route="rS_T_straight" depart="0" departLane="0" departPos="60" departSpeed="max"/>
+    <vehicle id="veh5"  type="car" route="rS_T_right"    depart="0" departLane="0" departPos="20" departSpeed="max"/>
+    <vehicle id="veh13" type="car" route="rS_L_left"     depart="0" departLane="1" departPos="20" departSpeed="max"/>
+
+    <vehicle id="veh6"  type="car" route="rE_L_left"     depart="0" departLane="1" departPos="60" departSpeed="max"/>
+    <vehicle id="veh7"  type="car" route="rE_T_straight" depart="0" departLane="0" departPos="60" departSpeed="max"/>
+    <vehicle id="veh8"  type="car" route="rE_T_right"    depart="0" departLane="0" departPos="20" departSpeed="max"/>
+    <vehicle id="veh14" type="car" route="rE_L_left"     depart="0" departLane="1" departPos="20" departSpeed="max"/>
+
+    <vehicle id="veh9"  type="car" route="rW_L_left"     depart="0" departLane="1" departPos="60" departSpeed="max"/>
+    <vehicle id="veh10" type="car" route="rW_T_straight" depart="0" departLane="0" departPos="60" departSpeed="max"/>
+    <vehicle id="veh11" type="car" route="rW_T_right"    depart="0" departLane="0" departPos="20" departSpeed="max"/>
+    <vehicle id="veh15" type="car" route="rW_L_left"     depart="0" departLane="1" departPos="20" departSpeed="max"/>
+</routes>

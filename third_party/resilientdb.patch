@@ -1,0 +1,272 @@
+diff --git a/integration/omnet/resdb_intersection_scheduler.cc b/integration/omnet/resdb_intersection_scheduler.cc
+index 61bff79f..22fe02f0 100644
+--- a/integration/omnet/resdb_intersection_scheduler.cc
++++ b/integration/omnet/resdb_intersection_scheduler.cc
+@@ -1,6 +1,7 @@
+ #include "integration/omnet/resdb_intersection_scheduler.h"
+ 
+ #include <algorithm>
++#include <cstdlib>
+ #include <cstring>
+ #include <iostream>
+ #include <unordered_set>
+@@ -66,6 +67,10 @@ IntersectionScheduleResult BuildIntersectionSchedule(
+     const ResdbProposeHdr& hdr,
+     const std::vector<ResdbVehicleEntry>& entries) {
+   IntersectionScheduleResult result;
++  const char* singleton_env = std::getenv("RESDB_ALL_SINGLETON");
++  const bool all_singleton = singleton_env && std::string(singleton_env) == "1";
++  std::cout << "[SCHEDULER-MODE] allSingleton="
++            << (all_singleton ? 1 : 0) << "\n";
+ 
+   for (const auto& e : entries) {
+     if (e.is_ambulance && e.cyber_status == 1) {
+@@ -150,6 +155,11 @@ IntersectionScheduleResult BuildIntersectionSchedule(
+     batch.push_back(head);
+     placed.insert(head.replica_id);
+ 
++    if (all_singleton) {
++      batches_out.push_back(std::move(batch));
++      continue;
++    }
++
+     if (IsQuietEntry(head)) {
+       batches_out.push_back(std::move(batch));
+       continue;
+@@ -163,6 +173,13 @@ IntersectionScheduleResult BuildIntersectionSchedule(
+         if (!AllSameLaneFrontPlaced(cand, entries, placed)) continue;
+         if (IsQuietEntry(cand)) continue;
+         if (!SafeWithWholeBatch(cand, batch)) continue;
++        std::cout << "[SCHEDULER-BATCH-ADMIT] head=" << head.replica_id
++                  << " headLane=" << static_cast<int>(head.lane)
++                  << " headDirection=" << static_cast<int>(head.direction)
++                  << " candidate=" << cand.replica_id
++                  << " candidateLane=" << static_cast<int>(cand.lane)
++                  << " candidateDirection=" << static_cast<int>(cand.direction)
++                  << " rule=kSafe\n";
+         batch.push_back(cand);
+         placed.insert(cand.replica_id);
+         grew = true;
+diff --git a/integration/omnet/resdb_omnet_bridge.cc b/integration/omnet/resdb_omnet_bridge.cc
+index 43895d7f..95bc9008 100644
+--- a/integration/omnet/resdb_omnet_bridge.cc
++++ b/integration/omnet/resdb_omnet_bridge.cc
+@@ -829,16 +829,21 @@ class IntersectionExecutor : public resdb::TransactionManager {
+     // Diagnostic: dump every entry so we can verify is_ambulance / position_in_lane.
+     static const char* kLaneName[] = {"N","S","E","W"};
+     static const char* kDirName[]  = {"Str","L","R"};
+-    std::cout << "[EXECUTOR] entries epoch=" << hdr.epoch << " n=" << hdr.n_vehicles << ":";
++    std::ostringstream executor_entries;
++    executor_entries << "[EXECUTOR] entries epoch=" << hdr.epoch
++                     << " n=" << hdr.n_vehicles << ":";
+     for (const auto& e : entries) {
+-      std::cout << " r" << e.replica_id
+-                << "(lane=" << (e.lane < 4 ? kLaneName[e.lane] : "?")
+-                << " pos=" << (int)e.position_in_lane
+-                << " dir=" << (e.direction < 3 ? kDirName[e.direction] : "?")
+-                << " ambu=" << (int)e.is_ambulance
+-                << " cyber=" << (int)e.cyber_status << ")";
++      executor_entries << " r" << e.replica_id
++                       << "(lane=" << (e.lane < 4 ? kLaneName[e.lane] : "?")
++                       << " pos=" << (int)e.position_in_lane
++                       << " dir=" << (e.direction < 3 ? kDirName[e.direction] : "?")
++                       << " ambu=" << (int)e.is_ambulance
++                       << " cyber=" << (int)e.cyber_status
++                       << " physicalLane=" << (int)e.physical_lane_index
++                       << " lateralClaimCm=" << e.lateral_claim_cm << ")";
+     }
+-    std::cout << "\n";
++    executor_entries << "\n";
++    std::cout << executor_entries.str() << std::flush;
+ 
+     auto schedule = resdb::omnet::BuildIntersectionSchedule(hdr, entries);
+     std::string result = schedule.order_bytes;
+@@ -1497,7 +1502,8 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
+       }
+     }
+     // Check 5+6: non-zero timestamps (UINT64_MAX allowed as QUIET sentinel),
+-    //           boolean is_ambulance, and valid cyber_status.
++    //           boolean is_ambulance, valid cyber_status/direction, and a
++    //           physical-lane index that can be bound by Check 10.
+     {
+       const uint8_t* ep = view.data + sizeof(ResdbProposeHdr);
+       for (uint32_t i = 0; i < hdr.n_vehicles; ++i) {
+@@ -1521,6 +1527,18 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
+                      << " replica_id=" << e.replica_id;
+           return false;
+         }
++        if (e.direction > 3) {
++          LOG(ERROR) << "[OMNET-PREVERIFY] reject: invalid direction"
++                     << " value=" << static_cast<int>(e.direction)
++                     << " replica_id=" << e.replica_id;
++          return false;
++        }
++        if (e.physical_lane_index > 1) {
++          LOG(ERROR) << "[OMNET-PREVERIFY] reject: invalid physical_lane_index"
++                     << " value=" << static_cast<int>(e.physical_lane_index)
++                     << " replica_id=" << e.replica_id;
++          return false;
++        }
+         ep += sizeof(e);
+       }
+     }
+@@ -1578,7 +1596,8 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
+     //          Up to f omissions tolerated as plausible channel loss.
+     //
+     // Check 10: for every SIGNED entry whose cert this follower holds, the
+-    //           proposal's lane/position_in_lane/direction/is_ambulance must
++    //           proposal's lane/physical-lane/lateral-claim/position/direction/
++    //           is_ambulance must
+     //           match the cert-attested values.  Any mismatch is Byzantine
+     //           state-field tampering; zero tolerance (cert is ground truth).
+     {
+@@ -1611,6 +1630,20 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
+           cert_backed_ids.insert(cert_entries[i].replica_id);
+         }
+ 
++        // A proposal's SIGNED bit is not a leader-eligibility proof.  Require
++        // this voting replica's validated snapshot to contain the leader's
++        // arrival + stopped-distance evidence.  Static PBFT successors that
++        // are QUIET/uncertified are skipped by the application via another
++        // authenticated view change rather than being allowed to propose.
++        if (!view.is_rollback() &&
++            cert_backed_ids.find(hdr.leader_id) == cert_backed_ids.end()) {
++          LOG(ERROR) << "[OMNET-PREVERIFY] reject: leader lacks local certificate evidence"
++                     << " leader_id=" << hdr.leader_id
++                     << " local_cert_count=" << cert_count
++                     << " epoch=" << hdr.epoch;
++          return false;
++        }
++
+         if (!view.is_rollback() && normal_leader_is_cert_primary) {
+           for (uint32_t i = 0; i < cert_count; ++i) {
+             const ResdbCertEntry& ce = cert_entries[i];
+@@ -1656,17 +1689,23 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
+           if (pe.lane             != ce.lane             ||
+               pe.position_in_lane != ce.position_in_lane ||
+               pe.direction        != ce.direction        ||
+-              pe.is_ambulance     != ce.is_ambulance) {
++              pe.is_ambulance     != ce.is_ambulance     ||
++              pe.physical_lane_index != ce.physical_lane_index ||
++              pe.lateral_claim_cm != ce.lateral_claim_cm) {
+             LOG(ERROR) << "[OMNET-PREVERIFY] reject: state-field mismatch"
+                        << " replica_id=" << ce.replica_id
+                        << " cert(lane=" << (int)ce.lane
+                        << " pos="       << (int)ce.position_in_lane
+                        << " dir="       << (int)ce.direction
+-                       << " ambu="      << (int)ce.is_ambulance << ")"
++                       << " ambu="      << (int)ce.is_ambulance
++                       << " physicalLane=" << (int)ce.physical_lane_index
++                       << " lateralClaimCm=" << ce.lateral_claim_cm << ")"
+                        << " proposal(lane=" << (int)pe.lane
+                        << " pos="           << (int)pe.position_in_lane
+                        << " dir="           << (int)pe.direction
+-                       << " ambu="          << (int)pe.is_ambulance << ")"
++                       << " ambu="          << (int)pe.is_ambulance
++                       << " physicalLane=" << (int)pe.physical_lane_index
++                       << " lateralClaimCm=" << pe.lateral_claim_cm << ")"
+                        << " epoch=" << hdr.epoch;
+             return false;
+           }
+@@ -1716,20 +1755,26 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
+     // Installation is deliberately last: malformed membership, missing CLEAR,
+     // cert mismatch, or any other guarded rejection above must have no effect
+     // on the request-specific/pending view or current primary.
+-    if (!view.is_rollback() && has_active_view) {
++    if (!view.is_rollback()) {
+       if (req.type() == resdb::Request::TYPE_PRE_PREPARE) {
+-        std::cout << "[EPOCH-VIEW]"
+-                  << " type=" << req.type()
+-                  << " hash=" << req.hash()
+-                  << " seq=" << req.seq()
+-                  << " action=install-request-after-validation\n";
+-        if (!service_ptr->InstallOmnetForcedViewForRequest(req, active_view)) {
+-          LOG(ERROR) << "[OMNET-PREVERIFY] reject: active view install failed"
+-                     << " epoch=" << hdr.epoch
+-                     << " seq=" << req.seq()
+-                     << " hash=" << req.hash();
+-          return false;
++        if (has_active_view) {
++          std::cout << "[EPOCH-VIEW]"
++                    << " type=" << req.type()
++                    << " hash=" << req.hash()
++                    << " seq=" << req.seq()
++                    << " action=install-request-after-validation\n";
++          if (!service_ptr->InstallOmnetForcedViewForRequest(req, active_view)) {
++            LOG(ERROR) << "[OMNET-PREVERIFY] reject: active view install failed"
++                       << " epoch=" << hdr.epoch
++                       << " seq=" << req.seq()
++                       << " hash=" << req.hash();
++            return false;
++          }
+         }
++        // Normal epoch 0 has no forced/reconfiguration view.  The certified
++        // leader handoff is nevertheless required when the configured PBFT
++        // primary is QUIET: all guarded proposal checks above have already
++        // authenticated leader_id and proved it is a SIGNED cert-primary.
+         if (normal_leader_is_cert_primary && !normal_leader_is_pbft_primary) {
+           const uint64_t incoming_view = req.current_view();
+           service_ptr->SetPrimary(static_cast<uint32_t>(hdr.leader_id + 1),
+@@ -1740,7 +1785,7 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
+                     << " view=" << incoming_view
+                     << " epoch=" << hdr.epoch;
+         }
+-      } else if (req.type() == resdb::Request::TYPE_NEW_TXNS) {
++      } else if (req.type() == resdb::Request::TYPE_NEW_TXNS && has_active_view) {
+         std::cout << "[EPOCH-VIEW]"
+                   << " type=" << req.type()
+                   << " hash=" << req.hash()
+diff --git a/integration/omnet/resdb_omnet_bridge.h b/integration/omnet/resdb_omnet_bridge.h
+index 4a7a6c5c..3240f8dd 100644
+--- a/integration/omnet/resdb_omnet_bridge.h
++++ b/integration/omnet/resdb_omnet_bridge.h
+@@ -85,10 +85,10 @@ int ResdbOmnetUpdateSimTimeUs(void* server_handle, int64_t now_us);
+ 
+ /* ── Step 5: wire format (shared between Veins and ResDB bridge) ───────────── */
+ 
+-/* One vehicle's arrival state.  17 bytes, no padding.
++/* One vehicle's certified scheduling state. 22 bytes, no padding.
+  * Appears in the ProposeAll payload (Veins → ResDB bridge).
+  * lane:     0=N, 1=S, 2=E, 3=W
+- * direction: 0=Straight, 1=Left, 2=Right
++ * direction: 0=Straight, 1=Left, 2=Right, 3=Unknown (signed singleton)
+  * position_in_lane: 1=front, 2=second, …
+  * cyber_status: 0=QUIET (no f+1 echoes), 1=SIGNED */
+ #pragma pack(push, 1)
+@@ -97,17 +97,19 @@ typedef struct ResdbVehicleEntry {
+     uint64_t sim_time_us;       /* 8 bytes — simTime() at stop-zone entry; UINT64_MAX = QUIET */
+     uint8_t  is_ambulance;      /* 1 byte  — non-zero means emergency priority */
+     uint8_t  lane;              /* 1 byte  — 0=N,1=S,2=E,3=W */
+-    uint8_t  direction;         /* 1 byte  — 0=Straight,1=Left,2=Right */
++    uint8_t  direction;         /* 1 byte  — 0=Straight,1=Left,2=Right,3=Unknown */
+     uint8_t  position_in_lane;  /* 1 byte  — 1=front,2=second,… */
+     uint8_t  cyber_status;      /* 1 byte  — 0=QUIET,1=SIGNED */
+-} ResdbVehicleEntry;            /* 17 bytes total */
++    uint8_t  physical_lane_index; /* 1 byte — 0=outer/T,1=inner/L */
++    int32_t  lateral_claim_cm;    /* 4 bytes — signed lane-normal claim */
++} ResdbVehicleEntry;            /* 22 bytes total */
+ 
+ /* Header of the payload passed to ResdbOmnetTriggerConsensus:
+  *   [0..3]   uint32_t epoch
+  *   [4..7]   int32_t  leader_id
+  *   [8..15]  uint64_t propose_sim_time_us
+  *   [16..19] uint32_t n_vehicles
+- *   [20..]   n_vehicles × ResdbVehicleEntry (17 bytes each)
++ *   [20..]   n_vehicles × ResdbVehicleEntry (22 bytes each)
+  */
+ typedef struct ResdbProposeHdr {
+     uint32_t epoch;
+@@ -335,9 +337,11 @@ typedef struct ResdbCertEntry {
+     int32_t replica_id;
+     uint8_t lane;             /* 0=N,1=S,2=E,3=W — same encoding as ResdbVehicleEntry */
+     uint8_t position_in_lane; /* 1=front, 2=second, … */
+-    uint8_t direction;        /* 0=Straight,1=Left,2=Right */
++    uint8_t direction;        /* 0=Straight,1=Left,2=Right,3=Unknown */
+     uint8_t is_ambulance;     /* 0 or 1 */
+-} ResdbCertEntry;             /* 8 bytes */
++    uint8_t physical_lane_index; /* 0=outer/T,1=inner/L */
++    int32_t lateral_claim_cm;    /* signed lane-normal declaration */
++} ResdbCertEntry;             /* 13 bytes */
+ #pragma pack(pop)
+ 
+ /* Callback filled in by the OMNeT++ app to give the bridge a snapshot of the

@@ -157,6 +157,7 @@ public:
 
         void setSpeedMode(int32_t bitset);
         void setSpeed(double speed);
+        void setSignals(int32_t bitset);
         void setMaxSpeed(double speed);
         /** Remove this vehicle from the SUMO simulation (TraCI REMOVE; reason 0x03 = vaporized). */
         void remove(uint8_t reason = 0x03);

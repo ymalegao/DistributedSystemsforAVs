@@ -1,0 +1,3 @@
+# name URL ref-kind ref patch
+veins https://github.com/sommer/veins.git tag veins-5.3.1 veins.patch
+resilientdb https://github.com/apache/incubator-resilientdb.git commit 1e0896b24e6a1a804abdb66374d455c9c7e56181 resilientdb.patch

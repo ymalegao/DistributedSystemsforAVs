@@ -5,8 +5,8 @@
 # Usage:  ./gen_resdb_keys.sh [N]   (default N=4)
 # Output: files written to the directory containing this script.
 #
-# Prerequisites:
-#   cd /home/yash/DistributedSystemsforAVs/incubator-resilientdb
+# Prerequisites (built by scripts/makeres.sh, or manually):
+#   cd <repo>/incubator-resilientdb
 #   bazel build //tools:key_generator_tools //tools:certificate_tools
 #
 # After running this script, set in omnetpp.ini:
@@ -15,7 +15,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RESDB_ROOT="/home/yash/DistributedSystemsforAVs/incubator-resilientdb"
+# Repo-relative so it works on macOS and Linux/WSL; override with RESDB_ROOT=... if needed.
+RESDB_ROOT="${RESDB_ROOT:-$(cd "${SCRIPT_DIR}/../../incubator-resilientdb" && pwd)}"
 KEYGEN="${RESDB_ROOT}/bazel-bin/tools/key_generator_tools"
 CERTGEN="${RESDB_ROOT}/bazel-bin/tools/certificate_tools"
 N=${1:-4}

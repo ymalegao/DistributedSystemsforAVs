@@ -1,0 +1,7 @@
+{
+  "name": "e0_regression",
+  "status": "implemented",
+  "configs": ["FourVehiclesResDB", "SixteenVehiclesResDB"],
+  "axes": {"approach_sigma_m": [0], "signal_error": [0]},
+  "entrypoint": "tools/experiment_orchestrator.py --phase1-validation"
+}

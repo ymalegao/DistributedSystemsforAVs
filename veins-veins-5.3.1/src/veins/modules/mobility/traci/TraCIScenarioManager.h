@@ -170,6 +170,11 @@ protected:
     simtime_t crashOnBoxEntrySec;
     simtime_t clearDelaySec;
     double penetrationRate;
+    bool enablePhase2MetrologyCalibration; /**< calibration-only simultaneous release override */
+    std::set<std::string> phase2CalibrationVehicleIds;
+    int phase2CalibrationSpeedMode;
+    double phase2CalibrationSpeedMps;
+    bool endOnFirstConflictingCooccupancy;
     bool ignoreGuiCommands; /**< whether to ignore all TraCI commands that only make sense when the server has a graphical user interface */
     int order; // specific position in the multi-client execution order of the TraCI server to request upon connecting (-1: do not request a position)
     bool ignoreUnknownSubscriptionResults; // whether to (try and) ignore any subscription result we did not request (but another client might have)
@@ -202,8 +207,16 @@ protected:
     std::set<std::string> crashUnsafeEntrants_;
     std::map<std::string, simtime_t> crashPendingInjectAt_;
     std::map<std::string, simtime_t> crashTowAt_;
-    std::map<std::string, char> physicalApproachByVehicle_;
+    std::map<std::string, std::string> plannedIngressByVehicle_;
+    std::map<std::string, std::string> plannedEgressByVehicle_;
+    std::map<std::string, std::string> actualEgressByVehicle_;
+    std::map<std::string, int> actualMovementByVehicle_;
+    std::set<std::string> movementGroundTruthLogged_;
+    std::set<std::string> movementActualEgressLogged_;
+    std::set<std::string> conflictZoneOccupants_;
+    std::set<std::string> phase2CalibrationApplied_;
     std::set<std::pair<std::string, std::string>> unsafeConflictPairs_;
+    bool conflictingCooccupancyEndTriggered_;
     std::set<std::string> physicalCollisionVehicles_;
     bool crashSelectDone_;
     cMessage* connectAndStartTrigger; /**< self-message scheduled for when to connect to TraCI server and start running */
@@ -217,6 +230,7 @@ protected:
 
     void executeOneTimestep(); /**< read and execute all commands for the next timestep */
     void pollIntersectionCooccupancy(); /**< TraCI-ground-truth conflicting internal-lane occupants */
+    void applyPhase2MetrologyCalibration();
 
     /** Same predicate as V2VProxyModule::vehicleHasClearedIntersectionTraCI (four-way C2* departure legs). */
     bool vehiclePastIntersectionDepartureLeg(const std::string& vehicleId);

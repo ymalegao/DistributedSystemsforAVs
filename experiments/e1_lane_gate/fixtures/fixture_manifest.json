@@ -1,0 +1,75 @@
+{
+  "name": "adjacent_lane_calibration",
+  "purpose": "Continuous lateral-perception gate ROC for two genuinely adjacent parallel lanes and calibration of the same scalar gate used by the dedicated N=16 ResDB fixture. Not mapped to cardinal N/E.",
+  "geometry": {
+    "edge_id": "W2E",
+    "lane_a_id": "W2E_0",
+    "lane_b_id": "W2E_1",
+    "lane_a_center_y_m": 0.0,
+    "lane_b_center_y_m": 3.2,
+    "boundary_y_m": 1.6,
+    "lane_center_separation_m": 3.2,
+    "lane_width_m": 3.2,
+    "unit_normal_a_to_b": [0.0, 1.0],
+    "edge_length_m": 200.0
+  },
+  "target": {
+    "vehicle_id": "target",
+    "true_lane_id": "W2E_0",
+    "true_lane_label": "A"
+  },
+  "sensing": {
+    "sigma_m": 0.5,
+    "quantize_m": 0.01,
+    "noise": "one_dimensional_gaussian_on_lane_normal_observation",
+    "claim": "u_claim = quantize_1cm(project_normal(p_true) + delta)",
+    "observation": "u_obs = quantize_1cm(project_normal(p_true) + Normal(0,sigma^2))",
+    "accept": "abs(u_obs - u_claim) <= k * sigma",
+    "k_values": [2.0, 2.5, 3.0],
+    "rethreshold_same_samples": true
+  },
+  "roc_grid": {
+    "sigma_m": 0.5,
+    "delta_m": [0.0, 0.5, 1.0, 1.25, 1.5, 1.59, 1.6, 1.61, 1.75, 2.0, 2.4, 3.2],
+    "observations_per_delta": 100000,
+    "seeds": [1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009],
+    "samples_per_seed": 10000
+  },
+  "lane_classification": {
+    "rule": "nearest_centerline_of_quantized_claim",
+    "exact_boundary_tie": "AMBIGUOUS",
+    "exclude_ambiguous_from_true_false_lane_rates": true,
+    "true_lane_regime": "0 <= delta < 1.6",
+    "boundary_regime": "delta == 1.6",
+    "false_lane_regime": "delta > 1.6"
+  },
+  "analytic": {
+    "family": "one-dimensional Gaussian interval",
+    "formula": "P_accept(sigma, delta, k) = Phi(delta/sigma+k) - Phi(delta/sigma-k)",
+    "q1_at_delta_0": "2*Phi(k)-1",
+    "quantization_envelope_m": 0.01,
+    "quantization_envelope_note": "1 cm worst-case shift in abs(u_obs-u_claim)",
+    "validation_gate": {
+      "family_wise_alpha": 0.05,
+      "n_cells": 36,
+      "alpha_cell": 0.001388888888888889,
+      "procedure": "Bonferroni-adjusted Wilson interval on quantized pooled rate overlaps [P(k_low), P(k_high)] where thresholds are k*sigma +/- quantization_envelope_m",
+      "plot_interval": "ordinary Wilson 95% per cell (not the simultaneous gate)"
+    },
+    "continuous_reference_note": "continuous pre-quantize residuals vs nominal Gaussian interval are reported informationally only"
+  },
+  "files": {
+    "net": "adjacent_lane.net.xml",
+    "routes": "adjacent_lane.rou.xml",
+    "sumocfg": "adjacent_lane.sumocfg",
+    "results_dir": "results/",
+    "canonical_summary": "canonical_validation_summary.json"
+  },
+  "scope_exclusions": [
+    "PBFT",
+    "Check 10 mechanism changes",
+    "intersection scheduler changes",
+    "cardinal N/E lane mapping",
+    "N=16 collision/co-occupancy metrology"
+  ]
+}

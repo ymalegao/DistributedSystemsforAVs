@@ -1,0 +1,5 @@
+{
+  "name": "baselines",
+  "status": "partial",
+  "rows": ["full_system", "all_way_stop", "traffic_light", "firewall_off", "eligibility_off", "all_singleton"]
+}

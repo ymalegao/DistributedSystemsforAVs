@@ -1,14 +1,19 @@
-# DistributedSystemsforAVs
+# DistributedSystemsforAVs / PicaBFT
 
 This repo contains the active OMNeT++/Veins + ResilientDB intersection simulation.
 The old Java/JNI/BFT-SMaRt implementation has been removed from the runnable code path.
 
-The current runnable pieces are:
+The current runnable pieces are organized by responsibility:
 
 - `veins-veins-5.3.1`
 - `incubator-resilientdb`
 - `fourway`
-- `experiment_orchestrator.py`
+- `src/`, `bridge/`, and `scenarios/fourway/` (the structure-only migration
+  is in progress; compatibility paths remain available)
+- `tools/experiment_orchestrator.py` (also available as
+  `./experiment_orchestrator.py`)
+- `experiments/` for experiment-owned manifests and fixtures
+- `docs/` for architecture, protocol specification, and command catalogs
 
 OMNeT++ is an external prerequisite and is not vendored in this repo.
 
@@ -93,10 +98,23 @@ The compatibility wrappers `fourway/run.sh`, `fourway/run_cmdenv.sh`, and
 For batch experiments, use the orchestrator:
 
 ```bash
-python experiment_orchestrator.py
+python tools/experiment_orchestrator.py
 ```
 
-Pass the same arguments you normally use for your experiment suite.
+Pass the same arguments you normally use for your experiment suite. The root
+`experiment_orchestrator.py` wrapper is retained so older command logs remain
+reproducible.
+
+## Repository layout
+
+`src/` and `bridge/` are the intended homes for protocol and ResilientDB
+integration code. `scenarios/fourway/` owns SUMO/OMNeT inputs. Each directory
+under `experiments/` owns one experiment's parameters, fixtures, validation,
+and analysis; generated `results/` and `figures/` are ignored. Shared parsing
+and plotting code belongs in `plotter/`, while build and launch helpers belong
+in `tools/`. The vendored dependency trees remain locally available during
+this staged migration and will be materialized under `.external/` by
+`setup.sh` in the dependency-extraction checkpoint.
 
 ## Notes
 

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Geometry + calibration routes for the two-lane fixture. Not production. -->
+<routes>
+    <vType id="car" accel="2.6" decel="4.5" sigma="0.0" length="4.5" minGap="2.5"
+           maxSpeed="13.90" color="1,1,0" speedFactor="1"/>
+
+    <!-- Outer/T = lane 0: straight + right -->
+    <route id="rN_T_straight" edges="N2C C2S"/>
+    <route id="rN_T_right" edges="N2C C2W"/>
+    <!-- Inner/L = lane 1: left only -->
+    <route id="rN_L_left" edges="N2C C2E"/>
+
+    <route id="rS_T_straight" edges="S2C C2N"/>
+    <route id="rS_L_left" edges="S2C C2W"/>
+    <route id="rE_T_straight" edges="E2C C2W"/>
+    <route id="rE_L_left" edges="E2C C2S"/>
+    <route id="rW_T_straight" edges="W2C C2E"/>
+    <route id="rW_L_left" edges="W2C C2N"/>
+
+    <!-- Calibration: stopped pair on North inbound (witness + target). -->
+    <vehicle id="witness" type="car" route="rN_T_straight" depart="0"
+             departLane="0" departPos="40" departSpeed="0"/>
+    <vehicle id="target" type="car" route="rN_T_straight" depart="0"
+             departLane="0" departPos="20" departSpeed="0"/>
+
+    <!-- Geometry smoke: one L and one T per approach (departSpeed max; TLS overridden in test). -->
+    <vehicle id="geo_N_T" type="car" route="rN_T_straight" depart="0"
+             departLane="0" departPos="60" departSpeed="max"/>
+    <vehicle id="geo_N_L" type="car" route="rN_L_left" depart="0"
+             departLane="1" departPos="60" departSpeed="max"/>
+</routes>

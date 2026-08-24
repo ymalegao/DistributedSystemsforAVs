@@ -1,0 +1,7 @@
+{
+  "name": "e5_operating_point",
+  "status": "implemented",
+  "selected_sigma_lat_m": 0.5,
+  "selected_k": 2,
+  "scales": [4, 8, 16, 20]
+}

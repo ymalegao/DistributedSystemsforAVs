@@ -30,6 +30,7 @@
 #include <cctype>
 
 #include "veins/modules/mobility/traci/TraCIScenarioManager.h"
+#include "veins/modules/mobility/traci/Phase2MovementConflicts.h"
 #include "veins/base/connectionManager/ChannelAccess.h"
 #include "veins/modules/mobility/traci/TraCICommandInterface.h"
 #include "veins/modules/mobility/traci/TraCIConstants.h"
@@ -289,6 +290,37 @@ void TraCIScenarioManager::initialize(int stage)
         throw cRuntimeError("TraCIScenarioManager: intersectionBatchSize must be >= 1");
     }
     intersectionDepartureMinMeters = par("intersectionDepartureMinMeters").doubleValue();
+    enablePhase2MetrologyCalibration = par("enablePhase2MetrologyCalibration").boolValue();
+    phase2CalibrationSpeedMode = par("phase2CalibrationSpeedMode").intValue();
+    phase2CalibrationSpeedMps = par("phase2CalibrationSpeedMps").doubleValue();
+    endOnFirstConflictingCooccupancy = par("endOnFirstConflictingCooccupancy").boolValue();
+    if (phase2CalibrationSpeedMps <= 0) {
+        throw cRuntimeError("TraCIScenarioManager: phase2CalibrationSpeedMps must be positive");
+    }
+    phase2CalibrationVehicleIds.clear();
+    std::istringstream calibrationVehicles(par("phase2CalibrationVehicleIds").stdstringValue());
+    for (std::string id; calibrationVehicles >> id;) {
+        phase2CalibrationVehicleIds.insert(id);
+    }
+    if (enablePhase2MetrologyCalibration && phase2CalibrationVehicleIds.size() != 2) {
+        throw cRuntimeError("TraCIScenarioManager: Phase 2 metrology calibration requires exactly two vehicle IDs");
+    }
+    if (enablePhase2MetrologyCalibration) {
+        std::cout << "[METROLOGY-CONFIG] speedMode=" << phase2CalibrationSpeedMode
+                  << " speedMps=" << phase2CalibrationSpeedMps
+                  << " jmIgnoreFoeProb=1"
+                  << " collisionCheckJunctions=1"
+                  << " collisionAction=none"
+                  << " timeToTeleport=-1"
+                  << " vehicles=";
+        bool first = true;
+        for (const auto& id : phase2CalibrationVehicleIds) {
+            if (!first) std::cout << ",";
+            std::cout << id;
+            first = false;
+        }
+        std::cout << "\n";
+    }
     enableR0Supervisor = par("enableR0Supervisor").boolValue();
     r0SpawnAfterCleared = par("r0SpawnAfterCleared").intValue();
     if (r0SpawnAfterCleared < 1) {
@@ -341,8 +373,16 @@ void TraCIScenarioManager::initialize(int stage)
     crashUnsafeEntrants_.clear();
     crashPendingInjectAt_.clear();
     crashTowAt_.clear();
-    physicalApproachByVehicle_.clear();
+    plannedIngressByVehicle_.clear();
+    plannedEgressByVehicle_.clear();
+    actualEgressByVehicle_.clear();
+    actualMovementByVehicle_.clear();
+    movementGroundTruthLogged_.clear();
+    movementActualEgressLogged_.clear();
+    conflictZoneOccupants_.clear();
+    phase2CalibrationApplied_.clear();
     unsafeConflictPairs_.clear();
+    conflictingCooccupancyEndTriggered_ = false;
     physicalCollisionVehicles_.clear();
     crashSelectDone_ = false;
 
@@ -1034,6 +1074,7 @@ void TraCIScenarioManager::processSimSubscription(std::string objectId, TraCIBuf
         }
     }
 
+    applyPhase2MetrologyCalibration();
     pollIntersectionCooccupancy();
 
     // Global, manager-level watchdog:
@@ -1045,51 +1086,141 @@ void TraCIScenarioManager::processSimSubscription(std::string objectId, TraCIBuf
     }
 }
 
+void TraCIScenarioManager::applyPhase2MetrologyCalibration()
+{
+    if (!enablePhase2MetrologyCalibration || !commandIfc) return;
+    for (const auto& id : phase2CalibrationVehicleIds) {
+        try {
+            auto vehicle = commandIfc->vehicle(id);
+            vehicle.setSpeedMode(phase2CalibrationSpeedMode);
+            vehicle.setSpeed(phase2CalibrationSpeedMps);
+            if (phase2CalibrationApplied_.insert(id).second) {
+                std::cout << "[METROLOGY-RELEASE] vehicle=" << id
+                          << " speedMode=" << phase2CalibrationSpeedMode
+                          << " speedMps=" << phase2CalibrationSpeedMps
+                          << " t=" << simTime() << "\n";
+            }
+        } catch (...) {
+            // The route file may not have inserted both vehicles on the first
+            // TraCI step.  Retry passively on the next manager poll.
+        }
+    }
+}
+
 void TraCIScenarioManager::pollIntersectionCooccupancy()
 {
     if (!commandIfc) return;
-    std::vector<std::pair<std::string, char>> occupants;
+
+    struct Occupant {
+        std::string id;
+        int movement = -1;
+    };
+    std::vector<Occupant> occupants;
+    std::set<std::string> insideNow;
+
+    auto movementIndex = [](const std::string& ingress, const std::string& egress) {
+        for (size_t i = 0; i < phase2_metrology::kMovementCount; ++i) {
+            if (phase2_metrology::kIngressEdges[i] == ingress &&
+                    phase2_metrology::kEgressEdges[i] == egress) {
+                return static_cast<int>(i);
+            }
+        }
+        return -1;
+    };
+
     for (const auto& id : commandIfc->getVehicleIds()) {
         try {
             auto vehicle = commandIfc->vehicle(id);
-            const std::string roadId = vehicle.getRoadId();
-            const std::string laneId = vehicle.getLaneId();
-            if (!roadId.empty()) {
-                const char approach = std::toupper(static_cast<unsigned char>(roadId.front()));
-                if ((approach == 'N' || approach == 'S' || approach == 'E' || approach == 'W') &&
-                        roadId.size() >= 3 && roadId[1] == '2') {
-                    physicalApproachByVehicle_[id] = approach;
+            if (!plannedIngressByVehicle_.count(id)) {
+                const std::string routeId = vehicle.getRouteId();
+                const std::list<std::string> edges = commandIfc->route(routeId).getRoadIds();
+                if (edges.size() >= 2) {
+                    plannedIngressByVehicle_[id] = edges.front();
+                    plannedEgressByVehicle_[id] = edges.back();
+                    actualMovementByVehicle_[id] = movementIndex(edges.front(), edges.back());
                 }
             }
-            if (!laneId.empty() && laneId.front() == ':') {
-                auto it = physicalApproachByVehicle_.find(id);
-                if (it != physicalApproachByVehicle_.end()) occupants.push_back(*it);
+
+            const std::string roadId = vehicle.getRoadId();
+            const std::string laneId = vehicle.getLaneId();
+            const auto movementIt = actualMovementByVehicle_.find(id);
+            const int movement = movementIt == actualMovementByVehicle_.end() ? -1 : movementIt->second;
+            if (movement >= 0 && movementGroundTruthLogged_.insert(id).second) {
+                std::cout << "[MOVEMENT-GROUND-TRUTH] vehicle=" << id
+                          << " plannedIngress=" << plannedIngressByVehicle_[id]
+                          << " plannedEgress=" << plannedEgressByVehicle_[id]
+                          << " movement=" << phase2_metrology::kMovementNames[movement]
+                          << " t=" << simTime() << "\n";
+            }
+
+            const bool internal = !laneId.empty() && laneId.front() == ':';
+            if (internal) {
+                insideNow.insert(id);
+                if (!conflictZoneOccupants_.count(id)) {
+                    std::cout << "[CONFLICT-ZONE] vehicle=" << id
+                              << " movement=" << (movement >= 0 ? phase2_metrology::kMovementNames[movement] : "UNKNOWN")
+                              << " event=ENTER road=" << roadId
+                              << " lane=" << laneId
+                              << " t=" << simTime() << "\n";
+                }
+                if (movement >= 0) occupants.push_back({id, movement});
+            }
+            else if (conflictZoneOccupants_.count(id)) {
+                std::cout << "[CONFLICT-ZONE] vehicle=" << id
+                          << " movement=" << (movement >= 0 ? phase2_metrology::kMovementNames[movement] : "UNKNOWN")
+                          << " event=EXIT road=" << roadId
+                          << " lane=" << laneId
+                          << " t=" << simTime() << "\n";
+            }
+
+            if (roadId.size() == 3 && roadId[0] == 'C' && roadId[1] == '2' &&
+                    movementActualEgressLogged_.insert(id).second) {
+                actualEgressByVehicle_[id] = roadId;
+                const bool match = plannedEgressByVehicle_.count(id) &&
+                    plannedEgressByVehicle_[id] == roadId;
+                std::cout << "[MOVEMENT-ACTUAL-EGRESS] vehicle=" << id
+                          << " plannedEgress=" << (plannedEgressByVehicle_.count(id) ? plannedEgressByVehicle_[id] : "UNKNOWN")
+                          << " actualEgress=" << roadId
+                          << " match=" << (match ? 1 : 0)
+                          << " t=" << simTime() << "\n";
             }
         } catch (...) {
+            // Preserve simulation behavior; missing ground truth is an
+            // explicit validation failure in the analyzer/orchestrator.
         }
     }
 
-    auto opposite = [](char a, char b) {
-        return (a == 'N' && b == 'S') || (a == 'S' && b == 'N') ||
-               (a == 'E' && b == 'W') || (a == 'W' && b == 'E');
-    };
+    conflictZoneOccupants_ = std::move(insideNow);
     for (size_t i = 0; i < occupants.size(); ++i) {
         for (size_t j = i + 1; j < occupants.size(); ++j) {
-            char a = occupants[i].second;
-            char b = occupants[j].second;
-            if (a == b || opposite(a, b)) continue; // all configured routes are straight
-            std::string first = occupants[i].first;
-            std::string second = occupants[j].first;
-            if (second < first) {
-                std::swap(first, second);
-                std::swap(a, b);
-            }
-            if (!unsafeConflictPairs_.insert({first, second}).second) continue;
-            std::cout << "[UNSAFE-CONFLICT-COOCCUPANCY] first=" << first
-                      << " first_approach=" << a
-                      << " second=" << second
-                      << " second_approach=" << b
+            Occupant first = occupants[i];
+            Occupant second = occupants[j];
+            if (!phase2_metrology::kMovementConflicts[first.movement][second.movement]) continue;
+            if (second.id < first.id) std::swap(first, second);
+            if (!unsafeConflictPairs_.insert({first.id, second.id}).second) continue;
+            const std::string firstMovement(phase2_metrology::kMovementNames[first.movement]);
+            const std::string secondMovement(phase2_metrology::kMovementNames[second.movement]);
+            std::cout << "[CONFLICTING-COOCCUPANCY] first=" << first.id
+                      << " firstMovement=" << firstMovement
+                      << " second=" << second.id
+                      << " secondMovement=" << secondMovement
                       << " t=" << simTime() << "\n";
+            // Compatibility record for existing safety summaries.  Its
+            // emission is now controlled by the actual-movement table above.
+            std::cout << "[UNSAFE-CONFLICT-COOCCUPANCY] first=" << first.id
+                      << " first_approach=" << firstMovement.front()
+                      << " second=" << second.id
+                      << " second_approach=" << secondMovement.front()
+                      << " t=" << simTime() << "\n";
+            if (endOnFirstConflictingCooccupancy && !conflictingCooccupancyEndTriggered_) {
+                conflictingCooccupancyEndTriggered_ = true;
+                std::cout << "[METROLOGY-END] reason=first-conflicting-cooccupancy"
+                          << " first=" << first.id
+                          << " second=" << second.id
+                          << " t=" << simTime() << "\n";
+                endSimulation();
+                return;
+            }
         }
     }
 }

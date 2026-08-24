@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<launch>
+    <copy file="adjacent_lane.net.xml" />
+    <copy file="adjacent_lane_16veh.rou.xml" />
+    <copy file="adjacent_lane_16veh.sumo.cfg" type="config" />
+</launch>
