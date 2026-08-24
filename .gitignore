@@ -17,6 +17,7 @@ fourway/channel_metrics_override.ini
 fourway/resdb_crypto*/
 fourway/results/
 fourway/out/
+fourway/graphs/
 veins-veins-5.3.1/examples/fourway/out/
 
 # Staged repository layout: materialized dependencies and generated runtime
