@@ -1929,14 +1929,32 @@ Accordingly, direction is evaluated by a safe-throughput ablation: eligibility
 ON, eligibility OFF, and co-batching OFF. The analyzer already separates QUIET,
 SIGNED-UNKNOWN, and LEFT/table-forced singleton causes. The eligibility-off
 mode is implemented with `enableDirectionEligibility=false`; co-batching-off is
-implemented with `RESDB_ALL_SINGLETON=1`. The N=16 smoke passes all six matched
-rows (honest and `FALSE_DIRECTION`, crossed with the three modes). The full
-profile runs 20 paired repetitions per row, strictly sequentially, with the
-attack policy fixed and logged before perception draws:
+implemented with `RESDB_ALL_SINGLETON=1`.
+
+The headline fixture is N=16 and straight-heavy: every approach has `2S/1L/1R`
+(`8S/4L/4R` overall). LEFT is not present in `kSafe` and therefore remains a
+singleton by fallthrough. Four checked-in assignment variants keep
+`veh0=N-L` and `veh1=S-S` fixed while rotating the remaining maneuver identities.
+Repetition `r` selects fixture `r mod 4` before perception, then shares that
+fixture and the paired seed across all six honest/`FALSE_DIRECTION` policy
+rows. The old `4S/8L/4R` full result is retained as LEFT-heavy sensitivity data.
+
+The honest eligibility-OFF prerequisite passes with 16 vehicles in 11 batches
+(`mean_batch_size=1.45`), all departures, and no unsafe co-occupancy. The new
+six-row straight-heavy smoke also passes. Its single-repetition observations
+are: honest ON/OFF/singleton mean batch sizes `1.08/1.45/1.00`; false-direction
+ON/OFF/singleton mean batch sizes `1.07/1.45/1.00`. Only the false-direction
+eligibility-OFF row produces the reviewed conflicting co-occupancy. These are
+wiring results, not final confidence estimates. The full profile runs 20 paired
+repetitions per row, strictly sequentially:
 
 ```bash
 ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
-  --two-lane-direction-ablation-full
+  --two-lane-direction-straight-heavy-prerequisite
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
+  --two-lane-direction-straight-heavy
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
+  --two-lane-direction-straight-heavy-full
 ```
 
 The multiscale two-lane fixture checkpoint uses N=`4,8,16,20`, balances every

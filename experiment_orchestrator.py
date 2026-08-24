@@ -3483,11 +3483,11 @@ def _two_lane_grid_metadata(row: Dict[str, Any]) -> Dict[str, Any]:
         "evidence_colluder_ids": grid.nested_colluders(b),
         "colluder_policy": "nested_ascending_replica_ids",
         "lane_observation_mode": "ADJACENT_LATERAL",
-        "config": (
+        "config": str(row.get("config") or (
             TWO_LANE_SWEEP_CONFIG
             if (parameter_suite or combined_suite or direction_ablation)
             else TWO_LANE_CONFLICT_CONFIG
-        ),
+        )),
         "direction_collection_window_sec": 0.25,
         "physical_lane_policy": "lane0=STRAIGHT|RIGHT; lane1=LEFT",
         "actual_conflict_pair": "veh0=N-L; veh1=S-S",
@@ -3511,6 +3511,19 @@ def _two_lane_grid_metadata(row: Dict[str, Any]) -> Dict[str, Any]:
             row.get("all_singleton_scheduling", False)
         )
         metadata["attack_choice_timing"] = "INIT_BEFORE_PERCEPTION"
+        metadata["traffic_profile"] = str(
+            row.get("traffic_profile", "left_heavy_4S_8L_4R")
+        )
+        metadata["maneuver_mix"] = dict(
+            row.get("maneuver_mix", {"left": 8, "straight": 4, "right": 4})
+        )
+        if "fixture_id" in row:
+            metadata["fixture_id"] = int(row["fixture_id"])
+            metadata["fixture_manifest"] = str(row["fixture_manifest"])
+            metadata["fixture_selection_policy"] = (
+                "fixture_id=rep_mod_4; selected before perception; shared by "
+                "all six modes in the repetition"
+            )
     return metadata
 
 
@@ -3529,6 +3542,11 @@ def _run_two_lane_grid_cell(
         existing = json.loads(metadata_path.read_text())
         if existing != metadata:
             raise ValueError(f"refusing mismatched resume artifact: {run_dir}")
+        if any(
+            str(purpose).startswith("direction_ablation_")
+            for purpose in row.get("purposes", [])
+        ):
+            _compact_direction_analyzer_json(json_path)
         print(f"[resume] reuse {run_dir}")
         return run_dir
 
@@ -3563,6 +3581,16 @@ def _run_two_lane_grid_cell(
         "--phase2-evidence-colluders", ",".join(str(value) for value in colluders),
         "--phase2-actual-b", str(b),
         "--phase2-lateral-claim-offset", str(metadata["signed_lateral_claim_offset_m"]),
+        # These experiment harnesses consume the structured text/CSV artifacts,
+        # not OMNeT scalar/vector files.  Disabling recording prevents hundreds
+        # of sequential cells from filling fourway/results and does not alter
+        # simulation events or protocol behavior.  Route outputs into the
+        # per-run dir (not /dev/null): OMNeT unlinks the prior file at startup,
+        # which fails with EPERM on macOS when the path is /dev/null.
+        "--**.scalar-recording=false",
+        "--**.vector-recording=false",
+        f"--output-scalar-file={run_dir.resolve() / 'omnet.sca'}",
+        f"--output-vector-file={run_dir.resolve() / 'omnet.vec'}",
         "-u", "Cmdenv",
         "--debug-on-errors=false",
         "-c", active_config,
@@ -3581,7 +3609,32 @@ def _run_two_lane_grid_cell(
     ]
     print("+ " + " ".join(shlex.quote(value) for value in analyze))
     subprocess.run(analyze, cwd=REPO_ROOT, check=True)
+    if any(
+        str(purpose).startswith("direction_ablation_")
+        for purpose in row.get("purposes", [])
+    ):
+        _compact_direction_analyzer_json(json_path)
     return run_dir
+
+
+def _compact_direction_analyzer_json(json_path: Path) -> None:
+    """Remove duplicated run-wide fields from direction-ablation records.
+
+    analyze_log.py emits the same large ``run_metrics`` and ``bft_stats`` maps
+    on every vehicle record.  Direction-ablation analysis reads those maps
+    from record 0 and only needs per-vehicle timing from the remaining records.
+    Keeping one canonical copy preserves all evidence while avoiding hundreds
+    of megabytes of redundant output in the 120-cell matrix.
+    """
+    records = json.loads(json_path.read_text())
+    if not isinstance(records, list) or not records:
+        raise ValueError(f"unexpected analyzer JSON shape: {json_path}")
+    for record in records[1:]:
+        if not isinstance(record, dict):
+            raise ValueError(f"unexpected analyzer record shape: {json_path}")
+        record.pop("run_metrics", None)
+        record.pop("bft_stats", None)
+    json_path.write_text(json.dumps(records, separators=(",", ":")) + "\n")
 
 
 def run_two_lane_b1_smoke(args: argparse.Namespace) -> int:
@@ -4130,6 +4183,36 @@ def _analyze_direction_ablation_cell(
     mean_batch_size = (
         batch_vehicle_count / len(batch_distribution) if batch_distribution else None
     )
+    maneuver_mix = dict(
+        row.get("maneuver_mix", {"left": 8, "straight": 4, "right": 4})
+    )
+    fixture_manifest_rows: List[Dict[str, str]] = []
+    fixture_manifest_ok = True
+    if row.get("fixture_manifest"):
+        fixture_path = FOURWAY_DIR / str(row["fixture_manifest"])
+        try:
+            fixture_manifest_rows = list(csv.DictReader(fixture_path.open()))
+        except OSError:
+            fixture_manifest_ok = False
+        if fixture_manifest_rows:
+            observed_mix = Counter(
+                item.get("intended_direction") for item in fixture_manifest_rows
+            )
+            by_vehicle = {
+                item.get("vehicle_id"): item for item in fixture_manifest_rows
+            }
+            fixture_manifest_ok = (
+                len(fixture_manifest_rows) == grid.N and
+                observed_mix == Counter({
+                    "L": int(maneuver_mix["left"]),
+                    "S": int(maneuver_mix["straight"]),
+                    "R": int(maneuver_mix["right"]),
+                }) and
+                (by_vehicle.get("veh0") or {}).get("intended_lane") == "N" and
+                (by_vehicle.get("veh0") or {}).get("intended_direction") == "L" and
+                (by_vehicle.get("veh1") or {}).get("intended_lane") == "S" and
+                (by_vehicle.get("veh1") or {}).get("intended_direction") == "S"
+            )
     wait_samples = [
         float(wait_ms) / 1000.0 for record in records
         if (wait_ms := (record.get("durations_ms") or {}).get("total_wait_time"))
@@ -4159,6 +4242,7 @@ def _analyze_direction_ablation_cell(
             attack.get("kind") == row["attack_kind"] and
             int(attack.get("actual_b", -1)) == int(row["b"])
         ),
+        "fixture_manifest_constraints": fixture_manifest_ok,
     }
     if row["attack_kind"] == "NONE":
         checks["honest_has_no_unsafe_cooccupancy"] = not unsafe_pairs
@@ -4183,6 +4267,10 @@ def _analyze_direction_ablation_cell(
             batch_distribution and
             all(int(size) == 1 for size in batch_distribution.values())
         )
+    if row.get("profile") == "prerequisite":
+        checks["meaningful_cobatching_present"] = (
+            mean_batch_size is not None and mean_batch_size > 1.0
+        )
 
     throughput_vps = metrics.get("throughput_veh_per_s")
     return {
@@ -4190,7 +4278,12 @@ def _analyze_direction_ablation_cell(
         "passed": all(checks.values()),
         "checks": checks,
         "result_dir": str(run_dir),
-        "maneuver_mix": {"left": 8, "straight": 4, "right": 4},
+        "maneuver_mix": maneuver_mix,
+        "traffic_profile": str(
+            row.get("traffic_profile", "left_heavy_4S_8L_4R")
+        ),
+        "fixture_id": row.get("fixture_id"),
+        "fixture_manifest": row.get("fixture_manifest"),
         "attack_choice": {
             "kind": row["attack_kind"],
             "selected_at": "INIT_BEFORE_PERCEPTION",
@@ -4239,22 +4332,41 @@ def _aggregate_direction_ablation(
 
     aggregates: List[Dict[str, Any]] = []
     for (attack_kind, mode), group in sorted(grouped.items()):
-        trials = len(group)
-        unsafe = sum(bool(row["target_pair_conflicting_cooccupancy"]) for row in group)
+        # A process-level failure can leave a manifest row without analyzed
+        # metrics.  Keep that attempt visible, but never treat it as a negative
+        # safety observation or crash while writing the partial summary.
+        valid_group = [
+            row for row in group
+            if "target_pair_conflicting_cooccupancy" in row and
+               "false_eligibility" in row
+        ]
+        attempted_runs = len(group)
+        trials = len(valid_group)
+        failed_runs = attempted_runs - trials
+        unsafe = sum(
+            bool(row["target_pair_conflicting_cooccupancy"])
+            for row in valid_group
+        )
         collisions = sum(
             int(row.get("physical_collision_vehicle_count") or 0) > 0
-            for row in group
+            for row in valid_group
         )
-        false_eligibility = sum(bool(row["false_eligibility"]) for row in group)
-        unsafe_ci = grid.wilson(unsafe, trials)
-        collision_ci = grid.wilson(collisions, trials)
-        eligibility_ci = grid.wilson(false_eligibility, trials)
+        false_eligibility = sum(
+            bool(row["false_eligibility"]) for row in valid_group
+        )
+        unsafe_ci = grid.wilson(unsafe, trials) if trials else (None, None)
+        collision_ci = grid.wilson(collisions, trials) if trials else (None, None)
+        eligibility_ci = (
+            grid.wilson(false_eligibility, trials) if trials else (None, None)
+        )
         wait_samples = [
-            float(value) for row in group for value in row.get("wait_samples_s", [])
+            float(value)
+            for row in valid_group
+            for value in row.get("wait_samples_s", [])
         ]
         direction_counts = Counter(
             str((row.get("target_direction") or {}).get("derived", "MISSING"))
-            for row in group
+            for row in valid_group
         )
         aggregates.append({
             "attack_kind": attack_kind,
@@ -4264,65 +4376,70 @@ def _aggregate_direction_ablation(
                 group[0]["direction_eligibility_enabled"]
             ),
             "all_singleton_scheduling": bool(group[0]["all_singleton_scheduling"]),
+            "attempted_runs": attempted_runs,
+            "failed_runs": failed_runs,
             "repetitions": trials,
-            "passing_runs": sum(bool(row["passed"]) for row in group),
+            "passing_runs": sum(bool(row["passed"]) for row in valid_group),
             "false_eligibility_runs": false_eligibility,
-            "false_eligibility_rate": false_eligibility / trials,
+            "false_eligibility_rate": (
+                false_eligibility / trials if trials else None
+            ),
             "false_eligibility_wilson95_low": eligibility_ci[0],
             "false_eligibility_wilson95_high": eligibility_ci[1],
             "unsafe_cooccupancy_runs": unsafe,
-            "unsafe_cooccupancy_rate": unsafe / trials,
+            "unsafe_cooccupancy_rate": unsafe / trials if trials else None,
             "unsafe_cooccupancy_wilson95_low": unsafe_ci[0],
             "unsafe_cooccupancy_wilson95_high": unsafe_ci[1],
             "sumo_collision_runs": collisions,
-            "sumo_collision_rate": collisions / trials,
+            "sumo_collision_rate": collisions / trials if trials else None,
             "sumo_collision_wilson95_low": collision_ci[0],
             "sumo_collision_wilson95_high": collision_ci[1],
             "mean_throughput_veh_per_min": _mean_or_none(
-                [row.get("throughput_veh_per_min") for row in group]
+                [row.get("throughput_veh_per_min") for row in valid_group]
             ),
             "mean_wait_s": statistics.mean(wait_samples) if wait_samples else None,
             "p95_wait_s": _percentile(wait_samples, 0.95) if wait_samples else None,
             "mean_batch_size": _mean_or_none(
-                [row.get("mean_batch_size") for row in group]
+                [row.get("mean_batch_size") for row in valid_group]
             ),
-            "mean_quiet_count": statistics.mean(
-                int(row.get("quiet_count") or 0) for row in group
-            ),
-            "mean_signed_unknown_count": statistics.mean(
-                int(row.get("signed_unknown_count") or 0) for row in group
-            ),
-            "mean_signed_unknown_singleton_percent": statistics.mean(
+            "mean_quiet_count": _mean_or_none([
+                int(row.get("quiet_count") or 0) for row in valid_group
+            ]),
+            "mean_signed_unknown_count": _mean_or_none([
+                int(row.get("signed_unknown_count") or 0) for row in valid_group
+            ]),
+            "mean_signed_unknown_singleton_percent": _mean_or_none([
                 100.0 * int(row.get("signed_unknown_singleton_count") or 0) / grid.N
-                for row in group
-            ),
-            "mean_left_table_forced_singleton_percent": statistics.mean(
+                for row in valid_group
+            ]),
+            "mean_left_table_forced_singleton_percent": _mean_or_none([
                 100.0 * int(row.get("left_table_forced_singleton_count") or 0) / grid.N
-                for row in group
-            ),
-            "mean_quiet_percent": statistics.mean(
-                100.0 * int(row.get("quiet_count") or 0) / grid.N for row in group
-            ),
-            "mean_total_singleton_percent": statistics.mean(
+                for row in valid_group
+            ]),
+            "mean_quiet_percent": _mean_or_none([
+                100.0 * int(row.get("quiet_count") or 0) / grid.N
+                for row in valid_group
+            ]),
+            "mean_total_singleton_percent": _mean_or_none([
                 100.0 * int(row.get("singleton_vehicle_count") or 0) / grid.N
-                for row in group
-            ),
-            "mean_all_singleton_policy_percent": statistics.mean(
+                for row in valid_group
+            ]),
+            "mean_all_singleton_policy_percent": _mean_or_none([
                 100.0 * int(row.get("all_singleton_policy_count") or 0) / grid.N
-                for row in group
-            ),
-            "mean_committed_rank_inversion_pairs": statistics.mean(
+                for row in valid_group
+            ]),
+            "mean_committed_rank_inversion_pairs": _mean_or_none([
                 int(row.get("committed_rank_inversion_pair_count") or 0)
-                for row in group
-            ),
-            "mean_direction_support": statistics.mean(
+                for row in valid_group
+            ]),
+            "mean_direction_support": _mean_or_none([
                 int((row.get("target_direction") or {}).get("support") or 0)
-                for row in group
-            ),
-            "mean_direction_b_sig": statistics.mean(
+                for row in valid_group
+            ]),
+            "mean_direction_b_sig": _mean_or_none([
                 int((row.get("target_direction") or {}).get("b_sig") or 0)
-                for row in group
-            ),
+                for row in valid_group
+            ]),
             "target_derived_unknown_runs": (
                 direction_counts.get("U", 0) + direction_counts.get("UNKNOWN", 0)
             ),
@@ -4333,19 +4450,39 @@ def _aggregate_direction_ablation(
 
 
 def run_two_lane_direction_ablation(
-    args: argparse.Namespace, profile: str = "smoke"
+    args: argparse.Namespace, profile: str = "smoke",
+    traffic_profile: str = "left_heavy",
 ) -> int:
     from fourway import adjacent_lane_grid as grid
 
-    rows = grid.direction_ablation_manifest(profile)
-    output_dir = REPO_ROOT / "benchmarks" / (
-        "Phase2DirectionAblation" if profile == "smoke"
-        else "Phase2DirectionAblationFull"
-    )
+    straight_heavy = traffic_profile == "straight_heavy"
+    if straight_heavy:
+        rows = grid.straight_heavy_direction_ablation_manifest(profile)
+        output_dir = REPO_ROOT / "benchmarks" / {
+            "prerequisite": "Phase2DirectionAblationStraightHeavyPrerequisite",
+            "smoke": "Phase2DirectionAblationStraightHeavy",
+            "full": "Phase2DirectionAblationStraightHeavyFull",
+        }[profile]
+        maneuver_mix = dict(grid.STRAIGHT_HEAVY_MANEUVER_MIX)
+        stem = {
+            "prerequisite": "direction_ablation_straight_heavy_prerequisite",
+            "smoke": "direction_ablation_straight_heavy",
+            "full": "direction_ablation_straight_heavy_full",
+        }[profile]
+    else:
+        rows = grid.direction_ablation_manifest(profile)
+        output_dir = REPO_ROOT / "benchmarks" / (
+            "Phase2DirectionAblation" if profile == "smoke"
+            else "Phase2DirectionAblationFull"
+        )
+        maneuver_mix = {"left": 8, "straight": 4, "right": 4}
+        stem = "direction_ablation" if profile == "smoke" else "direction_ablation_full"
     if args.dry_run:
         print(
             f"[dry-run] N=16 direction/co-batching ablation profile={profile}: "
-            f"{len(rows)} sequential runs, maneuvers=8L/4S/4R, "
+            f"{len(rows)} sequential runs, maneuvers="
+            f"{maneuver_mix['straight']}S/{maneuver_mix['left']}L/"
+            f"{maneuver_mix['right']}R, "
             "sigma_lat=.5 sigma_long=1 signal_error=.2 k=2"
         )
         for index, row in enumerate(rows, 1):
@@ -4353,26 +4490,48 @@ def run_two_lane_direction_ablation(
         return 0
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    stem = "direction_ablation" if profile == "smoke" else "direction_ablation_full"
     (output_dir / f"{stem}_manifest.json").write_text(json.dumps({
-        "checkpoint": "P7-direction-and-cobatching-ablation",
+        "checkpoint": (
+            "P7-straight-heavy-direction-batching-prerequisite"
+            if profile == "prerequisite" else
+            "P7-straight-heavy-direction-and-cobatching-ablation"
+            if straight_heavy else
+            "P7-direction-and-cobatching-ablation"
+        ),
         "profile": profile,
         "n": grid.N,
-        "maneuver_mix": {"left": 8, "straight": 4, "right": 4},
+        "traffic_profile": (
+            "straight_heavy_8S_4L_4R" if straight_heavy
+            else "left_heavy_4S_8L_4R"
+        ),
+        "maneuver_mix": maneuver_mix,
         "operating_point": {
             "sigma_lat_m": 0.5, "sigma_long_m": 1.0,
             "signal_error": 0.2, "physical_gate_k": 2.0,
         },
         "execution": "strictly sequential",
-        "paired_seed_policy": "same repetition uses the same seed across all six rows",
-        "repetitions_per_cell": 1 if profile == "smoke" else grid.DIRECTION_ABLATION_REPS,
+        "paired_seed_policy": (
+            "same repetition uses the same seed and fixture across all six rows"
+        ),
+        "fixture_selection_policy": (
+            "fixture_id=rep_mod_4, preselected before perception"
+            if straight_heavy else "fixed reviewed left-heavy fixture"
+        ),
+        "repetitions_per_cell": (
+            1 if profile in ("prerequisite", "smoke")
+            else grid.DIRECTION_ABLATION_REPS
+        ),
         "rows": rows,
     }, indent=2, sort_keys=True) + "\n")
     run_key_generation(dry_run=False, scale=grid.N)
     results: List[Dict[str, Any]] = []
     for index, row in enumerate(rows, 1):
         print(f"\n--- Direction ablation {index}/{len(rows)}: {row['name']} rep={row['rep']} ---")
-        run_dir = grid.direction_ablation_run_dir(REPO_ROOT, row, profile)
+        run_dir = (
+            grid.straight_heavy_direction_run_dir(REPO_ROOT, row, profile)
+            if straight_heavy else
+            grid.direction_ablation_run_dir(REPO_ROOT, row, profile)
+        )
         try:
             clear_stale_random_ini()
             run_dir = _run_two_lane_grid_cell(args, row, run_dir_override=run_dir)
@@ -4402,11 +4561,21 @@ def run_two_lane_direction_ablation(
     overall = len(results) == len(rows) and all(row.get("passed") for row in results)
     summary_path = output_dir / f"{stem}_summary.json"
     summary_path.write_text(json.dumps({
-        "checkpoint": "P7-direction-and-cobatching-ablation",
+        "checkpoint": (
+            "P7-straight-heavy-direction-batching-prerequisite"
+            if profile == "prerequisite" else
+            "P7-straight-heavy-direction-and-cobatching-ablation"
+            if straight_heavy else
+            "P7-direction-and-cobatching-ablation"
+        ),
         "profile": profile,
         "passed": overall,
         "planned": len(rows), "completed": len(results),
-        "maneuver_mix": {"left": 8, "straight": 4, "right": 4},
+        "traffic_profile": (
+            "straight_heavy_8S_4L_4R" if straight_heavy
+            else "left_heavy_4S_8L_4R"
+        ),
+        "maneuver_mix": maneuver_mix,
         "attack_policy": (
             "static enumerated attack kind logged at initialization before any "
             "perception draw; no noise-oracle adaptation"
@@ -4420,7 +4589,14 @@ def run_two_lane_direction_ablation(
             writer = csv.DictWriter(handle, fieldnames=list(aggregates[0]))
             writer.writeheader()
             writer.writerows(aggregates)
-    print("\n========== N=16 DIRECTION / CO-BATCHING ABLATION ==========")
+    title = (
+        "N=16 STRAIGHT-HEAVY BATCHING PREREQUISITE"
+        if profile == "prerequisite" else
+        "N=16 STRAIGHT-HEAVY DIRECTION / CO-BATCHING ABLATION"
+        if straight_heavy else
+        "N=16 DIRECTION / CO-BATCHING ABLATION"
+    )
+    print(f"\n========== {title} ==========")
     print(f"Completed: {len(results)}/{len(rows)}")
     print(f"Overall: {'PASS' if overall else 'FAIL'}")
     print(f"Summary: {summary_path}")
@@ -7080,6 +7256,30 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         ),
     )
     p.add_argument(
+        "--two-lane-direction-straight-heavy-prerequisite",
+        action="store_true",
+        help=(
+            "Run one honest N=16 8S/4L/4R eligibility-OFF fixture smoke and "
+            "require mean batch size greater than one before the headline ablation."
+        ),
+    )
+    p.add_argument(
+        "--two-lane-direction-straight-heavy",
+        action="store_true",
+        help=(
+            "Run the six-row N=16 straight-heavy direction/co-batching smoke "
+            "after the batching prerequisite passes."
+        ),
+    )
+    p.add_argument(
+        "--two-lane-direction-straight-heavy-full",
+        action="store_true",
+        help=(
+            "Run the 120-run N=16 straight-heavy direction ablation with one "
+            "preselected fixture and paired seed shared across each six-row repetition."
+        ),
+    )
+    p.add_argument(
         "--two-lane-scale-smoke",
         action="store_true",
         help=(
@@ -7315,6 +7515,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         or args.two_lane_combined_validation
         or args.two_lane_direction_ablation
         or args.two_lane_direction_ablation_full
+        or args.two_lane_direction_straight_heavy_prerequisite
+        or args.two_lane_direction_straight_heavy
+        or args.two_lane_direction_straight_heavy_full
         or args.two_lane_scale_smoke
         or args.two_lane_scale_honest_full
         or args.attack_defense_equivocation_validation
@@ -7365,6 +7568,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                  args.two_lane_combined_validation or
                  args.two_lane_direction_ablation or
                  args.two_lane_direction_ablation_full or
+                 args.two_lane_direction_straight_heavy_prerequisite or
+                 args.two_lane_direction_straight_heavy or
+                 args.two_lane_direction_straight_heavy_full or
                  args.two_lane_scale_smoke or
                  args.two_lane_scale_honest_full or
                  args.attack_defense_equivocation_validation or
@@ -7458,6 +7664,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.two_lane_combined_validation,
         args.two_lane_direction_ablation,
         args.two_lane_direction_ablation_full,
+        args.two_lane_direction_straight_heavy_prerequisite,
+        args.two_lane_direction_straight_heavy,
+        args.two_lane_direction_straight_heavy_full,
         args.two_lane_scale_smoke,
         args.two_lane_scale_honest_full,
         args.attack_defense_equivocation_validation,
@@ -7584,7 +7793,46 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 return 2
             return run_two_lane_combined_validation(args)
-        if args.two_lane_direction_ablation or args.two_lane_direction_ablation_full:
+        if (
+            args.two_lane_direction_ablation or
+            args.two_lane_direction_ablation_full or
+            args.two_lane_direction_straight_heavy_prerequisite or
+            args.two_lane_direction_straight_heavy or
+            args.two_lane_direction_straight_heavy_full
+        ):
+            if (
+                args.two_lane_direction_straight_heavy_prerequisite or
+                args.two_lane_direction_straight_heavy or
+                args.two_lane_direction_straight_heavy_full
+            ):
+                fixture_summary = (
+                    FOURWAY_DIR / "two_lane_calibration" / "results" /
+                    "direction_ablation_straight_heavy_fixture_validation.json"
+                )
+                if (not fixture_summary.is_file() or not
+                        json.loads(fixture_summary.read_text()).get("passed")):
+                    if args.dry_run:
+                        print(
+                            "[dry-run] prerequisite: python3 "
+                            "fourway/validate_direction_ablation_fixtures.py"
+                        )
+                    else:
+                        subprocess.run(
+                            [sys.executable, str(
+                                FOURWAY_DIR /
+                                "validate_direction_ablation_fixtures.py"
+                            )],
+                            cwd=REPO_ROOT,
+                            check=True,
+                        )
+                if (not args.dry_run and
+                        (not fixture_summary.is_file() or not
+                         json.loads(fixture_summary.read_text()).get("passed"))):
+                    print(
+                        "ERROR: straight-heavy fixture validation failed.",
+                        file=sys.stderr,
+                    )
+                    return 2
             combined_prerequisite = (
                 REPO_ROOT / "benchmarks" / "Phase2TwoLaneCombinedValidation" /
                 "two_lane_combined_validation_summary.json"
@@ -7596,8 +7844,46 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "before the direction ablation.", file=sys.stderr,
                 )
                 return 2
+            if args.two_lane_direction_ablation or args.two_lane_direction_ablation_full:
+                return run_two_lane_direction_ablation(
+                    args, "full" if args.two_lane_direction_ablation_full else "smoke"
+                )
+            if args.two_lane_direction_straight_heavy_prerequisite:
+                return run_two_lane_direction_ablation(
+                    args, "prerequisite", "straight_heavy"
+                )
+            prerequisite_summary = (
+                REPO_ROOT / "benchmarks" /
+                "Phase2DirectionAblationStraightHeavyPrerequisite" /
+                "direction_ablation_straight_heavy_prerequisite_summary.json"
+            )
+            if (not prerequisite_summary.is_file() or not
+                    json.loads(prerequisite_summary.read_text()).get("passed")):
+                print(
+                    "ERROR: passing "
+                    "--two-lane-direction-straight-heavy-prerequisite is "
+                    "required before the straight-heavy direction ablation.",
+                    file=sys.stderr,
+                )
+                return 2
+            if args.two_lane_direction_straight_heavy_full:
+                smoke_summary = (
+                    REPO_ROOT / "benchmarks" /
+                    "Phase2DirectionAblationStraightHeavy" /
+                    "direction_ablation_straight_heavy_summary.json"
+                )
+                if (not smoke_summary.is_file() or not
+                        json.loads(smoke_summary.read_text()).get("passed")):
+                    print(
+                        "ERROR: passing --two-lane-direction-straight-heavy "
+                        "is required before its 120-run full profile.",
+                        file=sys.stderr,
+                    )
+                    return 2
             return run_two_lane_direction_ablation(
-                args, "full" if args.two_lane_direction_ablation_full else "smoke"
+                args,
+                "full" if args.two_lane_direction_straight_heavy_full else "smoke",
+                "straight_heavy",
             )
         if args.two_lane_scale_smoke or args.two_lane_scale_honest_full:
             fixture_prerequisite = (

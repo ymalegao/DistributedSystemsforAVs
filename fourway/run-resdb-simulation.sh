@@ -1013,6 +1013,7 @@ if [[ -n "${APPROACH_SIGMA}${SIGNAL_ERROR}${DIRECTION_COLLECTION_WINDOW}${SIMULA
           "${ACTIVE_CONFIG}" != "SixteenVehiclesTwoLaneResDB" &&
           "${ACTIVE_CONFIG}" != "SixteenVehiclesTwoLaneConflictReleaseResDB" &&
           "${ACTIVE_CONFIG}" != "SixteenVehiclesTwoLaneSweepResDB" &&
+          ! "${ACTIVE_CONFIG}" =~ ^SixteenVehiclesDirectionAblationFixture[0-3]ResDB$ &&
           "${ACTIVE_CONFIG}" != "FourVehiclesTwoLaneScaleResDB" &&
           "${ACTIVE_CONFIG}" != "EightVehiclesTwoLaneScaleResDB" &&
           "${ACTIVE_CONFIG}" != "TwentyVehiclesTwoLaneScaleResDB" ]]; then
