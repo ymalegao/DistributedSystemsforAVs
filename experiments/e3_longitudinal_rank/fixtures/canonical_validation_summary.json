@@ -1,0 +1,2120 @@
+{
+  "false_distance_cells": [
+    {
+      "analytic_high": 9.498433517518363e-76,
+      "analytic_low": 4.5401753503635634e-76,
+      "analytic_nominal": 6.568238493386975e-76,
+      "clearance_m": 0.5,
+      "d_claim_rear_m": 14.9,
+      "d_true_rear_m": 20.0,
+      "delta_long_m": 5.1,
+      "k": 2.0,
+      "pair": "q0>q1",
+      "pass": true,
+      "separation_m": 5.0,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 8.44185015196156e-72,
+      "analytic_low": 4.1164065861534827e-72,
+      "analytic_nominal": 5.896095977263018e-72,
+      "clearance_m": 0.5,
+      "d_claim_rear_m": 14.9,
+      "d_true_rear_m": 20.0,
+      "delta_long_m": 5.1,
+      "k": 2.5,
+      "pair": "q0>q1",
+      "pass": true,
+      "separation_m": 5.0,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 5.8476746145014346e-68,
+      "analytic_low": 2.908856853011181e-68,
+      "analytic_nominal": 4.125146265078826e-68,
+      "clearance_m": 0.5,
+      "d_claim_rear_m": 14.9,
+      "d_true_rear_m": 20.0,
+      "delta_long_m": 5.1,
+      "k": 3.0,
+      "pair": "q0>q1",
+      "pass": true,
+      "separation_m": 5.0,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 1.306130888436644e-16,
+      "analytic_low": 1.105942480585958e-16,
+      "analytic_nominal": 1.201935154273573e-16,
+      "clearance_m": 0.5,
+      "d_claim_rear_m": 14.9,
+      "d_true_rear_m": 20.0,
+      "delta_long_m": 5.1,
+      "k": 2.0,
+      "pair": "q0>q1",
+      "pass": true,
+      "separation_m": 5.0,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 7.356751347509214e-15,
+      "analytic_low": 6.2908869103637845e-15,
+      "analytic_nominal": 6.803311540773974e-15,
+      "clearance_m": 0.5,
+      "d_claim_rear_m": 14.9,
+      "d_true_rear_m": 20.0,
+      "delta_long_m": 5.1,
+      "k": 2.5,
+      "pair": "q0>q1",
+      "pass": true,
+      "separation_m": 5.0,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 3.239566111061336e-13,
+      "analytic_low": 2.797593850166438e-13,
+      "analytic_nominal": 3.010627981117443e-13,
+      "clearance_m": 0.5,
+      "d_claim_rear_m": 14.9,
+      "d_true_rear_m": 20.0,
+      "delta_long_m": 5.1,
+      "k": 3.0,
+      "pair": "q0>q1",
+      "pass": true,
+      "separation_m": 5.0,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 0.0009840644848682892,
+      "analytic_low": 0.0009513951222833942,
+      "analytic_nominal": 0.0009676032125945718,
+      "clearance_m": 0.5,
+      "d_claim_rear_m": 14.9,
+      "d_true_rear_m": 20.0,
+      "delta_long_m": 5.1,
+      "k": 2.0,
+      "pair": "q0>q1",
+      "pass": true,
+      "separation_m": 5.0,
+      "sigma_long_m": 1.0,
+      "successes": 101,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.0014128750531986465,
+        "low": 0.0007219199307837644,
+        "rate": 0.00101
+      }
+    },
+    {
+      "analytic_high": 0.0047295459497902065,
+      "analytic_low": 0.004593712997533837,
+      "analytic_nominal": 0.004661188023703945,
+      "clearance_m": 0.5,
+      "d_claim_rear_m": 14.9,
+      "d_true_rear_m": 20.0,
+      "delta_long_m": 5.1,
+      "k": 2.5,
+      "pair": "q0>q1",
+      "pass": true,
+      "separation_m": 5.0,
+      "sigma_long_m": 1.0,
+      "successes": 456,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.005341820571509299,
+        "low": 0.0038921577183647373,
+        "rate": 0.00456
+      }
+    },
+    {
+      "analytic_high": 0.01808549624016782,
+      "analytic_low": 0.017645654031036795,
+      "analytic_nominal": 0.017864420562816286,
+      "clearance_m": 0.5,
+      "d_claim_rear_m": 14.9,
+      "d_true_rear_m": 20.0,
+      "delta_long_m": 5.1,
+      "k": 3.0,
+      "pair": "q0>q1",
+      "pass": true,
+      "separation_m": 5.0,
+      "sigma_long_m": 1.0,
+      "successes": 1765,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.019118804824623338,
+        "low": 0.016292162049510242,
+        "rate": 0.01765
+      }
+    },
+    {
+      "analytic_high": 0.2920149846288452,
+      "analytic_low": 0.2903002028616282,
+      "analytic_nominal": 0.29115700449256676,
+      "clearance_m": 0.5,
+      "d_claim_rear_m": 14.9,
+      "d_true_rear_m": 20.0,
+      "delta_long_m": 5.1,
+      "k": 2.0,
+      "pair": "q0>q1",
+      "pass": true,
+      "separation_m": 5.0,
+      "sigma_long_m": 2.0,
+      "successes": 29165,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.29654880997373756,
+        "low": 0.2867991219185103,
+        "rate": 0.29165
+      }
+    },
+    {
+      "analytic_high": 0.481057147136431,
+      "analytic_low": 0.4790649238537888,
+      "analytic_nominal": 0.48006097325659536,
+      "clearance_m": 0.5,
+      "d_claim_rear_m": 14.9,
+      "d_true_rear_m": 20.0,
+      "delta_long_m": 5.1,
+      "k": 2.5,
+      "pair": "q0>q1",
+      "pass": true,
+      "separation_m": 5.0,
+      "sigma_long_m": 2.0,
+      "successes": 48099,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.486350849841824,
+        "low": 0.4756335234976127,
+        "rate": 0.48099
+      }
+    },
+    {
+      "analytic_high": 0.6745455752985459,
+      "analytic_low": 0.6727429415752159,
+      "analytic_nominal": 0.6736447654286002,
+      "clearance_m": 0.5,
+      "d_claim_rear_m": 14.9,
+      "d_true_rear_m": 20.0,
+      "delta_long_m": 5.1,
+      "k": 3.0,
+      "pair": "q0>q1",
+      "pass": true,
+      "separation_m": 5.0,
+      "sigma_long_m": 2.0,
+      "successes": 67382,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.6788281137856262,
+        "low": 0.6687718981101716,
+        "rate": 0.67382
+      }
+    },
+    {
+      "analytic_high": 1.2582761843032903e-92,
+      "analytic_low": 5.553210875510076e-93,
+      "analytic_nominal": 8.360778621327747e-93,
+      "clearance_m": 1.0,
+      "d_claim_rear_m": 19.9,
+      "d_true_rear_m": 25.5,
+      "delta_long_m": 5.6,
+      "k": 2.0,
+      "pair": "q1>q2",
+      "pass": true,
+      "separation_m": 5.5,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 3.031692323766904e-88,
+      "analytic_low": 1.364954317538252e-88,
+      "analytic_nominal": 2.0346432087826233e-88,
+      "clearance_m": 1.0,
+      "d_claim_rear_m": 19.9,
+      "d_true_rear_m": 25.5,
+      "delta_long_m": 5.6,
+      "k": 2.5,
+      "pair": "q1>q2",
+      "pass": true,
+      "separation_m": 5.5,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 5.692347041829575e-84,
+      "analytic_low": 2.6144966835190623e-84,
+      "analytic_nominal": 3.8585698289813074e-84,
+      "clearance_m": 1.0,
+      "d_claim_rear_m": 19.9,
+      "d_true_rear_m": 25.5,
+      "delta_long_m": 5.6,
+      "k": 3.0,
+      "pair": "q1>q2",
+      "pass": true,
+      "separation_m": 5.5,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 1.964206809477981e-20,
+      "analytic_low": 1.6306246521703447e-20,
+      "analytic_nominal": 1.7897488120140534e-20,
+      "clearance_m": 1.0,
+      "d_claim_rear_m": 19.9,
+      "d_true_rear_m": 25.5,
+      "delta_long_m": 5.6,
+      "k": 2.0,
+      "pair": "q1>q2",
+      "pass": true,
+      "separation_m": 5.5,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 1.8121974447701882e-18,
+      "analytic_low": 1.5193739815705398e-18,
+      "analytic_nominal": 1.6594208699647637e-18,
+      "clearance_m": 1.0,
+      "d_claim_rear_m": 19.9,
+      "d_true_rear_m": 25.5,
+      "delta_long_m": 5.6,
+      "k": 2.5,
+      "pair": "q1>q2",
+      "pass": true,
+      "separation_m": 5.5,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 1.306130888436644e-16,
+      "analytic_low": 1.105942480585958e-16,
+      "analytic_nominal": 1.201935154273573e-16,
+      "clearance_m": 1.0,
+      "d_claim_rear_m": 19.9,
+      "d_true_rear_m": 25.5,
+      "delta_long_m": 5.6,
+      "k": 3.0,
+      "pair": "q1>q2",
+      "pass": true,
+      "separation_m": 5.5,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 0.00016219578841912807,
+      "analytic_low": 0.00015607646418274725,
+      "analytic_nominal": 0.00015910859014272736,
+      "clearance_m": 1.0,
+      "d_claim_rear_m": 19.9,
+      "d_true_rear_m": 25.5,
+      "delta_long_m": 5.6,
+      "k": 2.0,
+      "pair": "q1>q2",
+      "pass": true,
+      "separation_m": 5.5,
+      "sigma_long_m": 1.0,
+      "successes": 23,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00045998354013558124,
+        "low": 0.00011499088649599356,
+        "rate": 0.00023
+      }
+    },
+    {
+      "analytic_high": 0.0009840644854696382,
+      "analytic_low": 0.0009513951229298652,
+      "analytic_nominal": 0.0009676032132180814,
+      "clearance_m": 1.0,
+      "d_claim_rear_m": 19.9,
+      "d_true_rear_m": 25.5,
+      "delta_long_m": 5.6,
+      "k": 2.5,
+      "pair": "q1>q2",
+      "pass": true,
+      "separation_m": 5.5,
+      "sigma_long_m": 1.0,
+      "successes": 103,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.0014361792720453213,
+        "low": 0.0007386111108435216,
+        "rate": 0.00103
+      }
+    },
+    {
+      "analytic_high": 0.0047295459498044486,
+      "analytic_low": 0.004593712997549222,
+      "analytic_nominal": 0.004661188023718748,
+      "clearance_m": 1.0,
+      "d_claim_rear_m": 19.9,
+      "d_true_rear_m": 25.5,
+      "delta_long_m": 5.6,
+      "k": 3.0,
+      "pair": "q1>q2",
+      "pass": true,
+      "separation_m": 5.5,
+      "sigma_long_m": 1.0,
+      "successes": 497,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.005783306305050454,
+        "low": 0.004270577662405432,
+        "rate": 0.00497
+      }
+    },
+    {
+      "analytic_high": 0.21257956793760918,
+      "analytic_low": 0.21113109091002352,
+      "analytic_nominal": 0.21185460525524477,
+      "clearance_m": 1.0,
+      "d_claim_rear_m": 19.9,
+      "d_true_rear_m": 25.5,
+      "delta_long_m": 5.6,
+      "k": 2.0,
+      "pair": "q1>q2",
+      "pass": true,
+      "separation_m": 5.5,
+      "sigma_long_m": 2.0,
+      "successes": 21182,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.21623551965435664,
+        "low": 0.20747077750286905,
+        "rate": 0.21182
+      }
+    },
+    {
+      "analytic_high": 0.3830423468826915,
+      "analytic_low": 0.38113540802728746,
+      "analytic_nominal": 0.38208851990970705,
+      "clearance_m": 1.0,
+      "d_claim_rear_m": 19.9,
+      "d_true_rear_m": 25.5,
+      "delta_long_m": 5.6,
+      "k": 2.5,
+      "pair": "q1>q2",
+      "pass": true,
+      "separation_m": 5.5,
+      "sigma_long_m": 2.0,
+      "successes": 38497,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.39020194595028274,
+        "low": 0.3797645172393754,
+        "rate": 0.38497
+      }
+    },
+    {
+      "analytic_high": 0.5802370675284592,
+      "analytic_low": 0.5782818559149243,
+      "analytic_nominal": 0.5792597061233571,
+      "clearance_m": 1.0,
+      "d_claim_rear_m": 19.9,
+      "d_true_rear_m": 25.5,
+      "delta_long_m": 5.6,
+      "k": 3.0,
+      "pair": "q1>q2",
+      "pass": true,
+      "separation_m": 5.5,
+      "sigma_long_m": 2.0,
+      "successes": 58220,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.5874801291292965,
+        "low": 0.5769009603761378,
+        "rate": 0.5822
+      }
+    },
+    {
+      "analytic_high": 1.393850596216181e-131,
+      "analytic_low": 5.2436684540414566e-132,
+      "analytic_nominal": 8.550912043909642e-132,
+      "clearance_m": 2.0,
+      "d_claim_rear_m": 25.4,
+      "d_true_rear_m": 32.0,
+      "delta_long_m": 6.6,
+      "k": 2.0,
+      "pair": "q2>q3",
+      "pass": true,
+      "separation_m": 6.5,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 2.4714274886779128e-126,
+      "analytic_low": 9.48501491744527e-127,
+      "analytic_nominal": 1.5313683042239224e-126,
+      "clearance_m": 2.0,
+      "d_claim_rear_m": 25.4,
+      "d_true_rear_m": 32.0,
+      "delta_long_m": 6.6,
+      "k": 2.5,
+      "pair": "q2>q3",
+      "pass": true,
+      "separation_m": 6.5,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 3.4142424750957027e-121,
+      "analytic_low": 1.336764886250833e-121,
+      "analytic_nominal": 2.136787807758214e-121,
+      "clearance_m": 2.0,
+      "d_claim_rear_m": 25.4,
+      "d_true_rear_m": 32.0,
+      "delta_long_m": 6.6,
+      "k": 3.0,
+      "pair": "q2>q3",
+      "pass": true,
+      "separation_m": 6.5,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 2.2821681832202037e-29,
+      "analytic_low": 1.8209669160397216e-29,
+      "analytic_nominal": 2.0386675035448637e-29,
+      "clearance_m": 2.0,
+      "d_claim_rear_m": 25.4,
+      "d_true_rear_m": 32.0,
+      "delta_long_m": 6.6,
+      "k": 2.0,
+      "pair": "q2>q3",
+      "pass": true,
+      "separation_m": 6.5,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 5.6685489606044865e-27,
+      "analytic_low": 4.568090671815011e-27,
+      "analytic_nominal": 5.088910855027256e-27,
+      "clearance_m": 2.0,
+      "d_claim_rear_m": 25.4,
+      "d_true_rear_m": 32.0,
+      "delta_long_m": 6.6,
+      "k": 2.5,
+      "pair": "q2>q3",
+      "pass": true,
+      "separation_m": 6.5,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 1.0988210589598492e-24,
+      "analytic_low": 8.943241865350694e-25,
+      "analytic_nominal": 9.913625122559967e-25,
+      "clearance_m": 2.0,
+      "d_claim_rear_m": 25.4,
+      "d_true_rear_m": 32.0,
+      "delta_long_m": 6.6,
+      "k": 3.0,
+      "pair": "q2>q3",
+      "pass": true,
+      "separation_m": 6.5,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 2.1637463431244425e-06,
+      "analytic_low": 2.0623293039824797e-06,
+      "analytic_nominal": 2.112454702498868e-06,
+      "clearance_m": 2.0,
+      "d_claim_rear_m": 25.4,
+      "d_true_rear_m": 32.0,
+      "delta_long_m": 6.6,
+      "k": 2.0,
+      "pair": "q2>q3",
+      "pass": true,
+      "separation_m": 6.5,
+      "sigma_long_m": 1.0,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 2.110841939096818e-05,
+      "analytic_low": 2.021574401722145e-05,
+      "analytic_nominal": 2.0657506912546673e-05,
+      "clearance_m": 2.0,
+      "d_claim_rear_m": 25.4,
+      "d_true_rear_m": 32.0,
+      "delta_long_m": 6.6,
+      "k": 2.5,
+      "pair": "q2>q3",
+      "pass": true,
+      "separation_m": 6.5,
+      "sigma_long_m": 1.0,
+      "successes": 1,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00013428041407836298,
+        "low": 7.446245824631331e-07,
+        "rate": 1e-05
+      }
+    },
+    {
+      "analytic_high": 0.00016219578843337326,
+      "analytic_low": 0.00015607646419813688,
+      "analytic_nominal": 0.0001591085901575339,
+      "clearance_m": 2.0,
+      "d_claim_rear_m": 25.4,
+      "d_true_rear_m": 32.0,
+      "delta_long_m": 6.6,
+      "k": 3.0,
+      "pair": "q2>q3",
+      "pass": true,
+      "separation_m": 6.5,
+      "sigma_long_m": 1.0,
+      "successes": 13,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.0003226198190733354,
+        "low": 5.237761302608084e-05,
+        "rate": 0.00013
+      }
+    },
+    {
+      "analytic_high": 0.09722954544435404,
+      "analytic_low": 0.09637270028254102,
+      "analytic_nominal": 0.09680042668426996,
+      "clearance_m": 2.0,
+      "d_claim_rear_m": 25.4,
+      "d_true_rear_m": 32.0,
+      "delta_long_m": 6.6,
+      "k": 2.0,
+      "pair": "q2>q3",
+      "pass": true,
+      "separation_m": 6.5,
+      "sigma_long_m": 2.0,
+      "successes": 9706,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.10028173416627376,
+        "low": 0.09393096406584686,
+        "rate": 0.09706
+      }
+    },
+    {
+      "analytic_high": 0.21258034815503646,
+      "analytic_low": 0.21113189083553166,
+      "analytic_nominal": 0.21185539526765076,
+      "clearance_m": 2.0,
+      "d_claim_rear_m": 25.4,
+      "d_true_rear_m": 32.0,
+      "delta_long_m": 6.6,
+      "k": 2.5,
+      "pair": "q2>q3",
+      "pass": true,
+      "separation_m": 6.5,
+      "sigma_long_m": 2.0,
+      "successes": 21236,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.21677953594540894,
+        "low": 0.20800663698229038,
+        "rate": 0.21236
+      }
+    },
+    {
+      "analytic_high": 0.3830424038499836,
+      "analytic_low": 0.38113546657549796,
+      "analytic_nominal": 0.3820885776622246,
+      "clearance_m": 2.0,
+      "d_claim_rear_m": 25.4,
+      "d_true_rear_m": 32.0,
+      "delta_long_m": 6.6,
+      "k": 3.0,
+      "pair": "q2>q3",
+      "pass": true,
+      "separation_m": 6.5,
+      "sigma_long_m": 2.0,
+      "successes": 37926,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.3844777467926083,
+        "low": 0.3740700300092635,
+        "rate": 0.37926
+      }
+    },
+    {
+      "analytic_high": 1.7851465344052945e-177,
+      "analytic_low": 5.72407301218306e-178,
+      "analytic_nominal": 1.0110584656337747e-177,
+      "clearance_m": 3.0,
+      "d_claim_rear_m": 31.9,
+      "d_true_rear_m": 39.5,
+      "delta_long_m": 7.6,
+      "k": 2.0,
+      "pair": "q3>q4",
+      "pass": true,
+      "separation_m": 7.5,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 2.3319862699999344e-171,
+      "analytic_low": 7.628379535098605e-172,
+      "analytic_nominal": 1.3340308990730545e-171,
+      "clearance_m": 3.0,
+      "d_claim_rear_m": 31.9,
+      "d_true_rear_m": 39.5,
+      "delta_long_m": 7.6,
+      "k": 2.5,
+      "pair": "q3>q4",
+      "pass": true,
+      "separation_m": 7.5,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 2.3732479978723568e-165,
+      "analytic_low": 7.91997922119048e-166,
+      "analytic_nominal": 1.371261638946204e-165,
+      "clearance_m": 3.0,
+      "d_claim_rear_m": 31.9,
+      "d_true_rear_m": 39.5,
+      "delta_long_m": 7.6,
+      "k": 3.0,
+      "pair": "q3>q4",
+      "pass": true,
+      "separation_m": 7.5,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 5.00926225421299e-40,
+      "analytic_low": 3.8412214824384124e-40,
+      "analytic_nominal": 4.386752713074249e-40,
+      "clearance_m": 3.0,
+      "d_claim_rear_m": 31.9,
+      "d_true_rear_m": 39.5,
+      "delta_long_m": 7.6,
+      "k": 2.0,
+      "pair": "q3>q4",
+      "pass": true,
+      "separation_m": 7.5,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 3.3592892290391813e-37,
+      "analytic_low": 2.6017220628545855e-37,
+      "analytic_nominal": 2.9564853648520354e-37,
+      "clearance_m": 3.0,
+      "d_claim_rear_m": 31.9,
+      "d_true_rear_m": 39.5,
+      "delta_long_m": 7.6,
+      "k": 2.5,
+      "pair": "q3>q4",
+      "pass": true,
+      "separation_m": 7.5,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 1.7571069278594796e-34,
+      "analytic_low": 1.3744458666680365e-34,
+      "analytic_nominal": 1.5541197863895687e-34,
+      "clearance_m": 3.0,
+      "d_claim_rear_m": 31.9,
+      "d_true_rear_m": 39.5,
+      "delta_long_m": 7.6,
+      "k": 3.0,
+      "pair": "q3>q4",
+      "pass": true,
+      "separation_m": 7.5,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 1.1031088479736914e-08,
+      "analytic_low": 1.0412748217000358e-08,
+      "analytic_nominal": 1.071759025831049e-08,
+      "clearance_m": 3.0,
+      "d_claim_rear_m": 31.9,
+      "d_true_rear_m": 39.5,
+      "delta_long_m": 7.6,
+      "k": 2.0,
+      "pair": "q3>q4",
+      "pass": true,
+      "separation_m": 7.5,
+      "sigma_long_m": 1.0,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 1.7437062782563294e-07,
+      "analytic_low": 1.6539725763627338e-07,
+      "analytic_nominal": 1.698267407147597e-07,
+      "clearance_m": 3.0,
+      "d_claim_rear_m": 31.9,
+      "d_true_rear_m": 39.5,
+      "delta_long_m": 7.6,
+      "k": 2.5,
+      "pair": "q3>q4",
+      "pass": true,
+      "separation_m": 7.5,
+      "sigma_long_m": 1.0,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 2.1637463431282584e-06,
+      "analytic_low": 2.062329303986643e-06,
+      "analytic_nominal": 2.1124547025028537e-06,
+      "clearance_m": 3.0,
+      "d_claim_rear_m": 31.9,
+      "d_true_rear_m": 39.5,
+      "delta_long_m": 7.6,
+      "k": 3.0,
+      "pair": "q3>q4",
+      "pass": true,
+      "separation_m": 7.5,
+      "sigma_long_m": 1.0,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 0.036128135797246504,
+      "analytic_low": 0.03573338398578829,
+      "analytic_nominal": 0.03593031579717983,
+      "clearance_m": 3.0,
+      "d_claim_rear_m": 31.9,
+      "d_true_rear_m": 39.5,
+      "delta_long_m": 7.6,
+      "k": 2.0,
+      "pair": "q3>q4",
+      "pass": true,
+      "separation_m": 7.5,
+      "sigma_long_m": 2.0,
+      "successes": 3668,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.03875004500753408,
+        "low": 0.03471654392606925,
+        "rate": 0.03668
+      }
+    },
+    {
+      "analytic_high": 0.0972296024116461,
+      "analytic_low": 0.09637275883075153,
+      "analytic_nominal": 0.09680048443678753,
+      "clearance_m": 3.0,
+      "d_claim_rear_m": 31.9,
+      "d_true_rear_m": 39.5,
+      "delta_long_m": 7.6,
+      "k": 2.5,
+      "pair": "q3>q4",
+      "pass": true,
+      "separation_m": 7.5,
+      "sigma_long_m": 2.0,
+      "successes": 9965,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.10290889409452988,
+        "low": 0.09648320829597365,
+        "rate": 0.09965
+      }
+    },
+    {
+      "analytic_high": 0.21258035141656523,
+      "analytic_low": 0.21113189419574818,
+      "analytic_nominal": 0.2118553985781658,
+      "clearance_m": 3.0,
+      "d_claim_rear_m": 31.9,
+      "d_true_rear_m": 39.5,
+      "delta_long_m": 7.6,
+      "k": 3.0,
+      "pair": "q3>q4",
+      "pass": true,
+      "separation_m": 7.5,
+      "sigma_long_m": 2.0,
+      "successes": 21551,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.21995273757127043,
+        "low": 0.21113271068419193,
+        "rate": 0.21551
+      }
+    },
+    {
+      "analytic_high": 4.4095167989991316e-290,
+      "analytic_low": 1.0270266350319112e-290,
+      "analytic_nominal": 2.128497516425667e-290,
+      "clearance_m": 5.0,
+      "d_claim_rear_m": 39.4,
+      "d_true_rear_m": 49.0,
+      "delta_long_m": 9.6,
+      "k": 2.0,
+      "pair": "q4>q5",
+      "pass": true,
+      "separation_m": 9.5,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 3.1327223340406125e-282,
+      "analytic_low": 7.443751762868569e-283,
+      "analytic_nominal": 1.5273679890091674e-282,
+      "clearance_m": 5.0,
+      "d_claim_rear_m": 39.4,
+      "d_true_rear_m": 49.0,
+      "delta_long_m": 9.6,
+      "k": 2.5,
+      "pair": "q4>q5",
+      "pass": true,
+      "separation_m": 9.5,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 1.7336568480051865e-274,
+      "analytic_low": 4.202543377809249e-275,
+      "analytic_nominal": 8.53737704492842e-275,
+      "clearance_m": 5.0,
+      "d_claim_rear_m": 39.4,
+      "d_true_rear_m": 49.0,
+      "delta_long_m": 9.6,
+      "k": 3.0,
+      "pair": "q4>q5",
+      "pass": true,
+      "separation_m": 9.5,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 1.5776616931762286e-66,
+      "analytic_low": 1.1171588824445556e-66,
+      "analytic_nominal": 1.3276575042717477e-66,
+      "clearance_m": 5.0,
+      "d_claim_rear_m": 39.4,
+      "d_true_rear_m": 49.0,
+      "delta_long_m": 9.6,
+      "k": 2.0,
+      "pair": "q4>q5",
+      "pass": true,
+      "separation_m": 9.5,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 7.74853899939647e-63,
+      "analytic_low": 5.541776641740733e-63,
+      "analytic_nominal": 6.553239781942376e-63,
+      "clearance_m": 5.0,
+      "d_claim_rear_m": 39.4,
+      "d_true_rear_m": 49.0,
+      "delta_long_m": 9.6,
+      "k": 2.5,
+      "pair": "q4>q5",
+      "pass": true,
+      "separation_m": 9.5,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 2.966428794384437e-59,
+      "analytic_low": 2.142843036691574e-59,
+      "analytic_nominal": 2.5213537253100834e-59,
+      "clearance_m": 5.0,
+      "d_claim_rear_m": 39.4,
+      "d_true_rear_m": 49.0,
+      "delta_long_m": 9.6,
+      "k": 3.0,
+      "pair": "q4>q5",
+      "pass": true,
+      "separation_m": 9.5,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 1.5389621767296405e-14,
+      "analytic_low": 1.424519466627219e-14,
+      "analytic_nominal": 1.4806537490048066e-14,
+      "clearance_m": 5.0,
+      "d_claim_rear_m": 39.4,
+      "d_true_rear_m": 49.0,
+      "delta_long_m": 9.6,
+      "k": 2.0,
+      "pair": "q4>q5",
+      "pass": true,
+      "separation_m": 9.5,
+      "sigma_long_m": 1.0,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 6.467574276798063e-13,
+      "analytic_low": 6.016126981227124e-13,
+      "analytic_nominal": 6.237844463331586e-13,
+      "clearance_m": 5.0,
+      "d_claim_rear_m": 39.4,
+      "d_true_rear_m": 49.0,
+      "delta_long_m": 9.6,
+      "k": 2.5,
+      "pair": "q4>q5",
+      "pass": true,
+      "separation_m": 9.5,
+      "sigma_long_m": 1.0,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 2.1262793125960333e-11,
+      "analytic_low": 1.9875867215371015e-11,
+      "analytic_nominal": 2.0557889093995235e-11,
+      "clearance_m": 5.0,
+      "d_claim_rear_m": 39.4,
+      "d_true_rear_m": 49.0,
+      "delta_long_m": 9.6,
+      "k": 3.0,
+      "pair": "q4>q5",
+      "pass": true,
+      "separation_m": 9.5,
+      "sigma_long_m": 1.0,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 0.002574988355614469,
+      "analytic_low": 0.0025354108155298256,
+      "analytic_nominal": 0.0025551303251969745,
+      "clearance_m": 5.0,
+      "d_claim_rear_m": 39.4,
+      "d_true_rear_m": 49.0,
+      "delta_long_m": 9.6,
+      "k": 2.0,
+      "pair": "q4>q5",
+      "pass": true,
+      "separation_m": 9.5,
+      "sigma_long_m": 2.0,
+      "successes": 271,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00332769403247154,
+        "low": 0.0022067098585575647,
+        "rate": 0.00271
+      }
+    },
+    {
+      "analytic_high": 0.010795131533181289,
+      "analytic_low": 0.010653495711535722,
+      "analytic_nominal": 0.010724110021531928,
+      "clearance_m": 5.0,
+      "d_claim_rear_m": 39.4,
+      "d_true_rear_m": 49.0,
+      "delta_long_m": 9.6,
+      "k": 2.5,
+      "pair": "q4>q5",
+      "pass": true,
+      "separation_m": 9.5,
+      "sigma_long_m": 2.0,
+      "successes": 1083,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.01199776274255899,
+        "low": 0.00977477310448138,
+        "rate": 0.01083
+      }
+    },
+    {
+      "analytic_high": 0.03612813906391317,
+      "analytic_low": 0.035733387351324176,
+      "analytic_nominal": 0.035930319112922715,
+      "clearance_m": 5.0,
+      "d_claim_rear_m": 39.4,
+      "d_true_rear_m": 49.0,
+      "delta_long_m": 9.6,
+      "k": 3.0,
+      "pair": "q4>q5",
+      "pass": true,
+      "separation_m": 9.5,
+      "sigma_long_m": 2.0,
+      "successes": 3568,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.03772353287134006,
+        "low": 0.033743286116941704,
+        "rate": 0.03568
+      }
+    },
+    {
+      "analytic_high": 0.0,
+      "analytic_low": 0.0,
+      "analytic_nominal": 0.0,
+      "clearance_m": 8.0,
+      "d_claim_rear_m": 48.9,
+      "d_true_rear_m": 61.5,
+      "delta_long_m": 12.6,
+      "k": 2.0,
+      "pair": "q5>q6",
+      "pass": true,
+      "separation_m": 12.5,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 0.0,
+      "analytic_low": 0.0,
+      "analytic_nominal": 0.0,
+      "clearance_m": 8.0,
+      "d_claim_rear_m": 48.9,
+      "d_true_rear_m": 61.5,
+      "delta_long_m": 12.6,
+      "k": 2.5,
+      "pair": "q5>q6",
+      "pass": true,
+      "separation_m": 12.5,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 0.0,
+      "analytic_low": 0.0,
+      "analytic_nominal": 0.0,
+      "clearance_m": 8.0,
+      "d_claim_rear_m": 48.9,
+      "d_true_rear_m": 61.5,
+      "delta_long_m": 12.6,
+      "k": 3.0,
+      "pair": "q5>q6",
+      "pass": true,
+      "separation_m": 12.5,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 2.872163096548937e-119,
+      "analytic_low": 1.8043610550247037e-119,
+      "analytic_nominal": 2.2766063670644839e-119,
+      "clearance_m": 8.0,
+      "d_claim_rear_m": 48.9,
+      "d_true_rear_m": 61.5,
+      "delta_long_m": 12.6,
+      "k": 2.0,
+      "pair": "q5>q6",
+      "pass": true,
+      "separation_m": 12.5,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 2.8118840705372883e-114,
+      "analytic_low": 1.7842123833272246e-114,
+      "analytic_nominal": 2.2399774868270517e-114,
+      "clearance_m": 8.0,
+      "d_claim_rear_m": 48.9,
+      "d_true_rear_m": 61.5,
+      "delta_long_m": 12.6,
+      "k": 2.5,
+      "pair": "q5>q6",
+      "pass": true,
+      "separation_m": 12.5,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 2.144967048606841e-109,
+      "analytic_low": 1.3746881546241543e-109,
+      "analytic_nominal": 1.717252189809755e-109,
+      "clearance_m": 8.0,
+      "d_claim_rear_m": 48.9,
+      "d_true_rear_m": 61.5,
+      "delta_long_m": 12.6,
+      "k": 3.0,
+      "pair": "q5>q6",
+      "pass": true,
+      "separation_m": 12.5,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 1.5717050022894304e-26,
+      "analytic_low": 1.4123199587437022e-26,
+      "analytic_nominal": 1.4899011272964664e-26,
+      "clearance_m": 8.0,
+      "d_claim_rear_m": 48.9,
+      "d_true_rear_m": 61.5,
+      "delta_long_m": 12.6,
+      "k": 2.0,
+      "pair": "q5>q6",
+      "pass": true,
+      "separation_m": 12.5,
+      "sigma_long_m": 1.0,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 2.906553726088621e-24,
+      "analytic_low": 2.6247785150439595e-24,
+      "analytic_nominal": 2.7621094717645e-24,
+      "clearance_m": 8.0,
+      "d_claim_rear_m": 48.9,
+      "d_true_rear_m": 61.5,
+      "delta_long_m": 12.6,
+      "k": 2.5,
+      "pair": "q5>q6",
+      "pass": true,
+      "separation_m": 12.5,
+      "sigma_long_m": 1.0,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 4.195855060955993e-22,
+      "analytic_low": 3.807896548117509e-22,
+      "analytic_nominal": 3.9972212057262326e-22,
+      "clearance_m": 8.0,
+      "d_claim_rear_m": 48.9,
+      "d_true_rear_m": 61.5,
+      "delta_long_m": 12.6,
+      "k": 3.0,
+      "pair": "q5>q6",
+      "pass": true,
+      "separation_m": 12.5,
+      "sigma_long_m": 1.0,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 8.636763038845031e-06,
+      "analytic_low": 8.444083544802106e-06,
+      "analytic_nominal": 8.53990547093974e-06,
+      "clearance_m": 8.0,
+      "d_claim_rear_m": 48.9,
+      "d_true_rear_m": 61.5,
+      "delta_long_m": 12.6,
+      "k": 2.0,
+      "pair": "q5>q6",
+      "pass": true,
+      "separation_m": 12.5,
+      "sigma_long_m": 2.0,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00011502733920761029,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 7.308138834817048e-05,
+      "analytic_low": 7.162163328286907e-05,
+      "analytic_nominal": 7.234804392511931e-05,
+      "clearance_m": 8.0,
+      "d_claim_rear_m": 48.9,
+      "d_true_rear_m": 61.5,
+      "delta_long_m": 12.6,
+      "k": 2.5,
+      "pair": "q5>q6",
+      "pass": true,
+      "separation_m": 12.5,
+      "sigma_long_m": 2.0,
+      "successes": 3,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00016971813760027266,
+        "low": 5.302299966985182e-06,
+        "rate": 3e-05
+      }
+    },
+    {
+      "analytic_high": 0.000487748373161795,
+      "analytic_low": 0.0004791354397361253,
+      "analytic_nominal": 0.0004834241423837776,
+      "clearance_m": 8.0,
+      "d_claim_rear_m": 48.9,
+      "d_true_rear_m": 61.5,
+      "delta_long_m": 12.6,
+      "k": 3.0,
+      "pair": "q5>q6",
+      "pass": true,
+      "separation_m": 12.5,
+      "sigma_long_m": 2.0,
+      "successes": 40,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.000679492574165385,
+        "low": 0.0002354427431708593,
+        "rate": 0.0004
+      }
+    }
+  ],
+  "fixture": "longitudinal_distance_calibration",
+  "pass_criteria": {
+    "all_vehicles_on_expected_lane": true,
+    "checkpoint_pass": true,
+    "false_distance_analytic_agreement": true,
+    "front_reference_spacing_matches_manifest": true,
+    "physically_stopped_window": true,
+    "raw_pair_inversion_analytic_agreement": true
+  },
+  "raw_pair_inversion_cells": [
+    {
+      "analytic_high": 1.56029578110194e-45,
+      "analytic_low": 6.983145988041685e-46,
+      "analytic_nominal": 1.0442437918812723e-45,
+      "pair": "q0>q1",
+      "pass": true,
+      "separation_m": 5.0,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 9.47372858380415e-05,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 8.511330525498363e-13,
+      "analytic_low": 6.941683146542733e-13,
+      "analytic_nominal": 7.687298972140177e-13,
+      "pair": "q0>q1",
+      "pass": true,
+      "separation_m": 5.0,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 9.47372858380415e-05,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 0.00020899031526522895,
+      "analytic_low": 0.00019809785033315518,
+      "analytic_nominal": 0.00020347600872247946,
+      "pair": "q0>q1",
+      "pass": true,
+      "separation_m": 5.0,
+      "sigma_long_m": 1.0,
+      "successes": 19,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.0003796135953911292,
+        "low": 9.508769027829385e-05,
+        "rate": 0.00019
+      }
+    },
+    {
+      "analytic_high": 0.03884651249445594,
+      "analytic_low": 0.03825520707059554,
+      "analytic_nominal": 0.03854993587177088,
+      "pair": "q0>q1",
+      "pass": true,
+      "separation_m": 5.0,
+      "sigma_long_m": 2.0,
+      "successes": 3831,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.04022249734447619,
+        "low": 0.03648498117052095,
+        "rate": 0.03831
+      }
+    },
+    {
+      "analytic_high": 1.1201944753236116e-54,
+      "analytic_low": 4.629646356974437e-55,
+      "analytic_nominal": 7.204330689718475e-55,
+      "pair": "q1>q2",
+      "pass": true,
+      "separation_m": 5.5,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 9.47372858380415e-05,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 4.113541491223147e-15,
+      "analytic_low": 3.2895780241603235e-15,
+      "analytic_nominal": 3.678923958987198e-15,
+      "pair": "q1>q2",
+      "pass": true,
+      "separation_m": 5.5,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 9.47372858380415e-05,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 5.1796981004695206e-05,
+      "analytic_low": 4.886524971202622e-05,
+      "analytic_nominal": 5.0310961059818415e-05,
+      "pair": "q1>q2",
+      "pass": true,
+      "separation_m": 5.5,
+      "sigma_long_m": 1.0,
+      "successes": 3,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.00014867885989239233,
+        "low": 6.052741708498902e-06,
+        "rate": 3e-05
+      }
+    },
+    {
+      "analytic_high": 0.02612864657519934,
+      "analytic_low": 0.02570274467320689,
+      "analytic_nominal": 0.02591496360895484,
+      "pair": "q1>q2",
+      "pass": true,
+      "separation_m": 5.5,
+      "sigma_long_m": 2.0,
+      "successes": 2501,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.026575573586066013,
+        "low": 0.023534424940734412,
+        "rate": 0.02501
+      }
+    },
+    {
+      "analytic_high": 1.46464682454773e-75,
+      "analytic_low": 5.161051039805466e-76,
+      "analytic_nominal": 8.697786577333622e-76,
+      "pair": "q2>q3",
+      "pass": true,
+      "separation_m": 6.5,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 9.47372858380415e-05,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 2.19085007502926e-20,
+      "analytic_low": 1.6841846552149052e-20,
+      "analytic_nominal": 1.9210741635603234e-20,
+      "pair": "q2>q3",
+      "pass": true,
+      "separation_m": 6.5,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 9.47372858380415e-05,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 2.225560427605011e-06,
+      "analytic_low": 2.079590823492481e-06,
+      "analytic_nominal": 2.1513897318375606e-06,
+      "pair": "q2>q3",
+      "pass": true,
+      "separation_m": 6.5,
+      "sigma_long_m": 1.0,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 9.47372858380415e-05,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 0.01087913325013996,
+      "analytic_low": 0.010677950808199213,
+      "analytic_nominal": 0.01077813338000817,
+      "pair": "q2>q3",
+      "pass": true,
+      "separation_m": 6.5,
+      "sigma_long_m": 2.0,
+      "successes": 1091,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.01196848837116641,
+        "low": 0.009944181747094646,
+        "rate": 0.01091
+      }
+    },
+    {
+      "analytic_high": 6.577569598990872e-100,
+      "analytic_low": 1.9758730856052239e-100,
+      "analytic_nominal": 3.606497086225808e-100,
+      "pair": "q3>q4",
+      "pass": true,
+      "separation_m": 7.5,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 9.47372858380415e-05,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 1.6149584487193278e-26,
+      "analytic_low": 1.1932587242753752e-26,
+      "analytic_nominal": 1.3883246930153042e-26,
+      "pair": "q3>q4",
+      "pass": true,
+      "separation_m": 7.5,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 9.47372858380415e-05,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 5.910902835218899e-08,
+      "analytic_low": 5.4700871136611945e-08,
+      "analytic_nominal": 5.6863628284898525e-08,
+      "pair": "q3>q4",
+      "pass": true,
+      "separation_m": 7.5,
+      "sigma_long_m": 1.0,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 9.47372858380415e-05,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 0.004047100535768191,
+      "analytic_low": 0.003963234910939466,
+      "analytic_nominal": 0.004004971164940019,
+      "pair": "q3>q4",
+      "pass": true,
+      "separation_m": 7.5,
+      "sigma_long_m": 2.0,
+      "successes": 423,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.004910410544332462,
+        "low": 0.0036435252640673902,
+        "rate": 0.00423
+      }
+    },
+    {
+      "analytic_high": 5.261145037469337e-159,
+      "analytic_low": 1.1482616828380337e-159,
+      "analytic_nominal": 2.458861419628238e-159,
+      "pair": "q4>q5",
+      "pass": true,
+      "separation_m": 9.5,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 9.47372858380415e-05,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 2.2811079211970292e-41,
+      "analytic_low": 1.5567163475465275e-41,
+      "analytic_nominal": 1.8846072428274399e-41,
+      "pair": "q4>q5",
+      "pass": true,
+      "separation_m": 9.5,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 9.47372858380415e-05,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 9.701698062079969e-12,
+      "analytic_low": 8.80465044669604e-12,
+      "analytic_nominal": 9.242523860742659e-12,
+      "pair": "q4>q5",
+      "pass": true,
+      "separation_m": 9.5,
+      "sigma_long_m": 1.0,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 9.47372858380415e-05,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 0.00039650704937723634,
+      "analytic_low": 0.00038649064018265886,
+      "analytic_nominal": 0.00039146910894555963,
+      "pair": "q4>q5",
+      "pass": true,
+      "separation_m": 9.5,
+      "sigma_long_m": 2.0,
+      "successes": 39,
+      "trials": 100000,
+      "wilson": {
+        "high": 0.0006352544614328233,
+        "low": 0.00023940892932226466,
+        "rate": 0.00039
+      }
+    },
+    {
+      "analytic_high": 1.1285606688886118e-273,
+      "analytic_low": 1.5249028741545666e-274,
+      "analytic_nominal": 4.1500862855992065e-274,
+      "pair": "q5>q6",
+      "pass": true,
+      "separation_m": 12.5,
+      "sigma_long_m": 0.25,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 9.47372858380415e-05,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 4.0037692137061077e-70,
+      "analytic_low": 2.424550873552323e-70,
+      "analytic_nominal": 3.115971390990133e-70,
+      "pair": "q5>q6",
+      "pass": true,
+      "separation_m": 12.5,
+      "sigma_long_m": 0.5,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 9.47372858380415e-05,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 5.151897305578621e-19,
+      "analytic_low": 4.539439815394903e-19,
+      "analytic_nominal": 4.836102065938196e-19,
+      "pair": "q5>q6",
+      "pass": true,
+      "separation_m": 12.5,
+      "sigma_long_m": 1.0,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 9.47372858380415e-05,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    },
+    {
+      "analytic_high": 5.0299512117550615e-06,
+      "analytic_low": 4.868048253302829e-06,
+      "analytic_nominal": 4.948367312622829e-06,
+      "pair": "q5>q6",
+      "pass": true,
+      "separation_m": 12.5,
+      "sigma_long_m": 2.0,
+      "successes": 0,
+      "trials": 100000,
+      "wilson": {
+        "high": 9.47372858380415e-05,
+        "low": 0.0,
+        "rate": 0.0
+      }
+    }
+  ],
+  "trace": {
+    "all_expected_lane": true,
+    "distances_to_stop_m": {
+      "q0": 15.0,
+      "q1": 20.0,
+      "q2": 25.5,
+      "q3": 32.0,
+      "q4": 39.5,
+      "q5": 49.0,
+      "q6": 61.5
+    },
+    "front_reference_separations_m": [
+      5.0,
+      5.5,
+      6.5,
+      7.5,
+      9.5,
+      12.5
+    ],
+    "max_abs_speed_mps": 0.0,
+    "max_position_span_m": 0.0,
+    "snapshots": [
+      {
+        "q0": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 285.0,
+          "speed_mps": 0.0
+        },
+        "q1": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 280.0,
+          "speed_mps": 0.0
+        },
+        "q2": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 274.5,
+          "speed_mps": 0.0
+        },
+        "q3": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 268.0,
+          "speed_mps": 0.0
+        },
+        "q4": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 260.5,
+          "speed_mps": 0.0
+        },
+        "q5": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 251.0,
+          "speed_mps": 0.0
+        },
+        "q6": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 238.5,
+          "speed_mps": 0.0
+        }
+      },
+      {
+        "q0": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 285.0,
+          "speed_mps": 0.0
+        },
+        "q1": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 280.0,
+          "speed_mps": 0.0
+        },
+        "q2": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 274.5,
+          "speed_mps": 0.0
+        },
+        "q3": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 268.0,
+          "speed_mps": 0.0
+        },
+        "q4": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 260.5,
+          "speed_mps": 0.0
+        },
+        "q5": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 251.0,
+          "speed_mps": 0.0
+        },
+        "q6": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 238.5,
+          "speed_mps": 0.0
+        }
+      },
+      {
+        "q0": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 285.0,
+          "speed_mps": 0.0
+        },
+        "q1": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 280.0,
+          "speed_mps": 0.0
+        },
+        "q2": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 274.5,
+          "speed_mps": 0.0
+        },
+        "q3": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 268.0,
+          "speed_mps": 0.0
+        },
+        "q4": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 260.5,
+          "speed_mps": 0.0
+        },
+        "q5": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 251.0,
+          "speed_mps": 0.0
+        },
+        "q6": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 238.5,
+          "speed_mps": 0.0
+        }
+      },
+      {
+        "q0": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 285.0,
+          "speed_mps": 0.0
+        },
+        "q1": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 280.0,
+          "speed_mps": 0.0
+        },
+        "q2": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 274.5,
+          "speed_mps": 0.0
+        },
+        "q3": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 268.0,
+          "speed_mps": 0.0
+        },
+        "q4": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 260.5,
+          "speed_mps": 0.0
+        },
+        "q5": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 251.0,
+          "speed_mps": 0.0
+        },
+        "q6": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 238.5,
+          "speed_mps": 0.0
+        }
+      },
+      {
+        "q0": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 285.0,
+          "speed_mps": 0.0
+        },
+        "q1": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 280.0,
+          "speed_mps": 0.0
+        },
+        "q2": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 274.5,
+          "speed_mps": 0.0
+        },
+        "q3": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 268.0,
+          "speed_mps": 0.0
+        },
+        "q4": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 260.5,
+          "speed_mps": 0.0
+        },
+        "q5": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 251.0,
+          "speed_mps": 0.0
+        },
+        "q6": {
+          "lane_id": "Q2STOP_0",
+          "lane_position_m": 238.5,
+          "speed_mps": 0.0
+        }
+      }
+    ]
+  }
+}

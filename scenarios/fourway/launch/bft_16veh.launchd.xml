@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+
+<!--
+// SPDX-License-Identifier: (GPL-2.0-or-later OR CC-BY-SA-4.0)
+-->
+
+<!-- SUMO inputs aligned with partnersv2v simple_intersection (no osm.poly). -->
+<launch>
+    <copy file="bft_intersection.net.xml" />
+    <copy file="bft_16veh.rou.xml" />
+    <copy file="bft_16veh.sumo.cfg" type="config" />
+</launch>

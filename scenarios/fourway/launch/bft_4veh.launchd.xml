@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<launch>
+    <copy file="partners_simple.net.xml" />
+    <copy file="partners_4veh.rou.xml" />
+    <copy file="bft_4veh.sumo.cfg" type="config" />
+</launch>

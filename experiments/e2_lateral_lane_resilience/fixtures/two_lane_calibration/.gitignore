@@ -1,0 +1,5 @@
+results/
+lateral_gate_ref
+__pycache__/
+*.pyc
+.DS_Store

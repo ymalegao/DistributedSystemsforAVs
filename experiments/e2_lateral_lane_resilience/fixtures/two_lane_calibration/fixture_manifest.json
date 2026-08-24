@@ -1,0 +1,46 @@
+{
+  "name": "two_lane_intersection_calibration",
+  "checkpoint": 1,
+  "purpose": "Full four-way two-lane geometry + sensing calibration on North inbound (N2C). Not production retarget.",
+  "net": "../bft_intersection_2lane.net.xml",
+  "calibration_approach": "N2C",
+  "lane_mapping": {
+    "0": "T_outer_straight_and_right",
+    "1": "L_inner_left_only",
+    "note": "SUMO default rightmost=0; matches ResDBPerception::projectPhysicalLaneIndex (<boundary → 0, >boundary → 1)"
+  },
+  "lane_center_separation_m": 3.2,
+  "boundary_m": 1.6,
+  "gate": {
+    "rule": "|observedLateral_cm - claimedLateral_cm| <= k * sigma_lat * 100",
+    "quantize": "llround(m*100) / half-away-from-zero",
+    "k_sim": 3.0,
+    "k_roc_offline": [2.0, 2.5, 3.0],
+    "parity_ref": "lateral_gate_ref.cc mirrors ResDBArrivalProtocol ADJACENT_LATERAL"
+  },
+  "grids": {
+    "honest_true_lateral_m": [0.0, 0.4, 0.8, 1.2, 1.4, 1.5, 1.55, 1.6, 1.65, 1.7, 1.8, 2.2, 2.6, 3.0, 3.2],
+    "attacker_delta_m": [0.1, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0],
+    "sigma_cal1_m": [0.25, 0.5, 1.0, 2.0],
+    "sigma_headline_m": 0.5,
+    "seeds": [1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009],
+    "samples_per_seed": 10000,
+    "witness": "single fixed witness",
+    "targets": "swept synthetic lateral offsets (vehicles held stopped)"
+  },
+  "physics_pins": {
+    "time_to_teleport": -1,
+    "collision_check_junctions": true,
+    "collision_action": "none",
+    "collision_mingap_factor": 1,
+    "released_speed_mode": 0,
+    "speed_mode_note": "pin 0 for protocol released vehicles so unsafe schedules can produce co-occupancy; calibration stopped vehicles are insensitive"
+  },
+  "scope_exclusions": [
+    "kSafe / conflict matrix",
+    "co-batching / IsSafeToBatch",
+    "PBFT / Check 10 / cert wire format",
+    "production omnetpp.ini / launchd retarget",
+    "hazard evaluation of boundary_crossed"
+  ]
+}

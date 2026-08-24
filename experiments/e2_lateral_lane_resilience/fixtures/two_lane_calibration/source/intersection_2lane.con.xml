@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Explicit lane-to-lane connections. No U-turns.
+  Outer (fromLane=0 / T): straight + right.
+  Inner (fromLane=1 / L): left only.
+  Straight keeps lane index; right lands on outer outbound (0);
+  left lands on inner outbound (1).
+-->
+<connections>
+    <!-- North inbound (southbound): T→S straight / W right; L→E left -->
+    <connection from="N2C" to="C2S" fromLane="0" toLane="0"/>
+    <connection from="N2C" to="C2W" fromLane="0" toLane="0"/>
+    <connection from="N2C" to="C2E" fromLane="1" toLane="1"/>
+
+    <!-- South inbound (northbound): T→N straight / E right; L→W left -->
+    <connection from="S2C" to="C2N" fromLane="0" toLane="0"/>
+    <connection from="S2C" to="C2E" fromLane="0" toLane="0"/>
+    <connection from="S2C" to="C2W" fromLane="1" toLane="1"/>
+
+    <!-- East inbound (westbound): T→W straight / N right; L→S left -->
+    <connection from="E2C" to="C2W" fromLane="0" toLane="0"/>
+    <connection from="E2C" to="C2N" fromLane="0" toLane="0"/>
+    <connection from="E2C" to="C2S" fromLane="1" toLane="1"/>
+
+    <!-- West inbound (eastbound): T→E straight / S right; L→N left -->
+    <connection from="W2C" to="C2E" fromLane="0" toLane="0"/>
+    <connection from="W2C" to="C2S" fromLane="0" toLane="0"/>
+    <connection from="W2C" to="C2N" fromLane="1" toLane="1"/>
+</connections>

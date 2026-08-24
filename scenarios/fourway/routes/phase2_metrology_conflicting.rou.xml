@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes>
+    <vType id="calibration" accel="10" decel="10" sigma="0" length="4.5" minGap="0" maxSpeed="14"
+           jmIgnoreFoeProb="1" color="1,0,0"/>
+    <route id="northStraight" edges="N2C C2S"/>
+    <route id="eastStraight" edges="E2C C2W"/>
+    <vehicle id="veh0" type="calibration" route="northStraight" depart="0" departPos="240" departSpeed="14"/>
+    <vehicle id="veh1" type="calibration" route="eastStraight" depart="0" departPos="240" departSpeed="14"/>
+</routes>

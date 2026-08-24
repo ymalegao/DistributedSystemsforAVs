@@ -1,0 +1,7 @@
+{
+  "name": "e2_lateral_lane_resilience",
+  "status": "implemented",
+  "fixture": "N=16 full two-lane four-way intersection",
+  "operating_point": {"sigma_lat_m": 0.5, "delta_m": 1.75, "k": 2},
+  "byzantine_counts": [1, 2, 3, 4, 5, 6]
+}

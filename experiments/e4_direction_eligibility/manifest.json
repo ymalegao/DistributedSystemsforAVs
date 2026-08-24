@@ -1,0 +1,6 @@
+{
+  "name": "e4_direction_eligibility",
+  "status": "implemented",
+  "fixture": "N=16 straight-heavy and mixed-maneuver full intersection",
+  "modes": ["eligibility_on", "eligibility_off", "all_singleton"]
+}

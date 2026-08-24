@@ -1,0 +1,7 @@
+{
+  "name": "e3_longitudinal_rank",
+  "status": "implemented",
+  "entrypoint": "tools/experiment_orchestrator.py --longitudinal-grid",
+  "separations_m": [5, 5.5, 6.5, 7.5, 9.5, 12.5],
+  "sigma_longitudinal_m": [0.25, 0.5, 1, 2]
+}

@@ -1,0 +1,36 @@
+{
+  "name": "longitudinal_distance_calibration",
+  "purpose": "Calibrate per-car distance-to-stop verification and distinguish it from pairwise queue-order inversion.",
+  "geometry": {
+    "edge_id": "Q2STOP",
+    "lane_id": "Q2STOP_0",
+    "edge_length_m": 300.0,
+    "stop_line_lane_position_m": 300.0,
+    "vehicle_length_m": 4.5,
+    "bumper_clearances_m": [0.5, 1.0, 2.0, 3.0, 5.0, 8.0],
+    "expected_front_reference_separations_m": [5.0, 5.5, 6.5, 7.5, 9.5, 12.5]
+  },
+  "vehicles_front_to_rear": ["q0", "q1", "q2", "q3", "q4", "q5", "q6"],
+  "sensing": {
+    "sigma_long_m": [0.25, 0.5, 1.0, 2.0],
+    "quantize_m": 0.01,
+    "k_values": [2.0, 2.5, 3.0],
+    "main_k": 3.0,
+    "attack_ahead_margin_m": 0.1,
+    "samples_per_seed": 10000,
+    "seeds": [2100, 2101, 2102, 2103, 2104, 2105, 2106, 2107, 2108, 2109]
+  },
+  "rules": {
+    "distance": "stop_line_lane_position - TraCI lanePosition(front reference)",
+    "false_claim": "rear d_claim = front d_true - attack_ahead_margin",
+    "gate": "abs(quantize_1cm(d_obs)-quantize_1cm(d_claim)) <= k*sigma_long",
+    "raw_inversion": "quantized observed rear distance < quantized observed front distance",
+    "tie": "equal certified centimeters break by replica ID; ties logged"
+  },
+  "files": {
+    "net": "stopped_queue.net.xml",
+    "routes": "stopped_queue.rou.xml",
+    "sumocfg": "stopped_queue.sumocfg",
+    "canonical_summary": "canonical_validation_summary.json"
+  }
+}

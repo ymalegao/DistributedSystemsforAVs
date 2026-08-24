@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+
+<!--
+// SPDX-License-Identifier: (GPL-2.0-or-later OR CC-BY-SA-4.0)
+-->
+
+<!-- SUMO inputs aligned with partnersv2v (partners_simple.net.xml + partners lane/spawn pattern). -->
+<launch>
+    <copy file="partners_simple.net.xml" />
+    <copy file="partners_12veh.rou.xml" />
+    <copy file="bft_12veh.sumo.cfg" type="config" />
+</launch>

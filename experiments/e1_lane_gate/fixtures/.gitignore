@@ -1,0 +1,8 @@
+# Generated bulk calibration artifacts — do not commit.
+results/**
+!results/.gitkeep
+
+# Local SUMO / Python noise
+__pycache__/
+*.pyc
+.pytest_cache/

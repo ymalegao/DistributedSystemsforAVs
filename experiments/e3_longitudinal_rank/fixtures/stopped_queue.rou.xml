@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes>
+    <vType id="queue_car" accel="2.6" decel="4.5" sigma="0" length="4.5" minGap="0.5" maxSpeed="13.89" color="0,0,1"/>
+    <route id="queue_route" edges="Q2STOP"/>
+    <!-- Front-reference separations are 4.5 m vehicle length + the declared clearances. -->
+    <vehicle id="q0" type="queue_car" route="queue_route" depart="0" departLane="0" departPos="285.0" departSpeed="0"><stop lane="Q2STOP_0" endPos="285.0" duration="1000" parking="false"/></vehicle>
+    <vehicle id="q1" type="queue_car" route="queue_route" depart="0" departLane="0" departPos="280.0" departSpeed="0"><stop lane="Q2STOP_0" endPos="280.0" duration="1000" parking="false"/></vehicle>
+    <vehicle id="q2" type="queue_car" route="queue_route" depart="0" departLane="0" departPos="274.5" departSpeed="0"><stop lane="Q2STOP_0" endPos="274.5" duration="1000" parking="false"/></vehicle>
+    <vehicle id="q3" type="queue_car" route="queue_route" depart="0" departLane="0" departPos="268.0" departSpeed="0"><stop lane="Q2STOP_0" endPos="268.0" duration="1000" parking="false"/></vehicle>
+    <vehicle id="q4" type="queue_car" route="queue_route" depart="0" departLane="0" departPos="260.5" departSpeed="0"><stop lane="Q2STOP_0" endPos="260.5" duration="1000" parking="false"/></vehicle>
+    <vehicle id="q5" type="queue_car" route="queue_route" depart="0" departLane="0" departPos="251.0" departSpeed="0"><stop lane="Q2STOP_0" endPos="251.0" duration="1000" parking="false"/></vehicle>
+    <vehicle id="q6" type="queue_car" route="queue_route" depart="0" departLane="0" departPos="238.5" departSpeed="0"><stop lane="Q2STOP_0" endPos="238.5" duration="1000" parking="false"/></vehicle>
+</routes>

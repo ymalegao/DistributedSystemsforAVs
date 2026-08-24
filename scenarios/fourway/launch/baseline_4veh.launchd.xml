@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<launch>
+    <copy file="baseline_intersection.net.xml" />
+    <copy file="intersection_4veh.rou.xml" />
+    <copy file="baseline_4veh.sumo.cfg" type="config" />
+</launch>

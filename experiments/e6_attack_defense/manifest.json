@@ -1,0 +1,6 @@
+{
+  "name": "e6_attack_defense",
+  "status": "implemented",
+  "attack_groups": ["D", "E", "F", "G", "H", "J", "K"],
+  "entrypoint": "tools/experiment_orchestrator.py --attack-defense-full-validation --reps 5"
+}

@@ -1,0 +1,17 @@
+vehicle_id,node_index,ingress_edge,egress_edge,intended_lane,intended_direction,expected_signal
+veh0,0,N2C,C2S,N,S,NONE
+veh1,1,N2C,C2E,N,L,LEFT
+veh2,8,N2C,C2W,N,R,RIGHT
+veh3,9,S2C,C2N,S,S,NONE
+veh4,10,S2C,C2W,S,L,LEFT
+veh5,11,S2C,C2E,S,R,RIGHT
+veh6,12,E2C,C2W,E,S,NONE
+veh7,13,E2C,C2S,E,L,LEFT
+veh8,14,E2C,C2N,E,R,RIGHT
+veh9,15,W2C,C2E,W,S,NONE
+veh10,2,W2C,C2N,W,L,LEFT
+veh11,3,W2C,C2S,W,R,RIGHT
+veh12,4,N2C,C2S,N,S,NONE
+veh13,5,S2C,C2N,S,S,NONE
+veh14,6,E2C,C2W,E,S,NONE
+veh15,7,W2C,C2E,W,S,NONE
