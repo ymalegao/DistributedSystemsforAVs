@@ -1,0 +1,427 @@
+% Figure-by-figure analysis of the V2V-BFT ablation studies.
+% Every number here is traceable to benchmarks/ablations/results/ and every
+% mechanism to a named file and line in src/ or bridge/.
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\caveat}[1]{\textcolor{red!60!black}{\textbf{#1}}}
+
+\title{V2V--BFT Intersection Protocol:\\Figure-by-Figure Analysis}
+\author{}
+\date{27 August 2026}
+
+\begin{document}
+\maketitle
+
+\section{Experimental setup}
+
+Four approaches, \textbf{one lane each}, no turn pockets. Each vehicle draws its
+exit uniformly from its approach's three valid exits via a SUMO
+\code{routeDistribution}; the U-turn is absent from the distribution, so no
+vehicle leaves the way it came. Roughly one third of vehicles therefore turn
+left. \code{*.manager.seed} varies per repetition, so each repetition samples a
+different turn assignment.
+
+All vehicles depart at $t=0$: a single arrival burst, not continuous demand.
+This is a consequence of the protocol completing \textbf{one consensus epoch}
+per run --- \code{ResDBArrivalProtocol.cc} advances discovery for epoch~0 and a
+long-lived multi-epoch scenario is not yet supported. Every claim below is
+therefore bounded to single-round, burst-arrival conditions.
+
+Repetition counts differ by study and are stated per figure. Min--max ranges are
+not drawn on any figure; the spread is computed per cell and printed in
+\code{figures/results.md}.
+
+\section{Ablation 1 --- RSU units}
+
+\textbf{9 repetitions} at $k{=}0$ (the condition all three panels plot);
+3 repetitions across the $k$ sweep.
+
+\subsection*{Observation}
+
+Throughput and latency (stop to clearing) are \emph{indistinguishable} between the
+with-RSU and without-RSU arms at every vehicle count. Message cost diverges
+sharply and grows with load.
+
+\begin{center}
+\begin{tabular}{lrrrrrr}
+\toprule
+& \multicolumn{2}{c}{throughput (veh/s)} & \multicolumn{2}{c}{wait (s)}
+& \multicolumn{2}{c}{msgs/vehicle} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+$N$ & OFF & ON & OFF & ON & OFF & ON \\
+\midrule
+4  & $0.557$ & $0.552$ & $5.64$  & $5.70$  & $65$  & $128$ \\
+8  & $0.596$ & $0.595$ & $7.49$  & $7.49$  & $97$  & $181$ \\
+12 & $0.677$ & $0.665$ & $9.65$  & $9.61$  & $159$ & $293$ \\
+16 & $0.734$ & $0.723$ & $11.12$ & $11.26$ & $239$ & $374$ \\
+20 & $0.741$ & $0.721$ & $13.24$ & $13.72$ & $319$ & $473$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+Message cost is $1.5$--$2.0\times$ higher with units at every count. Throughput
+and wait differ by at most $0.02$ veh/s and $0.5$\,s respectively --- well
+inside the repetition standard deviation, which is $0.04$--$0.18$ veh/s for
+throughput and $0.8$--$1.8$\,s for wait.
+
+Throughput \textbf{saturates above $N{\approx}16$} ($0.734 \to 0.741$ for OFF,
+$0.723 \to 0.721$ for ON): the junction reaches capacity, and further vehicles
+lengthen the queue without raising the clearing rate.
+
+\subsection*{Why: units are not scheduled}
+
+RSU units are non-vehicle PBFT replicas. They vote, echo and relay, but they
+never queue at the junction. In \code{ResDBDecision.cc} the proposal packs unit
+entries with \code{unit.is\_ambulance = 0} and they are never assigned a
+crossing slot, so the \code{IntersectionExecutor} batches the same vehicles into
+the same conflict-matrix groups in both arms.
+
+The logs confirm this is not approximate but exact. At $N{=}16$ the departure
+sequences are:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+OFF & 20.9, 27.2, 22.3, 28.6, 23.7, 21.9, \dots \\
+ON  & 21.0, 27.3, 22.4, 28.7, 23.7, 22.0, \dots \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+The schedule is \textbf{byte-identical, uniformly displaced by $0.1$\,s}. That
+offset is the extra consensus cost of four more replicas: PBFT ordering latency
+rises from $0.213$\,s to $0.230$\,s at $N{=}16$, and the proposal is submitted
+$0.178$\,s later. Against a ${\sim}10$\,s vehicle wait this is $1$--$2\%$.
+
+\caveat{The top two panels cannot distinguish the arms by construction.} They
+compare two executions of the same schedule and correctly find they take the
+same time. No number of repetitions changes this --- the difference is
+structural, not statistical.
+
+\subsection*{Where the RSU benefit actually is}
+
+Units raise quorum from $2f{+}1$ over $N$ vehicles to $2f{+}1$ over $N{+}4$
+replicas --- verified in the logs as $3\to5$ at $N{=}4$ and $13\to15$ at
+$N{=}20$. The measurable consequence is fault tolerance:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+& without RSU & with RSU \\
+\midrule
+$N{=}4$  & fails at $k{=}2$ & survives $k{=}2$ \\
+$N{=}8$  & fails at $k{=}4$ & survives $k{=}4$ \\
+$N{=}16$ & fails at $k{=}6$ & survives $k{=}6$ \\
+$N{=}20$ & fails at $k{=}7$ & survives $k{=}7$; $2/3$ at $k{=}8$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+RSUs buy \textbf{one to two additional tolerated silent replicas} at every
+vehicle count. \caveat{This is measured in 156 existing logs and is not
+currently plotted.} Adding a commit-rate-versus-$k$ panel requires no new
+simulation.
+
+\caveat{Anomaly:} at $N{=}12$ the relationship inverts (OFF $k5{:}2/3$ versus ON
+$k5{:}1/3$), the only count where units appear to hurt. Unexplained.
+
+\subsection*{A defect this figure previously hid}
+
+Before 27~August the RSU arm showed a large delay penalty (${\approx}18$\,s
+versus $6$\,s at $N{=}4$). This was not a property of RSUs. Certificate
+\emph{formation} derived $f$ from \code{total\_vehicles\_} while
+\emph{validation} used \code{toleratedF()}, i.e.\ \code{num\_replicas\_}
+including units. With units present these never agree, so every certificate was
+assembled one to two echoes short of what every receiver demanded and every
+replica dropped every other replica's certificate. Each vehicle retained only
+its own, producing a proposal that was mostly QUIET, no commit, and a fall back
+to stop-sign timeout. The arm was measuring the fallback path.
+
+The defect was intermittent rather than constant because extra echoes sometimes
+arrive before the certificate latches, which is why it presented as ``$N{=}4$
+instability''. Three further sites used the same incorrect derivation and were
+unified on \code{toleratedF()}: gossip propagation confirmation, consensus relay
+carrier threshold, and a Byzantine-injection log line.
+
+\section{Ablation 2 --- fake-ambulance attack}
+
+\caveat{This study currently measures nothing and should not be presented.}
+
+Colluders occupy the \emph{highest} replica ids, so \code{CertPrimary()}, which
+elects the smallest certified id, always selects an honest proposer. This
+isolates the certificate gate from leader succession. The arms are
+\code{enableAmbulanceCertGate} on versus off.
+
+\subsection*{Observation}
+
+The gate fires correctly --- 264 rejections in the gate arm, 0 in the control.
+But in the \emph{control} arm, where the certificate-less claim is deliberately
+permitted, the liars gain nothing:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+& liar wait & honest wait \\
+\midrule
+no gate  & $12.86$\,s & $11.97$\,s \\
+gate on  & $13.01$\,s & $12.16$\,s \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+The attackers wait ${\approx}0.9$\,s \emph{longer} than honest vehicles in both
+arms, and both grant zero false priority.
+
+\subsection*{Why}
+
+The attack does not succeed even when undefended, so the gate is rejecting
+something that was never exploitable. Byzantine type~7 sets
+\code{isAmbulance = true} in the ARRIVAL\_ANNOUNCE with empty
+\code{ambulanceCertBytes}. That claim is accepted into \code{local\_vehicle\_%
+states\_}, but never becomes scheduling priority: \code{ResDBDecision.cc:146}
+sets \code{e.is\_ambulance} from the proposer's vehicle states and the scheduler
+prioritises on \code{is\_ambulance \&\& cyber\_status == 1}, yet no
+\code{is\_ambulance=1} entry appears in any committed order. The path between
+those two points drops the claim, and the cause has not been located.
+
+Until that is traced, both arms will be flat regardless of the gate.
+
+\section{Ablation 3 --- actuated traffic light versus consensus}
+
+\textbf{9 repetitions.}
+
+\subsection*{Observation}
+
+\begin{center}
+\begin{tabular}{lrrrr}
+\toprule
+$N$ & signal wait & ours & delay ratio & service-rate ratio \\
+\midrule
+8  & $12.61$\,s & $7.53$\,s & $1.67\times$ & --- \\
+12 & $16.63$\,s & $9.69$\,s & $1.72\times$ & --- \\
+16 & $16.85$\,s & $11.23$\,s & $1.50\times$ & --- \\
+20 & $19.84$\,s & $13.20$\,s & $1.50\times$ & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+The consensus arm is also \textbf{substantially more predictable}: standard
+deviation $0.91$--$1.29$\,s versus $2.12$--$3.09$\,s for the signal, at every
+vehicle count. The per-vehicle scatter panel shows the signal spanning
+$4$--$44$\,s while the protocol stays within a band of roughly $10$--$20$\,s.
+
+\subsection*{Why a signal, and why actuated}
+
+Surveys of autonomous intersection management report fixed-time signalling as
+the most-used baseline ($46\%$) while explicitly recommending actuated or
+adaptive control instead; all-way-stop control is used by only $8\%$.
+
+The all-way stop was additionally unusable here: under mixed turn demand it
+deadlocked in 7 of 12 runs. Four vehicles at the head of each approach, all
+turning left, each yield to the vehicle on their right, producing a circular
+wait. With single-lane approaches this blocks following through-traffic as well.
+Resolution came only from SUMO's $300$\,s teleport timer, producing
+$300$--$600$\,s ``waits'' that are jam-resolution artifacts.
+
+Fixed-time signalling would have been unfair \emph{in our favour}: with a single
+arrival burst a fixed cycle burns green on approaches that have emptied and will
+not refill. Actuated control extends green while vehicles are present and ends
+the phase on a gap.
+
+\subsection*{Why the protocol wins}
+
+A signal grants right of way by \emph{phase}; the protocol computes a
+\emph{schedule}. The conflict matrix admits simultaneous non-conflicting
+movements that a two-phase signal must serialise across cycles, and there is no
+inter-phase clearance interval. The variance difference has the same origin: a
+signal's outcome depends on where in its cycle the burst arrives and how many
+permissive left turns block its single-lane approaches, whereas a computed
+schedule is insensitive to both.
+
+\caveat{Protected left turns are impossible at this geometry.} Each approach has
+one lane, so through and left movements share it and no phase can hold one red
+while the other proceeds. \code{netconvert --tls.left-green.time} was verified to
+produce a byte-identical signal program. This constrains the signal exactly as
+it constrains the protocol.
+
+\section{Ablation 4 --- ambulance priority}
+
+\textbf{9 repetitions}, and the ambulance's route is \textbf{pinned}.
+
+\subsection*{Why the methodology differs}
+
+The ambulance is a \emph{single vehicle}, so this study samples $n{=}1$ per run
+where the others average $8$--$20$. At 3 repetitions its wait varied by
+$3.4$\,s between runs --- wider than the entire $N{=}8 \to 20$ trend. Its route
+is additionally fixed to its approach's straight route while all other vehicles
+remain random: a left-turning ambulance batches only with the opposing left,
+whereas a straight one batches freely, so leaving the measured vehicle's turn to
+chance let its own draw dominate the metric.
+
+\subsection*{Observation}
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+$N$ & priority & FIFO & benefit \\
+\midrule
+8  & $7.29$\,s & $10.34$\,s & $3.05$\,s \\
+12 & $7.36$\,s & $13.93$\,s & $6.57$\,s \\
+16 & $8.97$\,s & $15.72$\,s & $6.75$\,s \\
+20 & $9.87$\,s & $18.52$\,s & $8.65$\,s \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Why the benefit grows with load}
+
+The priority wait rises gently ($7.29 \to 9.87$\,s) while FIFO rises steeply
+($10.34 \to 18.52$\,s). The ambulance is inserted near the front of the schedule
+regardless of queue length, so what grows with $N$ is not its own wait but the
+\emph{number of vehicles it skips}.
+
+The cost is borne twice. Other vehicles wait ${\approx}2$\,s longer at $N{=}20$,
+and the intersection's throughput falls from $0.75$ to $0.67$ vehicles/s ---
+preempting the schedule breaks up batches that FIFO would have kept whole.
+
+The \emph{relative} panel is the most defensible statement of the claim, since
+dividing by the fleet mean in the same run cancels run-level variation.
+
+\section{Ablation 5 --- late-emergency rollback}
+
+\textbf{3 repetitions.} \caveat{Under-powered; see caveat below.}
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+& cleared & wait & messages/vehicle \\
+\midrule
+rollback OFF & $16.0$ & $10.40$\,s & $357$ \\
+rollback ON  & $16.0$ & $12.30$\,s & $554$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Why both arms clear the same number}
+
+Rollback does not serve \emph{fewer} vehicles; it serves \emph{different} ones.
+The ambulance occupies a slot an ordinary vehicle would have taken and the
+remainder shift later. Every count-based summary therefore shows the arms as
+identical, which is why the left panel plots individual departures rather than a
+total --- the substitution is invisible to any statistic over counts.
+
+The cost is ${\approx}1.9$\,s of additional wait and $1.55\times$ the messages:
+revising an already-committed order requires a CANCEL round on top of the ORDER
+round.
+
+\caveat{Rollback fired in 2 of 3 repetitions in the latest run and 3 of 3
+previously.} At 3 repetitions a regression cannot be distinguished from the turn
+draw. This is the cheapest study (${\approx}5$\,min per 3 repetitions) and
+should be run at 9--12.
+
+\section{Cost decomposition}
+
+Honest operation only ($k{=}0$): with replicas silenced the traffic mix reflects
+failure rather than normal composition.
+
+\subsection*{Observation: the two panels point in opposite directions}
+
+Per occurrence, \textbf{PBFT ordering overtakes certificates in message count}
+as $N$ grows --- a small fraction at $N{=}4$, over half the stack at $N{=}20$.
+This follows from the structure: one PBFT round costs $2n{+}1$ sends
+(PRE\_PREPARE broadcast, then PREPARE and COMMIT from each replica) while one
+certificate costs $n{+}2$ (one announce, $f{+}1$ echoes, one certificate
+broadcast).
+
+Yet \textbf{certificate formation takes longer} --- $0.30$\,s versus $0.24$\,s
+at $N{=}20$.
+
+\subsection*{Why: certificate latency is bounded by the announce period}
+
+A replica emits an ARRIVAL\_ECHO only when it \emph{hears} an announce; it has
+no other trigger. A vehicle therefore cannot gather its $(f{+}1)$th echo until it
+has announced often enough for that many distinct peers to have heard it. Peers
+that come into range late, or whose earlier echo was lost, must wait for the
+\emph{next} announce.
+
+Announce transmission is exponentially backed off ($0.1$\,s doubling to a
+$3.2$\,s ceiling, reset when a previously unseen vehicle is registered), so that
+wait is bounded by the current backoff interval rather than by network latency.
+The correlation in a single $N{=}16$ run is close to linear:
+
+\begin{center}
+\begin{tabular}{rr}
+\toprule
+announce interval & certificate latency \\
+\midrule
+$0.20$\,s & $0.028$\,s \\
+$0.25$\,s & $0.033$\,s \\
+$0.40$\,s & $0.342$\,s \\
+$0.80$\,s & $0.694$\,s \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+Certificate formation is therefore \emph{not} transmission-bound. It is
+dominated by waiting for the vehicle's own next scheduled announce.
+
+\subsection*{The backoff trade, measured}
+
+A controlled A/B (identical binary, seed and routes; only the backoff ceiling
+differs) at $N{=}16$:
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+& backoff on & backoff off & change \\
+\midrule
+certificate-layer messages & $3\,132$ & $10\,764$ & $-71\%$ \\
+certificate-layer bytes    & $1.55$\,M & $2.95$\,M & $-47\%$ \\
+all messages               & $3\,737$ & $11\,422$ & $-67\%$ \\
+certificate latency (median) & $0.091$\,s & $0.046$\,s & $2.0\times$ worse \\
+\textbf{vehicle wait}      & $9.81$\,s & $9.89$\,s & $-0.8\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+The backoff removes two-thirds of all radio traffic at a latency cost that
+\textbf{does not reach the vehicle}: end-to-end wait differs by $0.8\%$, in the
+favourable direction. Certificate formation is ${\sim}0.1$\,s against a
+${\sim}10$\,s journey, three orders of magnitude below the quantity that
+matters. The trade is strongly favourable, and more so on a shared channel with
+real interference than in this clean simulation.
+
+\caveat{Scope:} one seed at $N{=}16$. The latency distribution is
+right-skewed (mean $0.129$\,s, median $0.091$\,s), so the median is the honest
+summary.
+
+\section{Summary of open issues}
+
+\begin{enumerate}
+\item \textbf{Ablation 2 measures nothing} --- the attack does not succeed even
+      undefended; the announce-to-scheduler path must be traced.
+\item \textbf{Ablation 1 does not plot the fault frontier}, which is the sole
+      panel able to distinguish the arms. Data already exists.
+\item \textbf{Ablation 1, $N{=}12$}: fault tolerance inverts with units.
+\item \textbf{Ablation 5} requires more repetitions --- rollback fired in 2 of 3
+      runs in the latest execution and 3 of 3 previously, which 3 repetitions
+      cannot separate from the turn draw.
+\item \textbf{Single-lane approaches} preclude protected-left phases for all
+      arms; results do not generalise to a junction with turn pockets.
+\item \textbf{Burst arrival, single epoch}: no steady-state comparison is
+      possible until multi-epoch support exists.
+\end{enumerate}
+
+\end{document}

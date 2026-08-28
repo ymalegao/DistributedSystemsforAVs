@@ -10,7 +10,7 @@ stable and sort usefully once there are dozens. Every name is
 `<family>_<topic>`, lower snake case:
 
     ab<N>_<topic>   presents ablation study N and reads that study's logs
-                    e.g. ab1_rsu, ab4_priority, ab6_ladder
+                    e.g. ab1_rsu, ab4_priority, ab5_rollback
     an_<topic>      analysis across or beneath the studies, not one study's
                     headline result          e.g. an_cost_decomposition
     ref_<topic>     derived from the protocol definition, needs no run data
@@ -42,9 +42,7 @@ from . import (
     ab3_baseline,
     ab4_priority,
     ab5_rollback,
-    ab6_ladder,
     an_cost_decomposition,
-    ref_conflict_matrix,
 )
 
 FIGURE_MODULES = (
@@ -53,17 +51,15 @@ FIGURE_MODULES = (
     ab3_baseline,
     ab4_priority,
     ab5_rollback,
-    ab6_ladder,
     an_cost_decomposition,
-    ref_conflict_matrix,
 )
 
-NAME_PATTERN = re.compile(r"^(ab[1-9]\d*|an|ref)_[a-z0-9]+(_[a-z0-9]+)*$")
+NAME_PATTERN = re.compile(r"^(ab[1-9]\d*|an)_[a-z0-9]+(_[a-z0-9]+)*$")
 
 _offenders = [m.NAME for m in FIGURE_MODULES if not NAME_PATTERN.match(m.NAME)]
 if _offenders:
     raise SystemExit(
-        "figure name(s) do not follow <ab N|an|ref>_<topic>: "
+        "figure name(s) do not follow <ab N|an>_<topic>: "
         + ", ".join(_offenders)
     )
 

@@ -1,35 +1,60 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <routes>
     <vType id="car" accel="2.6" decel="4.5" sigma="0.5" length="4.5" minGap="2.5" maxSpeed="22.92" color="1,1,0"/>
-    <vType id="ambulance" accel="2.6" decel="4.5" sigma="0.5" length="4.5" minGap="2.5" maxSpeed="14" color="1,0,0"/>
-
+        <!-- Concrete straight routes retained for TraCI-injected vehicles: the
+         rollback scenario's supervisor spawns veh16/veh17 naming "rN"/"rE" via
+         the r0Late*Route parameters, which cannot reference a distribution. -->
     <route id="rN" edges="N2C C2S"/>
     <route id="rS" edges="S2C C2N"/>
     <route id="rE" edges="E2C C2W"/>
     <route id="rW" edges="W2C C2E"/>
 
+    <routeDistribution id="dN">
+        <route edges="N2C C2S"/>
+        <route edges="N2C C2E"/>
+        <route edges="N2C C2W"/>
+    </routeDistribution>
+    <routeDistribution id="dS">
+        <route edges="S2C C2N"/>
+        <route edges="S2C C2W"/>
+        <route edges="S2C C2E"/>
+    </routeDistribution>
+    <routeDistribution id="dE">
+        <route edges="E2C C2W"/>
+        <route edges="E2C C2S"/>
+        <route edges="E2C C2N"/>
+    </routeDistribution>
+    <routeDistribution id="dW">
+        <route edges="W2C C2E"/>
+        <route edges="W2C C2N"/>
+        <route edges="W2C C2S"/>
+    </routeDistribution>
+
+    <vType id="ambulance" accel="2.6" decel="4.5" sigma="0.5" length="4.5" minGap="2.5" maxSpeed="14" color="1,0,0"/>
+
+
     <!-- Initial wave: sixteen vehicles (veh0..veh15) arrive together for epoch 0.
          Lane assignment matches the SixteenVehiclesResDB node->veh->lane mapping so
          node[0..15].intendedLane is unchanged; only node[16]/node[17] are added. -->
-    <vehicle id="veh0"  type="car" route="rN" depart="0" departSpeed="max" departPos="60"/>
-    <vehicle id="veh9"  type="car" route="rN" depart="0" departSpeed="max" departPos="40"/>
-    <vehicle id="veh11" type="car" route="rN" depart="0" departSpeed="max" departPos="20"/>
-    <vehicle id="veh15" type="car" route="rN" depart="0" departSpeed="max" departPos="0"/>
+    <vehicle id="veh0"  type="car" route="dN" depart="0" departSpeed="max" departPos="60"/>
+    <vehicle id="veh9"  type="car" route="dN" depart="0" departSpeed="max" departPos="40"/>
+    <vehicle id="veh11" type="car" route="dN" depart="0" departSpeed="max" departPos="20"/>
+    <vehicle id="veh15" type="car" route="dN" depart="0" departSpeed="max" departPos="0"/>
 
-    <vehicle id="veh1"  type="car" route="rS" depart="0" departSpeed="max" departPos="60"/>
-    <vehicle id="veh6"  type="car" route="rS" depart="0" departSpeed="max" departPos="40"/>
-    <vehicle id="veh8"  type="car" route="rS" depart="0" departSpeed="max" departPos="20"/>
-    <vehicle id="veh13" type="car" route="rS" depart="0" departSpeed="max" departPos="0"/>
+    <vehicle id="veh1"  type="car" route="dS" depart="0" departSpeed="max" departPos="60"/>
+    <vehicle id="veh6"  type="car" route="dS" depart="0" departSpeed="max" departPos="40"/>
+    <vehicle id="veh8"  type="car" route="dS" depart="0" departSpeed="max" departPos="20"/>
+    <vehicle id="veh13" type="car" route="dS" depart="0" departSpeed="max" departPos="0"/>
 
-    <vehicle id="veh2"  type="car" route="rW" depart="0" departSpeed="max" departPos="60"/>
-    <vehicle id="veh7"  type="car" route="rW" depart="0" departSpeed="max" departPos="40"/>
-    <vehicle id="veh3"  type="car" route="rW" depart="0" departSpeed="max" departPos="20"/>
-    <vehicle id="veh12" type="car" route="rW" depart="0" departSpeed="max" departPos="0"/>
+    <vehicle id="veh2"  type="car" route="dW" depart="0" departSpeed="max" departPos="60"/>
+    <vehicle id="veh7"  type="car" route="dW" depart="0" departSpeed="max" departPos="40"/>
+    <vehicle id="veh3"  type="car" route="dW" depart="0" departSpeed="max" departPos="20"/>
+    <vehicle id="veh12" type="car" route="dW" depart="0" departSpeed="max" departPos="0"/>
 
-    <vehicle id="veh4"  type="car" route="rE" depart="0" departSpeed="max" departPos="60"/>
-    <vehicle id="veh5"  type="car" route="rE" depart="0" departSpeed="max" departPos="40"/>
-    <vehicle id="veh10" type="car" route="rE" depart="0" departSpeed="max" departPos="20"/>
-    <vehicle id="veh14" type="car" route="rE" depart="0" departSpeed="max" departPos="0"/>
+    <vehicle id="veh4"  type="car" route="dE" depart="0" departSpeed="max" departPos="60"/>
+    <vehicle id="veh5"  type="car" route="dE" depart="0" departSpeed="max" departPos="40"/>
+    <vehicle id="veh10" type="car" route="dE" depart="0" departSpeed="max" departPos="20"/>
+    <vehicle id="veh14" type="car" route="dE" depart="0" departSpeed="max" departPos="0"/>
 
     <!-- Late arrivals are intentionally NOT scheduled here. The R0 manager-side
          supervisor injects veh16 (normal) and veh17 (ambulance) via TraCI after

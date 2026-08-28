@@ -424,3 +424,48 @@ void ResDBIntersectionApp::disableCrashComms(const char* reason)
     if (crash_mac_grace_msg_->isScheduled()) cancelEvent(crash_mac_grace_msg_);
     scheduleAt(simTime() + crash_mac_grace_sec_, crash_mac_grace_msg_);
 }
+
+// ── Turn direction, read from the route SUMO will actually drive ─────────────
+
+namespace {
+
+// Approach edge X2C into exit edge C2Y, as SUMO's own connection dir attribute
+// classifies it in both intersection networks. Facing south out of the north
+// approach, east is the left turn -- the table encodes that once so no caller
+// has to reason about compass geometry.
+char turnFor(char from, char to)
+{
+    switch (from) {
+        case 'N': return to == 'S' ? 'S' : to == 'E' ? 'L' : to == 'W' ? 'R' : '?';
+        case 'S': return to == 'N' ? 'S' : to == 'W' ? 'L' : to == 'E' ? 'R' : '?';
+        case 'E': return to == 'W' ? 'S' : to == 'S' ? 'L' : to == 'N' ? 'R' : '?';
+        case 'W': return to == 'E' ? 'S' : to == 'N' ? 'L' : to == 'S' ? 'R' : '?';
+        default:  return '?';
+    }
+}
+
+} // namespace
+
+std::string ResDBIntersectionApp::resolveIntendedDirection() const
+{
+    if (!mobility || !mobility->getCommandInterface()) return intended_direction_;
+
+    std::string entry, exit;
+    try {
+        const std::string myId = mobility->getExternalId();
+        for (const auto& edge : mobility->getCommandInterface()->vehicle(myId).getPlannedRoadIds()) {
+            // Approach edges are "<dir>2C", exit edges "C2<dir>"; internal
+            // junction edges start with ':' and are skipped.
+            if (edge.size() == 3 && edge[1] == '2') {
+                if (edge[2] == 'C' && entry.empty()) entry = edge;
+                else if (edge[0] == 'C' && exit.empty()) exit = edge;
+            }
+        }
+    } catch (...) {
+        return intended_direction_;   // TraCI does not know this vehicle yet
+    }
+    if (entry.empty() || exit.empty()) return intended_direction_;
+
+    const char t = turnFor(entry[0], exit[2]);
+    return t == '?' ? intended_direction_ : std::string(1, t);
+}

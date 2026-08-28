@@ -721,9 +721,11 @@ std::string ResDBIntersectionApp::consensusRelayKey(
 
 int ResDBIntersectionApp::consensusRelayCarrierThreshold() const
 {
-    const int f = ctx_.tolerated_faults_ >= 0
-        ? ctx_.tolerated_faults_
-        : std::max(0, (ctx_.total_vehicles_ - 1) / 3);
+    // toleratedF() for the same reason as the certificate and gossip
+    // thresholds: units carry relayed PBFT bytes too, so a carrier count
+    // derived from the vehicle count alone under-provisions the relay
+    // whenever units are present.
+    const int f = std::max(0, toleratedF());
     return std::max(1, std::min(consensus_relay_carrier_cap_, f + 1));
 }
 

@@ -43,6 +43,10 @@ ACCENT = "#1baf7a"      # slot 3, for the rare third series
 SERIES = {
     "control":   dict(color=CONTROL, marker="o"),
     "treatment": dict(color=TREATMENT, marker="s"),
+    # Third series, for a comparison carrying two distinct baselines rather than
+    # one control and one treatment. Slot 3 of the categorical palette, with
+    # its own marker so the arms stay separable without relying on colour.
+    "accent":    dict(color=ACCENT, marker="^"),
 }
 
 DPI = 130
@@ -80,27 +84,24 @@ def ordered(index: int, total: int, label: str = "") -> dict:
 
 
 def errorbar(ax, xs, stats, spec, *, dashed=False):
-    """Plot a series of Stats with their observed min-max range.
+    """Plot a series of Stat means as a line.
 
-    Every measured point carries its spread: with three repetitions a bare mean
-    cannot be told apart from a single lucky run, and near a quorum edge these
-    outcomes are probabilistic rather than a step.
+    The observed min-max range is not drawn. Name kept because every figure
+    module calls it; the spread is still carried on each Stat and reported in
+    results.md, so nothing is lost -- it is only absent from the plot.
     """
     ys = [s.mean if s.mean is not None else float("nan") for s in stats]
-    lo = [(s.mean - s.lo) if s.mean is not None else 0.0 for s in stats]
-    hi = [(s.hi - s.mean) if s.mean is not None else 0.0 for s in stats]
-    return ax.errorbar(xs, ys, yerr=[lo, hi], marker=spec["marker"],
-                       color=spec["color"], linewidth=LINEWIDTH,
-                       markersize=MARKERSIZE, capsize=3, elinewidth=1.2,
-                       ecolor=INK_SECONDARY, label=spec.get("label"),
-                       linestyle="--" if dashed else "-")
+    return ax.plot(xs, ys, marker=spec["marker"],
+                   color=spec["color"], linewidth=LINEWIDTH,
+                   markersize=MARKERSIZE, label=spec.get("label"),
+                   linestyle="--" if dashed else "-")
 
 
 def series(role: str, label: str = "") -> dict:
     """Plot kwargs for a role ("control" or "treatment"), with its legend label.
 
     The label is per-figure because the same role is named differently in each
-    ablation ("vanilla BFT", "SUMO all-way-stop", "without RSU").
+    ablation ("vanilla BFT", "actuated traffic light", "without RSU").
     """
     spec = dict(SERIES[role])
     if label:
@@ -173,22 +174,30 @@ def paired_bars(ax, entries, *, value_fmt="{:.0f}", show_n=True):
     Cells with no data are skipped rather than drawn as zero, which would read
     as a measured result of zero.
     """
-    xs, ticks = [], []
+    xs, ticks, tops = [], [], []
     for i, (label, role, stat) in enumerate(e for e in entries if e[2].mean is not None):
         spec = series(role)
         ax.bar(i, stat.mean, 0.6, color=spec["color"],
-               yerr=stat.yerr, capsize=4, ecolor=INK_SECONDARY,
                edgecolor=BAR_EDGE, linewidth=BAR_EDGEWIDTH)
         text = value_fmt.format(stat.mean)
         if show_n:
             text += f"\n(n={stat.n})"
-        ax.annotate(text, xy=(i, stat.hi if stat.hi is not None else stat.mean),
+        top = stat.mean
+        ax.annotate(text, xy=(i, top),
                     xytext=(0, 6), textcoords="offset points",
                     ha="center", va="bottom", fontsize=9, color=INK_PRIMARY)
         xs.append(i)
         ticks.append(label)
+        tops.append(top)
     ax.set_xticks(xs)
     ax.set_xticklabels(ticks)
+    # Headroom for the value label. It is drawn above the bar in offset points,
+    # so without this the tallest bar's label renders outside the axes and lands
+    # on the panel title -- two lines of it when show_n adds the count.
+    if tops:
+        hi = max(tops)
+        lo = min(0.0, min(tops))
+        ax.set_ylim(lo, hi + (hi - lo) * (0.26 if show_n else 0.16))
     return xs
 
 

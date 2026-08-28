@@ -8,6 +8,7 @@
 #include <cstring>
 #include <iostream>
 #include <mutex>
+#include <sstream>
 #include <set>
 
 using namespace veins;
@@ -350,10 +351,13 @@ bool ResDBIntersectionApp::detectUnsafeBatch(
     const ResdbVehicleDecision* decisions, uint32_t n, uint32_t n_batches)
 {
     bool detected = false;
-    static const uint8_t kSafe[12][4] = {
+    // Keep in lockstep with resdb_intersection_scheduler.cc. The last row is
+    // the protected-left pair: two opposing lefts never cross each other.
+    static const uint8_t kSafe[14][4] = {
         {0, 0, 1, 0}, {2, 0, 3, 0}, {0, 2, 1, 2}, {0, 2, 2, 2},
         {0, 2, 3, 2}, {1, 2, 2, 2}, {1, 2, 3, 2}, {2, 2, 3, 2},
         {0, 2, 1, 0}, {1, 2, 0, 0}, {2, 2, 3, 0}, {3, 2, 2, 0},
+        {0, 1, 1, 1}, {2, 1, 3, 1},
     };
     auto isSafe = [&](uint8_t la, uint8_t da, uint8_t lb, uint8_t db) {
         if (la == lb) return false;
@@ -490,8 +494,9 @@ void ResDBIntersectionApp::detectConsensusAttackOutcome(
             const std::string carId = "veh" + std::to_string(ctx_.replicaId_);
             const size_t signerCount = my_received_echoes_.count(carId)
                 ? my_received_echoes_.at(carId).size() : 0;
-            const int threshold = (ctx_.tolerated_faults_ >= 0
-                ? ctx_.tolerated_faults_ : (ctx_.total_vehicles_ - 1) / 3) + 1;
+            // Reported only; kept on toleratedF() so the logged threshold is
+            // the one the cert layer actually enforces.
+            const int threshold = toleratedF() + 1;
             std::cout << "[FALSE-LANE-COLLUSION-BLOCK] target=" << carId
                       << " signers=" << signerCount
                       << " threshold=" << threshold
@@ -832,9 +837,18 @@ void ResDBIntersectionApp::processOrders()
 
         detectConsensusAttackOutcome(decisions, ohdr.n_vehicles, ohdr.n_batches);
 
-        std::cout << "[METRICS " << ctx_.replicaId_ << "] Order_Decided_Time: " << simTime()
-                  << " n_batches=" << ohdr.n_batches << "\n";
-        
+        // One string per line: avoids merged lines when another thread logs
+        // mid-chain. This line is the per-replica sample behind the stop ->
+        // decision metric, so a splice here does not merely lose a reading,
+        // it offers a neighbouring record's number in its place.
+        {
+            std::ostringstream line;
+            line << "[METRICS " << ctx_.replicaId_ << "] Order_Decided_Time: " << simTime()
+                 << " epoch=" << ohdr.epoch
+                 << " n_batches=" << ohdr.n_batches << '\n';
+            std::cout << line.str() << std::flush;
+        }
+
         ctx_.has_committed_order_ = true;
         deactivateDiscovery("order-applied");
         ctx_.last_committed_epoch_ = ohdr.epoch;
@@ -842,13 +856,22 @@ void ResDBIntersectionApp::processOrders()
         if (propose_time_ >= SIMTIME_ZERO) {
             double bft_sim  = (simTime() - propose_time_).dbl();
             double stop_dec = (stop_time_ >= SIMTIME_ZERO) ? (simTime() - stop_time_).dbl() : -1.0;
-            std::cout << "[VC-TRACE] r" << ctx_.replicaId_
-                      << " propose_to_order_sec=" << bft_sim
-                      << " stop_to_order_sec=" << stop_dec << "\n";
-            std::cout << "[PHASE_SUMMARY " << ctx_.replicaId_ << "] epoch=" << ctx_.current_epoch_
-                      << " PROPOSE_ALL_BFT(sim)=" << std::to_string(bft_sim) << "s"
-                      << " stop_to_decision(sim)="
-                      << (stop_dec >= 0.0 ? std::to_string(stop_dec) + "s" : "N/A") << "\n";
+            std::ostringstream trace;
+            trace << "[VC-TRACE] r" << ctx_.replicaId_
+                  << " propose_to_order_sec=" << bft_sim
+                  << " stop_to_order_sec=" << stop_dec << '\n';
+            std::cout << trace.str() << std::flush;
+
+            // Only a replica that proposed reaches here, so this line samples
+            // proposers alone and is not a fleet-wide measurement. The stop ->
+            // decision metric is derived from the per-replica Order_Decided_Time
+            // above instead; this stays for the leader's own view of a round.
+            std::ostringstream line;
+            line << "[PHASE_SUMMARY " << ctx_.replicaId_ << "] epoch=" << ctx_.current_epoch_
+                 << " PROPOSE_ALL_BFT(sim)=" << std::to_string(bft_sim) << "s"
+                 << " stop_to_decision(sim)="
+                 << (stop_dec >= 0.0 ? std::to_string(stop_dec) + "s" : "N/A") << '\n';
+            std::cout << line.str() << std::flush;
         }
 
         // Cancel safety timers now that consensus delivered.

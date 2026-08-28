@@ -1,21 +1,38 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on Wed Jan 14 20:32:59 2026 by Eclipse SUMO netconvert Version 1.8.0
+<!-- generated on Wed Aug 26 22:57:24 2026 by Eclipse SUMO netconvert Version 1.8.0
 <configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/netconvertConfiguration.xsd">
 
     <input>
-        <node-files value="intersection.nod.xml"/>
-        <edge-files value="intersection.edg.xml"/>
+        <sumo-net-file value="baseline_intersection.net.xml"/>
     </input>
 
     <output>
-        <output-file value="intersection.net.xml"/>
+        <output-file value="tl_intersection.net.xml"/>
     </output>
 
+    <processing>
+        <geometry.min-radius.fix.railways value="false"/>
+        <geometry.max-grade.fix value="false"/>
+        <offset.disable-normalization value="true"/>
+        <lefthand value="false"/>
+    </processing>
+
     <tls_building>
-        <tls.guess value="true"/>
-        <tls.guess-signals value="true"/>
+        <tls.set value="C"/>
+        <tls.default-type value="actuated"/>
     </tls_building>
+
+    <junctions>
+        <no-turnarounds value="true"/>
+        <junctions.corner-detail value="5"/>
+        <junctions.limit-turn-speed value="5.5"/>
+        <rectangular-lane-cut value="false"/>
+    </junctions>
+
+    <pedestrian>
+        <walkingareas value="false"/>
+    </pedestrian>
 
     <report>
         <aggregate-warnings value="5"/>
@@ -138,10 +155,17 @@
         <lane id="W2C_0" index="0" speed="13.90" length="292.80" shape="0.00,298.40 292.80,298.40"/>
     </edge>
 
-    <junction id="C" type="allway_stop" x="300.00" y="300.00" incLanes="N2C_0 E2C_0 S2C_0 W2C_0" intLanes=":C_0_0 :C_1_0 :C_16_0 :C_17_0 :C_4_0 :C_5_0 :C_18_0 :C_19_0 :C_8_0 :C_9_0 :C_20_0 :C_21_0 :C_12_0 :C_13_0 :C_22_0 :C_23_0" shape="296.80,307.20 303.20,307.20 303.64,304.98 304.20,304.20 304.98,303.64 305.98,303.31 307.20,303.20 307.20,296.80 304.98,296.36 304.20,295.80 303.64,295.02 303.31,294.02 303.20,292.80 296.80,292.80 296.36,295.02 295.80,295.80 295.02,296.36 294.02,296.69 292.80,296.80 292.80,303.20 295.02,303.64 295.80,304.20 296.36,304.98 296.69,305.98">
+    <tlLogic id="C" type="actuated" programID="0" offset="0">
+        <phase duration="42" state="GGggrrrrGGggrrrr" minDur="5" maxDur="50"/>
+        <phase duration="3"  state="yyyyrrrryyyyrrrr"/>
+        <phase duration="42" state="rrrrGGggrrrrGGgg" minDur="5" maxDur="50"/>
+        <phase duration="3"  state="rrrryyyyrrrryyyy"/>
+    </tlLogic>
+
+    <junction id="C" type="traffic_light" x="300.00" y="300.00" incLanes="N2C_0 E2C_0 S2C_0 W2C_0" intLanes=":C_0_0 :C_1_0 :C_16_0 :C_17_0 :C_4_0 :C_5_0 :C_18_0 :C_19_0 :C_8_0 :C_9_0 :C_20_0 :C_21_0 :C_12_0 :C_13_0 :C_22_0 :C_23_0" shape="296.80,307.20 303.20,307.20 303.64,304.98 304.20,304.20 304.98,303.64 305.98,303.31 307.20,303.20 307.20,296.80 304.98,296.36 304.20,295.80 303.64,295.02 303.31,294.02 303.20,292.80 296.80,292.80 296.36,295.02 295.80,295.80 295.02,296.36 294.02,296.69 292.80,296.80 292.80,303.20 295.02,303.64 295.80,304.20 296.36,304.98 296.69,305.98">
         <request index="0"  response="0000000000000000" foes="1000010000100000" cont="0"/>
         <request index="1"  response="0100000001000000" foes="0111110001100000" cont="0"/>
-        <request index="2"  response="0100001101000000" foes="0110001111100000" cont="0"/>
+        <request index="2"  response="0100001101000000" foes="0110001111100000" cont="1"/>
         <request index="3"  response="0100001000010000" foes="0100001000010000" cont="1"/>
         <request index="4"  response="0000001000000000" foes="0100001000001000" cont="0"/>
         <request index="5"  response="0000011000000111" foes="1100011000000111" cont="0"/>
@@ -182,22 +206,22 @@
     <connection from="C2N" to="N2C" fromLane="0" toLane="0" via=":N_0_0" dir="t" state="M"/>
     <connection from="C2S" to="S2C" fromLane="0" toLane="0" via=":S_0_0" dir="t" state="M"/>
     <connection from="C2W" to="W2C" fromLane="0" toLane="0" via=":W_0_0" dir="t" state="M"/>
-    <connection from="E2C" to="C2N" fromLane="0" toLane="0" via=":C_4_0" dir="r" state="m"/>
-    <connection from="E2C" to="C2W" fromLane="0" toLane="0" via=":C_5_0" dir="s" state="m"/>
-    <connection from="E2C" to="C2S" fromLane="0" toLane="0" via=":C_6_0" dir="l" state="m"/>
-    <connection from="E2C" to="C2E" fromLane="0" toLane="0" via=":C_7_0" dir="t" state="m"/>
-    <connection from="N2C" to="C2W" fromLane="0" toLane="0" via=":C_0_0" dir="r" state="M"/>
-    <connection from="N2C" to="C2S" fromLane="0" toLane="0" via=":C_1_0" dir="s" state="M"/>
-    <connection from="N2C" to="C2E" fromLane="0" toLane="0" via=":C_2_0" dir="l" state="m"/>
-    <connection from="N2C" to="C2N" fromLane="0" toLane="0" via=":C_3_0" dir="t" state="m"/>
-    <connection from="S2C" to="C2E" fromLane="0" toLane="0" via=":C_8_0" dir="r" state="M"/>
-    <connection from="S2C" to="C2N" fromLane="0" toLane="0" via=":C_9_0" dir="s" state="M"/>
-    <connection from="S2C" to="C2W" fromLane="0" toLane="0" via=":C_10_0" dir="l" state="m"/>
-    <connection from="S2C" to="C2S" fromLane="0" toLane="0" via=":C_11_0" dir="t" state="m"/>
-    <connection from="W2C" to="C2S" fromLane="0" toLane="0" via=":C_12_0" dir="r" state="m"/>
-    <connection from="W2C" to="C2E" fromLane="0" toLane="0" via=":C_13_0" dir="s" state="m"/>
-    <connection from="W2C" to="C2N" fromLane="0" toLane="0" via=":C_14_0" dir="l" state="m"/>
-    <connection from="W2C" to="C2W" fromLane="0" toLane="0" via=":C_15_0" dir="t" state="m"/>
+    <connection from="E2C" to="C2N" fromLane="0" toLane="0" via=":C_4_0" tl="C" linkIndex="4" dir="r" state="o"/>
+    <connection from="E2C" to="C2W" fromLane="0" toLane="0" via=":C_5_0" tl="C" linkIndex="5" dir="s" state="o"/>
+    <connection from="E2C" to="C2S" fromLane="0" toLane="0" via=":C_6_0" tl="C" linkIndex="6" dir="l" state="o"/>
+    <connection from="E2C" to="C2E" fromLane="0" toLane="0" via=":C_7_0" tl="C" linkIndex="7" dir="t" state="o"/>
+    <connection from="N2C" to="C2W" fromLane="0" toLane="0" via=":C_0_0" tl="C" linkIndex="0" dir="r" state="O"/>
+    <connection from="N2C" to="C2S" fromLane="0" toLane="0" via=":C_1_0" tl="C" linkIndex="1" dir="s" state="O"/>
+    <connection from="N2C" to="C2E" fromLane="0" toLane="0" via=":C_2_0" tl="C" linkIndex="2" dir="l" state="o"/>
+    <connection from="N2C" to="C2N" fromLane="0" toLane="0" via=":C_3_0" tl="C" linkIndex="3" dir="t" state="o"/>
+    <connection from="S2C" to="C2E" fromLane="0" toLane="0" via=":C_8_0" tl="C" linkIndex="8" dir="r" state="O"/>
+    <connection from="S2C" to="C2N" fromLane="0" toLane="0" via=":C_9_0" tl="C" linkIndex="9" dir="s" state="O"/>
+    <connection from="S2C" to="C2W" fromLane="0" toLane="0" via=":C_10_0" tl="C" linkIndex="10" dir="l" state="o"/>
+    <connection from="S2C" to="C2S" fromLane="0" toLane="0" via=":C_11_0" tl="C" linkIndex="11" dir="t" state="o"/>
+    <connection from="W2C" to="C2S" fromLane="0" toLane="0" via=":C_12_0" tl="C" linkIndex="12" dir="r" state="o"/>
+    <connection from="W2C" to="C2E" fromLane="0" toLane="0" via=":C_13_0" tl="C" linkIndex="13" dir="s" state="o"/>
+    <connection from="W2C" to="C2N" fromLane="0" toLane="0" via=":C_14_0" tl="C" linkIndex="14" dir="l" state="o"/>
+    <connection from="W2C" to="C2W" fromLane="0" toLane="0" via=":C_15_0" tl="C" linkIndex="15" dir="t" state="o"/>
 
     <connection from=":C_0" to="C2W" fromLane="0" toLane="0" dir="r" state="M"/>
     <connection from=":C_1" to="C2S" fromLane="0" toLane="0" dir="s" state="M"/>

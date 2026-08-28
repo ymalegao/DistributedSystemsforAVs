@@ -1,42 +1,52 @@
-"""Ablation 3 — consensus control vs an all-way stop, as traffic grows.
+"""Ablation 3 — consensus control vs an actuated traffic light, as traffic grows.
 
-Two corrections to the previous version, both of which changed the result.
+The comparison is against a signal, not an all-way stop. Surveys of autonomous
+intersection management report fixed-time signalling as the most-used baseline
+(46%) while explicitly calling for actuated or adaptive instead; all-way stop
+control is used by only 8%. An unsignalised junction is also the wrong target
+for a different reason -- it deadlocks. Under mixed turn demand it gridlocked
+in 7 of 12 runs, resolved only by SUMO's 300s teleport timer, producing 300-600s
+"waits" that are an artifact of jam resolution rather than a delay measurement
+and that flatten every real arm to the floor of the axis.
 
-It compared Resume - Stop, which is not the same quantity in the two arms: the
-all-way-stop baseline resumes a vehicle when it clears, while consensus
-releases a vehicle seconds before it physically crosses. That flattered the BFT
-arm roughly threefold. Both arms emit [CAR-METRICS] with a departure time, so
-this figure uses stop -> departure, which means the same thing on both sides.
+The signal is actuated (netconvert --tls.default-type actuated): it extends
+green while vehicles are present and ends the phase on a gap. Fixed-time would
+have been unfair here in our favour, because this scenario is a single arrival
+burst and a fixed cycle would burn green on approaches that emptied and never
+refill.
 
-And it reported one load, at the one vehicle count that has no queue. The
-claim is that batching non-conflicting movements beats serialising every
-vehicle -- a claim about how the gap GROWS with traffic, which four
-simultaneous cars cannot show at all. The sweep now starts at 8.
+Measured on stop -> departure, which means the same thing in both arms. An
+earlier version used Resume - Stop, which does not: consensus releases a vehicle
+seconds before it physically crosses, and that flattered this protocol roughly
+threefold.
 
-Four panels: delay, service rate, the spread across individual vehicles (a
-mean hides whether one car was starved to speed up the rest), and throughput.
+It also reported one load, at the one vehicle count with no queue. The claim is
+that batching non-conflicting movements beats serialising vehicles -- a claim
+about how the gap GROWS with traffic, which four simultaneous cars cannot show.
+The sweep starts at 8.
 
-Throughput here starts its clock at the first stop, so it includes the time
-cars spend waiting as well as the time they take to discharge. The arms run
-different route files and therefore different arrival patterns, so part of the
-gap in that panel is the scenario rather than the controller -- service rate is
-the clean comparison. Both are shown because the difference between them is
-itself the result: it is the dead time consensus adds before anything moves.
+Four panels: delay, service rate, the spread across individual vehicles (a mean
+hides whether one car was starved to speed up the rest), and throughput.
 
-Caveat for the talk: the arms use different net/route files, so this compares
-two control approaches rather than one scenario with the controller swapped.
+Throughput starts its clock at the first stop, so it includes waiting as well as
+discharging. Service rate is the cleaner comparison; both are shown because the
+difference between them is itself the result -- the dead time consensus adds
+before anything moves.
+
+Both arms share the same route files and the same per-repetition seed, so they
+see identical turn draws. The networks differ only in the junction type.
 """
 from ..io import discover
 from ..metrics import aggregate
 from .. import style
 
 NAME = "ab3_baseline"
-TITLE = "All-way stop vs consensus control, across load"
+TITLE = "Actuated traffic light vs consensus control, across load"
 STUDY = 3
 SUBPLOTS = (2, 2)
 FIGSIZE = (11.5, 8.0)
 
-_ARMS = (("baseline", "control", "SUMO all-way stop"),
+_ARMS = (("tl", "control", "actuated traffic light"),
          ("ours", "treatment", "our BFT protocol"))
 
 # The 4-vehicle scenario is excluded: it is the only one with no queue.
@@ -78,8 +88,8 @@ def _line_panel(data, key, ax, *, title, ylabel, legend=False, skip_zero=False):
         if all(s.mean is None for s in stats):
             continue
         # A series that is identically zero is a flat line carrying no
-        # information; the all-way stop exchanges no messages at all, which the
-        # panel title states instead of drawing.
+        # information; a non-consensus arm exchanges no messages at all, which
+        # the panel title states instead of drawing.
         if skip_zero and all((s.mean or 0) == 0 for s in stats):
             continue
         style.errorbar(ax, data["ns"], stats, style.series(role, label),

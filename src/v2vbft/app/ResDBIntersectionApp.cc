@@ -197,6 +197,8 @@ void ResDBIntersectionApp::initialize(int stage)
         enable_sim_time_provider_ = par("enableSimTimeProvider").boolValue();
         time_tick_interval_       = par("timeTickInterval").doubleValue();
         broadcast_arrival_announcement_interval_ = par("broadcastArrivalAnnouncementIntervalSec").doubleValue();
+        announce_max_interval_ = par("broadcastArrivalAnnouncementMaxIntervalSec").doubleValue();
+        announce_backoff_ = broadcast_arrival_announcement_interval_;
         const double cert_timeout_base_sec = par("certCollectionTimeoutSec").doubleValue();
         const double cert_timeout_scale_sec = std::floor(static_cast<double>(ctx_.total_vehicles_) / 5.0);
         cert_collection_timeout_ = SimTime(cert_timeout_base_sec + cert_timeout_scale_sec);
@@ -715,8 +717,14 @@ void ResDBIntersectionApp::onBroadcastArrivalAnnouncement(cMessage* msg)
     }
     if (!cert_broadcast_ && ctx_.discovery_.state == DiscoveryState::COLLECTING) {
         broadcastArrivalAnnouncement();
-        scheduleAt(simTime() + broadcast_arrival_announcement_interval_, broadcastArrivalAnnouncement_timer_);
-        std::cout << "[ANN-SEND] Replica " << ctx_.replicaId_ << " rescheduled arrival-announcement timer\n";
+        // Double after each send, capped. resetAnnounceBackoff() pulls this back
+        // to the base interval whenever a previously unseen car is registered,
+        // so a peer entering radio range is not left waiting out a long gap.
+        announce_backoff_ = std::min(announce_backoff_ * 2, announce_max_interval_);
+        scheduleAt(simTime() + announce_backoff_, broadcastArrivalAnnouncement_timer_);
+        std::cout << "[ANN-SEND] Replica " << ctx_.replicaId_
+                  << " rescheduled arrival-announcement timer backoff="
+                  << announce_backoff_ << "\n";
     } else {
         std::cout << "[ANN-SEND-STOP] r" << ctx_.replicaId_
                   << " discovery_state=" << discoveryStateName()
@@ -1618,7 +1626,11 @@ void ResDBIntersectionApp::onWSM(BaseFrame1609_4* wsm)
 bool ResDBIntersectionApp::decisionGossipPropagationConfirmed() const
 {
     if (gossip_order_bytes_.empty()) return false;
-    const int f = ctx_.tolerated_faults_ >= 0 ? ctx_.tolerated_faults_ : (ctx_.total_vehicles_ - 1) / 3;
+    // toleratedF(), not a vehicle-count f: decision gossip is relayed by every
+    // replica including the static units, so the f+1 that confirms propagation
+    // has to be f+1 of PBFT membership. Sizing it to vehicles alone confirms on
+    // fewer distinct relayers than the threshold is meant to represent.
+    const int f = toleratedF();
     return gossip_acc_.count(gossip_epoch_, gossip_order_bytes_) >= f + 1;
 }
 

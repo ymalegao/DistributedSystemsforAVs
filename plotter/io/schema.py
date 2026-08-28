@@ -69,10 +69,11 @@ class RunRecord:
     consensus_timeouts: int = 0
 
     # ── clearance ────────────────────────────────────────────────────────────
-    # [CAR-METRICS] is emitted by the BFT app and the all-way-stop baseline in
-    # the same format, which is what makes throughput comparable across
-    # ablation 3's two arms. Intersection units never emit it, so these dicts
-    # count vehicles only -- never replicas.
+    # [CAR-METRICS] is emitted by the BFT app and by BaselineModule (the plain
+    # non-protocol vehicle app the traffic-light arm runs) in the same format,
+    # which is what makes throughput comparable across ablation 3's two arms.
+    # Intersection units never emit it, so these dicts count vehicles only --
+    # never replicas.
     stop_at: Dict[int, float] = field(default_factory=dict)
     depart_at: Dict[int, float] = field(default_factory=dict)
     role: Dict[int, str] = field(default_factory=dict)
@@ -91,6 +92,19 @@ class RunRecord:
     # ── per-vehicle timing ───────────────────────────────────────────────────
     stop_time: Dict[int, float] = field(default_factory=dict)
     resume_time: Dict[int, float] = field(default_factory=dict)
+
+    # When each replica saw the order decided. Emitted by every participant,
+    # unlike the PHASE_SUMMARY line, which only a replica that actually called
+    # proposeAll() emits -- see mean_stop_to_decision below for why that
+    # distinction decides whether the metric is comparable across scenarios.
+    order_decided_at: Dict[int, float] = field(default_factory=dict)
+
+    # ── log integrity ────────────────────────────────────────────────────────
+    # Worker threads and the simulation thread share stdout, so lines splice
+    # into each other. A spliced line is not merely missing -- it can present a
+    # field with another line's value, which is how a quorum of 6 appeared in a
+    # 16-vehicle run. Counted per reason and reported, never silently dropped.
+    corrupt_lines: Dict[str, int] = field(default_factory=dict)
 
     # -- derived ------------------------------------------------------------
     @property
@@ -146,7 +160,7 @@ class RunRecord:
 
         Includes the spread over which traffic ARRIVES, so it is only
         comparable between arms of the same scenario. Across scenarios it moves
-        with the route file's spawn pattern: the all-way-stop baseline's window
+        with the route file's spawn pattern: the traffic-light arm's window
         is 6.1s at 4 vehicles but 16.3s at 8, which drags the rate down even
         though the intersection is serving traffic no more slowly. Use
         discharge_rate to compare across vehicle counts.
@@ -164,12 +178,26 @@ class RunRecord:
         movements that may cross together depart together.
 
         Needs at least two departures to have a gap to measure.
+
+        Counted over departure INSTANTS, not vehicles. Compatible movements
+        cross together, so a batch leaves at one instant; dividing vehicles by
+        the span assumes one departure per instant and overstates the rate
+        whenever they batch. With pairs it reads (n-1)/((n/2-1)*gap), which at
+        n=8 is 1.56 and at n=20 is 1.38 for an unchanged 1.31 -- a decline that
+        is pure small-sample artifact. Batch size x instants per second is the
+        rate the intersection actually clears vehicles, and it is stable in n.
         """
         deps = sorted(self.depart_at.values())
         if len(deps) < 2:
             return None
-        span = deps[-1] - deps[0]
-        return (len(deps) - 1) / span if span > 0 else None
+        instants = sorted(set(round(t, 3) for t in deps))
+        if len(instants) < 2:
+            return None
+        span = instants[-1] - instants[0]
+        if span <= 0:
+            return None
+        mean_batch = len(deps) / len(instants)
+        return mean_batch * (len(instants) - 1) / span
 
     @property
     def msgs_per_vehicle(self) -> Optional[float]:
@@ -189,7 +217,7 @@ class RunRecord:
 
         Distinct from wait_times(): Resume_Time is when consensus RELEASED the
         vehicle, which in the BFT arm precedes physically clearing by seconds,
-        while in the all-way-stop baseline the two coincide. Comparing arms on
+        while in a non-consensus arm the two coincide. Comparing arms on
         release time therefore flatters the BFT arm; this is the metric that
         means the same thing in both.
         """
@@ -229,8 +257,42 @@ class RunRecord:
         return mean(self.cert_collection_s) if self.cert_collection_s else None
 
     @property
-    def mean_stop_to_decision(self) -> Optional[float]:
+    def corrupt_total(self) -> int:
+        return sum(self.corrupt_lines.values())
+
+    @property
+    def mean_stop_to_decision_proposer(self) -> Optional[float]:
+        """Stop -> decided, sampled only where PHASE_SUMMARY was emitted.
+
+        Retained for audit against the corrected metric below, NOT for figures.
+        ResDBDecision.cc guards that line with `if (propose_time_ >= 0)`, so it
+        exists only on replicas that proposed. How many replicas propose varies
+        with the scenario -- one at 16 vehicles, two at 8 and 12, three at 20 --
+        and a proposer is systematically an early-stopping, front-of-queue
+        vehicle. The sample is therefore neither fixed in size nor unbiased in
+        composition, and comparing it across vehicle counts compares different
+        populations.
+        """
         return mean(self.stop_to_decision_s) if self.stop_to_decision_s else None
+
+    @property
+    def mean_stop_to_decision(self) -> Optional[float]:
+        """Stop -> decided, over every vehicle that both stopped and decided.
+
+        The delay a vehicle actually experiences before release, which is what
+        this metric has always claimed to be. Derived from the per-replica
+        Stop_Time and Order_Decided_Time lines that every participant emits,
+        so the population is the whole stopped fleet rather than whichever
+        replicas happened to propose.
+
+        Intersection units drop out on their own: they never stop at a line and
+        so never emit Stop_Time, leaving the average over vehicles only.
+        """
+        spans = [self.order_decided_at[r] - self.stop_time[r]
+                 for r in self.order_decided_at
+                 if r in self.stop_time
+                 and self.order_decided_at[r] > self.stop_time[r]]
+        return mean(spans) if spans else None
 
     @property
     def bytes_per_vehicle(self) -> Optional[float]:

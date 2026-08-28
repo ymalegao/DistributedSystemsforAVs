@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<launch>
+    <copy file="tl_intersection.net.xml" />
+    <copy file="bft_12veh.rou.xml" />
+    <copy file="tl_12veh.sumo.cfg" type="config" />
+</launch>

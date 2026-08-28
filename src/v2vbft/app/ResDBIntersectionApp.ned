@@ -82,6 +82,8 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         double discoveryIntentSettleSec @unit(s) = default(1.5s);
         double stateAnnounceIntervalSec @unit(s) = default(0.1s);
         double broadcastArrivalAnnouncementIntervalSec @unit(s) = default(0.1s);
+        // Ceiling for the exponential backoff applied to the interval above.
+        double broadcastArrivalAnnouncementMaxIntervalSec @unit(s) = default(3.2s);
 
         // ── Staggered initial announcement ────────────────────────────────────
         double triggerJoinTimeSec @unit(s) = default(0.5s);

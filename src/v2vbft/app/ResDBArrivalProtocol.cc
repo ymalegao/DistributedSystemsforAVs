@@ -286,10 +286,25 @@ void ResDBIntersectionApp::armDiscoveryTimers(const char* reason)
     scheduleAt(settleAt, discovery_settle_msg_);
 }
 
+void ResDBIntersectionApp::resetAnnounceBackoff()
+{
+    announce_backoff_ = broadcast_arrival_announcement_interval_;
+    // Pull an already-scheduled announce forward too: without this a car
+    // sitting on a 3.2s gap would still make the newcomer wait it out.
+    if (broadcastArrivalAnnouncement_timer_ &&
+            broadcastArrivalAnnouncement_timer_->isScheduled() &&
+            broadcastArrivalAnnouncement_timer_->getArrivalTime() >
+                simTime() + announce_backoff_) {
+        cancelEvent(broadcastArrivalAnnouncement_timer_);
+        scheduleAt(simTime() + announce_backoff_, broadcastArrivalAnnouncement_timer_);
+    }
+}
+
 void ResDBIntersectionApp::noteDiscoveryIntent(const std::string& carId, const char* source)
 {
     if (carId.empty() || ctx_.propose_submitted_ || ctx_.order_applied_ ||
             ctx_.current_phase_ == ConsensusPhase::DEPARTED) return;
+    resetAnnounceBackoff();
     if (ctx_.discovery_.state == DiscoveryState::DRAINING_CERTS ||
             ctx_.discovery_.state == DiscoveryState::COMPLETE) {
         resetOrderCandidate("discovery-reopened");
@@ -349,13 +364,23 @@ void ResDBIntersectionApp::maybeAdvanceDiscovery(const char* reason, bool deadli
         armDiscoveryTimers("view-not-stable");
         return;
     }
-    // Cold-start round: the ad hoc gossip topology has not converged yet
-    // (no vehicle has had time to enter radio range of others or for relay
-    // trees to form), so a quiet intent-set does not imply a complete view.
-    // Only the hard per-round deadline may close epoch 0 early. Later
-    // epochs (post-CANCEL reconvergence) keep the eager path below, since
-    // by then the topology is already established.
-    if (ctx_.discovery_.epoch == 0) return;
+    // Cold-start round: a quiet intent set does not by itself imply a complete
+    // view. discoveryViewCertified() can only reason about cars it has HEARD
+    // from, so a vehicle that reaches the stop line before anyone else is in
+    // radio range satisfies it trivially -- one intent, its own, certified --
+    // and would close epoch 0 on an order containing a single car.
+    //
+    // Gate the eager path on the configured roster rather than disabling it:
+    // silence counts as completion only once every expected vehicle has
+    // actually announced. That is the piece discoveryViewCertified() cannot
+    // supply, since it has no notion of how many cars ought to be present.
+    // A car that never announces at all still falls through to the hard
+    // deadline, so this only ever closes the round earlier, never later.
+    //
+    // Later epochs keep the unconditional eager path: by then the topology is
+    // established, and membership is the rollback set rather than the roster.
+    if (ctx_.discovery_.epoch == 0 &&
+            (int)observed_intent_cars_.size() < ctx_.total_vehicles_) return;
     if (!discoveryViewCertified()) return;
     beginDiscoveryDrain(reason, false);
 }
@@ -530,6 +555,12 @@ void ResDBIntersectionApp::broadcastArrivalAnnouncement(bool forceEmergency)
     ann.positionInLane = rank;
     std::cout << "[ANN-BROADCAST] Replica " << ctx_.replicaId_ << " positionInLane: " << rank << "\n";
 
+    if (!intended_direction_resolved_) {
+        intended_direction_ = resolveIntendedDirection();
+        intended_direction_resolved_ = true;
+        std::cout << "[TURN] Replica " << ctx_.replicaId_
+                  << " direction=" << intended_direction_ << "\n";
+    }
     ann.direction          = strToDir(intended_direction_);
     ann.isAmbulance        = is_ambulance_;
     if (is_byzantine_ && byzantine_type_ == BYZANTINE_FAKE_AMBULANCE_FOLLOWER) {
@@ -786,12 +817,23 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
         effectiveIsAmbulance = false;
     }
     // Cert gate: when enabled, reject uncertified or cryptographically invalid claims.
+    //
+    // A claim counts as certified only if it actually carried a VehicleCert AND
+    // that cert survived verification. effectiveIsAmbulance is not that test: it
+    // starts equal to the claim and is only lowered by the branches above, both
+    // of which require a NON-EMPTY cert. A claim carrying no cert at all
+    // therefore arrives here still true, so gating on !effectiveIsAmbulance
+    // could never fire on precisely the case this gate is named for -- an
+    // ambulance claim with no certificate behind it.
+    const bool certPresented = (ann.ambulanceCertBytes.size() == sizeof(VehicleCert));
+    const bool certVerified  = certPresented && effectiveIsAmbulance;
+
     const bool claimedAmbulance = ann.isAmbulance;
     ann.isAmbulance = effectiveIsAmbulance;
-    if (claimedAmbulance && !effectiveIsAmbulance) {
+    if (claimedAmbulance && !certVerified) {
         uncertified_ambulance_claimers_.insert(ann.carId);
     }
-    if (enableAmbulanceCertGate_ && claimedAmbulance && !effectiveIsAmbulance) {
+    if (enableAmbulanceCertGate_ && claimedAmbulance && !certVerified) {
         cert_gate_rejected_ambulance_claimers_.insert(ann.carId);
         std::cout << "[CERT-GATE] r" << ctx_.replicaId_
                   << " rejected uncertified ambulance claim from " << ann.carId << "\n";
@@ -952,7 +994,21 @@ void ResDBIntersectionApp::collectArrivalEcho(const ArrivalEcho& echo, const cha
         if (existing.echoingReplicaId == echo.echoingReplicaId) return;
     echoes.push_back(echo);
 
-    const int f = ctx_.tolerated_faults_ >= 0 ? ctx_.tolerated_faults_ : (ctx_.total_vehicles_ - 1) / 3;
+    // Size the certificate against PBFT membership, not the vehicle count.
+    // These must be the same f that validateArrivalCert() checks against, and
+    // that one uses toleratedF() -- i.e. (num_replicas_ - 1) / 3, counting the
+    // static intersection units. Deriving f here from total_vehicles_ instead
+    // made every certificate one or two echoes short of what every receiver
+    // demanded, so with units present each replica dropped every other
+    // replica's cert and kept only its own: a proposal that is mostly QUIET,
+    // and a round that cannot commit. It was intermittent rather than constant
+    // only because extra echoes sometimes arrive before the cert latches.
+    //
+    // Validation is the correct side. Units are full replicas that vote and
+    // echo, so f+1 has to mean f+1 of the membership; a certificate proving
+    // f+1 over vehicles alone is a weaker claim than the rest of the protocol
+    // assumes.
+    const int f = toleratedF();
     const int required = f + 1;
     std::cout << "[ECHO-RECV] Replica " << ctx_.replicaId_ << " received echo from "
               << echo.echoingReplicaId << " (" << echoes.size() << " so far)\n";

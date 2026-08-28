@@ -23,13 +23,21 @@ from .. import style
 NAME = "an_cost_decomposition"
 TITLE = "Cost decomposition by protocol layer"
 STUDY = 1
-SUBPLOTS = (1, 3)
-FIGSIZE = (15.0, 5.0)
+SUBPLOTS = (1, 2)
+FIGSIZE = (11.0, 5.0)
 
-# Ordered so the dominant layer sits at the bottom of the stack.
-LAYERS = (("arrival certificates", RunRecord.ARRIVAL_CERT_TYPES, style.TREATMENT),
-          ("PBFT ordering", RunRecord.PBFT_TYPES, style.CONTROL),
-          ("gossip", RunRecord.GOSSIP_TYPES, style.ACCENT))
+# Gossip is excluded: it is a straggler-recovery relay, not one of the two
+# layers whose cost is in question.
+#
+# per_vehicle says how to normalise the layer into a per-event cost. The
+# certificate layer runs once per vehicle, PBFT once per round, so comparing
+# their raw totals compares a layer that ran N times against one that ran once.
+# Dividing the certificate layer by the vehicles it served puts both on "cost
+# of one occurrence" and makes the comparison like-for-like.
+LAYERS = (("arrival certificates", RunRecord.ARRIVAL_CERT_TYPES,
+           style.TREATMENT, True),
+          ("PBFT ordering", RunRecord.PBFT_TYPES,
+           style.CONTROL, False))
 
 
 def load(runs):
@@ -44,24 +52,31 @@ def load(runs):
     # Phases of one round, in the order they happen. Grouped rather than
     # stacked and drawn on a log axis, because the waiting window is two orders
     # of magnitude larger than the work -- stacked, the work would be invisible.
+    # The two phases that are actual protocol work. "Waiting for certificates"
+    # (cert_collection) is deliberately excluded: it spans from the vehicle
+    # entering the stop zone to the primary proposing, so it is dominated by how
+    # long OTHER vehicles take to arrive and be certified -- a property of the
+    # arrival pattern, not of the protocol. Plotting it alongside these buries
+    # both, since it is an order of magnitude larger.
     phases = {
-        "waiting for certificates": [aggregate.cert_collection(c) for c in cells],
-        "certificate formation": [aggregate.cert_latency(c) for c in cells],
+        "arrival certificates": [aggregate.cert_latency(c) for c in cells],
         "PBFT ordering": [aggregate.bft_latency(c) for c in cells],
     }
-    absolute, share = {}, {}
-    for label, types, _ in LAYERS:
-        absolute[label] = [aggregate.summarize([r.layer_msgs(types) for r in c])
+    def per_event(r, types, divide):
+        n = r.cleared or 1
+        return r.layer_msgs(types) / n if divide else r.layer_msgs(types)
+
+    absolute = {}
+    for label, types, _, divide in LAYERS:
+        absolute[label] = [aggregate.summarize([per_event(r, types, divide) for r in c])
                            for c in cells]
-        share[label] = [aggregate.summarize([r.layer_share(types) for r in c])
-                        for c in cells]
-    return dict(ns=ns, absolute=absolute, share=share, phases=phases)
+    return dict(ns=ns, absolute=absolute, phases=phases)
 
 
 def _stacked(data, key, ax, *, title, ylabel):
     bottoms = [0.0] * len(data["ns"])
     xs = list(range(len(data["ns"])))
-    for label, _, color in LAYERS:
+    for label, _, color, _div in LAYERS:
         ys = [s.mean if s.mean is not None else 0.0 for s in data[key][label]]
         ax.bar(xs, ys, 0.6, bottom=bottoms, color=color, label=label,
                edgecolor=style.BAR_EDGE, linewidth=style.BAR_EDGEWIDTH)
@@ -92,13 +107,9 @@ def _phases(data, ax):
 
 def build(data, axes):
     _stacked(data, "absolute", axes[0],
-             title="Messages sent, by layer",
-             ylabel="messages per run")
-    _stacked(data, "share", axes[1],
-             title="Share of all traffic",
-             ylabel="% of messages sent")
-    axes[1].legend_ = None
-    _phases(data, axes[2])
+             title="Messages per occurrence",
+             ylabel="messages (certificates per vehicle, PBFT per round)")
+    _phases(data, axes[1])
     axes[0].figure.suptitle(
-        "Messages are the certificate layer; delay is a fixed waiting window",
+        "Per occurrence a certificate still costs more than a PBFT round -- from retransmission, not structure",
         fontsize=12, color=style.INK_PRIMARY)

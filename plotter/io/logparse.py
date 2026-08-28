@@ -22,6 +22,13 @@ from .schema import RunKey, RunRecord
 RE_ORDER_DECIDED = re.compile(r"Order_Decided_Time")
 RE_ORDER_BATCHES = re.compile(r"\[METRICS (\d+)\]\s+Order_Decided_Time:.*n_batches=(\d+)")
 
+# Same line, read per replica. Every participant emits it, which is what makes
+# a stop -> decision average over the whole stopped fleet possible; epoch= is
+# optional because logs recorded before that field was added must still parse.
+RE_ORDER_DECIDED_AT = re.compile(
+    r"\[METRICS (\d+)\]\s+Order_Decided_Time:\s+([\d.]+)(?:\s+epoch=(\d+))?"
+)
+
 # Bridge: the quorum this run actually required. Emitted on every consensus
 # round, so this is the one to use for general-purpose quorum reporting.
 RE_QUORUM = re.compile(r"\[PBFT-QUORUM\].*?quorum=(\d+)")
@@ -59,7 +66,8 @@ RE_SENT_BY_TYPE = re.compile(
     r"\[METRICS (\d+)\]\s+Sent_By_Type:\s+type=(\d+)\s+msgs=(\d+)\s+bytes=(\d+)"
 )
 
-# ResDBIntersectionApp.cc / ResDBTraCI.cc, and the all-way-stop baseline module.
+# ResDBIntersectionApp.cc / ResDBTraCI.cc, and BaselineModule (the plain
+# non-protocol vehicle app used by the traffic-light arm).
 # Both emit this identical line on departure, which is what lets ablation 3
 # compare the two arms on the same measurement. Intersection units never depart
 # and so never emit it.
@@ -84,6 +92,33 @@ RE_RESUME_TIME = re.compile(r"\[METRICS (\d+)\]\s+Resume_Time:\s+([\d.]+)")
 
 # ResDBRollbackProtocol.cc: the late-ambulance cancel/rollback actually ran.
 RE_ROLLBACK_FIRED = re.compile(r"CANCEL-COMMIT|ROLLBACK-BEGIN")
+
+# ── log integrity ────────────────────────────────────────────────────────────
+# ResDBDecision.cc and the bridge build lines with chained `std::cout << a << b`,
+# so each token is a separate write and another thread can land between them.
+# The result is not a truncated line but a spliced one, carrying fields from two
+# records at once -- which a field-matching regex will read as though genuine.
+# ARCHITECTURE.md section 22 records the underlying defect.
+RE_LINE_TAG = re.compile(r"\[[A-Z][A-Z0-9_-]*[ \]]")
+RE_OK_PHASE_SUMMARY = re.compile(r"^\[PHASE_SUMMARY \d+\] epoch=\d+ ")
+RE_OK_METRICS = re.compile(r"^\[METRICS \d+\] \S+:")
+
+
+def line_defect(line: str):
+    """Why this line cannot be trusted, or None if it is well formed.
+
+    A tag opening anywhere but the start means two writes interleaved. The
+    remaining two checks catch a line whose own tag survived while its payload
+    did not.
+    """
+    if len(RE_LINE_TAG.findall(line)) > 1:
+        return "spliced"
+    if line.startswith("[PHASE_SUMMARY") and not RE_OK_PHASE_SUMMARY.match(line):
+        return "malformed PHASE_SUMMARY"
+    if line.startswith("[METRICS") and not RE_OK_METRICS.match(line):
+        return "malformed METRICS"
+    return None
+
 
 # ── run filename ─────────────────────────────────────────────────────────────
 # Layouts in use, all produced by run_ablations.sh:
@@ -127,6 +162,13 @@ def parse_log(path, key: RunKey | None = None) -> RunRecord:
 
     with open(path, errors="ignore") as fh:
         for line in fh:
+            # Skip before extracting, not after: a spliced line can satisfy a
+            # field pattern using a neighbouring record's value, so parsing it
+            # "best effort" injects wrong numbers rather than losing right ones.
+            if defect := line_defect(line.rstrip("\n")):
+                rec.corrupt_lines[defect] = rec.corrupt_lines.get(defect, 0) + 1
+                continue
+
             if RE_ORDER_DECIDED.search(line):
                 rec.committed = True
 
@@ -176,6 +218,14 @@ def parse_log(path, key: RunKey | None = None) -> RunRecord:
 
             if m := RE_STOP_TO_DECISION.search(line):
                 rec.stop_to_decision_s.append(float(m.group(1)))
+
+            if m := RE_ORDER_DECIDED_AT.search(line):
+                # First decision per replica wins, matching depart_at: under
+                # rollback a replica decides again in the recovery epoch, and
+                # pairing that with its original stop would span both rounds.
+                rid = int(m.group(1))
+                if rid not in rec.order_decided_at:
+                    rec.order_decided_at[rid] = float(m.group(2))
 
             if m := RE_QUORUM.search(line):
                 rec.quorum = int(m.group(1))

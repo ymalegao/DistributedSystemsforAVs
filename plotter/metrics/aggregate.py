@@ -187,6 +187,19 @@ def cert_collection(recs: Sequence[RunRecord]) -> Stat:
     return summarize([r.mean_cert_collection for r in recs])
 
 
+def stop_to_decision_proposer(recs: Sequence[RunRecord]) -> Stat:
+    """The superseded proposer-only sampling, kept alongside the corrected
+    metric so a claim that moves can be traced to this change rather than to
+    the data. Do not plot it; see RunRecord.mean_stop_to_decision_proposer.
+    """
+    return summarize([r.mean_stop_to_decision_proposer for r in recs])
+
+
+def corrupt_lines(recs: Sequence[RunRecord]) -> Stat:
+    """Log lines discarded as spliced or malformed, per run."""
+    return summarize([float(r.corrupt_total) for r in recs])
+
+
 def stop_to_decision(recs: Sequence[RunRecord]) -> Stat:
     """Mean stop -> consensus decided, in seconds.
 

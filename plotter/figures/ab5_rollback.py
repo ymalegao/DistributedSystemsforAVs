@@ -4,14 +4,20 @@ The previous version was one pair of bars, 100% against 0%, which is the same
 degenerate shape ablation 2 had: it states the mechanism works without showing
 what happens instead, or what is given up.
 
-The left panel decomposes what actually became of each run, because "did not
-re-order" is not one outcome. A run can commit an order and simply never admit
-the ambulance, or fail to commit and let every vehicle out on the stop-sign
-timeout; those are different failures and the reader should see which occurred.
+Decomposing the outcome into a stacked bar did not fix it: with the ambulance
+either admitted or not, the stack is one full-height block per arm, which is
+the degenerate shape again in a second costume.
+
+The left panel plots individual departures instead, because the measured
+result is a substitution. Both arms clear the same number of vehicles -- every
+count-based summary therefore shows them as identical -- and what changes is
+which vehicles: the ambulance takes a slot an ordinary vehicle would have had,
+and the remaining traffic is pushed later. That is invisible to any statistic
+over counts, so the panel shows vehicle identity directly.
 
 The remaining panels are the price. Re-ordering pauses traffic to revise a
-committed schedule, so the ON arm clears fewer vehicles and spends more
-messages doing it. A figure showing only the capability would be advocacy.
+committed schedule, so the ON arm serves its vehicles more slowly and spends
+more messages doing it. A figure showing only the capability would be advocacy.
 
 Runs go to 90s of simulated time so the ambulance physically clears. At the
 earlier 30s cap it could only ever be shown re-ordered into the schedule, which
@@ -30,15 +36,26 @@ FIGSIZE = (14.0, 8.2)
 _ARMS = (("rollback_off", "control", "rollback OFF"),
          ("rollback_on", "treatment", "rollback ON"))
 
-# Ordered best-to-worst so the stack reads downward into failure.
-_OUTCOMES = (
-    ("re-ordered for the ambulance", style.TREATMENT,
-     lambda r: r.rollback_fired),
-    ("committed, ambulance not admitted", style.CONTROL,
-     lambda r: r.committed and not r.rollback_fired),
-    ("no commit — stop-sign fallback", style.INK_SECONDARY,
-     lambda r: not r.committed),
-)
+
+def _timeline(cells):
+    """Which vehicles cleared and when, for one run of each arm.
+
+    This panel exists because the aggregate hides the result. Both arms clear
+    the same NUMBER of vehicles, so every count-based summary shows them as
+    identical; what differs is WHICH vehicles. Rollback does not reduce how
+    many are served, it substitutes the ambulance for an ordinary vehicle and
+    pushes the rest later. Only vehicle identity shows that, so the panel plots
+    departures individually rather than summarising them.
+
+    One run per arm, not a mean: averaging departure times across runs would
+    dissolve exactly the per-vehicle detail the panel is here to show.
+    """
+    rows = []
+    for arm, _, label in _ARMS:
+        recs = cells[arm]
+        rows.append(None if not recs else
+                    (label, dict(recs[0].depart_at), set(recs[0].ambulance_ids())))
+    return rows
 
 
 def load(runs):
@@ -47,8 +64,7 @@ def load(runs):
         return {}
     return dict(
         arms=[label for _, _, label in _ARMS],
-        outcomes=[[aggregate.rate(cells[arm], pred) for arm, _, _ in _ARMS]
-                  for _, _, pred in _OUTCOMES],
+        timeline=_timeline(cells),
         cleared=[aggregate.cleared(cells[arm]) for arm, _, _ in _ARMS],
         cost=[aggregate.msgs_per_vehicle(cells[arm], committed_only=False)
               for arm, _, _ in _ARMS],
@@ -58,21 +74,54 @@ def load(runs):
     )
 
 
-def _stacked_outcomes(data, ax):
-    xs = list(range(len(data["arms"])))
-    bottoms = [0.0] * len(xs)
-    for (label, color, _), stats in zip(_OUTCOMES, data["outcomes"]):
-        ys = [s.mean if s.mean is not None else 0.0 for s in stats]
-        if not any(ys):
-            continue
-        ax.bar(xs, ys, 0.55, bottom=bottoms, color=color, label=label,
-               edgecolor=style.BAR_EDGE, linewidth=style.BAR_EDGEWIDTH)
-        bottoms = [b + y for b, y in zip(bottoms, ys)]
-    ax.set_xticks(xs)
-    ax.set_xticklabels(data["arms"])
-    ax.set_ylim(0, 105)
-    style.finish(ax, title="What became of each run",
-                 ylabel="% of runs", legend_above=True)
+def _departures(data, ax):
+    rows = [r for r in data["timeline"] if r is not None]
+    if not rows:
+        return
+    served = [set(dep) for _, dep, _ in rows]
+    # A vehicle one arm serves and the other does not. With two arms this is
+    # the substitution itself; it is annotated rather than left to the reader
+    # to find by comparing two rows of dots.
+    only = [s - set().union(*(o for j, o in enumerate(served) if j != i))
+            for i, s in enumerate(served)]
+
+    for y, ((label, dep, amb), unique) in enumerate(zip(rows, only)):
+        role = _ARMS[y][1]
+        # Compatible movements cross together, so a batch departs at one
+        # instant and its markers would coincide exactly -- 16 vehicles drawn
+        # as 8 dots, contradicting the count in the title. Stacking within the
+        # row separates them and makes batch size the thing the eye reads.
+        batches = {}
+        for v, t in dep.items():
+            batches.setdefault(t, []).append(v)
+        for t, members in batches.items():
+            spread = (len(members) - 1) / 2 * 0.16
+            for i, v in enumerate(sorted(members)):
+                off = (i - (len(members) - 1) / 2) * 0.16
+                if v in unique:
+                    marker, color = (("*", style.ACCENT) if v in amb
+                                     else ("X", style.INK_SECONDARY))
+                    ax.scatter([t], [y + off], s=230 if v in amb else 95,
+                               marker=marker, color=color, zorder=4)
+                    # Anchor on the batch, not the marker: the label is offset
+                    # clear of the row, and a marker stacked above its own
+                    # batch-mate would otherwise be written over.
+                    ax.annotate(f"veh{v}" + (" (ambulance)" if v in amb else ""),
+                                xy=(t, y - spread if y == 0 else y + spread),
+                                xytext=(0, 14 if y == 0 else -22),
+                                textcoords="offset points", ha="center",
+                                fontsize=8.5, color=color)
+                else:
+                    ax.scatter([t], [y + off], s=46,
+                               color=style.series(role)["color"], zorder=3,
+                               edgecolor=style.BAR_EDGE, linewidth=1.0)
+
+    ax.set_yticks(range(len(rows)))
+    ax.set_yticklabels([label for label, _, _ in rows])
+    ax.set_ylim(-0.75, len(rows) - 0.25)
+    ax.invert_yaxis()
+    style.finish(ax, title=f"Who cleared, and when ({len(served[0])} vehicles either way)",
+                 xlabel="simulated time (s)", legend=False)
 
 
 def _value_panel(data, key, ax, *, title, ylabel, fmt):
@@ -84,7 +133,7 @@ def _value_panel(data, key, ax, *, title, ylabel, fmt):
 
 def build(data, axes):
     flat = list(axes.flat)
-    _stacked_outcomes(data, flat[0])
+    _departures(data, flat[0])
     _value_panel(data, "cleared", flat[1], fmt="{:.1f}",
                  title="Traffic served in the window",
                  ylabel="vehicles cleared")
@@ -101,5 +150,5 @@ def build(data, axes):
                  title="Cost of serving them",
                  ylabel="messages per vehicle")
     flat[0].figure.suptitle(
-        "Ablation 5 — rollback admits the ambulance, and pays for it in throughput",
+        "Ablation 5 — rollback admits the ambulance by displacing a vehicle, not by serving fewer",
         fontsize=12, color=style.INK_PRIMARY)

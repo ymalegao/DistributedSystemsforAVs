@@ -22,16 +22,26 @@ from .. import style
 NAME = "ab1_rsu"
 TITLE = "RSU units: quorum, throughput, latency and cost vs load"
 STUDY = 1
-SUBPLOTS = (2, 2)
-FIGSIZE = (11.5, 8.0)
+SUBPLOTS = (1, 3)
+FIGSIZE = (15.0, 5.0)
 
 _ARMS = (("OFF", "control", "without RSU"),
          ("ON", "treatment", "with 4 RSU"))
 
 _PANELS = (
-    ("Quorum required", "replica votes to commit", aggregate.quorum),
+    # Quorum is not plotted: it is a configuration constant per arm (2f+1 over
+    # the replica count), not a measured outcome, so a panel of it restates the
+    # x axis. The cost of raising it is what the remaining three panels show.
     ("Throughput", "vehicles cleared / s", aggregate.throughput),
-    ("Delay to consensus", "stop to decision (s)", aggregate.stop_to_decision),
+    # Stop -> departure, not stop -> decision. With one decision instant per
+    # run, averaging (decision - stop) over vehicles reduces to
+    # decision - mean(stop), which measures when vehicles happened to arrive
+    # relative to that instant -- a property of the route file, not of the
+    # protocol. This spans the delay a vehicle actually experiences, and means
+    # the same thing in both arms. Read it beside "cleared": a vehicle that
+    # never departs leaves the average rather than worsening it.
+    ("Latency", "mean seconds per vehicle",
+     aggregate.clearance_wait),
     ("Message cost", "messages / vehicle served", aggregate.msgs_per_vehicle),
 )
 

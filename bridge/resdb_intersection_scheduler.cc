@@ -11,10 +11,19 @@ namespace {
 bool IsSafeToBatch(uint8_t lane_a, uint8_t dir_a,
                    uint8_t lane_b, uint8_t dir_b) {
   if (lane_a == lane_b) return false;
-  static const uint8_t kSafe[12][4] = {
+  // lane 0=N 1=S 2=E 3=W, dir 0=straight 1=left 2=right.
+  //
+  // The last row is the protected-left pair: two opposing left turns exit into
+  // different roads and never cross each other's path, which is why a
+  // signalised junction runs them in the same phase. Without it no left turn
+  // batched with anything at all, so under a mixed turn demand every
+  // left-turning vehicle crossed alone and the matrix could not express the
+  // parallelism it exists to find.
+  static const uint8_t kSafe[14][4] = {
       {0, 0, 1, 0}, {2, 0, 3, 0}, {0, 2, 1, 2}, {0, 2, 2, 2},
       {0, 2, 3, 2}, {1, 2, 2, 2}, {1, 2, 3, 2}, {2, 2, 3, 2},
       {0, 2, 1, 0}, {1, 2, 0, 0}, {2, 2, 3, 0}, {3, 2, 2, 0},
+      {0, 1, 1, 1}, {2, 1, 3, 1},
   };
   for (const auto& p : kSafe) {
     if ((lane_a == p[0] && dir_a == p[1] && lane_b == p[2] && dir_b == p[3]) ||

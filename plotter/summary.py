@@ -23,10 +23,16 @@ COLUMNS = (
     ("thru veh/s", aggregate.throughput, "{:.3f}"),
     ("wait s", aggregate.clearance_wait, "{:.2f}"),
     ("stop->dec s", aggregate.stop_to_decision, "{:.2f}"),
+    # The retired proposer-only sampling, printed for one cycle so every claim
+    # that moves is auditable against the column it moved from.
+    ("stop->dec (old)", aggregate.stop_to_decision_proposer, "{:.2f}"),
     ("order lat s", aggregate.bft_latency, "{:.3f}"),
     ("cert lat s", aggregate.cert_latency, "{:.3f}"),
     ("msgs/veh", aggregate.msgs_per_vehicle, "{:.0f}"),
     ("KB/veh", lambda r: _kb(aggregate.bytes_per_vehicle(r)), "{:.1f}"),
+    # Not a result: how much of the log had to be thrown away. A cell with a
+    # large count here has fewer samples behind every other column in its row.
+    ("bad lines", aggregate.corrupt_lines, "{:.0f}"),
 )
 
 

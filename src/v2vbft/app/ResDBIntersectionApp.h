@@ -477,6 +477,20 @@ private:
     // static intersection units (no mobility) fall back to the global manager so
     // they can still witness/verify vehicles. Returns nullptr if neither exists.
     TraCICommandInterface* getTraCI() const;
+
+    /** "S"/"L"/"R" for the turn this vehicle's SUMO route actually takes.
+     *
+     * Read from the route rather than declared by parameter: the announced
+     * direction feeds the conflict matrix, so a vehicle claiming a turn it is
+     * not driving would have the scheduler batch it against the wrong
+     * movements. Nothing downstream checks direction against ground truth --
+     * verifyCarPosition() covers lane and position only -- so agreement has to
+     * be established here, at the source.
+     *
+     * Falls back to the intendedDirection parameter when the route cannot be
+     * read (a unit replica, or before TraCI knows the vehicle).
+     */
+    std::string resolveIntendedDirection() const;
     double getDistanceToIntersection();
     bool   isInOrPastConflictBox();
     int    countRollbackPerceivedVehicles() const;
@@ -572,6 +586,17 @@ private:
     simtime_t transport_poll_interval_  = 0.001;
     simtime_t time_tick_interval_       = 0.001;
     simtime_t broadcast_arrival_announcement_interval_ = 0.5;
+    // Announce re-broadcast backs off exponentially from the interval above up
+    // to this cap. A car re-announces until f+1 peers have echoed it, which
+    // takes the whole approach: at a fixed 100ms that is ~130 announces each,
+    // and since every listener echoes every announce it hears, the echo count
+    // is that multiplied by N. Backing off keeps discovery fast when it matters
+    // -- the first few announces, and whenever the neighbourhood changes -- and
+    // cheap when nothing is happening.
+    simtime_t announce_backoff_ = 0.5;       // current interval
+    simtime_t announce_max_interval_ = 3.2;  // ceiling
+    /** Drop back to the fast interval; a peer just appeared and must hear us. */
+    void resetAnnounceBackoff();
     simtime_t cert_collection_timeout_  = 2.0;
     simtime_t discovery_intent_settle_  = 1.5;
     bool      enable_sim_time_provider_ = true;
@@ -782,6 +807,10 @@ private:
     double stop_sign_timeout_sec_ = 10.0;
     double consensus_timeout_sec_ = 30.0;
     std::string intended_direction_ = "S";
+    // Resolved from the route on first announce, not in initialize(): TraCI does
+    // not yet know the vehicle at stage 1. Latched so the announced direction
+    // cannot change between epochs once witnesses have attested it.
+    bool intended_direction_resolved_ = false;
     std::string intended_lane_      = "";   // explicit N/S/E/W override; empty = auto-detect from TraCI
 
     // Per-vehicle channel utilization + SINR CSV (optional; see NED enableChannelMetricsCsv)
