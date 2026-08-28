@@ -12,8 +12,11 @@ result worth reporting. The second panel normalises by the run's own mean, so
 the claim survives traffic growing in both arms. The third asks what priority
 cost everyone else -- a scheme that clears the ambulance by stalling the other
 vehicles is a different proposition, and a figure showing only the ambulance
-could not distinguish the two. The fourth checks it is not paid for in
-messages.
+could not distinguish the two. It averages the OTHER vehicles only: with the
+ambulance folded in, its own saving cancelled part of the cost it caused, and
+at N=8 that flipped the sign from +0.33s to -0.09s, i.e. from a cost to an
+apparent free lunch. The fourth checks it is not paid for in
+throughput.
 """
 from ..io import discover
 from ..metrics import aggregate
@@ -26,7 +29,7 @@ SUBPLOTS = (2, 2)
 FIGSIZE = (11.5, 8.0)
 
 _ARMS = (("noprio", "control", "no priority (FIFO)"),
-         ("prio", "treatment", "ambulance priority"))
+         ("prio", "treatment", "priority"))
 
 # Excluded, for the reason that makes this ablation meaningful at all:
 # priority is the right to jump a queue, and at 4 vehicles there is no
@@ -50,8 +53,11 @@ def load(runs):
                         for c, n in zip(cells[arm], ns)] for arm, _, _ in _ARMS},
         relative={arm: [aggregate.relative_wait(c, n - 1)
                         for c, n in zip(cells[arm], ns)] for arm, _, _ in _ARMS},
-        others={arm: [aggregate.clearance_wait(c) for c in cells[arm]]
-                for arm, _, _ in _ARMS},
+        # Excludes the priority vehicle itself. Averaging it in let its own
+        # speedup cancel part of the cost it imposed, which at N=8 reversed the
+        # sign: -0.09s (priority reads as free) against +0.33s without it.
+        others={arm: [aggregate.others_clearance_wait(c, n - 1)
+                      for c, n in zip(cells[arm], ns)] for arm, _, _ in _ARMS},
         cost={arm: [aggregate.msgs_per_vehicle(c) for c in cells[arm]]
               for arm, _, _ in _ARMS},
         thru={arm: [aggregate.throughput(c) for c in cells[arm]]
@@ -73,8 +79,9 @@ def build(data, axes):
            ylabel="stop to departure (s)", legend=True)
     _panel(data, "relative", flat[1], title="Relative to the rest of the traffic",
            ylabel="wait / mean wait in the same run")
-    _panel(data, "others", flat[2], title="Cost to everyone else",
-           ylabel="mean wait, all vehicles (s)")
+    _panel(data, "others", flat[2],
+           title="Cost to everyone else (priority vehicle excluded)",
+           ylabel="mean wait, other vehicles (s)")
     _panel(data, "thru", flat[3], title="Throughput",
            ylabel="vehicles cleared / s")
     flat[0].figure.suptitle(

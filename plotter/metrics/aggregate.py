@@ -127,6 +127,22 @@ def clearance_wait(recs: Sequence[RunRecord]) -> Stat:
     return summarize([r.mean_clearance_wait for r in recs])
 
 
+def others_clearance_wait(recs: Sequence[RunRecord], vehicle_id: int) -> Stat:
+    """Mean stop -> departure over every vehicle EXCEPT the given one.
+
+    clearance_wait() averages the whole fleet, which for ablation 4 puts the
+    priority vehicle inside the figure that reports what priority cost the
+    others: its own speedup cancels part of the cost it caused. At N=8 that
+    inverted the sign, -0.09s (priority looks free) against +0.33s once the
+    ambulance is taken out.
+    """
+    values = []
+    for r in recs:
+        others = [w for v, w in r.clearance_waits().items() if v != vehicle_id]
+        values.append(statistics.mean(others) if others else None)
+    return summarize(values)
+
+
 def ambulance_clearance_wait(recs: Sequence[RunRecord]) -> Stat:
     """Stop -> departure for the ambulance, identified by its logged role
     rather than a hardcoded vehicle id (which changes with --randomize)."""

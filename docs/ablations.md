@@ -90,6 +90,23 @@ the gate.
 
 ## 3. Actuated traffic light vs consensus — [ab3_baseline.png](../figures/ab3_baseline.png)
 
+**These delay numbers are not reportable yet — the two arms start their clock
+37.8 m apart.** Ours triggers at `stopDistance = 5m` measured as
+`laneLength - lanePosition`, and with 292.80 m approach lanes into a junction at
+(300,300) the lane ends 7.2 m from centre, so our clock starts at 12.2 m. The
+`tl*veh` configs never set `stopDistance`, so the signal arm inherits
+`BaselineModule.ned`'s 50 m default, Euclidean to the centre. `BaselineModule`
+also backdates `stopTime = arrivalTime` for any vehicle reaching its 20 m
+`departDistance` still rolling above 0.5 m/s, which fired for **484 of 540
+(89.6%)** signal vehicles — so for roughly nine in ten the metric is literally
+"50 m mark to cleared", approach travel included. The signal's per-vehicle floor
+is flat at 4.1–4.6 s at every load, which is a transit time rather than a wait;
+ours is 0.80 s at N=8. Correcting for the offset moves the ratios below to about
+1.48/1.53/1.30/1.29×. The departure trigger is already identical in both arms, so
+the start is the only asymmetry. Fix is one line per `tl*veh` config
+(`stopDistance = 12.2m`) and a re-run of the signal arm only. Panels 1, 3 and 4
+are affected; service rate is departure-instant based and is not.
+
 | N | signal wait | ours | delay | service rate |
 |---|---|---|---|---|
 | 8 | 14.40s | 7.28s | 1.98× | 3.42× |
@@ -144,6 +161,21 @@ Monotone in all four series, and **the benefit grows with load** — which is th
 claim the title makes. Priority wait rises gently (7.29 → 9.87) while FIFO rises
 steeply (10.34 → 18.52): the ambulance is inserted near the front regardless of
 queue length, so what grows is what it skips.
+
+**"Cost to everyone else" excludes the priority vehicle.** Averaging it into the
+figure that reports what priority cost the others let its own saving cancel part
+of the cost it caused; at N=8 that reversed the sign, showing -0.09s (priority
+reads as free) where the honest figure is +0.33s. Corrected costs are +0.33 /
++1.15 / +2.22 / +2.53s per other vehicle at N=8/12/16/20.
+
+**Open, same defect one panel over:** the *relative* panel still divides by a
+mean that includes the priority vehicle, which biases every point toward 1.0 --
+about 0.06-0.10 at N=8, under 0.02 by N=20. It understates the effect in both
+arms rather than flattering it. Also note the N=8 priority cells are bimodal
+across repetitions (0.11, 0.11, 0.64, 1.38, 1.46, 1.59, 1.98 excluding the
+vehicle itself): the priority car either makes the first conflict-matrix batch or
+waits a full round, with nothing in between, so the plotted N=8 mean describes no
+run that actually happened. That column rests on 7 repetitions, not 9.
 
 The *"relative to the rest of the traffic"* panel is the honest headline — it
 divides by the fleet mean, cancelling run-level variation.
@@ -225,6 +257,9 @@ threshold, and a Byzantine-injection log line.
 
 ## Known-open issues
 
+- **ab3 measures the two arms from different start points** — 37.8 m of
+  approach charged only to the signal (above); delay and throughput are not
+  reportable until the `tl` arm is re-run
 - **ab2 measures nothing** — attack does not succeed even undefended (above)
 - **ab1 does not plot the fault frontier**, which is the RSU benefit
 - **ab1 N=12** fault tolerance goes the wrong way with units
