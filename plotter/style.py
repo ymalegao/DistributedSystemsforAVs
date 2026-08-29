@@ -124,6 +124,15 @@ def _theme_axes(ax):
     return ax
 
 
+def theme(ax):
+    """Apply the shared axes theme to an axes the caller made itself.
+
+    figure() themes what it creates; a module that replaces one of those axes
+    with a spanning subplot needs the same treatment for the replacement.
+    """
+    return _theme_axes(ax)
+
+
 def figure(figsize=FIGSIZE, subplots=(1, 1)):
     """A themed figure. Every figure module starts here.
 

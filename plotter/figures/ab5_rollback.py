@@ -30,8 +30,8 @@ from .. import style
 NAME = "ab5_rollback"
 TITLE = "Rollback: admitting a late ambulance, and its cost"
 STUDY = 5
-SUBPLOTS = (2, 3)
-FIGSIZE = (14.0, 8.2)
+SUBPLOTS = (2, 4)
+FIGSIZE = (16.0, 8.4)
 
 _ARMS = (("rollback_off", "control", "rollback OFF"),
          ("rollback_on", "treatment", "rollback ON"))
@@ -65,7 +65,6 @@ def load(runs):
     return dict(
         arms=[label for _, _, label in _ARMS],
         timeline=_timeline(cells),
-        cleared=[aggregate.cleared(cells[arm]) for arm, _, _ in _ARMS],
         cost=[aggregate.msgs_per_vehicle(cells[arm], committed_only=False)
               for arm, _, _ in _ARMS],
         thru=[aggregate.discharge_rate(cells[arm]) for arm, _, _ in _ARMS],
@@ -132,23 +131,31 @@ def _value_panel(data, key, ax, *, title, ylabel, fmt):
 
 
 def build(data, axes):
-    flat = list(axes.flat)
-    _departures(data, flat[0])
-    _value_panel(data, "cleared", flat[1], fmt="{:.1f}",
-                 title="Traffic served in the window",
-                 ylabel="vehicles cleared")
-    _value_panel(data, "thru", flat[2], fmt="{:.2f}",
+    # "Traffic served in the window" is gone: both arms clear 16 either way, so
+    # the bar pair was two equal columns stating that the count-based view sees
+    # nothing -- which is the premise of the departures panel, not a finding of
+    # its own. The four remaining bars are the price of the substitution.
+    fig = axes[0][0].figure
+    # The departures panel is the result; give it the whole top row. At one cell
+    # of a 2x3 grid the 16 markers and their labels overlapped illegibly.
+    for ax in axes[0]:
+        fig.delaxes(ax)
+    top = style.theme(fig.add_subplot(2, 1, 1))
+    _departures(data, top)
+
+    flat = list(axes[1])
+    _value_panel(data, "thru", flat[0], fmt="{:.2f}",
                  title="Service rate once clearing starts",
                  ylabel="vehicles / s across departures")
-    _value_panel(data, "wait", flat[3], fmt="{:.1f}",
+    _value_panel(data, "wait", flat[1], fmt="{:.1f}",
                  title="Time from stopping to clearing",
                  ylabel="mean seconds per vehicle")
-    _value_panel(data, "latency", flat[4], fmt="{:.1f}",
+    _value_panel(data, "latency", flat[2], fmt="{:.1f}",
                  title="Delay to consensus",
                  ylabel="stop to decision (s)")
-    _value_panel(data, "cost", flat[5], fmt="{:.0f}",
+    _value_panel(data, "cost", flat[3], fmt="{:.0f}",
                  title="Cost of serving them",
                  ylabel="messages per vehicle")
-    flat[0].figure.suptitle(
+    fig.suptitle(
         "Ablation 5 — rollback admits the ambulance by displacing a vehicle, not by serving fewer",
         fontsize=12, color=style.INK_PRIMARY)
