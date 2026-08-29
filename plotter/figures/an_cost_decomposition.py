@@ -74,13 +74,17 @@ def load(runs):
 
 
 def _stacked(data, key, ax, *, title, ylabel):
-    bottoms = [0.0] * len(data["ns"])
+    # Grouped, not stacked. The two series have different denominators --
+    # certificates per vehicle, PBFT per round -- so their sum is not a
+    # quantity: stacking invited reading a total that means nothing, and it
+    # hid the crossover at N=12 where PBFT overtakes certificates per event.
     xs = list(range(len(data["ns"])))
-    for label, _, color, _div in LAYERS:
+    width = 0.38
+    for i, (label, _, color, _div) in enumerate(LAYERS):
         ys = [s.mean if s.mean is not None else 0.0 for s in data[key][label]]
-        ax.bar(xs, ys, 0.6, bottom=bottoms, color=color, label=label,
-               edgecolor=style.BAR_EDGE, linewidth=style.BAR_EDGEWIDTH)
-        bottoms = [b + y for b, y in zip(bottoms, ys)]
+        ax.bar([x + (i - 0.5) * width for x in xs], ys, width, color=color,
+               label=label, edgecolor=style.BAR_EDGE,
+               linewidth=style.BAR_EDGEWIDTH)
     ax.set_xticks(xs)
     ax.set_xticklabels([str(n) for n in data["ns"]])
     style.finish(ax, title=title, xlabel="vehicles", ylabel=ylabel,
@@ -98,11 +102,13 @@ def _phases(data, ax):
         ax.bar([x + (i - 1) * width for x in xs], ys, width, color=color,
                label=label, edgecolor=style.BAR_EDGE,
                linewidth=style.BAR_EDGEWIDTH)
-    ax.set_yscale("log")
+    # Linear, not log. The log axis was for a waiting phase two orders larger
+    # that is no longer plotted; with two bars within 2.5x of each other it
+    # only compresses the difference the panel exists to show.
     ax.set_xticks(xs)
     ax.set_xticklabels([str(n) for n in data["ns"]])
     style.finish(ax, title="Where the delay goes, by phase",
-                 xlabel="vehicles", ylabel="seconds (log scale)", legend=True)
+                 xlabel="vehicles", ylabel="seconds", legend=True)
 
 
 def build(data, axes):

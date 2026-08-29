@@ -210,14 +210,25 @@ cheapest study (~5 min for 3 reps) — it should be run at 9–12.
 Honest operation only (`k=0`); with replicas silenced the traffic mix reflects
 failure, not normal composition.
 
-**Per occurrence, PBFT ordering is slower than certificate formation** — 213ms vs
-165ms at N=16. Certificate formation is one round trip at an `f+1` threshold;
-PBFT is two to three phases at `2f+1`.
+**Per occurrence, certificate formation is the slower of the two** — 199ms vs
+193ms at N=16, and the gap is far wider at low load (110 vs 71ms at N=4, 199 vs
+81ms at N=8). It is not slower because it does more work: it is one round trip
+at an `f+1` threshold against PBFT's two to three phases at `2f+1`. It is slower
+because it *waits*. A vehicle re-announces until `f+1` peers echo it, and those
+peers have to physically arrive at the intersection first, so completion is
+bounded by the announce retransmission interval rather than by transmission
+time. PBFT's phases fire back to back with nothing to wait for.
 
-**But certificates dominate total traffic ~15.6×** (3251 vs 209 messages at
-N=16), because the cert layer runs once per *vehicle* and is O(N²) in echoes,
-while PBFT runs once per *round*. Latency and volume point in opposite
-directions, which is why the figure shows both.
+**Per occurrence the message counts cross over.** Certificates cost more per
+event at low load (52 vs 29 at N=4, 86 vs 53 at N=8) and *less* from N=12 on
+(130 vs 164, 204 vs 211, 275 vs 325) — a PBFT round grows with the replica
+count while one vehicle's certificate does not.
+
+**In total traffic certificates still dominate ~15.5×** (3258 vs 211 messages at
+N=16), because the cert layer runs once per *vehicle* while PBFT runs once per
+*round*. Which layer is "expensive" therefore depends entirely on whether the
+question is per event or per run, which is why the figure normalises per
+occurrence and this note states the totals.
 
 Certificates are normalised **per vehicle** and PBFT **per round**, so the left
 panel compares one occurrence against one occurrence. Comparing raw totals would
