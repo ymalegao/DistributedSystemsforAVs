@@ -3526,6 +3526,8 @@ def _two_lane_grid_metadata(row: Dict[str, Any]) -> Dict[str, Any]:
                 "fixture_id=rep_mod_4; selected before perception; shared by "
                 "all six modes in the repetition"
             )
+        if row.get("arm"):
+            metadata["arm"] = str(row["arm"])
     return metadata
 
 
@@ -4175,6 +4177,7 @@ def _analyze_direction_ablation_cell(
     expected_eligibility = "ON" if row["direction_eligibility_enabled"] else "OFF"
     expected_singleton = bool(row["all_singleton_scheduling"])
     unsafe_pairs = metrics.get("unsafe_conflict_cooccupancy_pairs") or []
+    cert_latency = metrics.get("cert_creation_latency_ms") or {}
     target_pair_conflict = any(
         {str(pair.get("first")), str(pair.get("second"))} == {"veh0", "veh1"}
         for pair in unsafe_pairs if isinstance(pair, dict)
@@ -4223,11 +4226,18 @@ def _analyze_direction_ablation_cell(
         if (wait_ms := (record.get("durations_ms") or {}).get("total_wait_time"))
         is not None
     ]
+    distance_certs = distance.get("certificates") or {}
+    if isinstance(distance_certs, dict):
+        distance_epoch0_complete = all(
+            f"veh{replica}@0" in distance_certs for replica in range(grid.N)
+        )
+    else:
+        distance_epoch0_complete = int(distance.get("certificate_count") or 0) >= grid.N
     checks = {
         "all_vehicles_departed": len(departures) == grid.N,
         "lane_single_evaluation": bool(perception.get("single_evaluation_invariant_ok")),
         "distance_single_evaluation": bool(distance.get("single_evaluation_invariant_ok")),
-        "distance_certificates_complete": int(distance.get("certificate_count") or 0) == grid.N,
+        "distance_certificates_complete": distance_epoch0_complete,
         "authenticated_evidence": (
             "[ANN-ORIGIN-INVALID]" not in log_text and
             "[CERT-INVALID]" not in log_text and "verify FAIL" not in log_text
@@ -4251,12 +4261,30 @@ def _analyze_direction_ablation_cell(
     }
     if row["attack_kind"] == "NONE":
         checks["honest_has_no_unsafe_cooccupancy"] = not unsafe_pairs
+        if (
+            row.get("arm") == "B" and
+            row["ablation_mode"] == "eligibility_on"
+        ):
+            checks["eligibility_on_unlocks_concurrency"] = (
+                mean_batch_size is not None and
+                mean_batch_size >= grid.ARM_B_MIN_ON_MEAN_BATCH
+            )
     elif row["ablation_mode"] == "eligibility_on":
-        checks["inconsistent_direction_degrades"] = (
-            target_direction.get("derived") in {"U", "UNKNOWN"} and
-            not bool(outcome.get("false_eligibility")) and
-            not target_pair_conflict
-        )
+        derived = target_direction.get("derived")
+        if row.get("arm") in {"B", "C"}:
+            # Perfect or noisy cues: true LEFT or SIGNED-UNKNOWN are both
+            # fail-closed. A false RIGHT certificate is not.
+            checks["attack_does_not_unlock_false_eligibility"] = (
+                derived in {"U", "UNKNOWN", "L"} and
+                not bool(outcome.get("false_eligibility")) and
+                not target_pair_conflict
+            )
+        else:
+            checks["inconsistent_direction_degrades"] = (
+                derived in {"U", "UNKNOWN"} and
+                not bool(outcome.get("false_eligibility")) and
+                not target_pair_conflict
+            )
     elif row["ablation_mode"] == "eligibility_off":
         checks["naive_declaration_unlocks_direction"] = (
             target_direction.get("derived") == "R" and
@@ -4264,7 +4292,9 @@ def _analyze_direction_ablation_cell(
         )
         # This fixture is intentionally ordered so N-L(actual) and S-S share a
         # greedy batch once the false N-R declaration is trusted.
-        if row.get("profile", "smoke") == "smoke":
+        if str(row.get("profile", "smoke")) in {
+            "smoke", "arm_b_smoke", "arm_c_smoke", "arm_c_full",
+        }:
             checks["unsafe_physical_consequence_observed"] = target_pair_conflict
     else:
         checks["all_singleton_blocks_unsafe_cooccupancy"] = (
@@ -4307,6 +4337,8 @@ def _analyze_direction_ablation_cell(
         "mean_wait_s": statistics.mean(wait_samples) if wait_samples else None,
         "p95_wait_s": _percentile(wait_samples, 0.95) if wait_samples else None,
         "wait_samples_s": wait_samples,
+        "cert_latency_mean_ms": cert_latency.get("mean"),
+        "cert_latency_p95_ms": cert_latency.get("p95"),
         "mean_batch_size": mean_batch_size,
         "quiet_count": int(perception.get("quiet_count") or 0),
         "signed_unknown_count": int(perception.get("signed_unknown_count") or 0),
@@ -4331,12 +4363,16 @@ def _aggregate_direction_ablation(
 ) -> List[Dict[str, Any]]:
     from fourway import adjacent_lane_grid as grid
 
-    grouped: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
+    grouped: Dict[Tuple[Any, ...], List[Dict[str, Any]]] = defaultdict(list)
     for row in rows:
-        grouped[(str(row["attack_kind"]), str(row["ablation_mode"]))].append(row)
+        grouped[(
+            float(row.get("signal_error", 0.2)),
+            str(row["attack_kind"]),
+            str(row["ablation_mode"]),
+        )].append(row)
 
     aggregates: List[Dict[str, Any]] = []
-    for (attack_kind, mode), group in sorted(grouped.items()):
+    for (signal_error, attack_kind, mode), group in sorted(grouped.items()):
         # A process-level failure can leave a manifest row without analyzed
         # metrics.  Keep that attempt visible, but never treat it as a negative
         # safety observation or crash while writing the partial summary.
@@ -4374,6 +4410,7 @@ def _aggregate_direction_ablation(
             for row in valid_group
         )
         aggregates.append({
+            "signal_error": signal_error,
             "attack_kind": attack_kind,
             "b": int(group[0]["b"]),
             "ablation_mode": mode,
@@ -4454,6 +4491,51 @@ def _aggregate_direction_ablation(
     return aggregates
 
 
+def _arm_c_curve_pass(aggregates: Sequence[Dict[str, Any]]) -> Dict[str, bool]:
+    """Aggregate-level Arm C mechanism checks across the ε sweep."""
+    honest_on = [
+        row for row in aggregates
+        if row["attack_kind"] == "NONE" and row["ablation_mode"] == "eligibility_on"
+        and row.get("mean_batch_size") is not None
+        and row.get("mean_signed_unknown_count") is not None
+    ]
+    attack_on = [
+        row for row in aggregates
+        if row["attack_kind"] == "FALSE_DIRECTION" and
+        row["ablation_mode"] == "eligibility_on"
+    ]
+    attack_off = [
+        row for row in aggregates
+        if row["attack_kind"] == "FALSE_DIRECTION" and
+        row["ablation_mode"] == "eligibility_off"
+    ]
+    honest_on_sorted = sorted(honest_on, key=lambda row: float(row["signal_error"]))
+    batch_fail_closed = False
+    unknown_rises = False
+    if len(honest_on_sorted) >= 2:
+        low, high = honest_on_sorted[0], honest_on_sorted[-1]
+        batch_fail_closed = (
+            float(low["mean_batch_size"]) > float(high["mean_batch_size"])
+        )
+        unknown_rises = (
+            float(low["mean_signed_unknown_count"]) <
+            float(high["mean_signed_unknown_count"])
+        )
+    return {
+        "on_attack_stays_safe": bool(attack_on) and all(
+            (row.get("unsafe_cooccupancy_rate") or 0.0) == 0.0 and
+            (row.get("false_eligibility_rate") or 0.0) == 0.0
+            for row in attack_on
+        ),
+        "off_attack_stays_unsafe": bool(attack_off) and all(
+            (row.get("unsafe_cooccupancy_rate") or 0.0) == 1.0
+            for row in attack_off
+        ),
+        "batch_falls_as_cues_worsen": batch_fail_closed,
+        "unknown_rises_as_cues_worsen": unknown_rises,
+    }
+
+
 def run_two_lane_direction_ablation(
     args: argparse.Namespace, profile: str = "smoke",
     traffic_profile: str = "left_heavy",
@@ -4461,19 +4543,37 @@ def run_two_lane_direction_ablation(
     from fourway import adjacent_lane_grid as grid
 
     straight_heavy = traffic_profile == "straight_heavy"
+    arm_b = profile.startswith("arm_b_")
+    arm_c = profile.startswith("arm_c_")
     if straight_heavy:
         rows = grid.straight_heavy_direction_ablation_manifest(profile)
         output_dir = REPO_ROOT / "benchmarks" / {
             "prerequisite": "Phase2DirectionAblationStraightHeavyPrerequisite",
             "smoke": "Phase2DirectionAblationStraightHeavy",
             "full": "Phase2DirectionAblationStraightHeavyFull",
+            "arm_b_smoke": "Phase2DirectionAblationArmBPerfectCue",
+            "arm_b_full": "Phase2DirectionAblationArmBPerfectCueFull",
+            "arm_c_smoke": "Phase2DirectionAblationArmCCueSweep",
+            "arm_c_full": "Phase2DirectionAblationArmCCueSweepFull",
         }[profile]
         maneuver_mix = dict(grid.STRAIGHT_HEAVY_MANEUVER_MIX)
         stem = {
             "prerequisite": "direction_ablation_straight_heavy_prerequisite",
             "smoke": "direction_ablation_straight_heavy",
             "full": "direction_ablation_straight_heavy_full",
+            "arm_b_smoke": "direction_ablation_arm_b_perfect_cue",
+            "arm_b_full": "direction_ablation_arm_b_perfect_cue_full",
+            "arm_c_smoke": "direction_ablation_arm_c_cue_sweep",
+            "arm_c_full": "direction_ablation_arm_c_cue_sweep_full",
         }[profile]
+        if arm_c:
+            signal_error_label = (
+                "[" + ", ".join(f"{eps:g}" for eps in grid.ARM_C_SIGNAL_ERRORS) + "]"
+            )
+        elif arm_b:
+            signal_error_label = f"{grid.ARM_B_SIGNAL_ERROR:g}"
+        else:
+            signal_error_label = "0.2"
     else:
         rows = grid.direction_ablation_manifest(profile)
         output_dir = REPO_ROOT / "benchmarks" / (
@@ -4482,29 +4582,38 @@ def run_two_lane_direction_ablation(
         )
         maneuver_mix = {"left": 8, "straight": 4, "right": 4}
         stem = "direction_ablation" if profile == "smoke" else "direction_ablation_full"
+        signal_error_label = "0.2"
     if args.dry_run:
         print(
             f"[dry-run] N=16 direction/co-batching ablation profile={profile}: "
             f"{len(rows)} sequential runs, maneuvers="
             f"{maneuver_mix['straight']}S/{maneuver_mix['left']}L/"
             f"{maneuver_mix['right']}R, "
-            "sigma_lat=.5 sigma_long=1 signal_error=.2 k=2"
+            f"sigma_lat=.5 sigma_long=1 signal_error={signal_error_label} k=2"
+            f"{' arm=B perfect-cue' if arm_b else ''}"
+            f"{' arm=C cue-sweep' if arm_c else ''}"
         )
         for index, row in enumerate(rows, 1):
             print(f"[dry-run] {index}/{len(rows)} {row}")
         return 0
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    arm_label = "C" if arm_c else ("B" if arm_b else None)
     (output_dir / f"{stem}_manifest.json").write_text(json.dumps({
         "checkpoint": (
             "P7-straight-heavy-direction-batching-prerequisite"
             if profile == "prerequisite" else
+            "P7-straight-heavy-arm-c-cue-quality-sweep"
+            if arm_c else
+            "P7-straight-heavy-arm-b-perfect-cue-cobatching"
+            if arm_b else
             "P7-straight-heavy-direction-and-cobatching-ablation"
             if straight_heavy else
             "P7-direction-and-cobatching-ablation"
         ),
         "profile": profile,
         "n": grid.N,
+        "arm": arm_label,
         "traffic_profile": (
             "straight_heavy_8S_4L_4R" if straight_heavy
             else "left_heavy_4S_8L_4R"
@@ -4512,10 +4621,17 @@ def run_two_lane_direction_ablation(
         "maneuver_mix": maneuver_mix,
         "operating_point": {
             "sigma_lat_m": 0.5, "sigma_long_m": 1.0,
-            "signal_error": 0.2, "physical_gate_k": 2.0,
+            "signal_error": (
+                list(grid.ARM_C_SIGNAL_ERRORS) if arm_c else
+                (grid.ARM_B_SIGNAL_ERROR if arm_b else 0.2)
+            ),
+            "physical_gate_k": 2.0,
         },
         "execution": "strictly sequential",
         "paired_seed_policy": (
+            "same repetition uses the same seed and fixture across all modes "
+            "and signal_error cells"
+            if arm_c else
             "same repetition uses the same seed and fixture across all six rows"
         ),
         "fixture_selection_policy": (
@@ -4523,15 +4639,21 @@ def run_two_lane_direction_ablation(
             if straight_heavy else "fixed reviewed left-heavy fixture"
         ),
         "repetitions_per_cell": (
-            1 if profile in ("prerequisite", "smoke")
-            else grid.DIRECTION_ABLATION_REPS
+            1 if profile in (
+                "prerequisite", "smoke", "arm_b_smoke", "arm_c_smoke",
+            )
+            else (grid.ARM_C_REPS if arm_c else grid.DIRECTION_ABLATION_REPS)
         ),
         "rows": rows,
     }, indent=2, sort_keys=True) + "\n")
     run_key_generation(dry_run=False, scale=grid.N)
     results: List[Dict[str, Any]] = []
     for index, row in enumerate(rows, 1):
-        print(f"\n--- Direction ablation {index}/{len(rows)}: {row['name']} rep={row['rep']} ---")
+        eps = float(row.get("signal_error", 0.0))
+        print(
+            f"\n--- Direction ablation {index}/{len(rows)}: {row['name']} "
+            f"rep={row['rep']} signal_error={eps:g} ---"
+        )
         run_dir = (
             grid.straight_heavy_direction_run_dir(REPO_ROOT, row, profile)
             if straight_heavy else
@@ -4544,8 +4666,11 @@ def run_two_lane_direction_ablation(
             results.append(result)
             print(
                 f"[{'PASS' if result['passed'] else 'FAIL'}] "
+                f"eps={eps:g} "
                 f"derived={result['target_direction'].get('derived')} "
                 f"unsafe={result['target_pair_conflicting_cooccupancy']} "
+                f"batch={result.get('mean_batch_size')} "
+                f"unknown={result.get('signed_unknown_count')} "
                 f"throughput={result['throughput_veh_per_min']} veh/min "
                 f"mean_wait={result['mean_wait_s']}s"
             )
@@ -4554,7 +4679,10 @@ def run_two_lane_direction_ablation(
             (output_dir / f"{stem}_progress.json").write_text(json.dumps({
                 "planned": len(rows),
                 "completed": len(results),
-                "last_completed": {"name": row["name"], "rep": row["rep"]},
+                "last_completed": {
+                    "name": row["name"], "rep": row["rep"],
+                    "signal_error": eps,
+                },
                 "passing": sum(bool(item.get("passed")) for item in results),
             }, indent=2, sort_keys=True) + "\n")
         except (subprocess.CalledProcessError, OSError, ValueError, KeyError) as exc:
@@ -4563,17 +4691,27 @@ def run_two_lane_direction_ablation(
             break
 
     aggregates = _aggregate_direction_ablation(results)
-    overall = len(results) == len(rows) and all(row.get("passed") for row in results)
+    curve_checks = _arm_c_curve_pass(aggregates) if arm_c else {}
+    overall = (
+        len(results) == len(rows) and
+        all(row.get("passed") for row in results) and
+        (all(curve_checks.values()) if arm_c else True)
+    )
     summary_path = output_dir / f"{stem}_summary.json"
     summary_path.write_text(json.dumps({
         "checkpoint": (
             "P7-straight-heavy-direction-batching-prerequisite"
             if profile == "prerequisite" else
+            "P7-straight-heavy-arm-c-cue-quality-sweep"
+            if arm_c else
+            "P7-straight-heavy-arm-b-perfect-cue-cobatching"
+            if arm_b else
             "P7-straight-heavy-direction-and-cobatching-ablation"
             if straight_heavy else
             "P7-direction-and-cobatching-ablation"
         ),
         "profile": profile,
+        "arm": arm_label,
         "passed": overall,
         "planned": len(rows), "completed": len(results),
         "traffic_profile": (
@@ -4585,6 +4723,7 @@ def run_two_lane_direction_ablation(
             "static enumerated attack kind logged at initialization before any "
             "perception draw; no noise-oracle adaptation"
         ),
+        "curve_checks": curve_checks if arm_c else None,
         "aggregates": aggregates,
         "results": results,
     }, indent=2, sort_keys=True) + "\n")
@@ -4597,12 +4736,19 @@ def run_two_lane_direction_ablation(
     title = (
         "N=16 STRAIGHT-HEAVY BATCHING PREREQUISITE"
         if profile == "prerequisite" else
+        "N=16 ARM C CUE-QUALITY SWEEP"
+        if arm_c else
+        "N=16 ARM B PERFECT-CUE DIRECTION / CO-BATCHING"
+        if arm_b else
         "N=16 STRAIGHT-HEAVY DIRECTION / CO-BATCHING ABLATION"
         if straight_heavy else
         "N=16 DIRECTION / CO-BATCHING ABLATION"
     )
     print(f"\n========== {title} ==========")
     print(f"Completed: {len(results)}/{len(rows)}")
+    if curve_checks:
+        for name, passed in curve_checks.items():
+            print(f"  {'PASS' if passed else 'FAIL':4} {name}")
     print(f"Overall: {'PASS' if overall else 'FAIL'}")
     print(f"Summary: {summary_path}")
     print(f"Aggregates: {csv_path}")
@@ -4610,6 +4756,15 @@ def run_two_lane_direction_ablation(
 
 
 TWO_LANE_SCALE_HONEST_REPS = 20
+TWO_LANE_SCALE_ADVERSARIAL_SMOKE_REPS = 1
+TWO_LANE_SCALE_ADVERSARIAL_FULL_REPS = 20
+TWO_LANE_SCALE_OPERATING_POINT = {
+    "sigma_lat_m": 0.5,
+    "sigma_long_m": 1.0,
+    "signal_error": 0.2,
+    "k": 2.0,
+    "delta_m": 1.75,
+}
 
 
 def _two_lane_scale_rows(profile: str = "smoke") -> List[Dict[str, Any]]:
@@ -4646,6 +4801,64 @@ def _two_lane_scale_rows(profile: str = "smoke") -> List[Dict[str, Any]]:
 
 def _two_lane_scale_smoke_rows() -> List[Dict[str, Any]]:
     return _two_lane_scale_rows("smoke")
+
+
+def _two_lane_scale_adversarial_rows(profile: str) -> List[Dict[str, Any]]:
+    """Return paired operating-point cells for adversarial scaling.
+
+    Smoke includes an honest harness control (12 total rows). Full contains
+    only the 160 new attack rows; its summary reuses the completed 80-run honest
+    experiment. Proposal-byte mutations remain in the D-H/J/K suite.
+    """
+    if profile not in ("smoke", "full"):
+        raise ValueError(f"unknown adversarial scale profile: {profile}")
+    maneuver_counts = {
+        4: {"left": 2, "straight": 1, "right": 1},
+        8: {"left": 4, "straight": 2, "right": 2},
+        16: {"left": 8, "straight": 4, "right": 4},
+        20: {"left": 10, "straight": 5, "right": 5},
+    }
+    rows: List[Dict[str, Any]] = []
+    repetitions = (
+        TWO_LANE_SCALE_ADVERSARIAL_SMOKE_REPS
+        if profile == "smoke" else TWO_LANE_SCALE_ADVERSARIAL_FULL_REPS
+    )
+    roles = (
+        (("honest", 0), ("shoulder_bf", None), ("cliff_bf1", None))
+        if profile == "smoke" else
+        (("shoulder_bf", None), ("cliff_bf1", None))
+    )
+    for n in (4, 8, 16, 20):
+        for rep in range(repetitions):
+            f = bft_f(n)
+            for role, configured_b in roles:
+                b = (
+                    configured_b if configured_b is not None else
+                    f if role == "shoulder_bf" else f + 1
+                )
+                rows.append({
+                    "name": f"n{n}_{role}",
+                    "role": role,
+                    "n": n,
+                    "f": f,
+                    "config": TWO_LANE_SCALE_CONFIGS[n],
+                    "attack_kind": "NONE" if b == 0 else "FALSE_PHYSICAL_LANE",
+                    "b": b,
+                    "rep": rep,
+                    **TWO_LANE_SCALE_OPERATING_POINT,
+                    "effective_delta_m": 0.0 if b == 0 else 1.75,
+                    "maneuver_counts": maneuver_counts[n],
+                    "profile": f"adversarial_{profile}",
+                })
+    return rows
+
+
+def _two_lane_scale_adversarial_smoke_rows() -> List[Dict[str, Any]]:
+    return _two_lane_scale_adversarial_rows("smoke")
+
+
+def _two_lane_scale_adversarial_full_rows() -> List[Dict[str, Any]]:
+    return _two_lane_scale_adversarial_rows("full")
 
 
 def _two_lane_scale_run_dir(row: Dict[str, Any]) -> Path:
@@ -4981,6 +5194,852 @@ def run_two_lane_scale(args: argparse.Namespace, profile: str = "smoke") -> int:
 
 def run_two_lane_scale_smoke(args: argparse.Namespace) -> int:
     return run_two_lane_scale(args, "smoke")
+
+
+def _two_lane_scale_adversarial_run_dir(row: Dict[str, Any]) -> Path:
+    root = (
+        "Phase2TwoLaneScaleAdversarialFull"
+        if row.get("profile") == "adversarial_full"
+        else "Phase2TwoLaneScaleAdversarialSmoke"
+    )
+    return (
+        REPO_ROOT / "benchmarks" / root /
+        f"N{int(row['n'])}" / str(row["role"]) / f"run_{int(row['rep'])}"
+    )
+
+
+def _two_lane_scale_adversarial_metadata(row: Dict[str, Any]) -> Dict[str, Any]:
+    n = int(row["n"])
+    b = int(row["b"])
+    rep = int(row["rep"])
+    full = row.get("profile") == "adversarial_full"
+    colluders = _phase2_nested_colluders(TWO_LANE_TARGET, b, n)
+    # All three rows for a given (N, rep) share the same seed.  Attack roles are
+    # fixed in metadata before the simulation and cannot inspect noise draws.
+    seed_suite = (
+        "TWO_LANE_SCALE_HONEST_FULL"
+        if full else "TWO_LANE_SCALE_ADVERSARIAL_SMOKE"
+    )
+    seed = run_seed(MASTER_SEED, n, seed_suite, rep)
+    return {
+        "checkpoint": (
+            "P8-two-lane-multiscale-adversarial-full"
+            if full else "P8-two-lane-multiscale-adversarial-smoke"
+        ),
+        "profile": "full" if full else "smoke",
+        "role": row["role"],
+        "n": n,
+        "f": int(row["f"]),
+        "b": b,
+        "config": row["config"],
+        "rep": rep,
+        "attack_kind": row["attack_kind"],
+        "attack_target_replica_id": TWO_LANE_TARGET,
+        "evidence_colluder_ids": colluders,
+        "configured_byzantine_ids": ([TWO_LANE_TARGET, *colluders] if b else []),
+        "colluder_policy": "nested_ascending_replica_ids",
+        "attack_choice_timing": "INIT_BEFORE_PERCEPTION",
+        "simulation_seed": seed,
+        "paired_seed_policy": (
+            "attack rows reuse the exact completed honest-full seed for (N,rep)"
+            if full else
+            "same (N,rep) seed shared by honest, b=f, and b=f+1"
+        ),
+        "sigma_lat_m": float(row["sigma_lat_m"]),
+        "sigma_long_m": float(row["sigma_long_m"]),
+        "signal_error": float(row["signal_error"]),
+        "physical_gate_k": float(row["k"]),
+        "delta_magnitude_m": float(row["effective_delta_m"]),
+        "signed_lateral_claim_offset_m": (
+            -float(row["effective_delta_m"]) if b else 0.0
+        ),
+        "direction_collection_window_sec": 0.25,
+        "lane_observation_mode": "ADJACENT_LATERAL",
+        "physical_lane_policy": "lane0=STRAIGHT|RIGHT; lane1=LEFT",
+        "maneuver_counts": row["maneuver_counts"],
+        "reviewed_conflict_pair": "veh0=N-L; veh1=S-S",
+        "execution": "strictly sequential",
+    }
+
+
+def _run_two_lane_scale_adversarial_cell(row: Dict[str, Any]) -> Path:
+    n = int(row["n"])
+    rep = int(row["rep"])
+    b = int(row["b"])
+    run_dir = _two_lane_scale_adversarial_run_dir(row)
+    metadata = _two_lane_scale_adversarial_metadata(row)
+    metadata_path = run_dir / "two_lane_scale_adversarial_run_metadata.json"
+    json_path = run_dir / f"{n}veh_{rep}.json"
+    raw_log = run_dir / "raw_simulation.log"
+    if metadata_path.is_file() and json_path.is_file() and raw_log.is_file():
+        if json.loads(metadata_path.read_text()) != metadata:
+            raise ValueError(f"refusing mismatched adversarial-scale resume: {run_dir}")
+        if row.get("profile") == "adversarial_full":
+            _compact_direction_analyzer_json(json_path)
+        print(f"[resume] reuse {run_dir}")
+        return run_dir
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+    argv = [
+        str(RUN_SCRIPT),
+        "--randomize", str(n), "0", "--no-ambulance",
+        "--tolerated-f", str(row["f"]), str(FOURWAY_DIR),
+        "--compact-log", "--channel-metrics-dir", str(run_dir.resolve()),
+        "--approach-sigma", "0",
+        "--signal-error", str(row["signal_error"]),
+        "--direction-collection-window", "0.25",
+        "--ego-longitudinal-sigma", "0",
+        "--longitudinal-sigma", str(row["sigma_long_m"]),
+        "--lane-observation-mode", "ADJACENT_LATERAL",
+        "--lateral-sigma", str(row["sigma_lat_m"]),
+        "--adjacent-lane-separation", "3.2",
+        "--physical-gate-k", str(row["k"]),
+        "--direction-eligibility", "on",
+        "--simulation-seed", str(metadata["simulation_seed"]),
+        "--phase2-attack-kind", str(row["attack_kind"]),
+        "--phase2-attack-target", str(TWO_LANE_TARGET),
+        "--phase2-evidence-colluders", ",".join(
+            str(value) for value in metadata["evidence_colluder_ids"]
+        ),
+        "--phase2-actual-b", str(b),
+        "--phase2-lateral-claim-offset",
+        str(metadata["signed_lateral_claim_offset_m"]),
+        "--**.scalar-recording=false", "--**.vector-recording=false",
+        f"--output-scalar-file={run_dir.resolve() / 'omnet.sca'}",
+        f"--output-vector-file={run_dir.resolve() / 'omnet.vec'}",
+        "-u", "Cmdenv", "--debug-on-errors=false", "-c", str(row["config"]),
+    ]
+    inner = " ".join(shlex.quote(value) for value in argv)
+    print("+ " + inner)
+    run_in_bash_with_omnet(inner, dry_run=False)
+    shutil.copy2(LOG_FILE, raw_log)
+    analyze = [
+        sys.executable, str(FOURWAY_DIR / "analyze_log.py"), str(LOG_FILE),
+        "--save-to", str(run_dir), "--scenario", "1", "--cars", str(n),
+        "--run-index", str(rep), "--no-scenario-subdir",
+    ]
+    print("+ " + " ".join(shlex.quote(value) for value in analyze))
+    subprocess.run(analyze, cwd=REPO_ROOT, check=True)
+    if row.get("profile") == "adversarial_full":
+        # Preserve one run-wide metrics/perception copy plus every per-vehicle
+        # wait record instead of N duplicate multi-megabyte maps.
+        _compact_direction_analyzer_json(json_path)
+    return run_dir
+
+
+def _two_lane_scale_binomial_tail(h: int, q: float, required: int) -> float:
+    if required <= 0:
+        return 1.0
+    if required > h:
+        return 0.0
+    return sum(
+        math.comb(h, successes) * q ** successes * (1.0 - q) ** (h - successes)
+        for successes in range(required, h + 1)
+    )
+
+
+def _analyze_two_lane_scale_adversarial_cell(
+    row: Dict[str, Any], run_dir: Path,
+) -> Dict[str, Any]:
+    from fourway import adjacent_lane_grid as grid
+
+    n = int(row["n"])
+    f = int(row["f"])
+    b = int(row["b"])
+    rep = int(row["rep"])
+    log_text = (run_dir / "raw_simulation.log").read_text(errors="replace")
+    records = json.loads((run_dir / f"{n}veh_{rep}.json").read_text())
+    first = records[0]
+    perception = first["bft_stats"]["perception"]
+    distance = perception.get("stopped_distance") or {}
+    attack = perception.get("phase2_attack") or {}
+    outcome = attack.get("outcome") or {}
+    run_metrics = first.get("run_metrics") or {}
+    metadata = _two_lane_scale_adversarial_metadata(row)
+    byzantine_ids = set(metadata["configured_byzantine_ids"])
+    expected_colluders = metadata["evidence_colluder_ids"]
+    cert_signers = {int(value) for value in attack.get("certificate_signers", [])}
+    b_sig_cert = len(cert_signers.intersection(byzantine_ids)) if b else 0
+    logged_b_sig_cert = int(attack.get(
+        "b_sig_lane_cert", attack.get("b_sig_lane", 0)
+    ))
+    b_sig_attempt_raw = attack.get("b_sig_lane_attempt")
+    b_sig_attempt = int(b_sig_attempt_raw) if b_sig_attempt_raw is not None else None
+    threshold = f + 1
+    h_lane = int(attack.get("h_lane", 0))
+    honest_accepts = int(attack.get("honest_lane_accepts", 0))
+    q0_empirical = honest_accepts / h_lane if b and h_lane else None
+    q0_model = (
+        grid.q0_model(
+            float(row["sigma_lat_m"]), float(row["effective_delta_m"]),
+            float(row["k"]),
+        ) if b else None
+    )
+    required_honest = (
+        max(0, threshold - b_sig_attempt) if b_sig_attempt is not None else None
+    )
+    binomial_prediction = (
+        _two_lane_scale_binomial_tail(h_lane, float(q0_model), required_honest)
+        if q0_model is not None and required_honest is not None else None
+    )
+    false_certificate = bool(outcome.get("false_lane_certificate"))
+
+    conflicting_pair = bool(re.search(
+        r"\[CONFLICTING-COOCCUPANCY\].*?"
+        r"(?:first=veh0.*?second=veh1|first=veh1.*?second=veh0)", log_text,
+    ))
+    same_batch = bool(re.search(
+        r"\[SCHEDULER-BATCH-ADMIT\][^\n]*?"
+        r"(?:head=0[^\n]*candidate=1|head=1[^\n]*candidate=0)", log_text,
+    )) or bool(re.search(
+        r"\[EXECUTOR\] OrderDecision:[^\n]*?veh=0 batch=(\d+)"
+        r"[^\n]*?veh=1 batch=\1", log_text,
+    ))
+    target_eligibility_match = re.search(
+        r"\[DIR-ELIGIBILITY\] target=veh0\b[^\n]*"
+        r"laneAuthorized=(\d+)[^\n]*derivedDirection=([A-Z?]+)", log_text,
+    )
+    target_direction_authorized = bool(
+        target_eligibility_match and target_eligibility_match.group(1) == "1" and
+        target_eligibility_match.group(2) == "R"
+    )
+    target_derived_direction = (
+        target_eligibility_match.group(2) if target_eligibility_match else None
+    )
+    target_batch: int | None = None
+    target_batch_mates: List[int] = []
+    for decision_line in re.findall(
+        r"\[EXECUTOR\] OrderDecision:[^\n]*decisions=\[[^\n]*\]", log_text
+    ):
+        assignments = {
+            int(vehicle): int(batch)
+            for vehicle, batch in re.findall(r"veh=(\d+) batch=(\d+)", decision_line)
+        }
+        if len(assignments) != n or TWO_LANE_TARGET not in assignments:
+            continue
+        target_batch = assignments[TWO_LANE_TARGET]
+        target_batch_mates = sorted(
+            vehicle for vehicle, batch in assignments.items()
+            if vehicle != TWO_LANE_TARGET and batch == target_batch
+        )
+        break
+    target_cobatched = bool(target_batch_mates)
+    unsafe_pairs = run_metrics.get("unsafe_conflict_cooccupancy_pairs") or []
+    background_pairs: List[Any] = []
+    for pair in unsafe_pairs:
+        if isinstance(pair, dict):
+            names = {str(pair.get("first", "")), str(pair.get("second", ""))}
+        elif isinstance(pair, (list, tuple)) and len(pair) >= 2:
+            names = {str(pair[0]), str(pair[1])}
+        else:
+            names = set(re.findall(r"veh\d+", str(pair)))
+        if names != {"veh0", "veh1"}:
+            background_pairs.append(pair)
+
+    departures = set(re.findall(r"\[DEPARTED\] Replica (\d+)\b", log_text))
+    movement_records = set(re.findall(
+        r"\[MOVEMENT-GROUND-TRUTH\]\s+vehicle=(veh\d+)", log_text
+    ))
+    config_positions = [
+        match.start() for match in re.finditer(r"\[PHASE2-ATTACK-CONFIG\]", log_text)
+    ]
+    perception_positions = [
+        position for marker in ("[PERC-EVAL]", "[DIST-PERC-EVAL]")
+        if (position := log_text.find(marker)) >= 0
+    ]
+    wait_samples = [
+        float(wait_ms) / 1000.0 for record in records
+        if (wait_ms := (record.get("durations_ms") or {}).get("total_wait_time"))
+        is not None
+    ]
+    batch_distribution = run_metrics.get("batch_index_distribution") or {}
+    batch_vehicle_count = sum(int(value) for value in batch_distribution.values())
+    throughput = run_metrics.get("throughput_veh_per_s")
+    cert_latency = run_metrics.get("cert_creation_latency_ms") or {}
+
+    checks: Dict[str, bool] = {
+        "all_vehicles_departed": len(departures) == n,
+        "all_movements_traced": len(movement_records) == n,
+        "reviewed_actual_movements": (
+            bool(re.search(r"\[MOVEMENT-GROUND-TRUTH\] vehicle=veh0[^\n]*movement=N-L", log_text)) and
+            bool(re.search(r"\[MOVEMENT-GROUND-TRUTH\] vehicle=veh1[^\n]*movement=S-S", log_text))
+        ),
+        "lane_single_evaluation": bool(perception.get("single_evaluation_invariant_ok")),
+        "distance_single_evaluation": bool(distance.get("single_evaluation_invariant_ok")),
+        "authenticated_evidence": (
+            "[ANN-ORIGIN-INVALID]" not in log_text and
+            "[CERT-INVALID]" not in log_text and "verify FAIL" not in log_text
+        ),
+        "no_teleport": "Teleporting vehicle" not in log_text,
+        "completion_metrics_present": len(wait_samples) == n,
+        "attack_choice_precommitted_before_perception": (
+            bool(config_positions and perception_positions) and
+            max(config_positions) < min(perception_positions)
+        ),
+        "background_conflicting_cooccupancy_zero": not background_pairs,
+    }
+    if b == 0:
+        signed_count = (
+            int(perception.get("signed_direction_count") or 0) +
+            int(perception.get("signed_unknown_count") or 0)
+        )
+        checks.update({
+            "honest_control_not_forged": "[PHASE2-ATTACK-DECLARE]" not in log_text,
+            "honest_all_arrivals_certified": signed_count == n,
+            "honest_no_reviewed_conflict": not conflicting_pair,
+        })
+    else:
+        checks.update({
+            "attack_configuration": (
+                attack.get("kind") == "FALSE_PHYSICAL_LANE" and
+                int(attack.get("actual_b", -1)) == b and
+                attack.get("colluder_ids") == expected_colluders and
+                int(attack.get("config_mismatch_count", -1)) == 0
+            ),
+            "certificate_local_b_sig": logged_b_sig_cert == b_sig_cert,
+            "attempt_b_sig_available": b_sig_attempt is not None,
+            # A certificate grants eligibility; the greedy scheduler may find
+            # no conflicting candidate in the same batch.  Keep authority and
+            # physical realization as separate measured outcomes.
+            "false_certificate_reaches_eligibility_derivation": (
+                not false_certificate or target_eligibility_match is not None
+            ),
+            "unsafe_outcome_requires_false_authority": (
+                not conflicting_pair or false_certificate
+            ),
+            "reviewed_pair_batching_matches_cooccupancy": (
+                not same_batch or conflicting_pair
+            ),
+        })
+        if row["role"] == "shoulder_bf":
+            checks["bf_requires_honest_support"] = (
+                b == f and b_sig_attempt is not None and b_sig_attempt <= f and
+                required_honest is not None and required_honest >= 1 and
+                (not false_certificate or honest_accepts >= required_honest)
+            )
+        elif row["role"] == "cliff_bf1":
+            cert_honest_signers = cert_signers.difference(byzantine_ids)
+            checks["bf1_uses_actual_certificate_support"] = (
+                b == f + 1 and b_sig_attempt is not None and
+                (
+                    (
+                        false_certificate and len(cert_signers) >= threshold and
+                        len(cert_honest_signers) >= max(0, threshold - b_sig_cert)
+                    ) or (
+                        not false_certificate and b_sig_attempt < threshold and
+                        honest_accepts < max(0, threshold - b_sig_attempt)
+                    )
+                )
+            )
+
+    return {
+        **row,
+        "result_dir": str(run_dir),
+        "passed": all(checks.values()),
+        "checks": checks,
+        "configured_byzantine_ids": sorted(byzantine_ids),
+        "evidence_colluder_ids": expected_colluders,
+        "false_lane_certificate": false_certificate,
+        "target_counterpart_same_batch": same_batch,
+        "target_direction_authorized": target_direction_authorized,
+        "target_derived_direction": target_derived_direction,
+        "target_batch": target_batch,
+        "target_batch_mates": target_batch_mates,
+        "target_cobatched": target_cobatched,
+        "target_pair_conflicting_cooccupancy": conflicting_pair,
+        "physical_chain_classification": (
+            "FALSE_AUTHORITY_TO_UNSAFE_COOCCUPANCY"
+            if false_certificate and conflicting_pair else
+            "FALSE_AUTHORITY_COBATCHED_WITH_NONCONFLICTING_MATE"
+            if false_certificate and target_cobatched else
+            "FALSE_LANE_AUTHORITY_DIRECTION_GATED"
+            if false_certificate and not target_direction_authorized else
+            "FALSE_AUTHORITY_NOT_SELECTED_FOR_COBATCH"
+            if false_certificate else
+            "UNAUTHORIZED_CONFLICT"
+            if conflicting_pair else
+            "NO_FALSE_AUTHORITY_OR_CONFLICT"
+        ),
+        "background_conflicting_cooccupancy_pairs": background_pairs,
+        "b_sig_cert": b_sig_cert,
+        "b_sig_attempt": b_sig_attempt,
+        "b_sig_attempt_source": attack.get("b_sig_lane_attempt_source"),
+        "certificate_signers": sorted(cert_signers),
+        "h_lane": h_lane,
+        "honest_lane_accepts": honest_accepts,
+        "q0_lane_empirical_run": q0_empirical,
+        "q0_lane_model": q0_model,
+        "required_honest_support": required_honest,
+        "binomial_tail_prediction": binomial_prediction,
+        "throughput_veh_per_min": (
+            float(throughput) * 60.0 if throughput is not None else None
+        ),
+        "mean_wait_s": statistics.mean(wait_samples) if wait_samples else None,
+        "p95_wait_s": _percentile(wait_samples, 0.95) if wait_samples else None,
+        "wait_samples_s": wait_samples,
+        "mean_batch_size": (
+            batch_vehicle_count / len(batch_distribution)
+            if batch_distribution else None
+        ),
+        "cert_latency_mean_ms": cert_latency.get("mean"),
+        "cert_latency_p95_ms": cert_latency.get("p95"),
+        "quiet_count": int(perception.get("quiet_count") or 0),
+        "signed_unknown_count": int(perception.get("signed_unknown_count") or 0),
+        "left_table_forced_singleton_count": int(
+            perception.get("left_table_forced_singleton_count") or 0
+        ),
+        "sumo_collision_vehicle_count": int(
+            run_metrics.get("physical_collision_vehicle_count") or 0
+        ),
+    }
+
+
+def _aggregate_two_lane_scale_adversarial(
+    rows: Sequence[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    grouped: Dict[Tuple[int, str], List[Dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        grouped[(int(row["n"]), str(row["role"]))].append(row)
+    aggregates: List[Dict[str, Any]] = []
+    for (n, role), group in sorted(grouped.items()):
+        valid = [row for row in group if "error" not in row]
+        repetitions = len(valid)
+        false_count = sum(bool(row.get("false_lane_certificate")) for row in valid)
+        unsafe_count = sum(
+            bool(row.get("target_pair_conflicting_cooccupancy")) for row in valid
+        )
+        target_cobatch_count = sum(bool(row.get("target_cobatched")) for row in valid)
+        background_count = sum(
+            bool(row.get("background_conflicting_cooccupancy_pairs")) for row in valid
+        )
+        collision_count = sum(
+            int(row.get("sumo_collision_vehicle_count") or 0) > 0 for row in valid
+        )
+        false_ci = _wilson_interval(false_count, repetitions)
+        unsafe_ci = _wilson_interval(unsafe_count, repetitions)
+        collision_ci = _wilson_interval(collision_count, repetitions)
+        wait_samples = [
+            float(value) for row in valid for value in row.get("wait_samples_s", [])
+        ]
+        aggregates.append({
+            "n": n,
+            "f": int(group[0]["f"]),
+            "role": role,
+            "configured_b": int(group[0]["b"]),
+            "attempted_runs": len(group),
+            "repetitions": repetitions,
+            "passing_runs": sum(bool(row.get("passed")) for row in valid),
+            "false_certificates": false_count,
+            "false_certificate_rate": false_ci["rate"],
+            "false_certificate_wilson95_low": false_ci["low"],
+            "false_certificate_wilson95_high": false_ci["high"],
+            "conflicting_cooccupancy_rate": unsafe_ci["rate"],
+            "conflicting_cooccupancy_wilson95_low": unsafe_ci["low"],
+            "conflicting_cooccupancy_wilson95_high": unsafe_ci["high"],
+            "unsafe_given_false_authority_rate": (
+                unsafe_count / false_count if false_count else None
+            ),
+            "target_cobatch_rate": (
+                target_cobatch_count / repetitions if repetitions else None
+            ),
+            "background_conflicting_cooccupancy_runs": background_count,
+            "background_conflicting_cooccupancy_rate": (
+                background_count / repetitions if repetitions else None
+            ),
+            "sumo_collision_rate": collision_ci["rate"],
+            "sumo_collision_wilson95_low": collision_ci["low"],
+            "sumo_collision_wilson95_high": collision_ci["high"],
+            "mean_h_lane": _mean_or_none([row.get("h_lane") for row in valid]),
+            "mean_b_sig_attempt": _mean_or_none([
+                row.get("b_sig_attempt") for row in valid
+            ]),
+            "mean_b_sig_cert": _mean_or_none([
+                row.get("b_sig_cert") for row in valid
+            ]),
+            "pooled_q0_empirical": (
+                sum(int(row.get("honest_lane_accepts") or 0) for row in valid) /
+                sum(int(row.get("h_lane") or 0) for row in valid)
+                if sum(int(row.get("h_lane") or 0) for row in valid) else None
+            ),
+            "mean_binomial_prediction": _mean_or_none([
+                row.get("binomial_tail_prediction") for row in valid
+            ]),
+            "mean_throughput_veh_per_min": _mean_or_none([
+                row.get("throughput_veh_per_min") for row in valid
+            ]),
+            "mean_wait_s": statistics.mean(wait_samples) if wait_samples else None,
+            "p95_wait_s": _percentile(wait_samples, 0.95) if wait_samples else None,
+            "mean_cert_latency_ms": _mean_or_none([
+                row.get("cert_latency_mean_ms") for row in valid
+            ]),
+            "mean_cert_latency_p95_ms": _mean_or_none([
+                row.get("cert_latency_p95_ms") for row in valid
+            ]),
+            "mean_batch_size": _mean_or_none([
+                row.get("mean_batch_size") for row in valid
+            ]),
+            "mean_quiet_count": _mean_or_none([
+                row.get("quiet_count") for row in valid
+            ]),
+            "mean_signed_unknown_count": _mean_or_none([
+                row.get("signed_unknown_count") for row in valid
+            ]),
+            "mean_left_table_forced_singleton_count": _mean_or_none([
+                row.get("left_table_forced_singleton_count") for row in valid
+            ]),
+        })
+    return aggregates
+
+
+def run_two_lane_scale_adversarial_smoke(args: argparse.Namespace) -> int:
+    rows = _two_lane_scale_adversarial_smoke_rows()
+    output_dir = REPO_ROOT / "benchmarks" / "Phase2TwoLaneScaleAdversarialSmoke"
+    if args.dry_run:
+        print(
+            "[dry-run] two-lane adversarial scale smoke: "
+            "N={4,8,16,20} x {honest,b=f,b=f+1} = 12 strictly sequential runs"
+        )
+        for index, row in enumerate(rows, 1):
+            metadata = _two_lane_scale_adversarial_metadata(row)
+            print(
+                f"[dry-run] {index}/12 N={row['n']} role={row['role']} "
+                f"f={row['f']} b={row['b']} seed={metadata['simulation_seed']} "
+                f"colluders={metadata['evidence_colluder_ids']} "
+                f"result_dir={_two_lane_scale_adversarial_run_dir(row)}"
+            )
+        return 0
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = output_dir / "two_lane_scale_adversarial_smoke_manifest.json"
+    manifest_path.write_text(json.dumps({
+        "checkpoint": "P8-two-lane-multiscale-adversarial-smoke",
+        "profile": "smoke",
+        "execution": "strictly sequential",
+        "planned": len(rows),
+        "operating_point": TWO_LANE_SCALE_OPERATING_POINT,
+        "rows_per_scale": ["honest", "shoulder_bf", "cliff_bf1"],
+        "statistical_roles": {
+            "shoulder_bf": "requires at least one honest signature",
+            "cliff_bf1": "Byzantine-only threshold is possible only when actual b_sig reaches f+1",
+        },
+        "proposal_mutation_scope": "separate deterministic D-H/J/K integrity suite",
+        "rows": [_two_lane_scale_adversarial_metadata(row) for row in rows],
+    }, indent=2, sort_keys=True) + "\n")
+
+    results: List[Dict[str, Any]] = []
+    current_n: int | None = None
+    for index, row in enumerate(rows, 1):
+        print(
+            f"\n--- Adversarial scale smoke {index}/{len(rows)}: "
+            f"N={row['n']} role={row['role']} b={row['b']} ---"
+        )
+        try:
+            candidate_dir = _two_lane_scale_adversarial_run_dir(row)
+            artifact_complete = all((candidate_dir / name).is_file() for name in (
+                "two_lane_scale_adversarial_run_metadata.json",
+                f"{int(row['n'])}veh_{int(row['rep'])}.json",
+                "raw_simulation.log",
+            ))
+            if not artifact_complete:
+                if current_n != int(row["n"]):
+                    run_key_generation(dry_run=False, scale=int(row["n"]))
+                    current_n = int(row["n"])
+                clear_stale_random_ini()
+            run_dir = _run_two_lane_scale_adversarial_cell(row)
+            result = _analyze_two_lane_scale_adversarial_cell(row, run_dir)
+            results.append(result)
+            print(
+                f"[{'PASS' if result['passed'] else 'FAIL'}] "
+                f"false_cert={result['false_lane_certificate']} "
+                f"cooccupancy={result['target_pair_conflicting_cooccupancy']} "
+                f"b_sig={result['b_sig_attempt']} h={result['h_lane']}"
+            )
+            for name, passed in result["checks"].items():
+                print(f"  {'PASS' if passed else 'FAIL':4} {name}")
+        except (subprocess.CalledProcessError, OSError, ValueError, KeyError) as exc:
+            results.append({**row, "passed": False, "error": str(exc)})
+            print(f"[FAIL] N={row['n']} role={row['role']}: {exc}", file=sys.stderr)
+            break
+
+    aggregates = _aggregate_two_lane_scale_adversarial(results)
+    unsafe_chain_runs = [
+        row for row in results
+        if bool(row.get("false_lane_certificate")) and
+        bool(row.get("target_pair_conflicting_cooccupancy"))
+    ]
+    suite_checks = {
+        "all_rows_valid": (
+            len(results) == len(rows) and all(row.get("passed") for row in results)
+        ),
+        "false_authority_to_physical_conflict_chain_observed": bool(unsafe_chain_runs),
+        "no_background_conflicting_cooccupancy": all(
+            not row.get("background_conflicting_cooccupancy_pairs")
+            for row in results if "error" not in row
+        ),
+    }
+    overall = all(suite_checks.values())
+    summary_path = output_dir / "two_lane_scale_adversarial_smoke_summary.json"
+    summary_path.write_text(json.dumps({
+        "checkpoint": "P8-two-lane-multiscale-adversarial-smoke",
+        "profile": "smoke",
+        "passed": overall,
+        "planned": len(rows),
+        "completed": len(results),
+        "execution": "strictly sequential",
+        "suite_checks": suite_checks,
+        "unsafe_chain_scales": sorted({int(row["n"]) for row in unsafe_chain_runs}),
+        "authority_vs_realization_policy": (
+            "false certification grants scheduling eligibility; greedy batch "
+            "selection and independent direction eligibility determine whether "
+            "that authority becomes a conflicting physical co-occupancy"
+        ),
+        "aggregates": aggregates,
+        "results": results,
+    }, indent=2, sort_keys=True) + "\n")
+    aggregate_path = output_dir / "two_lane_scale_adversarial_smoke_aggregates.csv"
+    if aggregates:
+        with aggregate_path.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(aggregates[0]))
+            writer.writeheader()
+            writer.writerows(aggregates)
+    print("\n========== TWO-LANE ADVERSARIAL MULTISCALE SMOKE ==========")
+    print(f"Completed: {len(results)}/{len(rows)}")
+    print(f"Overall: {'PASS' if overall else 'FAIL'}")
+    print(f"Summary: {summary_path}")
+    print(f"Aggregates: {aggregate_path}")
+    return 0 if overall else 1
+
+
+def _load_reused_two_lane_scale_honest_full() -> List[Dict[str, Any]]:
+    """Reanalyze, but never rerun, the completed 80 honest scale artifacts."""
+    results: List[Dict[str, Any]] = []
+    for base in _two_lane_scale_rows("full"):
+        run_dir = _two_lane_scale_run_dir(base)
+        required = (
+            run_dir / "two_lane_scale_run_metadata.json",
+            run_dir / f"{int(base['n'])}veh_{int(base['rep'])}.json",
+            run_dir / "raw_simulation.log",
+        )
+        if not all(path.is_file() for path in required):
+            raise FileNotFoundError(
+                f"missing completed honest scale artifact required for reuse: {run_dir}"
+            )
+        row = {
+            **base,
+            "role": "honest",
+            "profile": "adversarial_full",
+            **TWO_LANE_SCALE_OPERATING_POINT,
+            "effective_delta_m": 0.0,
+        }
+        result = _analyze_two_lane_scale_adversarial_cell(row, run_dir)
+        result["artifact_policy"] = "REUSED_COMPLETED_HONEST_FULL"
+        results.append(result)
+    return results
+
+
+def run_two_lane_scale_adversarial_full(args: argparse.Namespace) -> int:
+    attack_rows = _two_lane_scale_adversarial_full_rows()
+    output_dir = REPO_ROOT / "benchmarks" / "Phase2TwoLaneScaleAdversarialFull"
+    incomplete_rows = [
+        row for row in attack_rows
+        if not all((_two_lane_scale_adversarial_run_dir(row) / name).is_file()
+                   for name in (
+                       "two_lane_scale_adversarial_run_metadata.json",
+                       f"{int(row['n'])}veh_{int(row['rep'])}.json",
+                       "raw_simulation.log",
+                   ))
+    ]
+    # Compact completed cells are approximately 0.5--2.1 MiB across N=4--20.
+    # Reserve 4 MiB per missing cell plus 128 MiB for the current uncompressed
+    # analyzer output, key generation, manifests, and filesystem headroom.
+    required_free_bytes = 128 * 1024 * 1024 + len(incomplete_rows) * 4 * 1024 * 1024
+    available_free_bytes = shutil.disk_usage(REPO_ROOT).free
+    if args.dry_run:
+        print(
+            "[dry-run] two-lane adversarial scale full: reuse 80 completed "
+            "honest runs + execute 160 attack runs strictly sequentially"
+        )
+        print(
+            "[dry-run] attack matrix: N={4,8,16,20} x {b=f,b=f+1} "
+            "x 20 repetitions"
+        )
+        print(
+            f"[dry-run] incomplete={len(incomplete_rows)} "
+            f"required_free_mib={required_free_bytes / 1024 / 1024:.0f} "
+            f"available_free_mib={available_free_bytes / 1024 / 1024:.0f}"
+        )
+        for index, row in enumerate(attack_rows, 1):
+            metadata = _two_lane_scale_adversarial_metadata(row)
+            honest_base = next(
+                candidate for candidate in _two_lane_scale_rows("full")
+                if int(candidate["n"]) == int(row["n"]) and
+                int(candidate["rep"]) == int(row["rep"])
+            )
+            honest_seed = _two_lane_scale_metadata(honest_base)["simulation_seed"]
+            print(
+                f"[dry-run] {index}/{len(attack_rows)} N={row['n']} "
+                f"role={row['role']} rep={row['rep']} b={row['b']} "
+                f"seed={metadata['simulation_seed']} paired_honest_seed={honest_seed} "
+                f"result_dir={_two_lane_scale_adversarial_run_dir(row)}"
+            )
+        return 0
+
+    if available_free_bytes < required_free_bytes:
+        print(
+            "ERROR: insufficient disk space for the resumable adversarial "
+            f"multiscale run: {len(incomplete_rows)} cells remain, "
+            f"need approximately {required_free_bytes / 1024 / 1024:.0f} MiB "
+            f"free, have {available_free_bytes / 1024 / 1024:.0f} MiB. "
+            "No simulation was launched; free or archive generated artifacts "
+            "and rerun the same command.",
+            file=sys.stderr,
+        )
+        return 2
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = output_dir / "two_lane_scale_adversarial_full_manifest.json"
+    manifest_path.write_text(json.dumps({
+        "checkpoint": "P8-two-lane-multiscale-adversarial-full",
+        "profile": "full",
+        "execution": "strictly sequential",
+        "total_paper_matrix_runs": 240,
+        "reused_honest_runs": 80,
+        "new_attack_runs": len(attack_rows),
+        "repetitions_per_scale_role": TWO_LANE_SCALE_ADVERSARIAL_FULL_REPS,
+        "operating_point": TWO_LANE_SCALE_OPERATING_POINT,
+        "new_rows": ["shoulder_bf", "cliff_bf1"],
+        "authority_vs_realization_policy": (
+            "false certification, scheduling co-batch selection, and physical "
+            "conflicting co-occupancy are distinct reported outcomes"
+        ),
+        "proposal_mutation_scope": "separate deterministic D-H/J/K integrity suite",
+        "rows": [_two_lane_scale_adversarial_metadata(row) for row in attack_rows],
+    }, indent=2, sort_keys=True) + "\n")
+
+    attack_results: List[Dict[str, Any]] = []
+    current_n: int | None = None
+    for index, row in enumerate(attack_rows, 1):
+        print(
+            f"\n--- Adversarial scale full {index}/{len(attack_rows)}: "
+            f"N={row['n']} role={row['role']} rep={row['rep']} b={row['b']} ---"
+        )
+        try:
+            candidate_dir = _two_lane_scale_adversarial_run_dir(row)
+            artifact_complete = all((candidate_dir / name).is_file() for name in (
+                "two_lane_scale_adversarial_run_metadata.json",
+                f"{int(row['n'])}veh_{int(row['rep'])}.json",
+                "raw_simulation.log",
+            ))
+            if not artifact_complete:
+                if current_n != int(row["n"]):
+                    run_key_generation(dry_run=False, scale=int(row["n"]))
+                    current_n = int(row["n"])
+                clear_stale_random_ini()
+            run_dir = _run_two_lane_scale_adversarial_cell(row)
+            result = _analyze_two_lane_scale_adversarial_cell(row, run_dir)
+            attack_results.append(result)
+            print(
+                f"[{'PASS' if result['passed'] else 'FAIL'}] "
+                f"false_cert={result['false_lane_certificate']} "
+                f"cooccupancy={result['target_pair_conflicting_cooccupancy']} "
+                f"b_sig={result['b_sig_attempt']} h={result['h_lane']}"
+            )
+            for name, passed in result["checks"].items():
+                print(f"  {'PASS' if passed else 'FAIL':4} {name}")
+        except (subprocess.CalledProcessError, OSError, ValueError, KeyError) as exc:
+            attack_results.append({**row, "passed": False, "error": str(exc)})
+            print(
+                f"[FAIL] N={row['n']} role={row['role']} rep={row['rep']}: {exc}",
+                file=sys.stderr,
+            )
+            break
+
+    honest_results: List[Dict[str, Any]] = []
+    if len(attack_results) == len(attack_rows) and all(
+        row.get("passed") for row in attack_results
+    ):
+        honest_results = _load_reused_two_lane_scale_honest_full()
+    combined_results = sorted(
+        [*honest_results, *attack_results],
+        key=lambda row: (int(row["n"]), int(row["rep"]), str(row["role"])),
+    )
+    unsafe_chain_runs = [
+        row for row in attack_results
+        if bool(row.get("false_lane_certificate")) and
+        bool(row.get("target_pair_conflicting_cooccupancy"))
+    ]
+    paired_seed_ok = all(
+        _two_lane_scale_adversarial_metadata(row)["simulation_seed"] ==
+        _two_lane_scale_metadata(next(
+            candidate for candidate in _two_lane_scale_rows("full")
+            if int(candidate["n"]) == int(row["n"]) and
+            int(candidate["rep"]) == int(row["rep"])
+        ))["simulation_seed"]
+        for row in attack_rows
+    )
+    suite_checks = {
+        "all_160_attack_runs_valid": (
+            len(attack_results) == len(attack_rows) and
+            all(row.get("passed") for row in attack_results)
+        ),
+        "all_80_honest_runs_reused_and_valid": (
+            len(honest_results) == 80 and all(row.get("passed") for row in honest_results)
+        ),
+        "attack_seeds_pair_with_completed_honest_runs": paired_seed_ok,
+        "false_authority_to_physical_conflict_chain_observed": bool(unsafe_chain_runs),
+        "no_background_conflicting_cooccupancy": all(
+            not row.get("background_conflicting_cooccupancy_pairs")
+            for row in combined_results if "error" not in row
+        ),
+    }
+    overall = all(suite_checks.values())
+    aggregates = _aggregate_two_lane_scale_adversarial(combined_results)
+    summary_path = output_dir / "two_lane_scale_adversarial_full_summary.json"
+    summary_path.write_text(json.dumps({
+        "checkpoint": "P8-two-lane-multiscale-adversarial-full",
+        "profile": "full",
+        "passed": overall,
+        "total_planned": 240,
+        "reused_honest_completed": len(honest_results),
+        "new_attack_planned": len(attack_rows),
+        "new_attack_completed": len(attack_results),
+        "suite_checks": suite_checks,
+        "unsafe_chain_scales": sorted({int(row["n"]) for row in unsafe_chain_runs}),
+        "aggregates": aggregates,
+        "results": combined_results,
+    }, indent=2, sort_keys=True) + "\n")
+    aggregate_path = output_dir / "two_lane_scale_adversarial_full_aggregates.csv"
+    if aggregates:
+        with aggregate_path.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(aggregates[0]))
+            writer.writeheader()
+            writer.writerows(aggregates)
+    results_path = output_dir / "two_lane_scale_adversarial_full_results.csv"
+    result_fields = [
+        "n", "f", "role", "b", "rep", "false_lane_certificate",
+        "target_direction_authorized", "target_cobatched",
+        "target_pair_conflicting_cooccupancy", "physical_chain_classification",
+        "b_sig_attempt", "b_sig_cert", "h_lane", "honest_lane_accepts",
+        "q0_lane_empirical_run", "q0_lane_model", "required_honest_support",
+        "binomial_tail_prediction", "throughput_veh_per_min", "mean_wait_s",
+        "p95_wait_s", "cert_latency_mean_ms", "cert_latency_p95_ms",
+        "mean_batch_size", "quiet_count", "signed_unknown_count",
+        "left_table_forced_singleton_count", "sumo_collision_vehicle_count",
+        "passed", "result_dir",
+    ]
+    with results_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=result_fields, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(combined_results)
+    print("\n========== TWO-LANE ADVERSARIAL MULTISCALE FULL ==========")
+    print(f"Honest reused: {len(honest_results)}/80")
+    print(f"Attack completed: {len(attack_results)}/{len(attack_rows)}")
+    print(f"Overall: {'PASS' if overall else 'FAIL'}")
+    print(f"Summary: {summary_path}")
+    print(f"Aggregates: {aggregate_path}")
+    print(f"Results: {results_path}")
+    return 0 if overall else 1
 
 
 def run_attack_defense_equivocation_validation(args: argparse.Namespace) -> int:
@@ -7045,6 +8104,852 @@ def run_longitudinal_grid(args: argparse.Namespace) -> int:
     return 0 if summary["passed"] else 1
 
 
+E7_BLOCKED_DWELLS = (0.5, 2.0, 5.0)
+E7_UNSTABLE_BLOCKED_DWELLS = frozenset({0.5})
+E7_RESULT_ROOT = REPO_ROOT / "experiments" / "e7_rollback_recovery" / "results"
+E7_TOW_DELAY_SEC = 15.0
+
+
+def _e7_operating_point_status(blocked_dwell_sec: float) -> str:
+    if blocked_dwell_sec in E7_UNSTABLE_BLOCKED_DWELLS:
+        return "unstable_rejected"
+    return "stable"
+
+
+def _first_log_time(text: str, marker: str) -> float | None:
+    match = re.search(re.escape(marker) + r"[^\n]*?\bt=([0-9]+(?:\.[0-9]+)?)", text)
+    return float(match.group(1)) if match else None
+
+
+def _first_cancel_commit_time(text: str, after: float | None = None) -> float | None:
+    for match in re.finditer(
+        r"\[CANCEL-COMMIT\] r\d+[^\n]*?\bt=([0-9]+(?:\.[0-9]+)?)", text
+    ):
+        value = float(match.group(1))
+        if after is None or value >= after:
+            return value
+    return None
+
+
+def _parse_e7_run(row: Dict[str, Any], run_dir: Path, rep: int) -> Dict[str, Any]:
+    text = (run_dir / "raw_simulation.log").read_text(errors="replace")
+    occupancy = {"true0_obs0": 0, "true0_obs1": 0,
+                 "true1_obs0": 0, "true1_obs1": 0, "invalid": 0}
+    for match in re.finditer(
+        r"\[OCC-METRICS\].*?decision=(?:BLOCKED|CLEAR) "
+        r"true0_obs0=(\d+) true0_obs1=(\d+) true1_obs0=(\d+) "
+        r"true1_obs1=(\d+) invalid=(\d+)", text
+    ):
+        for key, value in zip(occupancy, match.groups()):
+            occupancy[key] += int(value)
+
+    t_inject = _first_log_time(text, "[CRASH-INJECT]")
+    t_detect = _first_log_time(text, "[CRASH-PERCEIVE]")
+    t_cancel = _first_cancel_commit_time(
+        text, after=t_inject if row["inject_crash"] else None
+    )
+    t_tow = _first_log_time(text, "[TOW]")
+    t_clear = _first_log_time(text, "[CLEAR-CERT]")
+    t_recovery = _first_log_time(text, "[ROLLBACK-COMMIT]")
+    departure_times = [float(value) for value in re.findall(
+        r"\[DEPARTED\] Replica \d+ cleared intersection t=([0-9]+(?:\.[0-9]+)?)", text
+    )]
+    false_occ_den = occupancy["true0_obs0"] + occupancy["true0_obs1"]
+    miss_occ_den = occupancy["true1_obs0"] + occupancy["true1_obs1"]
+    cancel_formed = "[CANCEL-CERT]" in text
+    expected_departures = 15 if row["inject_crash"] else 16
+
+    checks = {
+        "simulation_completed": "Simulation stopped with endSimulation()" in text,
+        "no_conflicting_release_with_wreck": "[CRASH-COOCCUPANCY]" not in text,
+        "expected_departures": len(set(re.findall(
+            r"\[DEPARTED\] Replica (\d+) cleared intersection", text
+        ))) == expected_departures,
+    }
+    if row["inject_crash"]:
+        injected_wreck = re.search(r"\[CRASH-INJECT\] manager (veh\d+)", text)
+        audited_front = False
+        if injected_wreck:
+            audited_front = bool(re.search(
+                r"\[CRASH-QUEUE-AUDIT\][^\n]*selected=" +
+                re.escape(injected_wreck.group(1)) +
+                r"[^\n]*physicalFront=1[^\n]*ahead=NONE", text
+            ))
+        post_cancel_pre_clear_departures = [
+            value for value in departure_times
+            if t_cancel is not None and t_clear is not None and
+            t_cancel <= value < t_clear
+        ]
+        checks.update({
+            "selected_wreck_was_physical_queue_front": audited_front,
+            "no_crash_selection_rank_inversion":
+                "[CRASH-SELECT-REJECT]" not in text,
+            "stall_injected": t_inject is not None,
+            "blocked_detected": "[CRASH-PERCEIVE]" in text,
+            "cancel_committed": t_cancel is not None,
+            "tow_at_fixed_15s": t_tow is not None and t_inject is not None and
+                abs((t_tow - t_inject) - E7_TOW_DELAY_SEC) <= 0.11,
+            "clear_after_tow": t_clear is not None and t_tow is not None and t_clear > t_tow,
+            "recovery_committed": t_recovery is not None and t_clear is not None and
+                t_recovery >= t_clear,
+            # A non-conflicting member of the already-released batch may
+            # physically clear between crash injection and CANCEL commit. The
+            # rollback timing invariant begins when CANCEL is decided: no new
+            # departure/release may occur until f+1 CLEAR evidence exists.
+            "no_post_cancel_departure_before_clear":
+                t_cancel is not None and t_clear is not None and
+                not post_cancel_pre_clear_departures,
+        })
+    if row.get("integrity") == "forged_blocked":
+        checks["forged_blocked_rejected"] = (
+            "[BLOCKED-ECHO-FORGED]" in text and "dropped invalid echo" in text
+        )
+    elif row.get("integrity") == "suppressed_blocked":
+        checks["suppressed_blocked_still_fires"] = (
+            text.count("[BLOCKED-ECHO-SUPPRESSED]") >= 5 and cancel_formed
+        )
+    elif row.get("integrity") == "fabricated_clear":
+        attack_submitters = re.findall(
+            r"\[BYZANTINE-FABRICATED-CLEARANCE\]\s+r(\d+)\s+"
+            r"[^\n]*action=submit-invalid-clear",
+            text,
+        )
+        checks["single_attack_proposer_r2"] = attack_submitters == ["2"]
+        checks["fabricated_clear_rejected"] = (
+            bool(attack_submitters) and (
+                ("[EPOCH-VIEW-REJECT]" in text and
+                 "reason=missing-clear-evidence" in text) or
+                "missing-clear-evidence" in text or
+                "missing/invalid CLEAR evidence" in text
+            )
+        )
+        checks["view_change_after_attack"] = bool(
+            re.search(r"\[(?:VC-TRIGGER|APP-VC)\]", text) or
+            re.search(
+                r"\[RECOVERY-PREVERIFY-FAILOVER\][^\n]*"
+                r"action=rotate-certified-proposer", text
+            )
+        )
+        checks["honest_recovery_committed"] = t_recovery is not None
+
+    operating_point_status = _e7_operating_point_status(row["blocked_dwell_sec"])
+    if operating_point_status == "unstable_rejected":
+        # T_blocked below nominal conflict-box traversal: honest traffic can
+        # spuriously satisfy BLOCKED. Require only the safety invariant.
+        passed = checks["no_conflicting_release_with_wreck"]
+    else:
+        passed = all(checks.values())
+
+    return {
+        "name": row["name"], "rep": rep, "result_dir": str(run_dir),
+        "blocked_dwell_sec": row["blocked_dwell_sec"],
+        "operating_point_status": operating_point_status,
+        "inject_crash": row["inject_crash"],
+        "integrity": row.get("integrity"),
+        "passed": passed, "checks": checks,
+        "cancel_formed": cancel_formed,
+        "false_cancel": (not row["inject_crash"]) and cancel_formed,
+        "false_occupied_rate": (occupancy["true0_obs1"] / false_occ_den
+                                if false_occ_den else None),
+        "missed_occupied_rate": (occupancy["true1_obs0"] / miss_occ_den
+                                 if miss_occ_den else None),
+        "occupancy_counts": occupancy,
+        "crash_time": t_inject, "detection_time": t_detect,
+        "cancel_commit_time": t_cancel, "tow_time": t_tow,
+        "clear_cert_time": t_clear, "recovery_commit_time": t_recovery,
+        "detection_latency_sec": (t_detect - t_inject
+                                  if t_detect is not None and t_inject is not None else None),
+        "cancel_latency_sec": (t_cancel - t_inject
+                               if t_cancel is not None and t_inject is not None else None),
+        "recovery_latency_sec": (t_recovery - t_inject
+                                 if t_recovery is not None and t_inject is not None else None),
+        "departed_count": len(set(re.findall(
+            r"\[DEPARTED\] Replica (\d+) cleared intersection", text
+        ))),
+        "vc_proof_incomplete_deferrals": text.count("[VC-PROOF-INCOMPLETE]"),
+    }
+
+
+def _e7_rows() -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for dwell in E7_BLOCKED_DWELLS:
+        label = str(dwell).replace(".", "p")
+        rows.append({"name": f"crash_tblocked_{label}",
+                     "blocked_dwell_sec": dwell, "inject_crash": True})
+        rows.append({"name": f"control_tblocked_{label}",
+                     "blocked_dwell_sec": dwell, "inject_crash": False})
+    rows.extend((
+        {"name": "integrity_forged_blocked", "blocked_dwell_sec": 2.0,
+         "inject_crash": True, "integrity": "forged_blocked",
+         "extra": ["--forge-blocked-id", "2"]},
+        {"name": "integrity_suppressed_blocked", "blocked_dwell_sec": 2.0,
+         "inject_crash": True, "integrity": "suppressed_blocked",
+         "extra": ["--blocked-silent-ids", "2,3,4,5,6"]},
+        {"name": "integrity_fabricated_clear", "blocked_dwell_sec": 2.0,
+         "inject_crash": True, "integrity": "fabricated_clear",
+         "extra": ["--fabricate-clearance"]},
+    ))
+    return rows
+
+
+def run_rollback_recovery(args: argparse.Namespace, profile: str) -> int:
+    """Run E7 sequentially with fixed CLEAR/tow timers and a BLOCKED mini-sweep."""
+    root = E7_RESULT_ROOT / profile
+    rows = _e7_rows()
+    if profile not in ("smoke", "full"):
+        raise ValueError(f"unsupported E7 profile: {profile}")
+    row_repetitions = {
+        row["name"]: (
+            args.reps if args.reps is not None else
+            (1 if profile == "smoke" else (5 if row.get("integrity") else 20))
+        )
+        for row in rows
+    }
+    run_key_generation(dry_run=args.dry_run, scale=16)
+    results: List[Dict[str, Any]] = []
+    total = sum(row_repetitions.values())
+    index = 0
+    max_repetitions = max(row_repetitions.values())
+    for rep in range(args.start_rep, args.start_rep + max_repetitions):
+        seed = run_seed(MASTER_SEED, 16, "E7_ROLLBACK_PAIRED", rep)
+        for row in rows:
+            if rep >= args.start_rep + row_repetitions[row["name"]]:
+                continue
+            index += 1
+            run_dir = root / row["name"] / f"run_{rep}"
+            print(f"\n--- E7 {index}/{total} {row['name']} run_{rep} seed={seed} ---")
+            mode = "--crash-wait-clear" if row["inject_crash"] else "--crash-occupancy-control"
+            command = [
+                str(RUN_SCRIPT), "--randomize", "16", "0", "--no-ambulance",
+                "--tolerated-f", "5", str(FOURWAY_DIR), "--compact-log", mode,
+                "--crash-wreck-count", "1", "--crash-dwell", str(row["blocked_dwell_sec"]),
+                "--approach-sigma", "0", "--signal-error", "0.2",
+                "--direction-collection-window", "0.25",
+                "--ego-longitudinal-sigma", "0", "--longitudinal-sigma", "1.0",
+                "--lane-observation-mode", "ADJACENT_LATERAL",
+                "--lateral-sigma", "0.5", "--adjacent-lane-separation", "3.2",
+                "--physical-gate-k", "2", "--direction-eligibility", "on",
+                "--simulation-seed", str(seed),
+                "--**.scalar-recording=false", "--**.vector-recording=false",
+                "-u", "Cmdenv", "--debug-on-errors=false",
+                "-c", "SixteenVehiclesTwoLaneRollbackResDB",
+            ] + row.get("extra", [])
+            run_in_bash_with_omnet(" ".join(shlex.quote(value) for value in command),
+                                   dry_run=args.dry_run)
+            if args.dry_run:
+                continue
+            run_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(LOG_FILE, run_dir / "raw_simulation.log")
+            (run_dir / "run_metadata.json").write_text(json.dumps({
+                "profile": profile, "row": row, "rep": rep, "seed": seed,
+                "sigma_lat_m": 0.5, "sigma_long_m": 1.0, "signal_error": 0.2,
+                "k": 2.0, "t_clear_sec": 1.0,
+                "t_tow_sec": E7_TOW_DELAY_SEC,
+                "wreck_count": 1, "execution": "strictly sequential",
+            }, indent=2, sort_keys=True) + "\n")
+            result = _parse_e7_run(row, run_dir, rep)
+            results.append(result)
+            print(f"[{'PASS' if result['passed'] else 'FAIL'}] {row['name']} "
+                  f"false_occ={result['false_occupied_rate']} "
+                  f"miss_occ={result['missed_occupied_rate']}")
+
+    if args.dry_run:
+        return 0
+    overall = bool(results) and all(item["passed"] for item in results)
+    aggregates: List[Dict[str, Any]] = []
+    for row in rows:
+        group = [item for item in results if item["name"] == row["name"]]
+        if not group:
+            continue
+        trials = len(group)
+        cancel_count = sum(bool(item["cancel_formed"]) for item in group)
+        safety_violations = sum(
+            not bool(item["checks"].get("no_conflicting_release_with_wreck", False))
+            for item in group
+        )
+        false_occ_num = sum(item["occupancy_counts"]["true0_obs1"] for item in group)
+        false_occ_den = sum(
+            item["occupancy_counts"]["true0_obs0"] +
+            item["occupancy_counts"]["true0_obs1"] for item in group
+        )
+        missed_occ_num = sum(item["occupancy_counts"]["true1_obs0"] for item in group)
+        missed_occ_den = sum(
+            item["occupancy_counts"]["true1_obs0"] +
+            item["occupancy_counts"]["true1_obs1"] for item in group
+        )
+        cancel_ci = _wilson_interval(cancel_count, trials)
+        safety_ci = _wilson_interval(safety_violations, trials)
+        false_occ_ci = _wilson_interval(false_occ_num, false_occ_den)
+        missed_occ_ci = _wilson_interval(missed_occ_num, missed_occ_den)
+        detection_latencies = [
+            item["detection_latency_sec"] for item in group
+            if item["detection_latency_sec"] is not None
+        ]
+        cancel_latencies = [
+            item["cancel_latency_sec"] for item in group
+            if item["cancel_latency_sec"] is not None
+        ]
+        recovery_latencies = [
+            item["recovery_latency_sec"] for item in group
+            if item["recovery_latency_sec"] is not None
+        ]
+        aggregates.append({
+            "name": row["name"],
+            "blocked_dwell_sec": row["blocked_dwell_sec"],
+            "operating_point_status": _e7_operating_point_status(
+                row["blocked_dwell_sec"]
+            ),
+            "inject_crash": row["inject_crash"],
+            "integrity": row.get("integrity"),
+            "repetitions": trials,
+            "passed_runs": sum(bool(item["passed"]) for item in group),
+            "cancel_rate": cancel_count / trials,
+            "cancel_wilson95_low": cancel_ci["low"],
+            "cancel_wilson95_high": cancel_ci["high"],
+            "safety_violation_rate": safety_violations / trials,
+            "safety_violation_wilson95_low": safety_ci["low"],
+            "safety_violation_wilson95_high": safety_ci["high"],
+            "false_occupied_rate": false_occ_num / false_occ_den if false_occ_den else None,
+            "false_occupied_wilson95_low": false_occ_ci["low"],
+            "false_occupied_wilson95_high": false_occ_ci["high"],
+            "false_occupied_samples": false_occ_den,
+            "missed_occupied_rate": missed_occ_num / missed_occ_den if missed_occ_den else None,
+            "missed_occupied_wilson95_low": missed_occ_ci["low"],
+            "missed_occupied_wilson95_high": missed_occ_ci["high"],
+            "occupied_samples": missed_occ_den,
+            "mean_detection_latency_sec": _mean_or_none(detection_latencies),
+            "p95_detection_latency_sec": _percentile(detection_latencies, 0.95)
+                if detection_latencies else None,
+            "mean_cancel_latency_sec": _mean_or_none(cancel_latencies),
+            "p95_cancel_latency_sec": _percentile(cancel_latencies, 0.95)
+                if cancel_latencies else None,
+            "mean_recovery_latency_sec": _mean_or_none(recovery_latencies),
+            "p95_recovery_latency_sec": _percentile(recovery_latencies, 0.95)
+                if recovery_latencies else None,
+        })
+    root.mkdir(parents=True, exist_ok=True)
+    summary_path = root / f"rollback_recovery_{profile}_summary.json"
+    summary_path.write_text(json.dumps({
+        "checkpoint": "E7-noisy-two-lane-rollback", "profile": profile,
+        "passed": overall, "completed": len(results), "planned": total,
+        "row_repetitions": row_repetitions,
+        "fixed": {"t_tow_sec": E7_TOW_DELAY_SEC, "t_clear_sec": 1.0,
+                  "main_t_blocked_sec": 2.0, "sigma_lat_m": 0.5,
+                  "sigma_long_m": 1.0, "signal_error": 0.2, "k": 2.0},
+        "blocked_dwell_sweep_sec": list(E7_BLOCKED_DWELLS),
+        "aggregates": aggregates, "results": results,
+    }, indent=2, sort_keys=True) + "\n")
+    flat_path = root / f"rollback_recovery_{profile}_results.csv"
+    fields = ["name", "rep", "blocked_dwell_sec", "operating_point_status",
+              "inject_crash", "integrity",
+              "passed", "cancel_formed", "false_cancel", "false_occupied_rate",
+              "missed_occupied_rate", "detection_latency_sec", "cancel_latency_sec",
+              "recovery_latency_sec", "departed_count", "result_dir"]
+    with flat_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows({key: item.get(key) for key in fields} for item in results)
+    aggregate_path = root / f"rollback_recovery_{profile}_aggregates.csv"
+    with aggregate_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(aggregates[0].keys()))
+        writer.writeheader()
+        writer.writerows(aggregates)
+    print("\n========== E7 NOISY ROLLBACK SUMMARY ==========")
+    print(f"Completed: {len(results)}/{total}")
+    print(f"Overall: {'PASS' if overall else 'FAIL'}")
+    print(f"Summary: {summary_path}")
+    print(f"Results: {flat_path}")
+    print(f"Aggregates: {aggregate_path}")
+    return 0 if overall else 1
+
+
+E8_RESULT_ROOT = REPO_ROOT / "experiments" / "e8_emergency_priority" / "results"
+E8_EARLY_TARGET = 15
+E8_LATE_AMBULANCE = 16
+
+
+def _e8_rows() -> List[Dict[str, Any]]:
+    return [
+        {"name": "predecision_normal_control", "n": 16,
+         "timing": "before_decision", "ambulance": False},
+        {"name": "predecision_ambulance", "n": 16,
+         "timing": "before_decision", "ambulance": True},
+        {"name": "postdecision_ambulance_preemption", "n": 17,
+         "timing": "after_decision", "ambulance": True},
+    ]
+
+
+def _e8_order_decisions(text: str) -> List[Dict[str, Any]]:
+    decisions: List[Dict[str, Any]] = []
+    for match in re.finditer(
+        r"\[EXECUTOR\] OrderDecision: epoch=(\d+) n_vehicles=(\d+) "
+        r"n_batches=(\d+) decisions=\[([^\n]*)\]", text
+    ):
+        assignments = {
+            int(vehicle): int(batch)
+            for vehicle, batch in re.findall(r"veh=(\d+) batch=(\d+)", match.group(4))
+        }
+        decisions.append({
+            "epoch": int(match.group(1)), "n_vehicles": int(match.group(2)),
+            "n_batches": int(match.group(3)), "assignments": assignments,
+        })
+    return decisions
+
+
+def _e8_executor_entries(text: str, epoch: int) -> Dict[int, Dict[str, Any]]:
+    """Return the last committed-entry diagnostic for an E8 epoch."""
+    snapshots: List[Dict[int, Dict[str, Any]]] = []
+    for match in re.finditer(
+        rf"\[EXECUTOR\] entries epoch={epoch} n=\d+:(?P<body>[^\n]*)", text
+    ):
+        entries: Dict[int, Dict[str, Any]] = {}
+        for entry in re.finditer(
+            r"r(?P<replica>\d+)\(lane=(?P<lane>[NSEW?]) "
+            r"pos=(?P<position>\d+) dir=[^ ]+ ambu=(?P<ambulance>[01]) "
+            r"cyber=(?P<cyber>[01]) physicalLane=(?P<physical_lane>\d+)",
+            match.group("body")
+        ):
+            replica = int(entry.group("replica"))
+            entries[replica] = {
+                "lane": entry.group("lane"),
+                "position": int(entry.group("position")),
+                "ambulance": bool(int(entry.group("ambulance"))),
+                "cyber": int(entry.group("cyber")),
+                "physical_lane": int(entry.group("physical_lane")),
+            }
+        if entries:
+            snapshots.append(entries)
+    return snapshots[-1] if snapshots else {}
+
+
+def _e8_selected_order(orders: List[Dict[str, Any]], epoch: int) -> Optional[Dict[str, Any]]:
+    """Pick the last committed order for an epoch, ignoring truncated log lines."""
+    candidates = [order for order in orders if order["epoch"] == epoch]
+    if not candidates:
+        return None
+    complete = [
+        order for order in candidates
+        if len(order["assignments"]) == order["n_vehicles"]
+    ]
+    return (complete or candidates)[-1]
+
+
+def _e8_parse_run(row: Dict[str, Any], run_dir: Path, rep: int) -> Dict[str, Any]:
+    text = (run_dir / "raw_simulation.log").read_text(errors="replace")
+    car_rows: Dict[int, Dict[str, Any]] = {}
+    for match in re.finditer(
+        r"\[CAR-METRICS\] veh(\d+) role=(ambulance|normal) epoch=(\d+) "
+        r"stop_time=(-?[0-9]+(?:\.[0-9]+)?) depart_time=(-?[0-9]+(?:\.[0-9]+)?) "
+        r"wait_stop_to_departure_sec=(-?[0-9]+(?:\.[0-9]+)?)", text
+    ):
+        car_rows[int(match.group(1))] = {
+            "role": match.group(2), "epoch": int(match.group(3)),
+            "stop_time_sec": float(match.group(4)),
+            "depart_time_sec": float(match.group(5)),
+            "wait_sec": float(match.group(6)),
+        }
+    ambulance_ids = sorted(
+        vehicle for vehicle, metrics in car_rows.items()
+        if metrics["role"] == "ambulance"
+    )
+    orders = _e8_order_decisions(text)
+    selected_epoch = 1 if row["timing"] == "after_decision" else 0
+    selected_order = _e8_selected_order(orders, selected_epoch)
+    target = E8_LATE_AMBULANCE if row["timing"] == "after_decision" else E8_EARLY_TARGET
+    target_metrics = car_rows.get(target)
+    target_batch = (
+        selected_order["assignments"].get(target) if selected_order else None
+    )
+    selected_entries = _e8_executor_entries(text, selected_epoch)
+    target_entry = selected_entries.get(target)
+    same_lane_blockers: List[int] = []
+    nonblocking_earlier: List[int] = []
+    if selected_order and target_entry and target_batch is not None:
+        same_lane_blockers = sorted(
+            replica for replica, entry in selected_entries.items()
+            if replica != target and entry["lane"] == target_entry["lane"] and
+            entry["physical_lane"] == target_entry["physical_lane"] and
+            (entry["position"], replica) < (target_entry["position"], target)
+        )
+        blocker_batches = {
+            selected_order["assignments"][replica]
+            for replica in same_lane_blockers
+            if replica in selected_order["assignments"] and
+            selected_order["assignments"][replica] < target_batch
+        }
+        nonblocking_earlier = sorted(
+            replica for replica, batch in selected_order["assignments"].items()
+            if batch < target_batch and batch not in blocker_batches
+        )
+    normal_waits = [
+        metrics["wait_sec"] for metrics in car_rows.values()
+        if metrics["role"] == "normal" and metrics["wait_sec"] >= 0
+    ]
+    all_waits = [
+        metrics["wait_sec"] for metrics in car_rows.values()
+        if metrics["wait_sec"] >= 0
+    ]
+    stop_times = [metrics["stop_time_sec"] for metrics in car_rows.values()
+                  if metrics["stop_time_sec"] >= 0]
+    depart_times = [metrics["depart_time_sec"] for metrics in car_rows.values()
+                    if metrics["depart_time_sec"] >= 0]
+    makespan = (
+        max(depart_times) - min(stop_times) if stop_times and depart_times else None
+    )
+    cert_match = re.search(
+        rf"\[METRICS {target}\] Cert_Created_Time:[^\n]*?latency="
+        r"([0-9]+(?:\.[0-9]+)?)s", text
+    )
+    cert_latency = float(cert_match.group(1)) if cert_match else None
+    first_order_match = re.search(
+        r"\[METRICS \d+\] Order_Decided_Time: ([0-9]+(?:\.[0-9]+)?)", text
+    )
+    first_order_time = float(first_order_match.group(1)) if first_order_match else None
+    spawn_match = re.search(
+        r"\[R0-SUPERVISOR\] injected late vehicles[^\n]*?\bt=([0-9]+(?:\.[0-9]+)?)", text
+    )
+    if spawn_match:
+        spawn_time = float(spawn_match.group(1))
+    else:
+        movement_match = re.search(
+            rf"\[MOVEMENT-GROUND-TRUTH\] vehicle=veh{target}[^\n]*?\bt="
+            r"([0-9]+(?:\.[0-9]+)?)", text
+        )
+        spawn_time = float(movement_match.group(1)) if movement_match else None
+    cancel_time = _first_cancel_commit_time(text, after=spawn_time)
+    rollback_time = _first_log_time(text, "[ROLLBACK-COMMIT]")
+    cert_formed = f"[CERT-ASSEMBLE] target=veh{target}" in text
+    late_emergency_witnesses: set[int] = set()
+    for direct_witness, cancel_witness in re.findall(
+        rf"(?:\[LATE-EMERGENCY-WITNESS\] r(\d+) target=veh{target} "
+        r"authenticated=1\b|\[CANCEL-WITNESS\] r(\d+) "
+        rf"source=arrival_announce car=veh{target}\b)", text
+    ):
+        witness = direct_witness or cancel_witness
+        if witness:
+            late_emergency_witnesses.add(int(witness))
+    late_priority_entry_signed = bool(re.search(
+        rf"\[EXECUTOR\] entries epoch=1[^\n]*\br{target}\("
+        r"[^)]*\bambu=1\b[^)]*\bcyber=1\b", text
+    ))
+    collision_vehicles = {
+        vehicle for vehicle in re.findall(
+            r"\[PHYSICAL-COLLISION\]\s+vehicle=(veh\d+)", text
+        ) if vehicle
+    }
+    collision_vehicles.update(
+        vehicle for vehicle in re.findall(
+            r"(?:\[CRASH_DETECTED\]|collision with vehicle)\s*'?([A-Za-z0-9_-]+)?",
+            text,
+        ) if vehicle
+    )
+    collision_count = len(collision_vehicles)
+    unsafe_count = len(re.findall(r"\[UNSAFE-CONFLICT-COOCCUPANCY\]", text))
+    expected_ambulances = [target] if row["ambulance"] else []
+    checks: Dict[str, bool] = {
+        "simulation_completed": "Simulation stopped with endSimulation()" in text,
+        "all_expected_vehicles_departed": len(car_rows) == int(row["n"]),
+        "authenticated_evidence_clean": not any(marker in text for marker in (
+            "origin signature invalid", "invalid ambulance signature",
+            "rejected uncertified ambulance claim", "certificate validation failed",
+        )),
+        "ambulance_identity_exact": ambulance_ids == expected_ambulances,
+        "target_metrics_present": target_metrics is not None,
+        "target_in_committed_order": target_batch is not None,
+        "no_unsafe_conflicting_cooccupancy": unsafe_count == 0,
+        "no_sumo_collision": collision_count == 0,
+        "no_teleport": "Teleporting vehicle" not in text,
+    }
+    if row["timing"] == "before_decision":
+        checks.update({
+            "no_rollback_for_initial_ambulance": "[CANCEL-COMMIT]" not in text,
+            "ambulance_certificate_formed": (not row["ambulance"]) or cert_formed,
+        })
+    else:
+        checks.update({
+            "late_ambulance_injected": spawn_time is not None,
+            "late_arrival_after_initial_decision": (
+                spawn_time is not None and first_order_time is not None and
+                spawn_time > first_order_time
+            ),
+            # Committed witnesses authenticate and physically corroborate the
+            # late announcement, then emit CANCEL evidence directly.  They do
+            # not reopen Type-4 arrival gossip merely to construct a redundant
+            # post-commit arrival certificate.
+            "late_ambulance_f_plus_one_authenticated_witnesses":
+                len(late_emergency_witnesses) >= 6,
+            "emergency_cancel_committed": cancel_time is not None,
+            "recovery_order_committed": rollback_time is not None,
+            "late_ambulance_has_signed_priority_authority":
+                late_priority_entry_signed,
+            # Priority cannot move an ambulance through cars physically ahead
+            # in its own lane. Every earlier batch must therefore contain a
+            # same-lane queue blocker; unrelated standalone work may not delay
+            # the ambulance.
+            "late_ambulance_at_earliest_physically_feasible_batch": (
+                target_batch is not None and not nonblocking_earlier
+            ),
+            "causal_timing_order": (
+                spawn_time is not None and cancel_time is not None and
+                rollback_time is not None and spawn_time <= cancel_time <= rollback_time
+            ),
+        })
+    return {
+        **row, "rep": rep, "result_dir": str(run_dir),
+        "passed": all(checks.values()), "checks": checks,
+        "ambulance_vehicle_ids": ambulance_ids, "target_vehicle": target,
+        "target_wait_sec": target_metrics["wait_sec"] if target_metrics else None,
+        "target_stop_time_sec": target_metrics["stop_time_sec"] if target_metrics else None,
+        "target_depart_time_sec": target_metrics["depart_time_sec"] if target_metrics else None,
+        "target_certificate_latency_sec": cert_latency,
+        "target_batch_index": target_batch,
+        "same_lane_blocker_ids": same_lane_blockers,
+        "nonblocking_earlier_vehicle_ids": nonblocking_earlier,
+        "normal_mean_wait_sec": _mean_or_none(normal_waits),
+        "normal_p95_wait_sec": _percentile(normal_waits, 0.95) if normal_waits else None,
+        "all_mean_wait_sec": _mean_or_none(all_waits),
+        "all_p95_wait_sec": _percentile(all_waits, 0.95) if all_waits else None,
+        "throughput_veh_per_s": len(car_rows) / makespan if makespan and makespan > 0 else None,
+        "makespan_sec": makespan,
+        "batch_count": selected_order["n_batches"] if selected_order else None,
+        "mean_batch_size": (
+            selected_order["n_vehicles"] / selected_order["n_batches"]
+            if selected_order and selected_order["n_batches"] else None
+        ),
+        "initial_order_time_sec": first_order_time, "late_spawn_time_sec": spawn_time,
+        "cancel_commit_time_sec": cancel_time, "recovery_commit_time_sec": rollback_time,
+        "preemption_latency_sec": (
+            rollback_time - spawn_time
+            if rollback_time is not None and spawn_time is not None else None
+        ),
+        "late_authenticated_witness_count": len(late_emergency_witnesses),
+        "late_signed_priority_authority": late_priority_entry_signed,
+        "unsafe_conflicting_cooccupancy_count": unsafe_count,
+        "sumo_collision_count": collision_count,
+    }
+
+
+def _e8_aggregate(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    aggregates: List[Dict[str, Any]] = []
+    for row in _e8_rows():
+        group = [item for item in results if item["name"] == row["name"]]
+        if not group:
+            continue
+        waits = [item["target_wait_sec"] for item in group
+                 if item["target_wait_sec"] is not None]
+        certs = [item["target_certificate_latency_sec"] for item in group
+                 if item["target_certificate_latency_sec"] is not None]
+        throughputs = [item["throughput_veh_per_s"] for item in group
+                       if item["throughput_veh_per_s"] is not None]
+        preemptions = [item["preemption_latency_sec"] for item in group
+                       if item["preemption_latency_sec"] is not None]
+        aggregates.append({
+            "name": row["name"], "timing": row["timing"],
+            "ambulance": row["ambulance"], "repetitions": len(group),
+            "passed_runs": sum(bool(item["passed"]) for item in group),
+            "mean_ambulance_or_target_wait_sec": _mean_or_none(waits),
+            "p95_ambulance_or_target_wait_sec": _percentile(waits, 0.95) if waits else None,
+            "mean_certificate_latency_sec": _mean_or_none(certs),
+            "mean_throughput_veh_per_s": _mean_or_none(throughputs),
+            "mean_throughput_veh_per_min": (
+                60.0 * _mean_or_none(throughputs) if throughputs else None
+            ),
+            "mean_normal_wait_sec": _mean_or_none([
+                item["normal_mean_wait_sec"] for item in group
+                if item["normal_mean_wait_sec"] is not None
+            ]),
+            "mean_run_normal_p95_wait_sec": _mean_or_none([
+                item["normal_p95_wait_sec"] for item in group
+                if item["normal_p95_wait_sec"] is not None
+            ]),
+            "mean_all_wait_sec": _mean_or_none([
+                item["all_mean_wait_sec"] for item in group
+                if item["all_mean_wait_sec"] is not None
+            ]),
+            "mean_run_all_p95_wait_sec": _mean_or_none([
+                item["all_p95_wait_sec"] for item in group
+                if item["all_p95_wait_sec"] is not None
+            ]),
+            "mean_makespan_sec": _mean_or_none([
+                item["makespan_sec"] for item in group
+                if item["makespan_sec"] is not None
+            ]),
+            "mean_target_batch_index": _mean_or_none([
+                item["target_batch_index"] for item in group
+                if item["target_batch_index"] is not None
+            ]),
+            "mean_batch_size": _mean_or_none([
+                item["mean_batch_size"] for item in group
+                if item["mean_batch_size"] is not None
+            ]),
+            "mean_preemption_latency_sec": _mean_or_none(preemptions),
+            "unsafe_runs": sum(
+                item["unsafe_conflicting_cooccupancy_count"] > 0 for item in group
+            ),
+            "collision_runs": sum(item["sumo_collision_count"] > 0 for item in group),
+        })
+    return aggregates
+
+
+def run_emergency_priority(args: argparse.Namespace, profile: str) -> int:
+    """Evaluate initial-order priority and post-commit emergency preemption."""
+    if profile not in ("smoke", "full"):
+        raise ValueError(f"unsupported emergency-priority profile: {profile}")
+    rows = _e8_rows()
+    scope = args.emergency_priority_scope
+    if scope == "predecision":
+        rows = [row for row in rows if row["timing"] == "before_decision"]
+    elif scope == "postdecision":
+        rows = [row for row in rows if row["timing"] == "after_decision"]
+    repetitions = args.reps if args.reps is not None else (1 if profile == "smoke" else 20)
+    total = repetitions * len(rows)
+    root = E8_RESULT_ROOT / profile
+    if args.dry_run:
+        print(f"[dry-run] emergency priority profile={profile} scope={scope} "
+              f"runs={total} sequential=true")
+    else:
+        run_key_generation(dry_run=False, scale=16)
+        run_key_generation(dry_run=False, scale=17)
+    results: List[Dict[str, Any]] = []
+    index = 0
+    for rep in range(args.start_rep, args.start_rep + repetitions):
+        seed = run_seed(MASTER_SEED, 18, "E8_EMERGENCY_PRIORITY_PAIRED", rep)
+        for row in rows:
+            index += 1
+            run_dir = root / row["name"] / f"run_{rep}"
+            command = [str(RUN_SCRIPT)]
+            if row["timing"] == "after_decision":
+                command += ["--rollback-late-emergency", str(FOURWAY_DIR)]
+                config = "EighteenVehiclesTwoLaneEmergencyResDB"
+            else:
+                command += [str(FOURWAY_DIR)]
+                config = "SixteenVehiclesTwoLaneResDB"
+            command += [
+                "--compact-log", "--channel-metrics-dir", str(run_dir.resolve()),
+                "--approach-sigma", "0", "--signal-error", "0.2",
+                "--direction-collection-window", "0.25",
+                "--ego-longitudinal-sigma", "0", "--longitudinal-sigma", "1.0",
+                "--lane-observation-mode", "ADJACENT_LATERAL",
+                "--lateral-sigma", "0.5", "--physical-gate-k", "2",
+                "--direction-eligibility", "on", "--simulation-seed", str(seed),
+                "--**.scalar-recording=false", "--**.vector-recording=false",
+                "-u", "Cmdenv", "--debug-on-errors=false", "-c", config,
+            ]
+            if row["timing"] == "before_decision":
+                command += [
+                    f"--*.node[*].appl.ambulanceReplicaId="
+                    f"{E8_EARLY_TARGET if row['ambulance'] else -1}",
+                    "--*.node[*].appl.enableAmbulanceCertGate=true",
+                ]
+            if row["timing"] == "after_decision":
+                # Keep the experiment-critical manager controls visible at
+                # OMNeT's command-line precedence.  This also protects the
+                # dedicated harness from an inherited [General] reset in old
+                # compatibility configurations.
+                command += [
+                    "--*.manager.enableR0Supervisor=true",
+                    "--*.manager.r0SpawnAfterCleared=1",
+                    # Keep the late arrival strictly after ORDER(0) in both
+                    # event ordering and recorded simulation time. A zero
+                    # delay is causally correct but rounds both events to the
+                    # same timestamp, making the experimental claim ambiguous.
+                    "--*.manager.lateEmergencyDeltaSec=0.1s",
+                    "--*.manager.r0LateNormalVehicleId=",
+                    "--*.manager.r0LateEmergencyVehicleId=veh16",
+                    "--*.manager.r0LateEmergencyType=ambulance",
+                    "--*.manager.r0LateEmergencyRoute=rE_T_straight",
+                    "--*.manager.intersectionBatchSize=17",
+                    "--*.node[*].appl.ambulanceReplicaId=16",
+                    "--*.node[16].appl.intendedLane=E",
+                    "--*.node[16].appl.intendedDirection=S",
+                ]
+            print(f"\n--- Emergency priority {index}/{total} {row['name']} run_{rep} seed={seed} ---")
+            run_in_bash_with_omnet(
+                " ".join(shlex.quote(value) for value in command), dry_run=args.dry_run
+            )
+            if args.dry_run:
+                continue
+            run_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(LOG_FILE, run_dir / "raw_simulation.log")
+            (run_dir / "run_metadata.json").write_text(json.dumps({
+                "profile": profile, "row": row, "rep": rep, "seed": seed,
+                "fixed_operating_point": {
+                    "approach_sigma_m": 0.0, "sigma_lat_m": 0.5,
+                    "sigma_long_m": 1.0,
+                    "signal_error": 0.2, "k": 2.0,
+                    "certificate_collection_window_sec": 0.25,
+                    "late_emergency_delta_sec": (
+                        0.1 if row["timing"] == "after_decision" else None
+                    ),
+                },
+                "execution": "strictly sequential",
+            }, indent=2, sort_keys=True) + "\n")
+            result = _e8_parse_run(row, run_dir, rep)
+            results.append(result)
+            print(f"[{'PASS' if result['passed'] else 'FAIL'}] "
+                  f"target_wait={result['target_wait_sec']}s "
+                  f"batch={result['target_batch_index']} "
+                  f"preemption={result['preemption_latency_sec']}s")
+    if args.dry_run:
+        return 0
+    aggregates = _e8_aggregate(results)
+    early_control = next((row for row in aggregates
+                          if row["name"] == "predecision_normal_control"), None)
+    early_ambulance = next((row for row in aggregates
+                            if row["name"] == "predecision_ambulance"), None)
+    early_wait_reduction = None
+    if early_control and early_ambulance:
+        control_wait = early_control["mean_ambulance_or_target_wait_sec"]
+        ambulance_wait = early_ambulance["mean_ambulance_or_target_wait_sec"]
+        if control_wait is not None and ambulance_wait is not None:
+            early_wait_reduction = control_wait - ambulance_wait
+    passed = len(results) == total and all(item["passed"] for item in results)
+    root.mkdir(parents=True, exist_ok=True)
+    scope_suffix = "" if scope == "all" else f"_{scope}"
+    summary_path = root / f"emergency_priority_{profile}{scope_suffix}_summary.json"
+    aggregate_path = root / f"emergency_priority_{profile}{scope_suffix}_aggregates.csv"
+    result_path = root / f"emergency_priority_{profile}{scope_suffix}_results.csv"
+    summary_path.write_text(json.dumps({
+        "checkpoint": "E8-emergency-priority", "profile": profile, "scope": scope,
+        "passed": passed, "planned": total, "completed": len(results),
+        "design": {
+            "predecision": "same veh15 route and queue position, normal versus authenticated ambulance",
+            "postdecision": "inject authenticated veh16 ambulance only after ORDER(0); after one departure the active recovery set remains N=16; require CANCEL and ORDER(1)",
+            "paired_seed_policy": "same repetition seed across all three rows",
+            "noise": "same frozen two-lane operating point: sigma_lat=0.5m, sigma_lon=1.0m, signal_error=0.2, k=2",
+        },
+        "predecision_mean_wait_reduction_sec": early_wait_reduction,
+        "aggregates": aggregates, "results": results,
+    }, indent=2, sort_keys=True) + "\n")
+    with aggregate_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(aggregates[0]))
+        writer.writeheader(); writer.writerows(aggregates)
+    result_fields = [
+        "name", "timing", "ambulance", "rep", "passed", "target_vehicle",
+        "target_wait_sec", "target_certificate_latency_sec", "target_batch_index",
+        "normal_mean_wait_sec", "normal_p95_wait_sec", "all_mean_wait_sec",
+        "all_p95_wait_sec", "throughput_veh_per_s", "makespan_sec",
+        "batch_count", "mean_batch_size", "initial_order_time_sec",
+        "late_spawn_time_sec", "cancel_commit_time_sec", "recovery_commit_time_sec",
+        "preemption_latency_sec",
+        "late_authenticated_witness_count", "late_signed_priority_authority",
+        "unsafe_conflicting_cooccupancy_count", "sumo_collision_count", "result_dir",
+    ]
+    with result_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=result_fields)
+        writer.writeheader()
+        writer.writerows({key: item.get(key) for key in result_fields} for item in results)
+    print("\n========== E8 EMERGENCY PRIORITY SUMMARY ==========")
+    print(f"Profile: {profile}")
+    print(f"Completed: {len(results)}/{total}")
+    print(f"Pre-decision mean wait reduction: {early_wait_reduction}s")
+    print(f"Overall: {'PASS' if passed else 'FAIL'}")
+    print(f"Summary: {summary_path}")
+    print(f"Aggregates: {aggregate_path}")
+    print(f"Results: {result_path}")
+    return 0 if passed else 1
+
+
 def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
@@ -7285,6 +9190,42 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         ),
     )
     p.add_argument(
+        "--two-lane-direction-arm-b",
+        action="store_true",
+        help=(
+            "Arm B smoke: same 8S/4L/4R fixture and kSafe, but "
+            "signalObservationError=0 so eligibility-on can form size-2 "
+            "batches. Six sequential runs: honest/FALSE_DIRECTION x "
+            "eligibility-on/off/all-singleton."
+        ),
+    )
+    p.add_argument(
+        "--two-lane-direction-arm-b-full",
+        action="store_true",
+        help=(
+            "Arm B full 120-run matrix after the perfect-cue smoke passes. "
+            "Same six rows, 20 paired repetitions, signal_error=0."
+        ),
+    )
+    p.add_argument(
+        "--two-lane-direction-arm-c",
+        action="store_true",
+        help=(
+            "Arm C smoke: sweep signalObservationError over "
+            "{0,0.05,0.10,0.20,0.30} on the 8S/4L/4R fixture. "
+            "Honest/FALSE_DIRECTION x eligibility-on/off (20 runs). "
+            "Shows UNKNOWN rising and batch falling under ON; OFF stays open."
+        ),
+    )
+    p.add_argument(
+        "--two-lane-direction-arm-c-full",
+        action="store_true",
+        help=(
+            "Arm C full cue-quality sweep after the smoke passes: "
+            "same ε grid and four rows, 10 paired repetitions (200 runs)."
+        ),
+    )
+    p.add_argument(
         "--two-lane-scale-smoke",
         action="store_true",
         help=(
@@ -7298,6 +9239,23 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help=(
             "Run the full honest operating-point scale experiment: 20 "
             "strictly sequential repetitions at each N=4,8,16,20 (80 runs)."
+        ),
+    )
+    p.add_argument(
+        "--two-lane-scale-adversarial-smoke",
+        action="store_true",
+        help=(
+            "Run the 12-row paired operating-point smoke: N=4,8,16,20 "
+            "crossed with honest, false-physical-lane b=f shoulder, and "
+            "b=f+1 cliff/control."
+        ),
+    )
+    p.add_argument(
+        "--two-lane-scale-adversarial-full",
+        action="store_true",
+        help=(
+            "Run 160 new paired attack cells at N=4,8,16,20 for b=f and "
+            "b=f+1, 20 repetitions each, and reuse the completed 80 honest runs."
         ),
     )
     p.add_argument(
@@ -7456,6 +9414,33 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help="Longitudinal scope: four-cell smoke or the 186-run approved full grid.",
     )
     p.add_argument(
+        "--rollback-recovery",
+        choices=("smoke", "full"),
+        help=(
+            "Run E7 noisy two-lane crash/CANCEL/CLEAR sequentially. Smoke runs "
+            "all nine rows once; full runs 20 repetitions for each crash/control "
+            "timer row and five for each binary integrity row (135 runs total)."
+        ),
+    )
+    p.add_argument(
+        "--emergency-priority",
+        choices=("smoke", "full"),
+        help=(
+            "Run the paired emergency-vehicle experiment: veh15 normal versus "
+            "authenticated ambulance before ORDER(0), plus authenticated veh16 "
+            "arrival after ORDER(0) requiring CANCEL and recovery ORDER(1)."
+        ),
+    )
+    p.add_argument(
+        "--emergency-priority-scope",
+        choices=("all", "predecision", "postdecision"),
+        default="all",
+        help=(
+            "Select both E8 questions, only the paired pre-decision normal/"
+            "ambulance comparison, or only the post-decision preemption row."
+        ),
+    )
+    p.add_argument(
         "--phase2-pilot-honest-n",
         type=int,
         choices=(PHASE2_FIXTURE_N,),
@@ -7523,8 +9508,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         or args.two_lane_direction_straight_heavy_prerequisite
         or args.two_lane_direction_straight_heavy
         or args.two_lane_direction_straight_heavy_full
+        or args.two_lane_direction_arm_b
+        or args.two_lane_direction_arm_b_full
+        or args.two_lane_direction_arm_c
+        or args.two_lane_direction_arm_c_full
         or args.two_lane_scale_smoke
         or args.two_lane_scale_honest_full
+        or args.two_lane_scale_adversarial_smoke
+        or args.two_lane_scale_adversarial_full
         or args.attack_defense_equivocation_validation
         or args.attack_defense_leader_validation
         or args.attack_defense_gossip_validation
@@ -7545,6 +9536,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         or args.adjacent_lane_grid_reanalyze
         or args.longitudinal_grid
         or args.longitudinal_grid_reanalyze
+        or args.rollback_recovery
+        or args.emergency_priority
     )
     repetitions = args.reps if args.reps is not None else (
         3 if args.attack_defense_full_validation else
@@ -7576,8 +9569,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                  args.two_lane_direction_straight_heavy_prerequisite or
                  args.two_lane_direction_straight_heavy or
                  args.two_lane_direction_straight_heavy_full or
+                 args.two_lane_direction_arm_b or
+                 args.two_lane_direction_arm_b_full or
+                 args.two_lane_direction_arm_c or
+                 args.two_lane_direction_arm_c_full or
                  args.two_lane_scale_smoke or
                  args.two_lane_scale_honest_full or
+                 args.two_lane_scale_adversarial_smoke or
+                 args.two_lane_scale_adversarial_full or
                  args.attack_defense_equivocation_validation or
                  args.attack_defense_leader_validation or
                  args.attack_defense_gossip_validation or
@@ -7672,8 +9671,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.two_lane_direction_straight_heavy_prerequisite,
         args.two_lane_direction_straight_heavy,
         args.two_lane_direction_straight_heavy_full,
+        args.two_lane_direction_arm_b,
+        args.two_lane_direction_arm_b_full,
+        args.two_lane_direction_arm_c,
+        args.two_lane_direction_arm_c_full,
         args.two_lane_scale_smoke,
         args.two_lane_scale_honest_full,
+        args.two_lane_scale_adversarial_smoke,
+        args.two_lane_scale_adversarial_full,
         args.attack_defense_equivocation_validation,
         args.attack_defense_leader_validation,
         args.attack_defense_gossip_validation,
@@ -7694,6 +9699,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.adjacent_lane_grid_reanalyze,
         args.longitudinal_grid,
         args.longitudinal_grid_reanalyze,
+        args.rollback_recovery,
+        args.emergency_priority,
     ))
     if fixed_presets > 1:
         print("ERROR: choose only one fixed validation preset.", file=sys.stderr)
@@ -7754,6 +9761,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         if args.phase1_validation:
             return run_phase1_validation(args, repetitions)
+        if args.emergency_priority:
+            return run_emergency_priority(args, args.emergency_priority)
         if args.phase2_self_attestation_validation:
             return run_phase2_self_attestation_validation(args, repetitions)
         if args.distance_rank_check10_validation:
@@ -7803,12 +9812,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.two_lane_direction_ablation_full or
             args.two_lane_direction_straight_heavy_prerequisite or
             args.two_lane_direction_straight_heavy or
-            args.two_lane_direction_straight_heavy_full
+            args.two_lane_direction_straight_heavy_full or
+            args.two_lane_direction_arm_b or
+            args.two_lane_direction_arm_b_full or
+            args.two_lane_direction_arm_c or
+            args.two_lane_direction_arm_c_full
         ):
             if (
                 args.two_lane_direction_straight_heavy_prerequisite or
                 args.two_lane_direction_straight_heavy or
-                args.two_lane_direction_straight_heavy_full
+                args.two_lane_direction_straight_heavy_full or
+                args.two_lane_direction_arm_b or
+                args.two_lane_direction_arm_b_full or
+                args.two_lane_direction_arm_c or
+                args.two_lane_direction_arm_c_full
             ):
                 fixture_summary = (
                     FOURWAY_DIR / "two_lane_calibration" / "results" /
@@ -7871,6 +9888,48 @@ def main(argv: Sequence[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return 2
+            if args.two_lane_direction_arm_b or args.two_lane_direction_arm_b_full:
+                if args.two_lane_direction_arm_b_full:
+                    arm_b_smoke = (
+                        REPO_ROOT / "benchmarks" /
+                        "Phase2DirectionAblationArmBPerfectCue" /
+                        "direction_ablation_arm_b_perfect_cue_summary.json"
+                    )
+                    if (not arm_b_smoke.is_file() or not
+                            json.loads(arm_b_smoke.read_text()).get("passed")):
+                        print(
+                            "ERROR: passing --two-lane-direction-arm-b is "
+                            "required before the 120-run Arm B profile.",
+                            file=sys.stderr,
+                        )
+                        return 2
+                return run_two_lane_direction_ablation(
+                    args,
+                    "arm_b_full" if args.two_lane_direction_arm_b_full
+                    else "arm_b_smoke",
+                    "straight_heavy",
+                )
+            if args.two_lane_direction_arm_c or args.two_lane_direction_arm_c_full:
+                if args.two_lane_direction_arm_c_full:
+                    arm_c_smoke = (
+                        REPO_ROOT / "benchmarks" /
+                        "Phase2DirectionAblationArmCCueSweep" /
+                        "direction_ablation_arm_c_cue_sweep_summary.json"
+                    )
+                    if (not arm_c_smoke.is_file() or not
+                            json.loads(arm_c_smoke.read_text()).get("passed")):
+                        print(
+                            "ERROR: passing --two-lane-direction-arm-c is "
+                            "required before the full Arm C cue sweep.",
+                            file=sys.stderr,
+                        )
+                        return 2
+                return run_two_lane_direction_ablation(
+                    args,
+                    "arm_c_full" if args.two_lane_direction_arm_c_full
+                    else "arm_c_smoke",
+                    "straight_heavy",
+                )
             if args.two_lane_direction_straight_heavy_full:
                 smoke_summary = (
                     REPO_ROOT / "benchmarks" /
@@ -7890,7 +9949,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "full" if args.two_lane_direction_straight_heavy_full else "smoke",
                 "straight_heavy",
             )
-        if args.two_lane_scale_smoke or args.two_lane_scale_honest_full:
+        if (
+            args.two_lane_scale_smoke or
+            args.two_lane_scale_honest_full or
+            args.two_lane_scale_adversarial_smoke or
+            args.two_lane_scale_adversarial_full
+        ):
             fixture_prerequisite = (
                 FOURWAY_DIR / "two_lane_calibration" / "results" /
                 "two_lane_scale_fixture_validation.json"
@@ -7902,6 +9966,32 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "required before the multiscale smoke.", file=sys.stderr,
                 )
                 return 2
+            if args.two_lane_scale_adversarial_smoke:
+                return run_two_lane_scale_adversarial_smoke(args)
+            if args.two_lane_scale_adversarial_full:
+                smoke_summary = (
+                    REPO_ROOT / "benchmarks" /
+                    "Phase2TwoLaneScaleAdversarialSmoke" /
+                    "two_lane_scale_adversarial_smoke_summary.json"
+                )
+                honest_summary = (
+                    REPO_ROOT / "benchmarks" / "Phase2TwoLaneScaleHonestFull" /
+                    "two_lane_scale_honest_full_summary.json"
+                )
+                missing = []
+                if (not smoke_summary.is_file() or not
+                        json.loads(smoke_summary.read_text()).get("passed")):
+                    missing.append("passing 12-run adversarial smoke")
+                if (not honest_summary.is_file() or not
+                        json.loads(honest_summary.read_text()).get("passed")):
+                    missing.append("passing 80-run honest multiscale result")
+                if missing:
+                    print(
+                        "ERROR: full adversarial multiscale requires " +
+                        " and ".join(missing), file=sys.stderr,
+                    )
+                    return 2
+                return run_two_lane_scale_adversarial_full(args)
             return run_two_lane_scale(
                 args, "full" if args.two_lane_scale_honest_full else "smoke"
             )
@@ -8049,6 +10139,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return run_longitudinal_grid(args)
         if args.longitudinal_grid_reanalyze:
             return run_longitudinal_grid(args)
+        if args.rollback_recovery:
+            return run_rollback_recovery(args, str(args.rollback_recovery))
         return run_phase2_fixture_validation(args, repetitions)
 
     if args.experiment:

@@ -157,10 +157,11 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         // Guard/ablation switch. Honest replicas arm the same deterministic
         // proposer lease; on expiry they advance to the next candidate.
         bool   enableCancelLeaderFailover                  = default(true);
-        // Scenario-16 fabricated-clearance experiment. The selected epoch-1
-        // recovery proposer submits once while the incident is still BLOCKING,
-        // carrying a structurally present but invalid CLEAR certificate.
+        // Scenario-16 fabricated-clearance experiment. The designated attack
+        // proposer submits one recovery ORDER whose CLEAR trailer is replaced
+        // by a structurally present but invalid zero-echo certificate.
         bool   injectFabricatedClearanceLeader             = default(false);
+        int    fabricatedClearanceLeaderReplicaId          = default(2);
         // Guard/ablation switch for voter-side CLEAR certificate validation.
         // The structural trailer remains required in both modes.
         bool   enableRecoveryClearEvidenceGate             = default(true);
@@ -174,6 +175,10 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         // flag — gated by enableRollback.
         double crashDwellSec @unit(s)                      = default(2.0s);
         double crashSpeedEps                                = default(0.1); // m/s stationary threshold
+        bool   enableNoisyCrashPerception                  = default(false);
+        bool   enableOccupancyPerceptionTrace              = default(false);
+        bool   suppressCrashBlockedEcho                    = default(false);
+        bool   injectForgedCrashBlockedEcho                = default(false);
         // Clearance dwell (CLEAR trigger): a witness treats the conflict box as
         // clear once no vehicle occupies it for this long. Scanned in the same
         // precedingBatchPollPeriodSec tick as crash-dwell above.

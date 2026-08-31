@@ -497,6 +497,56 @@ The full command is resumable. Eligibility ON converts insufficient cue support
 to SIGNED-UNKNOWN; eligibility OFF trusts the authenticated declaration;
 all-singleton disables all co-batching.
 
+### Arm B perfect-cue concurrency — same 8S/4L/4R fixture, `signal_error=0`
+
+The locked `signal_error=0.20` headline leaves most cars as SIGNED-UNKNOWN, so
+eligibility-on stays near singleton even though `kSafe` already allows
+STRAIGHT/RIGHT co-batches. Arm B keeps that scheduler and fixture, and sets
+cue noise to zero so ON can actually form size-2 batches.
+
+Six-row smoke (honest/FALSE_DIRECTION × on/off/all-singleton):
+
+```bash
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
+  --two-lane-direction-arm-b
+```
+
+Full 120-run paired-seed matrix after the smoke passes:
+
+```bash
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
+  --two-lane-direction-arm-b-full
+```
+
+Success criterion: eligibility-on mean batch ≥ 1.3 with zero unsafe
+co-occupancy; eligibility-off under FALSE_DIRECTION still shows the veh0/veh1
+conflict. This is not Exp 1 and not a LEFT-in-`kSafe` change.
+
+### Arm C cue-quality sweep — same fixture, `signal_error` ∈ {0, 0.05, 0.10, 0.20, 0.30}
+
+Arm B is only the perfect-cue point. Arm C is the mechanism curve: as cues
+worsen, eligibility-ON should see SIGNED-UNKNOWN rise and mean batch fall
+toward singleton while staying safe; eligibility-OFF should keep co-batching
+and still unlock the FALSE_DIRECTION conflict.
+
+Smoke (20 runs: 5 ε × honest/FALSE_DIRECTION × on/off; no all-singleton):
+
+```bash
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
+  --two-lane-direction-arm-c
+```
+
+Full 200-run paired-seed sweep after the smoke passes (10 reps):
+
+```bash
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
+  --two-lane-direction-arm-c-full
+```
+
+Curve pass checks: ON under attack stays unsafe=0 / false-eligibility=0 across
+ε; OFF under attack stays unsafe=1; honest ON batch falls and UNKNOWN rises
+from ε=0 to ε=0.30.
+
 ### Honest two-lane scaling — N=4/8/16/20 at the locked operating point
 
 Four-run smoke:
@@ -512,6 +562,42 @@ Full 80-run honest scale experiment, 20 repetitions per N:
 ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
   --two-lane-scale-honest-full
 ```
+
+### Adversarial two-lane scaling — 12-run validation smoke
+
+Runs one paired seed at each `N={4,8,16,20}` for three rows: honest control,
+false-physical-lane evidence at `b=f` (probabilistic shoulder), and at `b=f+1`
+(cliff/control). The locked operating point is `sigma_lat=.5 m`,
+`sigma_long=1 m`, `delta=1.75 m`, `k=2`, and signal error `.20`. The harness
+uses actual finalized-certificate `b_sig`; configured `b=f+1` is not assumed to
+mean all Byzantine signatures reached the collector.
+
+```bash
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
+  --two-lane-scale-adversarial-smoke
+```
+
+Dry-run inspection (no simulation):
+
+```bash
+python3 experiment_orchestrator.py \
+  --two-lane-scale-adversarial-smoke --dry-run
+```
+
+Full statistical matrix after the smoke passes:
+
+```bash
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
+  --two-lane-scale-adversarial-full
+```
+
+The full command executes 160 new attack runs (`4 N × 2 attack roles × 20
+repetitions`) and reuses the completed 80 honest runs, producing one 240-run
+summary. Attack seeds are byte-identical to the corresponding honest `(N,rep)`
+seed. The command is resumable and stores compact analyzer JSON while retaining
+all per-vehicle wait samples and one complete run-wide metrics map. A
+resume-aware disk preflight reserves 4 MiB per incomplete cell plus 128 MiB of
+working headroom and refuses to launch if that minimum is unavailable.
 
 ---
 
@@ -630,7 +716,88 @@ aggregate, confidence interval, table, caption, or plot changes.
 
 ---
 
-## 8. Planned experiments — no runnable CLI yet
+## 8. E7 noisy crash rollback and recovery
+
+One persistent wreck is injected only after the selected committed vehicle is
+verified as the physical front of its exact SUMO lane. Fixed `T_clear=1 s` and
+`T_tow=15 s`; the only timer sweep is `T_blocked={.5,2,5} s`. Both profiles use
+the frozen operating point (`sigma_lat=.5`, `sigma_lon=1`, cue error `.2`,
+`k=2`) and execute strictly sequentially.
+
+Nine-run smoke (three crash/control pairs and three integrity rows):
+
+```bash
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
+  --rollback-recovery smoke
+```
+
+Full profile: 20 repetitions per statistical crash/control row and five per
+binary integrity row, 135 runs total:
+
+```bash
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
+  --rollback-recovery full
+```
+
+Override every row's repetition count only for focused debugging:
+
+```bash
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
+  --rollback-recovery smoke --reps 1 --start-rep 0
+```
+
+Artifacts are written under:
+
+```text
+experiments/e7_rollback_recovery/results/{smoke,full}/
+```
+
+## 9. E8 emergency-vehicle priority
+
+Paired N=16 pre-decision rows compare the same `veh15` as a normal vehicle and
+as an authenticated ambulance. A post-decision row injects a late normal
+vehicle plus an authenticated ambulance after `ORDER(0)` and requires witnessed
+CANCEL, a recovery order with signed ambulance authority, earliest-feasible
+service after vehicles physically ahead in the same lane, all departures, and
+safe physical execution.
+
+Smoke (one paired seed, three rows):
+
+```bash
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
+  --emergency-priority smoke
+```
+
+The completed pre-decision pair can be collected independently (40 runs):
+
+```bash
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
+  --emergency-priority full --emergency-priority-scope predecision
+```
+
+Reproduce only the currently blocked late-arrival smoke while repairing
+recovery consistency:
+
+```bash
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
+  --emergency-priority smoke --emergency-priority-scope postdecision
+```
+
+Planned full profile (20 paired seeds, 60 runs) is locked until the complete
+post-decision smoke passes:
+
+```bash
+ORCHESTRATOR_SKIP_OMNET_SOURCE=1 python3 experiment_orchestrator.py \
+  --emergency-priority full
+```
+
+Artifacts are written under:
+
+```text
+experiments/e8_emergency_priority/results/{smoke,full}/
+```
+
+## 10. Planned experiments — no runnable CLI yet
 
 The following are part of the evaluation roadmap but are not implemented
 orchestrator commands. The proposed flag names below are placeholders only. Do
@@ -638,14 +805,18 @@ not run or cite them as completed.
 
 ### Main adversarial operating-point scale — N=4/8/16/20
 
-Planned rows: honest, false-evidence Byzantine followers, and an actual elected
-Byzantine proposer, all at the locked joint operating point. This must log the
-actual elected proposer and precommit every attack before perception draws.
+The 12-run smoke passed and the full statistical profile is implemented. Its
+statistical rows are false physical-lane evidence at `b=f` and `b=f+1`; the
+completed 80-run honest scale supplies the honest row. Proposal-byte mutation
+remains in the deterministic D-H/J/K integrity suite rather than this
+probability experiment.
 
 ```bash
-# NOT IMPLEMENTED
-# python3 experiment_orchestrator.py --two-lane-scale-adversarial-smoke
-# python3 experiment_orchestrator.py --two-lane-scale-adversarial-full
+# IMPLEMENTED SMOKE
+python3 experiment_orchestrator.py --two-lane-scale-adversarial-smoke
+
+# IMPLEMENTED FULL
+python3 experiment_orchestrator.py --two-lane-scale-adversarial-full
 ```
 
 ### Full baseline/ablation table
@@ -683,18 +854,6 @@ outcome; CANCEL/tow mitigation is separate work.
 # NOT IMPLEMENTED
 # python3 experiment_orchestrator.py --direction-conformance-validation
 # python3 experiment_orchestrator.py --direction-conformance-full
-```
-
-### Recovery under noisy BLOCKED/CLEAR perception
-
-Planned metrics: missed BLOCKED, false CLEAR, recovery latency, and safe halt.
-Use separate crash-observation noise parameters; do not silently reuse lateral
-or signal error as though they were the same sensor channel.
-
-```bash
-# NOT IMPLEMENTED
-# python3 experiment_orchestrator.py --noisy-crash-recovery-smoke
-# python3 experiment_orchestrator.py --noisy-crash-recovery-full
 ```
 
 ### Correlated perception error

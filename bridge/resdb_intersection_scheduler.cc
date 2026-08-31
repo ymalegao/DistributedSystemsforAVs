@@ -39,11 +39,25 @@ int CompareLaneQueueOrder(const ResdbVehicleEntry& a,
   return 0;
 }
 
+bool IsSamePhysicalQueue(const ResdbVehicleEntry& a,
+                         const ResdbVehicleEntry& b) {
+  return a.lane == b.lane &&
+         a.physical_lane_index == b.physical_lane_index;
+}
+
 bool AllSameLaneFrontPlaced(const ResdbVehicleEntry& candidate,
                             const std::vector<ResdbVehicleEntry>& view,
                             const std::unordered_set<int32_t>& placed) {
   for (const auto& v : view) {
-    if (v.lane != candidate.lane) continue;
+    if (!IsSamePhysicalQueue(v, candidate)) continue;
+    // A late ambulance is placed after every normal vehicle already in its
+    // physical queue.  Its noisy rank must therefore neither block those
+    // vehicles nor allow it to overtake them.
+    if (!candidate.is_ambulance && v.is_ambulance) continue;
+    if (candidate.is_ambulance && !v.is_ambulance &&
+        placed.find(v.replica_id) == placed.end()) {
+      return false;
+    }
     if (CompareLaneQueueOrder(v, candidate) < 0 &&
         placed.find(v.replica_id) == placed.end()) {
       return false;
@@ -95,8 +109,13 @@ IntersectionScheduleResult BuildIntersectionSchedule(
   for (const auto& ambulance : ambulances) {
     std::vector<ResdbVehicleEntry> blockers;
     for (const auto& v : entries) {
-      if (v.lane != ambulance.lane || v.is_ambulance) continue;
-      if (CompareLaneQueueOrder(v, ambulance) < 0) blockers.push_back(v);
+      if (!IsSamePhysicalQueue(v, ambulance) || v.is_ambulance) continue;
+      // An ambulance may jump traffic in other physical queues, but it cannot
+      // overtake a vehicle already occupying its own lane.  This conservative
+      // rule is deliberate: position_in_lane is perception-certified and may
+      // invert under longitudinal noise, while every non-ambulance entry in a
+      // late-emergency replan was physically present before the new ambulance.
+      blockers.push_back(v);
     }
     std::sort(blockers.begin(), blockers.end(),
               [](const ResdbVehicleEntry& a, const ResdbVehicleEntry& b) {

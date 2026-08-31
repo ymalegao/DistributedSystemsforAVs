@@ -311,6 +311,98 @@ StoppedDistancePerceptionSample ResDBPerception::observeStoppedDistance(
     return sample;
 }
 
+ConflictBoxPerceptionSample ResDBPerception::observeConflictBoxOccupancy(
+    const std::string& targetCarId, simtime_t now) const
+{
+    auto sample = measureConflictBoxTruth(targetCarId, now);
+    if (!sample.valid) return sample;
+    sample.observedSignedMarginM = sample.trueSignedMarginM +
+        sampleGaussian(longitudinal_observation_sigma_m_);
+    sample.observedOccupied = sample.observedSignedMarginM >= 0.0;
+    return sample;
+}
+
+ConflictBoxPerceptionSample ResDBPerception::measureConflictBoxTruth(
+    const std::string& targetCarId, simtime_t now) const
+{
+    ConflictBoxPerceptionSample sample;
+    sample.observedAt = now;
+    if (!mobility_ || !mobility_->getManager()) return sample;
+    const auto& managedHosts = mobility_->getManager()->getManagedHosts();
+    auto hostIt = managedHosts.find(targetCarId);
+    if (hostIt == managedHosts.end()) return sample;
+    TraCIMobility* targetMobility =
+        FindModule<TraCIMobility*>::findSubModule(hostIt->second);
+    if (!targetMobility) return sample;
+
+    try {
+        auto targetVehicle = targetMobility->getCommandInterface()->vehicle(targetCarId);
+        const std::string laneId = targetVehicle.getLaneId();
+        const std::string roadId = targetVehicle.getRoadId();
+        if (laneId.empty()) return sample;
+        sample.detected = true;
+
+        const double lanePosition = targetVehicle.getLanePosition();
+        const double laneLength = targetMobility->getCommandInterface()
+            ->lane(laneId).getLength();
+        if (!std::isfinite(lanePosition) || !std::isfinite(laneLength) ||
+                laneLength <= 0.0) return sample;
+
+        if (laneId.front() == ':') {
+            sample.trueOccupied = true;
+            sample.trueSignedMarginM =
+                std::max(0.0, std::min(lanePosition, laneLength - lanePosition));
+        } else if (roadId.size() >= 2 && roadId[0] == 'C' && roadId[1] == '2') {
+            // Outbound: distance past the internal-lane exit.
+            sample.trueOccupied = false;
+            sample.trueSignedMarginM = -std::max(0.0, lanePosition);
+        } else if (roadId.size() >= 2 &&
+                roadId[roadId.size() - 2] == '2' && roadId.back() == 'C') {
+            // Inbound: distance remaining to the internal-lane entrance.
+            sample.trueOccupied = false;
+            sample.trueSignedMarginM =
+                -std::max(0.0, laneLength - lanePosition);
+        } else {
+            return sample;
+        }
+
+        sample.observedSignedMarginM = sample.trueSignedMarginM;
+        sample.observedOccupied = sample.trueOccupied;
+        sample.valid = true;
+    } catch (...) {
+    }
+    return sample;
+}
+
+ConflictBoxPerceptionSample ResDBPerception::observeAnyConflictBoxOccupancy(
+    simtime_t now) const
+{
+    ConflictBoxPerceptionSample aggregate;
+    aggregate.observedAt = now;
+    if (!mobility_ || !mobility_->getManager()) return aggregate;
+
+    bool found = false;
+    for (const auto& host : mobility_->getManager()->getManagedHosts()) {
+        const auto candidate = measureConflictBoxTruth(host.first, now);
+        if (!candidate.valid) continue;
+        if (!found || candidate.trueSignedMarginM > aggregate.trueSignedMarginM) {
+            aggregate = candidate;
+            found = true;
+        }
+    }
+    if (!found) return aggregate;
+
+    // One box-level observation per witness/tick.  Applying independent noise
+    // to every queued vehicle and OR-ing the results would make the false-
+    // occupied rate grow artificially with traffic count.
+    aggregate.trueOccupied = aggregate.trueSignedMarginM >= 0.0;
+    aggregate.observedSignedMarginM = aggregate.trueSignedMarginM +
+        sampleGaussian(longitudinal_observation_sigma_m_);
+    aggregate.observedOccupied = aggregate.observedSignedMarginM >= 0.0;
+    aggregate.valid = true;
+    return aggregate;
+}
+
 double ResDBPerception::sampleGaussian(double sigma) const
 {
     if (sigma == 0.0) return 0.0;

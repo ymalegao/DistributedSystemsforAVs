@@ -1,0 +1,200 @@
+{
+  "schema_version": 1,
+  "last_audited": "2026-08-25",
+  "raw_artifact_root": "experiments/*/results",
+  "compatibility_artifact_root": "benchmarks",
+  "status_values": [
+    "FULL_PASS",
+    "SMOKE_PASS",
+    "PARTIAL",
+    "HARNESS_READY",
+    "PLANNED",
+    "DEFERRED"
+  ],
+  "experiments": [
+    {
+      "id": "e0_regression",
+      "status": "FULL_PASS",
+      "summary": "experiments/e0_regression/artifacts/curated/phase1_validation_summary.json",
+      "local_source": "benchmarks/Phase1Validation/phase1_validation_summary.json",
+      "command": "python3 experiment_orchestrator.py --phase1-validation"
+    },
+    {
+      "id": "categorical_phase2_pilot",
+      "status": "FULL_PASS",
+      "planned_runs": 384,
+      "completed_runs": 384,
+      "summary": "experiments/e2_lateral_lane_resilience/artifacts/curated/categorical_phase2_pilot_summary.json",
+      "local_source": "benchmarks/Phase2Pilots/phase2_pilot_summary.json",
+      "note": "Frozen categorical-channel comparison; theory_consistent=true."
+    },
+    {
+      "id": "e1_lane_gate_calibration",
+      "status": "FULL_PASS",
+      "summary": "experiments/e1_lane_gate/artifacts/curated/continuous_coordinate_calibration_summary.json",
+      "local_source": "benchmarks/ContinuousCoordinateCalibration/continuous_coordinate_calibration_summary.json",
+      "command": "python3 experiment_orchestrator.py --continuous-coordinate-calibration"
+    },
+    {
+      "id": "e2_lateral_lane_resilience",
+      "status": "FULL_PASS",
+      "evidence": [
+        {
+          "name": "locked_matrix",
+          "planned_runs": 400,
+          "completed_runs": 400,
+          "summary": "experiments/e2_lateral_lane_resilience/artifacts/curated/two_lane_grid_summary.json",
+          "local_source": "benchmarks/Phase2TwoLaneGrid/two_lane_grid_summary.json"
+        },
+        {
+          "name": "delta_b_completion",
+          "planned_runs": 361,
+          "completed_runs": 361,
+          "summary": "experiments/e2_lateral_lane_resilience/artifacts/curated/delta_b_completion_summary.json",
+          "local_source": "benchmarks/Phase2TwoLaneDeltaBCompletionGrid/delta_b_completion_summary.json"
+        },
+        {
+          "name": "k_sweep",
+          "planned_runs": 360,
+          "completed_runs": 360,
+          "summary": "experiments/e2_lateral_lane_resilience/artifacts/curated/k_sweep_full_summary.json",
+          "local_source": "benchmarks/Phase2TwoLaneKSweep/k_sweep_full_summary.json"
+        },
+        {
+          "name": "sigma_sweep",
+          "planned_runs": 840,
+          "completed_runs": 840,
+          "summary": "experiments/e2_lateral_lane_resilience/artifacts/curated/sigma_sweep_full_summary.json",
+          "local_source": "benchmarks/Phase2TwoLaneSigmaSweep/sigma_sweep_full_summary.json"
+        }
+      ]
+    },
+    {
+      "id": "e3_longitudinal_rank_k2",
+      "status": "FULL_PASS",
+      "planned_smoke_runs": 4,
+      "completed_smoke_runs": 4,
+      "planned_full_runs": 186,
+      "completed_full_runs": 186,
+      "summary": "experiments/e3_longitudinal_rank/artifacts/curated/longitudinal_grid_k2_smoke_summary.json",
+      "local_source": "benchmarks/Phase2DistanceGridK2/longitudinal_grid_summary.json",
+      "completed_command": "python3 experiment_orchestrator.py --longitudinal-grid --longitudinal-grid-profile full --physical-gate-k 2",
+      "next_action": "Curate the full summary, two-panel figure, and paper table."
+    },
+    {
+      "id": "e4_direction_eligibility_straight_heavy",
+      "status": "FULL_PASS",
+      "planned_runs": 120,
+      "completed_runs": 120,
+      "summary": "experiments/e4_direction_eligibility/artifacts/curated/direction_ablation_straight_heavy_full_summary.json",
+      "aggregate": "experiments/e4_direction_eligibility/artifacts/curated/direction_ablation_straight_heavy_full_aggregates.csv",
+      "local_source": "benchmarks/Phase2DirectionAblationStraightHeavyFull/direction_ablation_straight_heavy_full_summary.json"
+    },
+    {
+      "id": "e5_honest_operating_point",
+      "status": "FULL_PASS",
+      "planned_runs": 60,
+      "completed_runs": 60,
+      "summary": "experiments/e5_operating_point/artifacts/curated/honest_operating_k-full_summary.json",
+      "local_source": "benchmarks/Phase2TwoLaneHonestOperatingSweep/honest_operating_k-full_summary.json",
+      "selected": {
+        "sigma_lat_m": 0.5,
+        "sigma_long_m": 1.0,
+        "delta_m": 1.75,
+        "k": 2,
+        "signal_error": 0.2
+      }
+    },
+    {
+      "id": "e5_honest_multiscale",
+      "status": "FULL_PASS",
+      "scales": [4, 8, 16, 20],
+      "repetitions_per_scale": 20,
+      "planned_runs": 80,
+      "completed_runs": 80,
+      "summary": "experiments/e5_operating_point/artifacts/curated/two_lane_scale_honest_full_summary.json",
+      "aggregate": "experiments/e5_operating_point/artifacts/curated/two_lane_scale_honest_full_aggregates.csv",
+      "local_source": "benchmarks/Phase2TwoLaneScaleHonestFull/two_lane_scale_honest_full_summary.json",
+      "note": "Honest row only; not the adversarial scale matrix."
+    },
+    {
+      "id": "main_adversarial_multiscale",
+      "status": "SMOKE_PASS",
+      "scales": [4, 8, 16, 20],
+      "rows": [
+        "honest",
+        "false_physical_lane_evidence_b_f",
+        "false_physical_lane_evidence_b_f_plus_1"
+      ],
+      "smoke_runs": 12,
+      "completed_smoke_runs": 12,
+      "planned_full_runs": 240,
+      "reused_honest_runs": 80,
+      "planned_new_attack_runs": 160,
+      "completed_new_attack_runs": 160,
+      "smoke_command": "python3 experiment_orchestrator.py --two-lane-scale-adversarial-smoke",
+      "full_command": "python3 experiment_orchestrator.py --two-lane-scale-adversarial-full",
+      "summary": "experiments/e5_operating_point/artifacts/curated/two_lane_scale_adversarial_smoke_summary.json",
+      "aggregate": "experiments/e5_operating_point/artifacts/curated/two_lane_scale_adversarial_smoke_aggregates.csv",
+      "full_local_source": "benchmarks/Phase2TwoLaneScaleAdversarialFull/two_lane_scale_adversarial_full_summary.json",
+      "next_action": "Curate the full summary, aggregate table, and paper figures.",
+      "note": "Proposal mutation is evaluated separately by the deterministic E6 integrity suite."
+    },
+    {
+      "id": "e6_attack_defense",
+      "status": "FULL_PASS",
+      "seed_groups": 5,
+      "attacks": ["D", "E", "F", "G", "H", "J", "K"],
+      "summary": "experiments/e6_attack_defense/artifacts/curated/attack_defense_full_validation_summary.json",
+      "local_source": "benchmarks/Phase2AttackDefense/attack_defense_full_validation_summary.json"
+    },
+    {
+      "id": "baselines",
+      "status": "PARTIAL",
+      "complete_rows": ["all_way_stop", "firewall_off", "eligibility_off", "all_singleton"],
+      "missing_rows": ["fixed_time_traffic_light", "unified_table"]
+    },
+    {
+      "id": "e7_rollback_recovery",
+      "status": "PARTIAL",
+      "paper_scope": "crash_only",
+      "complete_rows": [
+        "crash_wait_clear",
+        "fabricated_clear_guarded_unguarded"
+      ],
+      "historical_excluded_rows": ["late_emergency_rollback", "cancel_suppression_guarded_unguarded"],
+      "missing_rows": ["crash_locked_operating_point_statistics"],
+      "deferred_rows": ["noisy_blocked_clear", "conformance_cancel_tow", "dynamic_membership"],
+      "note": "Emergency priority moved to the dedicated E8 experiment."
+    },
+    {
+      "id": "e8_emergency_priority",
+      "status": "PARTIAL",
+      "complete_rows": [
+        "predecision_normal_control",
+        "predecision_ambulance"
+      ],
+      "blocked_rows": [
+        "postdecision_ambulance_preemption"
+      ],
+      "smoke_command": "python3 experiment_orchestrator.py --emergency-priority smoke",
+      "predecision_full_command": "python3 experiment_orchestrator.py --emergency-priority full --emergency-priority-scope predecision",
+      "postdecision_smoke_command": "python3 experiment_orchestrator.py --emergency-priority smoke --emergency-priority-scope postdecision",
+      "full_command": "python3 experiment_orchestrator.py --emergency-priority full",
+      "note": "The paired pre-decision harness and ambulance metrics work. The post-decision row authenticates f+1 CANCEL witnesses but remains blocked on canonical recovery membership/rank snapshots; the full profile is locked until signed ambulance priority, earliest-feasible placement after same-lane blockers, complete departure, and safety all pass together."
+    },
+    {
+      "id": "consistent_maneuver_conformance",
+      "status": "DEFERRED"
+    },
+    {
+      "id": "correlated_perception",
+      "status": "DEFERRED"
+    },
+    {
+      "id": "rsu_resilience",
+      "status": "PLANNED",
+      "note": "Separate branch; CLI and quorum semantics require review before integration."
+    }
+  ]
+}

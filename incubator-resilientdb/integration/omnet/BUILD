@@ -47,3 +47,16 @@ cc_binary(
         ":resdb_bridge",
     ],
 )
+
+cc_test(
+    name = "resdb_intersection_scheduler_test",
+    srcs = [
+        "resdb_intersection_scheduler.cc",
+        "resdb_intersection_scheduler.h",
+        "resdb_intersection_scheduler_test.cc",
+        "resdb_omnet_bridge.h",
+    ],
+    deps = [
+        "//common/test:test_main",
+    ],
+)

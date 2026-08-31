@@ -965,12 +965,23 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
                                                       int carrierReplicaId)
 {
     if (stopped_distance_collection_active_) return;
-    if (discovery_.state != DiscoveryState::COLLECTING || propose_submitted_ ||
-            order_applied_ || crashCommsDisabled_ ||
-            current_phase_ == ConsensusPhase::DEPARTED) return;
     std::vector<uint8_t> announceBytes = payloadBytes(msg);
     ArrivalAnnouncement ann = deserializeArrivalAnnouncement(msg);
     if (ann.carId.empty()) return;
+    // A new authenticated emergency is the one arrival announcement that
+    // committed replicas must still inspect after normal discovery closes.
+    // It does not reopen discovery or restart Type-4 gossip: after full origin,
+    // lane, and Emergency_CA validation below, each witness contributes only
+    // its normal CANCEL echo.  Without this exception, ORDER(e) made every
+    // honest witness discard the late ambulance before the rollback path could
+    // ever collect f+1 emergency witnesses.
+    const bool postCommitEmergency =
+        enableRollback_ && has_committed_order_ && ann.isAmbulance &&
+        !cancel_pending_ && ann.epoch <= last_committed_epoch_;
+    if (!postCommitEmergency &&
+            (discovery_.state != DiscoveryState::COLLECTING ||
+             propose_submitted_ || order_applied_ || crashCommsDisabled_ ||
+             current_phase_ == ConsensusPhase::DEPARTED)) return;
     if (ann.direction == DIR_UNKNOWN) return;
     if (!verifyArrivalAnnouncementOrigin(ann)) {
         std::cout << "[ANN-ORIGIN-INVALID] r" << replicaId_
@@ -1231,6 +1242,13 @@ void ResDBIntersectionApp::handleArrivalAnnouncement(BFTMessage* msg,
         ann.carId, (uint32_t)ann.epoch, announceBytes, simTime().dbl(), 0};
 
     maybeTriggerEmergencyRollbackFromAnnouncement(ann);
+    if (postCommitEmergency) {
+        std::cout << "[LATE-EMERGENCY-WITNESS] r" << replicaId_
+                  << " target=" << ann.carId
+                  << " authenticated=" << (ann.isAmbulance ? 1 : 0)
+                  << " action=cancel-only-no-arrival-gossip\n";
+        return;
+    }
     sendArrivalEcho(ann);
     if (phase2Collusion) {
         std::cout << "[PHASE2-COLLUSION-ECHO] target=" << ann.carId
@@ -1846,6 +1864,27 @@ void ResDBIntersectionApp::handleArrivalCert(BFTMessage* msg)
     if (!validateArrivalCert(cert)) {
         std::cout << "[CERT-INVALID] Replica " << replicaId_ << " dropped ARRIVAL_CERT from "
                   << cert.carId << "\n";
+        return;
+    }
+    // Discovery COMPLETE is the evidence-snapshot boundary for an ORDER.
+    // Mutating collected_certs_ after buildOrderCandidate() can change the
+    // queue population used by deriveQueueRanks(), leaving Check 10 to compare
+    // a frozen proposal against a moving local snapshot.  Certificates may
+    // still arrive while the bounded certificate drain is active, but ordinary
+    // same-round evidence is immutable once that drain completes.  Preserve
+    // the existing post-commit emergency-ambulance path, which deliberately
+    // starts a new recovery round rather than modifying an in-flight ORDER.
+    const bool postCommitEmergency = cert.isAmbulance && has_committed_order_;
+    if (cert.epoch != current_epoch_ ||
+            ((discovery_.state == DiscoveryState::COMPLETE ||
+              propose_submitted_ || order_applied_) && !postCommitEmergency)) {
+        std::cout << "[CERT-LATE-DROP] Replica " << replicaId_
+                  << " target=" << cert.carId
+                  << " cert_epoch=" << cert.epoch
+                  << " current_epoch=" << current_epoch_
+                  << " discovery=" << discoveryStateName()
+                  << " proposed=" << (propose_submitted_ ? 1 : 0)
+                  << " applied=" << (order_applied_ ? 1 : 0) << "\n";
         return;
     }
     if (collected_certs_.count(cert.carId)) return;  // dedup

@@ -364,6 +364,12 @@ void ResDBIntersectionApp::initialize(int stage)
         crash_mac_grace_sec_ = par("crashMacGraceSec").doubleValue();
         crash_dwell_sec_ = par("crashDwellSec").doubleValue();
         crash_speed_eps_ = par("crashSpeedEps").doubleValue();
+        enable_noisy_crash_perception_ = par("enableNoisyCrashPerception").boolValue();
+        enable_occupancy_perception_trace_ =
+            par("enableOccupancyPerceptionTrace").boolValue();
+        suppress_crash_blocked_echo_ = par("suppressCrashBlockedEcho").boolValue();
+        inject_forged_crash_blocked_echo_ =
+            par("injectForgedCrashBlockedEcho").boolValue();
         clear_dwell_sec_ = par("clearDwellSec").doubleValue();
         clear_cert_candidate_slot_sec_ = par("clearCertCandidateSlotSec").doubleValue();
         wait_heartbeat_interval_sec_ = par("waitHeartbeatIntervalSec").doubleValue();
@@ -399,6 +405,8 @@ void ResDBIntersectionApp::initialize(int stage)
             par("enableCancelLeaderFailover").boolValue();
         inject_fabricated_clearance_leader_ =
             par("injectFabricatedClearanceLeader").boolValue();
+        fabricated_clearance_leader_replica_id_ =
+            par("fabricatedClearanceLeaderReplicaId").intValue();
         enable_recovery_clear_evidence_gate_ =
             par("enableRecoveryClearEvidenceGate").boolValue();
         std::cout << "[CANCEL-LEADER-CONFIG] r" << replicaId_
@@ -409,8 +417,20 @@ void ResDBIntersectionApp::initialize(int stage)
         std::cout << "[FABRICATED-CLEARANCE-CONFIG] r" << replicaId_
                   << " inject="
                   << (inject_fabricated_clearance_leader_ ? 1 : 0)
+                  << " attack_proposer=r" << fabricated_clearance_leader_replica_id_
+                  << " is_attack_proposer="
+                  << (replicaId_ == fabricated_clearance_leader_replica_id_ ? 1 : 0)
                   << " evidence_gate="
                   << (enable_recovery_clear_evidence_gate_ ? 1 : 0)
+                  << "\n";
+        std::cout << "[OCCUPANCY-CONFIG] r" << replicaId_
+                  << " enabled=" << (enable_noisy_crash_perception_ ? 1 : 0)
+                  << " sigma_lon=" << par("longitudinalObservationSigmaM").doubleValue()
+                  << " blocked_dwell=" << crash_dwell_sec_
+                  << " clear_dwell=" << clear_dwell_sec_
+                  << " trace=" << (enable_occupancy_perception_trace_ ? 1 : 0)
+                  << " suppress_blocked=" << (suppress_crash_blocked_echo_ ? 1 : 0)
+                  << " forge_blocked=" << (inject_forged_crash_blocked_echo_ ? 1 : 0)
                   << "\n";
         {
             std::string rollbackMode = par("rollbackFaultMode").stdstringValue();
@@ -519,6 +539,8 @@ void ResDBIntersectionApp::initialize(int stage)
                                    &ResDBIntersectionApp::onOrderDecided, this);
         ResdbOmnetSetClearEvidenceCallback(resdb_server_handle_,
                                            &ResDBIntersectionApp::clearEvidenceCallback, this);
+        ResdbOmnetSetRecoveryRejectCallback(resdb_server_handle_,
+                                            &ResDBIntersectionApp::recoveryRejectCallback, this);
         ResdbOmnetSetCertSnapshotFn(resdb_server_handle_,
                                     &ResDBIntersectionApp::certSnapshotCallback, this);
         ResdbOmnetSetVcTimeoutUs(resdb_server_handle_,
@@ -663,6 +685,7 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
     if (msg == transport_poll_msg_) {
         drainOutboundQueue();
         processOrders();
+        consumeRecoveryReject();
         // Detect primary change after view-change.
         if (resdb_server_handle_) {
             int current_primary = ResdbOmnetGetPrimary(resdb_server_handle_);
@@ -693,8 +716,8 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
                     armOrderSuspicionTimer("primary-change");
                 }
                 const bool primary_has_frozen_cert = order_candidate_ &&
-                    std::binary_search(order_candidate_->voterIds.begin(),
-                                       order_candidate_->voterIds.end(),
+                    std::binary_search(order_candidate_->proposerIds.begin(),
+                                       order_candidate_->proposerIds.end(),
                                        current_primary);
                 if (discovery_.state == DiscoveryState::COMPLETE &&
                         order_candidate_ && !primary_has_frozen_cert &&
@@ -704,14 +727,23 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
                               << " epoch=" << current_epoch_
                               << " uncertified_primary=r" << current_primary
                               << " eligible=";
-                    for (size_t i = 0; i < order_candidate_->voterIds.size(); ++i) {
+                    for (size_t i = 0; i < order_candidate_->proposerIds.size(); ++i) {
                         if (i) std::cout << ",";
-                        std::cout << "r" << order_candidate_->voterIds[i];
+                        std::cout << "r" << order_candidate_->proposerIds[i];
                     }
                     std::cout << " action=force-next-pbft-view"
                               << " t=" << simTime() << "\n";
                     order_vc_requested_ = true;
-                    ResdbOmnetForceViewChange(resdb_server_handle_);
+                    const int vcRc = ResdbOmnetForceViewChange(resdb_server_handle_);
+                    std::cout << "[APP-VC] r" << replicaId_
+                              << " uncertified-primary-skip rc=" << vcRc
+                              << " t=" << simTime() << "\n";
+                    if (vcRc == 1) {
+                        // The next transport poll reevaluates this same
+                        // uncertified primary, so no additional timer or
+                        // transmission source is needed here.
+                        order_vc_requested_ = false;
+                    }
                     scheduleAt(simTime() + transport_poll_interval_, transport_poll_msg_);
                     return;
                 }
@@ -1051,9 +1083,14 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
                   << " t=" << simTime() << "\n";
         wait_follower_state_.active = false;
         order_vc_requested_ = true;
-        ResdbOmnetForceViewChange(resdb_server_handle_);
+        const int vcRc = ResdbOmnetForceViewChange(resdb_server_handle_);
         std::cout << "[APP-VC] r" << replicaId_
-                  << " WAIT expiry forced view change t=" << simTime() << "\n";
+                  << " WAIT expiry forced view change rc=" << vcRc
+                  << " t=" << simTime() << "\n";
+        if (vcRc == 1 && !order_applied_) {
+            order_vc_requested_ = false;
+            armOrderSuspicionTimer("wait-vc-proof-incomplete");
+        }
         return;
     }
 
@@ -1089,6 +1126,10 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
                 maybeSendWaitHeartbeat("order-vc-defer");
                 delete msg; return;
             }
+            if (inject_fabricated_clearance_leader_ && cancel_pending_ &&
+                    current_epoch_ == rollback_new_epoch_) {
+                fabricated_clearance_attack_phase_complete_ = true;
+            }
             int primary = ResdbOmnetGetPrimary(resdb_server_handle_);
             std::cout << "[VC-TRIGGER] r" << replicaId_
                       << " forcing view change at " << simTime()
@@ -1102,9 +1143,14 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
             // SendViewChangeMsg() directly.  All downstream VC timers (TYPE_VIEWCHANGE,
             // TYPE_NEWVIEW) use SleepForUs driven by SimTimeProvider → sim-time.
             order_vc_requested_ = true;
-            ResdbOmnetForceViewChange(resdb_server_handle_);
+            const int vcRc = ResdbOmnetForceViewChange(resdb_server_handle_);
             std::cout << "[APP-VC] r" << replicaId_
-                      << " ResdbOmnetForceViewChange returned t=" << simTime() << "\n";
+                      << " ResdbOmnetForceViewChange rc=" << vcRc
+                      << " t=" << simTime() << "\n";
+            if (vcRc == 1 && !order_applied_) {
+                order_vc_requested_ = false;
+                armOrderSuspicionTimer("vc-proof-incomplete");
+            }
         }
         delete msg; return;
     }
@@ -1245,9 +1291,32 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
                 for (int rid : committed_order_batches_[b]) {
                     if (rid == replicaId_) continue;
                     const std::string target = "veh" + std::to_string(rid);
-                    const bool qualified = !vehicleHasClearedIntersectionTraCI(target) &&
-                        vehicleInConflictBoxTraCI(target) &&
-                        vehicleSpeedTraCI(target) < crash_speed_eps_;
+                    bool qualified = false;
+                    if (enable_noisy_crash_perception_ && perception_) {
+                        const auto sample =
+                            perception_->observeConflictBoxOccupancy(target, simTime());
+                        qualified = sample.valid && sample.observedOccupied;
+                        if (sample.valid)
+                            ++occupancy_confusion_[0][sample.trueOccupied ? 1 : 0]
+                                                     [sample.observedOccupied ? 1 : 0];
+                        else
+                            ++occupancy_invalid_[0];
+                        if (enable_occupancy_perception_trace_) {
+                            std::cout << "[OCC-PERCEPTION] witness=" << replicaId_
+                                      << " target=" << target
+                                      << " decision=BLOCKED"
+                                      << " valid=" << (sample.valid ? 1 : 0)
+                                      << " trueOccupied=" << (sample.trueOccupied ? 1 : 0)
+                                      << " observedOccupied=" << (sample.observedOccupied ? 1 : 0)
+                                      << " trueMargin=" << sample.trueSignedMarginM
+                                      << " observedMargin=" << sample.observedSignedMarginM
+                                      << " t=" << simTime() << "\n";
+                        }
+                    } else {
+                        qualified = !vehicleHasClearedIntersectionTraCI(target) &&
+                            vehicleInConflictBoxTraCI(target) &&
+                            vehicleSpeedTraCI(target) < crash_speed_eps_;
+                    }
                     if (!qualified) {
                         crash_dwell_since_.erase(target);
                         continue;
@@ -1264,7 +1333,8 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
                     std::cout << "[CRASH-PERCEIVE] r" << replicaId_
                               << " target=" << target
                               << " batch=" << b
-                              << " dwell=" << dwell << "\n";
+                              << " dwell=" << dwell
+                              << " t=" << simTime() << "\n";
                     maybeTriggerCrashRollback(formatBlockedBatchRef(last_committed_epoch_, (uint32_t)b));
                     crash_echoed_targets_.insert(target);
                 }
@@ -1277,7 +1347,48 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
                 const BlockedIncident& incident = kv.first;
                 if (kv.second.state != IncidentState::BLOCKING) continue;
                 if (clear_echoed_incidents_.count(incident)) continue;
-                if (anyVehicleInConflictBoxTraCI()) {
+                bool observedAnyOccupied = false;
+                bool observationValid = true;
+                bool trueAnyOccupied = anyVehicleInConflictBoxTraCI();
+                if (enable_noisy_crash_perception_ && perception_) {
+                    try {
+                        const auto sample =
+                            perception_->observeAnyConflictBoxOccupancy(simTime());
+                        if (sample.valid)
+                            ++occupancy_confusion_[1][sample.trueOccupied ? 1 : 0]
+                                                     [sample.observedOccupied ? 1 : 0];
+                        else
+                            ++occupancy_invalid_[1];
+                        observationValid = sample.valid;
+                        trueAnyOccupied = sample.valid ? sample.trueOccupied : true;
+                        observedAnyOccupied = sample.valid ? sample.observedOccupied : true;
+                        if (enable_occupancy_perception_trace_) {
+                            std::cout << "[OCC-PERCEPTION] witness=" << replicaId_
+                                      << " target=BOX_NEAREST"
+                                      << " decision=CLEAR"
+                                      << " valid=" << (sample.valid ? 1 : 0)
+                                      << " trueOccupied=" << (sample.trueOccupied ? 1 : 0)
+                                      << " observedOccupied=" << (sample.observedOccupied ? 1 : 0)
+                                      << " trueMargin=" << sample.trueSignedMarginM
+                                      << " observedMargin=" << sample.observedSignedMarginM
+                                      << " t=" << simTime() << "\n";
+                        }
+                    } catch (...) {
+                        observationValid = false;
+                        observedAnyOccupied = true;
+                    }
+                } else {
+                    observedAnyOccupied = trueAnyOccupied;
+                }
+                if (enable_occupancy_perception_trace_) {
+                    std::cout << "[OCC-DECISION] witness=" << replicaId_
+                              << " decision=CLEAR"
+                              << " valid=" << (observationValid ? 1 : 0)
+                              << " trueOccupied=" << (trueAnyOccupied ? 1 : 0)
+                              << " observedOccupied=" << (observedAnyOccupied ? 1 : 0)
+                              << " t=" << simTime() << "\n";
+                }
+                if (observedAnyOccupied) {
                     clear_dwell_since_.erase(incident);
                     continue;
                 }
@@ -1465,6 +1576,15 @@ void ResDBIntersectionApp::finish()
                          static_cast<double>(quietHonestOpportunities_))
                       : 0.0)
               << "\n";
+    for (int decision = 0; decision < 2; ++decision) {
+        std::cout << "[OCC-METRICS] witness=" << replicaId_
+                  << " decision=" << (decision == 0 ? "BLOCKED" : "CLEAR")
+                  << " true0_obs0=" << occupancy_confusion_[decision][0][0]
+                  << " true0_obs1=" << occupancy_confusion_[decision][0][1]
+                  << " true1_obs0=" << occupancy_confusion_[decision][1][0]
+                  << " true1_obs1=" << occupancy_confusion_[decision][1][1]
+                  << " invalid=" << occupancy_invalid_[decision] << "\n";
+    }
     if (perception_) {
         std::cout << "[PERCEPTION-RNG] replica=" << replicaId_
                   << " draws=" << perception_->randomDrawCount() << "\n";

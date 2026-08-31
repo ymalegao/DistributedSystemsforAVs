@@ -119,6 +119,7 @@ public:
     }
 
     void notifyR0BatchStarted(const std::string& vehicleId, int batchIndex);
+    void configureCrashSchedule(const std::vector<std::vector<int>>& batches);
 
     /**
      * Predicate indicating a successful connection to the TraCI server.
@@ -203,6 +204,7 @@ protected:
     std::vector<std::string> crashWreckIds_;
     std::set<std::string> crashInjected_;
     std::set<std::string> crashTowed_;
+    std::set<std::string> crashTowPending_; /**< terminal intent while TraCI removal is in flight */
     std::set<std::string> crashConflictOccupantsAtInjection_;
     std::set<std::string> crashUnsafeEntrants_;
     std::map<std::string, simtime_t> crashPendingInjectAt_;

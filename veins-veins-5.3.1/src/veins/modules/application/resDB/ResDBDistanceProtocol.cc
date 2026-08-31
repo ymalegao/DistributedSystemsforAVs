@@ -575,6 +575,21 @@ void ResDBIntersectionApp::handleStoppedDistanceCert(BFTMessage* msg)
     const StoppedDistanceCert cert = deserializeStoppedDistanceCert(msg);
     if (!validateStoppedDistanceCert(cert)) return;
     const std::string& carId = cert.attestation.targetCarId;
+    // A completed discovery round is an immutable Check-10 snapshot.  Late
+    // distance certificates would otherwise change the membership of a
+    // longitudinal queue and renumber already-proposed entries during PBFT.
+    if (cert.attestation.epoch != current_epoch_ ||
+            discovery_.state == DiscoveryState::COMPLETE ||
+            propose_submitted_ || order_applied_) {
+        std::cout << "[DIST-CERT-LATE-DROP] r" << replicaId_
+                  << " target=" << carId
+                  << " cert_epoch=" << cert.attestation.epoch
+                  << " current_epoch=" << current_epoch_
+                  << " discovery=" << discoveryStateName()
+                  << " proposed=" << (propose_submitted_ ? 1 : 0)
+                  << " applied=" << (order_applied_ ? 1 : 0) << "\n";
+        return;
+    }
     {
         std::lock_guard<std::mutex> lk(certs_mutex_);
         if (collected_distance_certs_.count(carId)) return;

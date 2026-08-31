@@ -53,6 +53,21 @@ struct StoppedDistancePerceptionSample {
     omnetpp::simtime_t observedAt{};
 };
 
+// One noisy longitudinal classification of a target relative to the conflict
+// zone.  signedMarginM is positive inside an internal junction lane and
+// negative on either adjoining external edge.  This gives BLOCKED and CLEAR a
+// physical observation channel without treating TraCI's lane-id bit as a
+// perfect sensor.
+struct ConflictBoxPerceptionSample {
+    bool detected = false;
+    bool valid = false;
+    bool trueOccupied = false;
+    bool observedOccupied = false;
+    double trueSignedMarginM = 0.0;
+    double observedSignedMarginM = 0.0;
+    omnetpp::simtime_t observedAt{};
+};
+
 class ResDBPerception {
 public:
     void configure(TraCIMobility* mobility,
@@ -74,6 +89,10 @@ public:
     StoppedDistancePerceptionSample observeStoppedDistance(
         const std::string& targetCarId, omnetpp::simtime_t now,
         double stationarySpeedMps) const;
+    ConflictBoxPerceptionSample observeConflictBoxOccupancy(
+        const std::string& targetCarId, omnetpp::simtime_t now) const;
+    ConflictBoxPerceptionSample observeAnyConflictBoxOccupancy(
+        omnetpp::simtime_t now) const;
 
     uint64_t randomDrawCount() const { return random_draw_count_; }
 
@@ -95,6 +114,8 @@ private:
     char sampleApproach(char truth) const;
     ObservedCue sampleCue(ObservedCue truth) const;
     double sampleGaussian(double sigma) const;
+    ConflictBoxPerceptionSample measureConflictBoxTruth(
+        const std::string& targetCarId, omnetpp::simtime_t now) const;
 
     TraCIMobility* mobility_ = nullptr;
     omnetpp::cRNG* rng_ = nullptr;

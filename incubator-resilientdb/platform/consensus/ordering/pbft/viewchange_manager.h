@@ -112,16 +112,18 @@ class ViewChangeManager {
   void SetTimeoutLength(uint64_t us) { timeout_length_ = us; }
 
   // Directly initiate a view-change from outside the complaint chain.
-  // Safe to call from any thread; idempotent (ChangeStatue guards re-entry).
-  void TriggerViewChangeNow() {
+  // Returns true only when a complete, locally justified VIEW-CHANGE was
+  // broadcast. A caller may retry later if local prepared proof is incomplete.
+  bool TriggerViewChangeNow() {
     MayStart();
     if (ChangeStatue(ViewChangeStatus::READY_VIEW_CHANGE)) {
-      SendViewChangeMsg();
+      return SendViewChangeMsg();
     }
+    return false;
   }
 
  private:
-  void SendViewChangeMsg();
+  bool SendViewChangeMsg();
   void SendNewViewMsg(uint64_t view_number);
   bool IsValidViewChangeMsg(const ViewChangeMessage& view_change_message);
   uint32_t AddRequest(const ViewChangeMessage& viewchange_message,

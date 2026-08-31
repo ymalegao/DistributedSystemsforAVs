@@ -180,8 +180,10 @@ cc_library(
 cc_test(
     name = "viewchange_manager_test",
     srcs = ["viewchange_manager_test.cpp"],
+    linkstatic = True,
     tags = ["manual"],
     deps = [
+        "//:cryptopp_lib",
         ":viewchange_manager",
         "//common/crypto:mock_signature_verifier",
         "//common/test:test_main",

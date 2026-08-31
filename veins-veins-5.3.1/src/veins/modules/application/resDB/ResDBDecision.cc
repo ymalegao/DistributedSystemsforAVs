@@ -104,7 +104,12 @@ void ResDBIntersectionApp::proposeAll()
         return;
     }
     const OrderCandidate& candidate = *order_candidate_;
-    const int orderPrimary = currentOrderPrimary();
+    // Fabricated-CLEAR integrity: the attack proposer is not the cert-elected
+    // recovery primary.  currentOrderPrimary() still reports that cert primary,
+    // so without this bypass proposeAll no-ops after logging submit-invalid-clear
+    // and the missing-evidence gate never runs.
+    const bool fabricatedAttack = fabricated_clearance_attack_active_;
+    const int orderPrimary = fabricatedAttack ? replicaId_ : currentOrderPrimary();
     if (orderPrimary < 0) {
         std::cout << "[CERT-PRIMARY] r" << replicaId_
                   << " proposeAll skipped: no ORDER primary yet\n";
@@ -115,12 +120,14 @@ void ResDBIntersectionApp::proposeAll()
                   << " proposeAll skipped: order_primary=" << orderPrimary << "\n";
         return;
     }
+    const int installPrimary =
+        fabricatedAttack ? replicaId_ : candidate.initialPrimary;
     if (!order_vc_authoritative_ &&
             ResdbOmnetSetPrimaryFromCert(resdb_server_handle_,
-                                         candidate.initialPrimary) != 0) {
+                                         installPrimary) != 0) {
         std::cout << "[CERT-PRIMARY] r" << replicaId_
                   << " proposeAll skipped: failed to install PBFT primary"
-                  << " cert_primary=" << candidate.initialPrimary << "\n";
+                  << " cert_primary=" << installPrimary << "\n";
         return;
     }
     stopCertBroadcastRetries();
@@ -352,7 +359,12 @@ void ResDBIntersectionApp::proposeAll()
     // rollback never populate incidentRegistry_, so clearCerts stays empty.
     std::vector<std::vector<uint8_t>> clearCerts = candidate.clearCerts;
     if (rollbackOrderEpoch) {
-        if (fabricated_clearance_attack_active_ && clearCerts.empty()) {
+        if (fabricated_clearance_attack_active_) {
+            // Replace (rather than append to) the genuine evidence carried by
+            // the complete recovery candidate.  This isolates Check 16: all
+            // declaration, membership, and scheduling fields remain valid,
+            // while the sole CLEAR certificate has no supporting echoes.
+            clearCerts.clear();
             // Preserve the proposal's wire shape so the experiment isolates
             // certificate validation rather than malformed-packet rejection.
             // Zero echoes makes this certificate cryptographically invalid.
@@ -370,6 +382,10 @@ void ResDBIntersectionApp::proposeAll()
                       << " batch=" << forged.executingBatch
                       << " forged_echoes=0"
                       << " action=attach-invalid-clear\n";
+            std::cout << "[ATTACK-PROPOSER] replica=" << replicaId_
+                      << " epoch=" << current_epoch_
+                      << " fault=FABRICATED_CLEARANCE"
+                      << " forged_echoes=0\n";
         }
     }
     size_t trailerSize = 0;
@@ -999,6 +1015,10 @@ void ResDBIntersectionApp::processOrders()
             if (decisions[i].batch_index < ohdr.n_batches)
                 committed_order_batches_[decisions[i].batch_index].push_back(decisions[i].replica_id);
         }
+        if (replicaId_ == 0 && ohdr.epoch == 0) {
+            if (auto* manager = TraCIScenarioManagerAccess().get())
+                manager->configureCrashSchedule(committed_order_batches_);
+        }
 
         // Adopt any CLEAR evidence trailer the executor forwarded from the
         // proposal (spec §12.1) — lets a replica that missed CLEAR gossip
@@ -1070,6 +1090,30 @@ void ResDBIntersectionApp::processOrders()
 
         detectConsensusAttackOutcome(decisions, ohdr.n_vehicles, ohdr.n_batches);
 
+        // A dynamically injected post-commit vehicle can hear ORDER(e) gossip
+        // before it reaches the stop zone.  It is intentionally absent from
+        // that already-committed membership.  Applying the stale order here
+        // used to deactivate discovery and permanently prevent the late
+        // ambulance from announcing, so emergency CANCEL could never start.
+        // Keep the existing excluded-member behavior for original replicas;
+        // only identities outside the original totalVehicles universe ignore
+        // a slot-less order and continue arrival discovery.
+        bool decisionContainsSelf = false;
+        for (uint32_t i = 0; i < ohdr.n_vehicles; ++i) {
+            if (decisions[i].replica_id == replicaId_) {
+                decisionContainsSelf = true;
+                break;
+            }
+        }
+        if (!decisionContainsSelf && replicaId_ >= total_vehicles_) {
+            std::cout << "[ORDER-LATE-IGNORE] r" << replicaId_
+                      << " epoch=" << ohdr.epoch
+                      << " original_total=" << total_vehicles_
+                      << " reason=no-slot-continue-discovery"
+                      << " t=" << simTime() << "\n";
+            continue;
+        }
+
         std::cout << "[METRICS " << replicaId_ << "] Order_Decided_Time: " << simTime()
                   << " n_batches=" << ohdr.n_batches << "\n";
         
@@ -1120,6 +1164,12 @@ void ResDBIntersectionApp::processOrders()
             }
             if (ohdr.epoch == current_epoch_) {
                 order_applied_ = true;
+                my_batch_index_ = -1;
+                preceding_batch_cars_.clear();
+                if (preceding_batch_poll_msg_ &&
+                        preceding_batch_poll_msg_->isScheduled())
+                    cancelEvent(preceding_batch_poll_msg_);
+                stopVehicle();
                 std::cout << "[ORDER-WARN] r" << replicaId_
                           << " no slot in current epoch; staying stopped/excluded\n";
             }
@@ -1134,7 +1184,14 @@ void ResDBIntersectionApp::processOrders()
         // Trigger post-consensus gossip so stragglers can catch up.
         if (gossip_enabled_) {
             has_committed_order_  = true;
-            if (gossip_order_bytes_.empty())
+            // A late epoch-e decision can leave its retry bytes cached after
+            // rollback has already advanced to e+1.  Never let that stale
+            // buffer suppress dissemination of the newly committed recovery
+            // order.  Restart only for a different decision; callbacks for
+            // the same committed bytes keep the existing retry schedule.
+            if (gossip_order_bytes_.empty() ||
+                    gossip_epoch_ != ohdr.epoch ||
+                    gossip_order_bytes_ != dec)
                 triggerGossip(ohdr.epoch, dec);
         }
         current_phase_ = ConsensusPhase::EXECUTING;

@@ -213,6 +213,12 @@ struct ClearEvidenceState {
   void*                ctx = nullptr;
 };
 
+struct RecoveryRejectState {
+  std::mutex             mu;
+  ResdbRecoveryRejectFn  fn  = nullptr;
+  void*                  ctx = nullptr;
+};
+
 // Which "new" epochs (cancelled_epoch + 1) are crash-recovery epochs that
 // require a CLEAR evidence trailer before their ORDER proposal may pass
 // PreVerify. Populated by the executor when a CANCEL_CRASH decision commits.
@@ -334,13 +340,16 @@ bool BuildForcedViewCandidate(const ProposalView& view,
   const uint8_t* p = view.data + sizeof(ResdbProposeHdr);
   std::vector<int> voter_members;
   voter_members.reserve(hdr.n_vehicles);
+  bool leader_is_signed = false;
   for (uint32_t i = 0; i < hdr.n_vehicles; ++i) {
     ResdbVehicleEntry e;
     std::memcpy(&e, p, sizeof(e));
     p += sizeof(e);
     if (e.replica_id < 0 || e.replica_id >= expected_replicas) return false;
-    if (e.cyber_status == 1 && e.sim_time_us != UINT64_MAX) {
-      voter_members.push_back(e.replica_id);
+    voter_members.push_back(e.replica_id);
+    if (e.replica_id == hdr.leader_id &&
+        e.cyber_status == 1 && e.sim_time_us != UINT64_MAX) {
+      leader_is_signed = true;
     }
   }
   std::sort(voter_members.begin(), voter_members.end());
@@ -359,8 +368,7 @@ bool BuildForcedViewCandidate(const ProposalView& view,
               << " leader=r" << hdr.leader_id << "\n";
     return false;
   }
-  if (!std::binary_search(voter_members.begin(), voter_members.end(),
-                          hdr.leader_id)) {
+  if (!leader_is_signed) {
     return false;
   }
 
@@ -599,6 +607,7 @@ bool BuildEpochOrderViewCandidate(
   const uint8_t* p = proposal_data + sizeof(ResdbProposeHdr);
   std::vector<int> voter_members;
   voter_members.reserve(hdr.n_vehicles);
+  bool leader_is_signed = false;
   for (uint32_t i = 0; i < hdr.n_vehicles; ++i) {
     ResdbVehicleEntry e;
     std::memcpy(&e, p, sizeof(e));
@@ -611,8 +620,11 @@ bool BuildEpochOrderViewCandidate(
                 << " expected=" << expected_replicas << "\n";
       return false;
     }
-    if (e.cyber_status == 1 && e.sim_time_us != UINT64_MAX) {
-      voter_members.push_back(e.replica_id);
+    // QUIET is scheduling-only; every expected member is a PBFT voter.
+    voter_members.push_back(e.replica_id);
+    if (e.replica_id == hdr.leader_id &&
+        e.cyber_status == 1 && e.sim_time_us != UINT64_MAX) {
+      leader_is_signed = true;
     }
   }
   std::sort(voter_members.begin(), voter_members.end());
@@ -636,8 +648,7 @@ bool BuildEpochOrderViewCandidate(
               << " leader=r" << hdr.leader_id << "\n";
     return false;
   }
-  if (!std::binary_search(voter_members.begin(), voter_members.end(),
-                          hdr.leader_id)) {
+  if (!leader_is_signed) {
     std::cout << "[EPOCH-VIEW-REJECT]"
               << " reason=leader-not-signed"
               << " epoch=" << hdr.epoch
@@ -1095,11 +1106,11 @@ class OmnetConsensusManagerPBFT : public resdb::ConsensusManagerPBFT {
   // checkpoint chain entirely.  All downstream VC timers (TYPE_VIEWCHANGE,
   // TYPE_NEWVIEW) use SleepForUs, which is driven by SimTimeProvider →
   // OMNeT++ sim-time via time_tick_msg_.
-  void TriggerViewChange() {
-    if (!view_change_manager_) return;
+  bool TriggerViewChange() {
+    if (!view_change_manager_) return false;
     LOG(INFO) << "[VC-FORCE] TriggerViewChangeNow sim_us="
               << resdb::SimTimeProvider::NowUs();
-    view_change_manager_->TriggerViewChangeNow();
+    return view_change_manager_->TriggerViewChangeNow();
   }
 
   int PromotePrimaryFromCert(int primary_omnet) {
@@ -1172,6 +1183,7 @@ struct ResdbOmnetServerHandle {
   std::shared_ptr<CertCheckState> cert_state;
   std::shared_ptr<ToleratedFaultState> tolerated_fault_state;
   std::shared_ptr<ClearEvidenceState> clear_evidence_state;
+  std::shared_ptr<RecoveryRejectState> recovery_reject_state;
   std::shared_ptr<CrashRecoveryState> crash_recovery_state;
 };
 
@@ -1214,6 +1226,7 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
   auto cert_state = std::make_shared<CertCheckState>();
   auto tolerated_fault_state = std::make_shared<ToleratedFaultState>();
   auto clear_evidence_state = std::make_shared<ClearEvidenceState>();
+  auto recovery_reject_state = std::make_shared<RecoveryRejectState>();
   auto crash_recovery_state = std::make_shared<CrashRecoveryState>();
   executor_ptr->SetCrashRecoveryState(crash_recovery_state);
 
@@ -1294,7 +1307,8 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
     });
   } else {
   service_ptr->SetPreVerifyFunc([expected, cert_state, service_ptr, tolerated_fault_state,
-                                 clear_evidence_state, crash_recovery_state](const resdb::Request& req) -> bool {
+                                 clear_evidence_state, recovery_reject_state,
+                                 crash_recovery_state](const resdb::Request& req) -> bool {
     if (req.type() != resdb::Request::TYPE_PRE_PREPARE &&
         req.type() != resdb::Request::TYPE_NEW_TXNS) {
       return true;
@@ -1421,6 +1435,14 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
                     << " epoch=" << hdr.epoch
                     << " hash=" << req.hash()
                     << " seq=" << req.seq() << "\n";
+          ResdbRecoveryRejectFn reject_fn = nullptr;
+          void* reject_ctx = nullptr;
+          {
+            std::lock_guard<std::mutex> lk(recovery_reject_state->mu);
+            reject_fn = recovery_reject_state->fn;
+            reject_ctx = recovery_reject_state->ctx;
+          }
+          if (reject_fn) reject_fn(reject_ctx, hdr.epoch, hdr.leader_id, 1);
           return false;
         }
       }
@@ -1817,6 +1839,7 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
   handle->cert_state = cert_state;
   handle->tolerated_fault_state = tolerated_fault_state;
   handle->clear_evidence_state = clear_evidence_state;
+  handle->recovery_reject_state = recovery_reject_state;
   handle->crash_recovery_state = crash_recovery_state;
   return handle;
 }
@@ -2178,8 +2201,7 @@ extern "C" int ResdbOmnetForceViewChange(void* server_handle) {
   auto* h = static_cast<ResdbOmnetServerHandle*>(server_handle);
   if (!h->consensus) return -1;
   std::cout << "[VC-BRIDGE] ForceViewChange requested\n";
-  h->consensus->TriggerViewChange();
-  return 0;
+  return h->consensus->TriggerViewChange() ? 0 : 1;
 }
 
 extern "C" int ResdbOmnetSetPbftSilent(void* server_handle, int silent) {
@@ -2275,5 +2297,16 @@ extern "C" int ResdbOmnetSetClearEvidenceCallback(void* server_handle,
   std::lock_guard<std::mutex> lk(h->clear_evidence_state->mu);
   h->clear_evidence_state->fn  = fn;
   h->clear_evidence_state->ctx = ctx;
+  return 0;
+}
+
+extern "C" int ResdbOmnetSetRecoveryRejectCallback(
+    void* server_handle, ResdbRecoveryRejectFn fn, void* ctx) {
+  if (!server_handle) return -1;
+  auto* h = static_cast<ResdbOmnetServerHandle*>(server_handle);
+  if (!h->recovery_reject_state) return -1;
+  std::lock_guard<std::mutex> lk(h->recovery_reject_state->mu);
+  h->recovery_reject_state->fn = fn;
+  h->recovery_reject_state->ctx = ctx;
   return 0;
 }

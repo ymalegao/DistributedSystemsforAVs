@@ -246,6 +246,15 @@ typedef int (*ResdbClearEvidenceFn)(void* ctx,
 int ResdbOmnetSetClearEvidenceCallback(void* server_handle,
                                        ResdbClearEvidenceFn fn, void* ctx);
 
+/* Notification for a recovery ORDER rejected before PBFT installs/prepares
+ * the request.  It runs on a ResDB worker thread; the application must only
+ * enqueue/atomically record the event and handle it on the simulation thread.
+ * reason=1 denotes missing/invalid CLEAR evidence. */
+typedef void (*ResdbRecoveryRejectFn)(void* ctx, uint32_t epoch,
+                                      int32_t leader_id, int32_t reason);
+int ResdbOmnetSetRecoveryRejectCallback(void* server_handle,
+                                        ResdbRecoveryRejectFn fn, void* ctx);
+
 /* Return the 0-based primary replica ID from PBFT SystemInfo.
  * Returns 0 if the handle is null or the consensus is not yet started. */
 int ResdbOmnetGetPrimary(void* server_handle);

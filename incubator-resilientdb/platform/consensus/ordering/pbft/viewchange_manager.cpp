@@ -172,8 +172,8 @@ void ViewChangeManager::MayStart() {
       view_change_counter_++;
     }
     // std::lock_guard<std::mutex> lk(status_mutex_);
-    if (ChangeStatue(ViewChangeStatus::READY_VIEW_CHANGE)) {
-      SendViewChangeMsg();
+    if (ChangeStatue(ViewChangeStatus::READY_VIEW_CHANGE) &&
+        SendViewChangeMsg()) {
       auto viewchange_timer = std::make_shared<ViewChangeTimeout>(
           ViewChangeTimerType::TYPE_VIEWCHANGE, system_info_->GetCurrentView(),
           config_.GetSelfInfo().id(), "null", GetCurrentTime(),
@@ -474,7 +474,7 @@ void ViewChangeManager::SendNewViewMsg(uint64_t view_number) {
   replica_communicator_->BroadCast(*request);
 }
 
-void ViewChangeManager::SendViewChangeMsg() {
+bool ViewChangeManager::SendViewChangeMsg() {
   // PBFT Paper - <VIEW-CHANGE, v + x, n, C, P)
   ViewChangeMessage view_change_message;
   // v + x (view number of the next expected primary)
@@ -506,7 +506,30 @@ void ViewChangeManager::SendViewChangeMsg() {
     if (checkpoint_manager_->IsCommitted(i)) {
       std::vector<RequestInfo> proof_info =
           message_manager_->GetPreparedProof(i);
-      assert(proof_info.size() >= config_.GetMinDataReceiveNum());
+      const size_t required = config_.GetMinDataReceiveNum();
+      if (proof_info.size() < required) {
+        // A process-wide abort is unsafe here: an OMNeT replica can lag the
+        // quorum that committed the order and then fire its suspicion timer.
+        // Never broadcast a VIEW-CHANGE with incomplete P evidence. Return to
+        // NONE so the caller can defer/retry while order gossip catches up.
+        LOG(ERROR) << "[VC-PROOF-INCOMPLETE] action=defer-view-change"
+                   << " seq=" << i
+                   << " prepared_proofs=" << proof_info.size()
+                   << " required=" << required
+                   << " min_seq=" << min_seq
+                   << " max_seq=" << max_seq
+                   << " current_view=" << system_info_->GetCurrentView();
+        std::cout << "[VC-PROOF-INCOMPLETE] action=defer-view-change"
+                  << " seq=" << i
+                  << " prepared_proofs=" << proof_info.size()
+                  << " required=" << required
+                  << " min_seq=" << min_seq
+                  << " max_seq=" << max_seq
+                  << " current_view=" << system_info_->GetCurrentView()
+                  << std::endl;
+        ChangeStatue(ViewChangeStatus::NONE);
+        return false;
+      }
       auto txn = view_change_message.add_prepared_msg();
       txn->set_seq(i);
       for (const auto& info : proof_info) {
@@ -522,6 +545,7 @@ void ViewChangeManager::SendViewChangeMsg() {
       Request::TYPE_VIEWCHANGE, Request(), config_.GetSelfInfo().id());
   view_change_message.SerializeToString(request->mutable_data());
   replica_communicator_->BroadCast(*request);
+  return true;
 }
 
 void ViewChangeManager::AddComplaintTimer(uint64_t proxy_id, std::string hash) {

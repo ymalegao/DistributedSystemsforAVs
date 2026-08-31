@@ -369,6 +369,7 @@ void TraCIScenarioManager::initialize(int stage)
     crashWreckIds_.clear();
     crashInjected_.clear();
     crashTowed_.clear();
+    crashTowPending_.clear();
     crashConflictOccupantsAtInjection_.clear();
     crashUnsafeEntrants_.clear();
     crashPendingInjectAt_.clear();
@@ -1379,7 +1380,11 @@ void TraCIScenarioManager::tryR0LateEmergencySpawn()
         return std::find(ids.begin(), ids.end(), vehicleId) != ids.end();
     };
     try {
-        normalOk = vehicleExists(r0LateNormalVehicleId) ||
+        // An empty normal id selects the emergency-only experiment.  This is
+        // sufficient when one member has departed: 15 retained replicas plus
+        // the authenticated ambulance restore the f=5 liveness boundary N=16.
+        normalOk = r0LateNormalVehicleId.empty() ||
+            vehicleExists(r0LateNormalVehicleId) ||
             commandIfc->addVehicle(
                 r0LateNormalVehicleId, r0LateNormalType, r0LateNormalRoute,
                 simTime(), r0LateSpawnDepartPos, TraCICommandInterface::DEPART_SPEED_MAX,
@@ -1428,32 +1433,101 @@ void TraCIScenarioManager::onCrashBatch0Started(const std::string& vehicleId)
 {
     crashBatch0Members_.insert(vehicleId);
     if (crashSelectDone_) return;
-    if ((int) crashBatch0Members_.size() < crashWreckCount) return;
+    // Do not let whichever batch-0 vehicle happens to receive/resume its ORDER
+    // first choose the wreck.  Radio/thread delivery order is not scheduling
+    // authority and used to race replica 0's committed-schedule callback.
+    // configureCrashSchedule() deterministically selects from the committed
+    // batch and performs the exact-lane physical-front audit before arming the
+    // supervisor.
+    std::cout << "[CRASH-SELECT-DEFER] manager reason=awaiting-committed-schedule"
+              << " trigger_vehicle=" << vehicleId
+              << " observed_batch0=" << crashBatch0Members_.size()
+              << " t=" << simTime() << "\n";
+}
 
-    std::vector<std::string> members(crashBatch0Members_.begin(), crashBatch0Members_.end());
-    std::sort(members.begin(), members.end(), [](const std::string& a, const std::string& b) {
-        auto idOf = [](const std::string& s) {
-            try {
-                return (s.size() > 3) ? std::stoi(s.substr(3)) : 0;
-            } catch (...) {
-                return 0;
+void TraCIScenarioManager::configureCrashSchedule(
+    const std::vector<std::vector<int>>& batches)
+{
+    if (!enableCrashSupervisor || crashSelectDone_) return;
+    for (size_t batchIndex = 0; batchIndex < batches.size(); ++batchIndex) {
+        if (static_cast<int>(batches[batchIndex].size()) < crashWreckCount) continue;
+        std::vector<int> members = batches[batchIndex];
+        std::sort(members.begin(), members.end());
+        crashWreckIds_.clear();
+        for (int i = 0; i < crashWreckCount; ++i)
+            crashWreckIds_.push_back("veh" + std::to_string(members[i]));
+        crashSelectDone_ = true;
+
+        // E7 is a recovery experiment, not a queue-order attack.  Before
+        // injecting a wreck, prove from TraCI ground truth that every selected
+        // vehicle is physically at the front of its own approach lane.  A
+        // noisy longitudinal-rank inversion must fail this fixture loudly
+        // instead of being silently combined with the rollback mechanism.
+        bool selectedVehiclesArePhysicalFronts = commandIfc != nullptr;
+        if (commandIfc) {
+            const std::list<std::string> activeIds = commandIfc->getVehicleIds();
+            for (const auto& selectedId : crashWreckIds_) {
+                try {
+                    auto selected = commandIfc->vehicle(selectedId);
+                    const std::string selectedLane = selected.getLaneId();
+                    const double selectedPos = selected.getLanePosition();
+                    std::string aheadId;
+                    double aheadPos = selectedPos;
+                    for (const auto& otherId : activeIds) {
+                        if (otherId == selectedId) continue;
+                        auto other = commandIfc->vehicle(otherId);
+                        if (other.getLaneId() != selectedLane) continue;
+                        const double otherPos = other.getLanePosition();
+                        if (otherPos > aheadPos + 1e-6) {
+                            aheadId = otherId;
+                            aheadPos = otherPos;
+                        }
+                    }
+                    const bool physicalFront = aheadId.empty();
+                    selectedVehiclesArePhysicalFronts &= physicalFront;
+                    std::cout << "[CRASH-QUEUE-AUDIT] manager selected=" << selectedId
+                              << " batch=" << batchIndex
+                              << " lane=" << selectedLane
+                              << " lanePos=" << selectedPos
+                              << " physicalFront=" << (physicalFront ? 1 : 0)
+                              << " ahead=" << (aheadId.empty() ? "NONE" : aheadId)
+                              << " aheadLanePos=" << (aheadId.empty() ? -1.0 : aheadPos)
+                              << " t=" << simTime() << "\n";
+                } catch (const std::exception& e) {
+                    selectedVehiclesArePhysicalFronts = false;
+                    std::cout << "[CRASH-QUEUE-AUDIT] manager selected=" << selectedId
+                              << " batch=" << batchIndex
+                              << " physicalFront=0 error=" << e.what()
+                              << " t=" << simTime() << "\n";
+                } catch (...) {
+                    selectedVehiclesArePhysicalFronts = false;
+                    std::cout << "[CRASH-QUEUE-AUDIT] manager selected=" << selectedId
+                              << " batch=" << batchIndex
+                              << " physicalFront=0 error=unknown"
+                              << " t=" << simTime() << "\n";
+                }
             }
-        };
-        return idOf(a) < idOf(b);
-    });
-    crashWreckIds_.assign(members.begin(), members.begin() + crashWreckCount);
-    crashSelectDone_ = true;
+        }
+        if (!selectedVehiclesArePhysicalFronts) {
+            std::cout << "[CRASH-SELECT-REJECT] manager batch=" << batchIndex
+                      << " reason=selected-vehicle-not-physical-front"
+                      << " t=" << simTime() << "\n";
+            crashWreckIds_.clear();
+            return;
+        }
 
-    std::cout << "[CRASH-SELECT] manager batch=0 wrecks=";
-    for (size_t i = 0; i < crashWreckIds_.size(); ++i) {
-        if (i) std::cout << ",";
-        std::cout << crashWreckIds_[i];
+        std::cout << "[CRASH-SELECT] manager batch=" << batchIndex << " wrecks=";
+        for (size_t i = 0; i < crashWreckIds_.size(); ++i) {
+            if (i) std::cout << ",";
+            std::cout << crashWreckIds_[i];
+        }
+        std::cout << " source=committed-schedule t=" << simTime() << "\n";
+        if (crashSupervisorPollTrigger_ && !crashSupervisorPollTrigger_->isScheduled())
+            scheduleAt(simTime() + crashPollPeriodSec, crashSupervisorPollTrigger_);
+        return;
     }
-    std::cout << " t=" << simTime() << "\n";
-
-    if (crashSupervisorPollTrigger_ && !crashSupervisorPollTrigger_->isScheduled()) {
-        scheduleAt(simTime() + crashPollPeriodSec, crashSupervisorPollTrigger_);
-    }
+    std::cout << "[CRASH-SELECT-DEFER] manager reason=no-batch-with-"
+              << crashWreckCount << "-members t=" << simTime() << "\n";
 }
 
 bool TraCIScenarioManager::vehicleOnInternalConflictLane(const std::string& vehicleId) const
@@ -1515,11 +1589,16 @@ void TraCIScenarioManager::freezeCrashWreck(const std::string& vehicleId)
 
 void TraCIScenarioManager::towCrashWreck(const std::string& vehicleId)
 {
-    if (!commandIfc || crashTowed_.count(vehicleId)) return;
+    if (!commandIfc || crashTowed_.count(vehicleId) || crashTowPending_.count(vehicleId)) return;
+    // TraCI can deliver a final subscription response synchronously while
+    // unsubscribe/remove is in flight. Publish terminal intent first so that
+    // processVehicleSubscription cannot recreate the wreck in that window.
+    crashTowPending_.insert(vehicleId);
     try {
         std::list<std::string> ids = commandIfc->getVehicleIds();
         if (std::find(ids.begin(), ids.end(), vehicleId) == ids.end()) {
             crashTowed_.insert(vehicleId);
+            crashTowPending_.erase(vehicleId);
             subscribedVehicles.erase(vehicleId);
             std::cout << "[TOW] manager " << vehicleId
                       << " already_absent t=" << simTime() << "\n";
@@ -1537,6 +1616,7 @@ void TraCIScenarioManager::towCrashWreck(const std::string& vehicleId)
         }
         commandIfc->vehicle(vehicleId).remove(/* REMOVE_VAPORIZED */ 0x03);
         crashTowed_.insert(vehicleId);
+        crashTowPending_.erase(vehicleId);
         std::cout << "[TOW] manager " << vehicleId << " t=" << simTime() << "\n";
 
         if (getManagedModule(vehicleId)) {
@@ -1544,9 +1624,11 @@ void TraCIScenarioManager::towCrashWreck(const std::string& vehicleId)
         }
         tryShutdownOnTerminalVehicleCount(vehicleId, "towed");
     } catch (const std::exception& e) {
+        crashTowPending_.erase(vehicleId);
         std::cout << "[TOW-FAIL] manager " << vehicleId
                   << " err=" << e.what() << " t=" << simTime() << "\n";
     } catch (...) {
+        crashTowPending_.erase(vehicleId);
         std::cout << "[TOW-FAIL] manager " << vehicleId
                   << " err=unknown t=" << simTime() << "\n";
     }
@@ -1791,6 +1873,13 @@ void TraCIScenarioManager::processVehicleSubscription(std::string objectId, TraC
     tryShutdownOnIntersectionBatchCleared(objectId);
 
     cModule* mod = getManagedModule(objectId);
+
+    // A crash wreck can leave a stale subscription update behind while its
+    // TraCI removal is in flight. Do not recreate a terminal wreck.
+    if (!mod && (crashTowed_.count(objectId) != 0 ||
+                 crashTowPending_.count(objectId) != 0)) {
+        return;
+    }
 
     // is it in the ROI?
     bool inRoi = !roi.hasConstraints() ? true : (roi.onAnyRectangle(TraCICoord(px, py)) || roi.partOfRoads(edge));

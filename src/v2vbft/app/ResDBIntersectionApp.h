@@ -2,6 +2,7 @@
 
 #include <deque>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -257,7 +258,11 @@ private:
         std::set<std::string> observedIntents;
         std::vector<uint8_t> cancelJustification;
         std::vector<std::vector<uint8_t>> clearCerts;
+        // Recovery voting membership and proposer authority are deliberately
+        // separate.  Every retained vehicle votes in ORDER(e+1), while only
+        // a vehicle holding both arrival and distance evidence may propose.
         std::vector<int> voterIds;
+        std::vector<int> proposerIds;
     };
 
     enum class CancelState {
@@ -586,6 +591,7 @@ private:
     bool maybeTriggerEmergencyRollbackFromAnnouncement(const ArrivalAnnouncement& ann);
     bool maybeTriggerEmergencyRollbackFromCert(const ArrivalCert& cert);
     void maybeTriggerCrashRollback(const std::string& reasonRef);
+    void sendForgedCrashBlockedEcho(uint32_t cancelledEpoch, const std::string& reasonRef);
     void sendCancelEcho(uint32_t cancelledEpoch, CancelReason reason, const std::string& reasonRef);
     void handleCancelEcho(BFTMessage* msg);
     void broadcastCancelCert(const CancelCert& cert);
@@ -699,6 +705,9 @@ private:
     // §5.1) — runs on a ResDB worker thread during PBFT PreVerify.
     static int clearEvidenceCallback(void* ctx, uint32_t cancelledEpoch,
                                      const uint8_t* certBytes, uint32_t certLen);
+    static void recoveryRejectCallback(void* ctx, uint32_t epoch,
+                                       int32_t leaderId, int32_t reason);
+    void consumeRecoveryReject();
     void scheduleNextClearCertRetry();
     void stopClearCertRetries();
     static WitnessEcho toWitnessEcho(const ClearEcho& e);
@@ -835,6 +844,12 @@ private:
     std::set<std::string>            crash_echoed_targets_; // one echo per incident, local guard
     double                           crash_dwell_sec_     = 2.0;
     double                           crash_speed_eps_     = 0.1;
+    bool                             enable_noisy_crash_perception_ = false;
+    bool                             enable_occupancy_perception_trace_ = false;
+    bool                             suppress_crash_blocked_echo_ = false;
+    bool                             inject_forged_crash_blocked_echo_ = false;
+    uint64_t                         occupancy_confusion_[2][2][2] = {};
+    uint64_t                         occupancy_invalid_[2] = {};
 
     // Scenario 16: CLEAR empty-box dwell, scanned in the same poll tick as
     // crash-dwell above. Keyed per incident (not per-vehicle) since the
@@ -1079,9 +1094,11 @@ private:
     bool          enable_cancel_leader_failover_ = true;
     bool          cancel_leader_attack_logged_ = false;
     bool          inject_fabricated_clearance_leader_ = false;
+    int           fabricated_clearance_leader_replica_id_ = 2;
     bool          enable_recovery_clear_evidence_gate_ = true;
     bool          fabricated_clearance_attack_logged_ = false;
     bool          fabricated_clearance_attack_active_ = false;
+    bool          fabricated_clearance_attack_phase_complete_ = false;
     bool          rollback_fault_mode_per_epoch_ = true;
     bool          cancel_consensus_pending_ = false;
     bool          cancel_propose_submitted_ = false;
@@ -1115,6 +1132,10 @@ private:
     std::shared_ptr<const OrderCandidate> order_candidate_;
     bool          order_vc_requested_ = false;
     bool          order_vc_authoritative_ = false;
+    std::atomic<bool> recovery_reject_pending_{false};
+    std::atomic<int>  recovery_reject_epoch_{-1};
+    std::atomic<int>  recovery_reject_leader_{-1};
+    std::atomic<int>  recovery_reject_reason_{0};
     WitnessEchoCollector cancel_echo_collector_;  // shared f+1 dedup/threshold bookkeeping
     std::map<BlockedIncident, IncidentRecord> incidentRegistry_;
     std::set<std::string> cancel_echo_sent_;

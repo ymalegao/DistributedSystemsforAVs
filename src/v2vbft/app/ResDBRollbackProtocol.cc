@@ -22,7 +22,6 @@ int anchoredFaults(int configuredF, int totalVehicles)
 }
 
 constexpr int kMinPerEpochRollbackVoteN = 4;
-
 int bftQuorumSize(int n, int f)
 {
     if (n <= 0 || f < 0 || f > (n - 1) / 3) return -1;
@@ -698,6 +697,77 @@ bool ResDBIntersectionApp::validateClearCert(const ClearCert& cert) const
     }
     if (cert.echoes.empty()) return 0;
     return app->validateClearCert(cert) ? 1 : 0;
+}
+
+/*static*/ void ResDBIntersectionApp::recoveryRejectCallback(
+    void* ctx, uint32_t epoch, int32_t leaderId, int32_t reason)
+{
+    auto* self = static_cast<ResDBIntersectionApp*>(ctx);
+    if (!self) return;
+    self->recovery_reject_epoch_.store(static_cast<int>(epoch),
+                                       std::memory_order_relaxed);
+    self->recovery_reject_leader_.store(leaderId, std::memory_order_relaxed);
+    self->recovery_reject_reason_.store(reason, std::memory_order_relaxed);
+    self->recovery_reject_pending_.store(true, std::memory_order_release);
+}
+
+void ResDBIntersectionApp::consumeRecoveryReject()
+{
+    if (!recovery_reject_pending_.exchange(false, std::memory_order_acq_rel))
+        return;
+    const int epoch = recovery_reject_epoch_.load(std::memory_order_relaxed);
+    const int rejectedLeader = recovery_reject_leader_.load(std::memory_order_relaxed);
+    const int reason = recovery_reject_reason_.load(std::memory_order_relaxed);
+    if (reason != 1 || order_applied_ || !cancel_pending_ ||
+            epoch != static_cast<int>(current_epoch_) ||
+            current_epoch_ != rollback_new_epoch_) {
+        std::cout << "[RECOVERY-PREVERIFY-FAILOVER] r" << replicaId_
+                  << " action=ignore-stale"
+                  << " rejected_epoch=" << epoch
+                  << " current_epoch=" << current_epoch_
+                  << " rejected_leader=r" << rejectedLeader
+                  << " reason=" << reason << "\n";
+        return;
+    }
+
+    if (!order_candidate_ || order_candidate_->epoch != current_epoch_)
+        order_candidate_ = buildOrderCandidate();
+    const std::vector<int> eligible = order_candidate_->proposerIds;
+    auto nextIt = std::upper_bound(eligible.begin(), eligible.end(), rejectedLeader);
+    if (nextIt == eligible.end()) nextIt = eligible.begin();
+    if (nextIt == eligible.end() || *nextIt == rejectedLeader) {
+        std::cout << "[RECOVERY-PREVERIFY-FAILOVER] r" << replicaId_
+                  << " action=no-alternate-certified-proposer"
+                  << " epoch=" << current_epoch_
+                  << " rejected_leader=r" << rejectedLeader
+                  << " eligible_count=" << eligible.size() << "\n";
+        armOrderSuspicionTimer("preverify-reject-no-alternate");
+        return;
+    }
+    const int nextPrimary = *nextIt;
+
+    // The rejected request never entered PBFT, so a prepared-proof view change
+    // is inapplicable.  Rotate the application-certified proposer directly;
+    // the next valid PRE_PREPARE installs the ordinary epoch forced view.
+    fabricated_clearance_attack_phase_complete_ = true;
+    propose_submitted_ = false;
+    order_vc_requested_ = false;
+    resetOrderCandidate("preverify-reject-failover");
+    order_vc_authoritative_ = true;
+    const int rc = ResdbOmnetSetPrimaryFromCert(resdb_server_handle_, nextPrimary);
+    std::cout << "[RECOVERY-PREVERIFY-FAILOVER] r" << replicaId_
+              << " action=rotate-certified-proposer"
+              << " epoch=" << current_epoch_
+              << " rejected_leader=r" << rejectedLeader
+              << " next_leader=r" << nextPrimary
+              << " rc=" << rc
+              << " t=" << simTime() << "\n";
+    if (rc != 0) {
+        order_vc_authoritative_ = false;
+        armOrderSuspicionTimer("preverify-reject-install-failed");
+        return;
+    }
+    evaluateOrderReadiness("preverify-reject-failover");
 }
 
 void ResDBIntersectionApp::sendClearEcho(uint32_t cancelledEpoch, uint32_t executingBatch)
@@ -1471,6 +1541,7 @@ void ResDBIntersectionApp::beginPostCancelDiscovery(
     resetOrderCandidate("rollback-begin");
     fabricated_clearance_attack_logged_ = false;
     fabricated_clearance_attack_active_ = false;
+    fabricated_clearance_attack_phase_complete_ = false;
 
     current_epoch_ = rollback_new_epoch_;
     propose_submitted_ = false;
@@ -1544,7 +1615,6 @@ void ResDBIntersectionApp::beginPostCancelDiscovery(
     }
     armDiscoveryTimers("cancel-committed");
 
-    // Re-arm the batch-clearance poll: handleValidCancelJustification()
     // cancels it (via stopVehicle()'s cleanup) while CANCEL is being
     // witnessed, with nothing scheduled to replace it. CLEAR's empty-box
     // dwell scan rides this same tick (see handleSelfMsg), so without this
@@ -2173,14 +2243,32 @@ ResDBIntersectionApp::buildOrderCandidate() const
         const bool eligible = candidate->recovery
             ? shouldIncludeInRollbackMembership(rid)
             : (rid >= 0 && rid < total_vehicles_);
-        if (eligible) candidate->voterIds.push_back(rid);
+        if (eligible) candidate->proposerIds.push_back(rid);
+    }
+    std::sort(candidate->proposerIds.begin(), candidate->proposerIds.end());
+    candidate->proposerIds.erase(
+        std::unique(candidate->proposerIds.begin(), candidate->proposerIds.end()),
+        candidate->proposerIds.end());
+
+    if (candidate->recovery) {
+        // A missing local certificate makes an entry QUIET; it does not evict
+        // the retained vehicle from the recovery PBFT electorate.  Conflating
+        // these roles made one rejected/late radio frame shrink ORDER(e+1) to
+        // a four-node view and strand the rest of the queue.
+        for (const auto& kv : candidate->vehicleStates) {
+            const int rid = extractReplicaId(kv.first);
+            if (shouldIncludeInRollbackMembership(rid))
+                candidate->voterIds.push_back(rid);
+        }
+    } else {
+        candidate->voterIds = candidate->proposerIds;
     }
     std::sort(candidate->voterIds.begin(), candidate->voterIds.end());
     candidate->voterIds.erase(
         std::unique(candidate->voterIds.begin(), candidate->voterIds.end()),
         candidate->voterIds.end());
-    if (!candidate->voterIds.empty())
-        candidate->initialPrimary = candidate->voterIds.front();
+    if (!candidate->proposerIds.empty())
+        candidate->initialPrimary = candidate->proposerIds.front();
 
     if (candidate->recovery) {
         for (const auto& kv : incidentRegistry_) {
@@ -2268,26 +2356,17 @@ void ResDBIntersectionApp::evaluateOrderReadiness(const char* reason)
         return;
     }
 
-    if (recovery && hasBlockingIncidentForEpoch(cancelled_epoch_)) {
-        const int attackPrimary = CertPrimary();
-        if (inject_fabricated_clearance_leader_ &&
-                !fabricated_clearance_attack_logged_ &&
-                attackPrimary == replicaId_) {
-            fabricated_clearance_attack_logged_ = true;
-            fabricated_clearance_attack_active_ = true;
-            order_candidate_ = buildOrderCandidate();
-            std::cout << "[BYZANTINE-FABRICATED-CLEARANCE] r" << replicaId_
-                      << " cancelled_epoch=" << cancelled_epoch_
-                      << " new_epoch=" << rollback_new_epoch_
-                      << " evidence_gate="
-                      << (enable_recovery_clear_evidence_gate_ ? 1 : 0)
-                      << " attack_time=" << simTime()
-                      << " action=submit-invalid-clear\n";
-            proposeAll();
-            fabricated_clearance_attack_active_ = false;
-            propose_submitted_ = false;
-            order_candidate_.reset();
-        }
+    const bool fabricatedClearAttackWindow = recovery &&
+        inject_fabricated_clearance_leader_ &&
+        !fabricated_clearance_attack_phase_complete_ &&
+        !order_vc_authoritative_;
+    if (recovery && hasBlockingIncidentForEpoch(cancelled_epoch_) &&
+            !fabricatedClearAttackWindow) {
+        // CLEAR is not yet available, so no valid honest recovery ORDER can
+        // be constructed.  The integrity experiment alone bypasses this guard
+        // once, before honest CLEAR exists, so followers deterministically
+        // exercise the missing-evidence rejection rather than racing a valid
+        // recovery proposal seven milliseconds later.
         logBlocked("incident-blocking");
         maybeSendWaitHeartbeat(trigger);
         return;
@@ -2299,6 +2378,7 @@ void ResDBIntersectionApp::evaluateOrderReadiness(const char* reason)
                   << " epoch=" << current_epoch_
                   << " recovery=" << (recovery ? 1 : 0)
                   << " voters=" << order_candidate_->voterIds.size()
+                  << " proposers=" << order_candidate_->proposerIds.size()
                   << " scene=" << order_candidate_->vehicleStates.size()
                   << " clear_certs=" << order_candidate_->clearCerts.size()
                   << " initial_primary=r" << order_candidate_->initialPrimary
@@ -2318,15 +2398,55 @@ void ResDBIntersectionApp::evaluateOrderReadiness(const char* reason)
     // checks the PRE_PREPARE sender against SystemInfo before the guarded
     // proposal callback can repair a stale configured primary (for example r0
     // becoming QUIET while r1 is the first SIGNED candidate).
+    const bool inFabricatedExperiment = recovery &&
+        inject_fabricated_clearance_leader_ && !order_vc_authoritative_;
+    int primaryInstallTarget = order_candidate_->initialPrimary;
+    if (inFabricatedExperiment && !fabricated_clearance_attack_phase_complete_) {
+        primaryInstallTarget = fabricated_clearance_leader_replica_id_;
+    }
     if (!order_vc_authoritative_ &&
             ResdbOmnetSetPrimaryFromCert(resdb_server_handle_,
-                                         order_candidate_->initialPrimary) != 0) {
+                                         primaryInstallTarget) != 0) {
         logBlocked("cert-primary-install-failed");
         return;
     }
-    const int primary = currentOrderPrimary();
+    // Prefer the just-installed PBFT primary during the fabricated-CLEAR attack
+    // window.  currentOrderPrimary() still reports the cert-elected recovery
+    // primary, which would make followers arm suspicion against the wrong
+    // replica and skip the view-change the integrity check requires.
+    int primary = currentOrderPrimary();
+    if (inFabricatedExperiment && !fabricated_clearance_attack_phase_complete_)
+        primary = primaryInstallTarget;
     if (primary < 0) {
         logBlocked("no-primary");
+        return;
+    }
+
+    // Integrity experiment: the designated attack proposer (r2 for E7) submits
+    // exactly one otherwise-valid ORDER whose CLEAR trailer is replaced with
+    // an invalid zero-echo certificate.  Followers have complete local state,
+    // so the recovery CLEAR-evidence gate—not an earlier readiness check—is
+    // the rejecting mechanism.  Leave propose_submitted_ set after injection;
+    // honest followers' normal suspicion timers elect the recovery proposer
+    // that eventually commits the correct candidate.
+    if (inFabricatedExperiment &&
+            !fabricated_clearance_attack_phase_complete_ &&
+            replicaId_ == fabricated_clearance_leader_replica_id_) {
+        fabricated_clearance_attack_logged_ = true;
+        fabricated_clearance_attack_phase_complete_ = true;
+        fabricated_clearance_attack_active_ = true;
+        std::cout << "[BYZANTINE-FABRICATED-CLEARANCE] r" << replicaId_
+                  << " cancelled_epoch=" << cancelled_epoch_
+                  << " new_epoch=" << rollback_new_epoch_
+                  << " evidence_gate="
+                  << (enable_recovery_clear_evidence_gate_ ? 1 : 0)
+                  << " elected_proposer=r" << primary
+                  << " attack_proposer=r"
+                  << fabricated_clearance_leader_replica_id_
+                  << " attack_time=" << simTime()
+                  << " action=submit-invalid-clear\n";
+        proposeAll();
+        fabricated_clearance_attack_active_ = false;
         return;
     }
 
@@ -2424,5 +2544,39 @@ void ResDBIntersectionApp::maybeTriggerCrashRollback(const std::string& reasonRe
     std::cout << "[ROLLBACK-TRIGGER] r" << replicaId_
               << " crash ref=" << ref
               << " committed_epoch=" << last_committed_epoch_ << "\n";
+    if (suppress_crash_blocked_echo_) {
+        std::cout << "[BLOCKED-ECHO-SUPPRESSED] r" << replicaId_
+                  << " epoch=" << last_committed_epoch_
+                  << " ref=" << ref << "\n";
+        return;
+    }
+    if (inject_forged_crash_blocked_echo_) {
+        sendForgedCrashBlockedEcho(last_committed_epoch_, ref);
+        return;
+    }
     sendCancelEcho(last_committed_epoch_, CANCEL_CRASH, ref);
+}
+
+void ResDBIntersectionApp::sendForgedCrashBlockedEcho(
+    uint32_t cancelledEpoch, const std::string& reasonRef)
+{
+    if (!ec_private_key_) return;
+    CancelEcho echo;
+    echo.echoingReplicaId = replicaId_;
+    echo.cancelledEpoch = cancelledEpoch;
+    echo.reason = CANCEL_CRASH;
+    echo.reasonRef = cleanRef(reasonRef);
+    std::memcpy(echo.signerPubKey, ec_pub_key_, CRYPTO_PUBKEY_BYTES);
+    const WitnessStatement stmt{
+        cancelledEpoch, WitnessKind::CANCEL_CRASH, echo.reasonRef};
+    const std::string payload = stmt.signPayload(replicaId_);
+    if (!CryptoAuth::instance().signBytes(
+            ec_private_key_, reinterpret_cast<const uint8_t*>(payload.data()),
+            payload.size(), echo.signature, echo.signatureLen)) return;
+    if (echo.signatureLen > 0) echo.signature[0] ^= 0x80;
+    sendBFTMessage(-1, serializeCancelEcho(echo), kCancelEchoType);
+    std::cout << "[BLOCKED-ECHO-FORGED] r" << replicaId_
+              << " epoch=" << cancelledEpoch
+              << " ref=" << echo.reasonRef
+              << " mutation=signature-bitflip\n";
 }

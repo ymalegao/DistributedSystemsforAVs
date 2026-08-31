@@ -56,7 +56,7 @@ class ViewChangeManagerTest : public Test {
     config_.EnableCheckPoint(true);
     config_.SetViewchangeCommitTimeout(1000);  // set to 1s
     checkpoint_manager_ = std::make_unique<CheckPointManager>(
-        config_, &replica_communicator_, &mock_verifier_);
+        config_, &replica_communicator_, &mock_verifier_, &system_info_);
     message_manager_ = std::make_unique<MessageManager>(
         config_, nullptr, checkpoint_manager_.get(), &system_info_);
     manager_ = std::make_unique<ViewChangeManager>(
@@ -117,6 +117,18 @@ TEST_F(ViewChangeManagerTest, SendNewView) {
     EXPECT_EQ(ret, 0);
   }
   propose_done_future.get();
+}
+
+TEST_F(ViewChangeManagerTest, IncompletePreparedProofDefersWithoutBroadcast) {
+  // Reproduce the post-rollback edge case: the local checkpoint state knows a
+  // sequence committed, but this replica does not retain the 2f+1 PREPARE
+  // evidence needed for P in a PBFT VIEW-CHANGE message.
+  checkpoint_manager_->SetHighestPreparedSeq(1);
+  checkpoint_manager_->AddCommitState(1);
+
+  EXPECT_CALL(replica_communicator_, BroadCast).Times(0);
+  EXPECT_FALSE(manager_->TriggerViewChangeNow());
+  EXPECT_FALSE(manager_->IsInViewChange());
 }
 
 }  // namespace

@@ -20,6 +20,11 @@
 #   Do not assign any ambulance in random_scenario.ini
 #   (*.node[*].appl.ambulanceReplicaId = -1).
 #
+# --ambulance-replica <ID>
+#   Deterministically assign the authenticated ambulance for a paired experiment.
+#   Requires --randomize and --no-ambulance, and cannot be combined with the
+#   fixed veh17 --rollback-late-emergency scenario.
+#
 # --leader <ID>
 #   Set replica <ID> as the initial ResDB consensus leader by writing a
 #   leader_override.ini that sets *.node[*].appl.leaderReplicaId = <ID>.
@@ -66,6 +71,23 @@
 #   batch-0 vehicles are TraCI-force-frozen in the conflict box with radios
 #   silenced after a MAC grace window, and towed after clearDelaySec.
 #   Uses the normal 16-veh launchd; collision.action=none is in bft_16veh.sumo.cfg.
+#
+# --crash-occupancy-control
+#   Enables the same noisy BLOCKED/CLEAR witness path without injecting a
+#   wreck. Used to measure false-cancel cost for the crash-dwell mini-sweep.
+#
+# --crash-dwell <SECONDS>
+#   BLOCKED continuous-observation dwell. The E7 main row uses 2 seconds;
+#   supporting characterization uses 0.5, 2, and 5 seconds.
+#
+# --crash-wreck-count <COUNT>
+#   Number of scheduled vehicles mechanically immobilized. E7 uses one early
+#   stalled vehicle so the original epoch's anchored quorum remains present;
+#   two remains available for the visual dual-wreck demonstration.
+#
+# --occupancy-trace
+#   Retain every raw occupancy sample for one diagnostic run. Statistical runs
+#   use compact per-witness confusion counters instead.
 #
 # --suppress-initial-cancel-leader
 #   Protocol-surface fault injection for Scenario 15/16: the deterministic
@@ -419,11 +441,18 @@ BYZ_FOLLOWER_TYPE=1  # byzantineType for Byzantine followers (1=false_lane, 7=fa
 CERT_GATE_LINE=""   # set by --cert-gate: adds enableAmbulanceCertGate=true to scenario ini
 ALLOW_REPLICA0_BYZ_FOLLOWER=1
 NO_AMBULANCE=0
+FIXED_AMBULANCE_REPLICA=""
 INITIAL_LEADER=""   # "" = use default (replica 0)
 CHANNEL_METRICS_DIR=""  # "" = do not override (use omnetpp.ini / NED default)
 BASELINE=0
 ROLLBACK_LATE_EMERGENCY=0
 CRASH_WAIT_CLEAR=0
+CRASH_OCCUPANCY_CONTROL=0
+CRASH_DWELL="2"
+CRASH_WRECK_COUNT="1"
+OCCUPANCY_TRACE=0
+BLOCKED_SILENT_IDS=""
+FORGED_BLOCKED_ID=""
 SUPPRESS_INITIAL_CANCEL_LEADER=0
 ENABLE_CANCEL_LEADER_FAILOVER=1
 FABRICATE_CLEARANCE=0
@@ -587,6 +616,10 @@ while [[ $i -lt ${#args[@]} ]]; do
         --no-ambulance)
             NO_AMBULANCE=1
             ;;
+        --ambulance-replica)
+            i=$(( i + 1 ))
+            FIXED_AMBULANCE_REPLICA="${args[$i]}"
+            ;;
         --leader)
             i=$(( i + 1 ))
             INITIAL_LEADER="${args[$i]}"
@@ -607,6 +640,24 @@ while [[ $i -lt ${#args[@]} ]]; do
             ;;
         --crash-wait-clear)
             CRASH_WAIT_CLEAR=1
+            ;;
+        --crash-occupancy-control)
+            CRASH_OCCUPANCY_CONTROL=1
+            ;;
+        --crash-dwell)
+            i=$(( i + 1 )); CRASH_DWELL="${args[$i]}"
+            ;;
+        --crash-wreck-count)
+            i=$(( i + 1 )); CRASH_WRECK_COUNT="${args[$i]}"
+            ;;
+        --occupancy-trace)
+            OCCUPANCY_TRACE=1
+            ;;
+        --blocked-silent-ids)
+            i=$(( i + 1 )); BLOCKED_SILENT_IDS="${args[$i]}"
+            ;;
+        --forge-blocked-id)
+            i=$(( i + 1 )); FORGED_BLOCKED_ID="${args[$i]}"
             ;;
         --suppress-initial-cancel-leader)
             SUPPRESS_INITIAL_CANCEL_LEADER=1
@@ -646,6 +697,34 @@ if [[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 && "${CRASH_WAIT_CLEAR}" -eq 1 ]]; then
     echo "ERROR: --rollback-late-emergency and --crash-wait-clear are mutually exclusive." >&2
     exit 1
 fi
+if [[ -n "${FIXED_AMBULANCE_REPLICA}" ]]; then
+    if [[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 ]]; then
+        echo "ERROR: --ambulance-replica cannot be combined with --rollback-late-emergency (late ambulance is fixed as veh17)." >&2
+        exit 1
+    fi
+    if [[ "${NO_AMBULANCE}" -ne 1 ]]; then
+        echo "ERROR: --ambulance-replica requires --no-ambulance so random ambulance selection cannot confound the fixed assignment." >&2
+        exit 1
+    fi
+    if [[ -z "${RANDOMIZE_N}" || ! "${FIXED_AMBULANCE_REPLICA}" =~ ^[0-9]+$ ||
+          "${FIXED_AMBULANCE_REPLICA}" -ge "${RANDOMIZE_N}" ]]; then
+        echo "ERROR: --ambulance-replica must be a replica ID in [0,N) and requires --randomize N F." >&2
+        exit 1
+    fi
+fi
+if [[ "${CRASH_WAIT_CLEAR}" -eq 1 && "${CRASH_OCCUPANCY_CONTROL}" -eq 1 ]]; then
+    echo "ERROR: --crash-wait-clear and --crash-occupancy-control are mutually exclusive." >&2
+    exit 1
+fi
+if ! python3 -c 'import sys, math; x=float(sys.argv[1]); assert math.isfinite(x) and x > 0' \
+        "${CRASH_DWELL}" 2>/dev/null; then
+    echo "ERROR: --crash-dwell must be a positive finite number." >&2
+    exit 1
+fi
+if ! [[ "${CRASH_WRECK_COUNT}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ERROR: --crash-wreck-count must be a positive integer." >&2
+    exit 1
+fi
 
 validate_replica_csv() {
     local label="$1" csv="$2" n="$3" token
@@ -661,6 +740,11 @@ validate_replica_csv() {
 if [[ "${SUPPRESS_INITIAL_CANCEL_LEADER}" -eq 1 &&
       "${ROLLBACK_LATE_EMERGENCY}" -ne 1 && "${CRASH_WAIT_CLEAR}" -ne 1 ]]; then
     echo "ERROR: --suppress-initial-cancel-leader requires a rollback/crash scenario." >&2
+    exit 1
+fi
+if [[ -n "${BLOCKED_SILENT_IDS}${FORGED_BLOCKED_ID}" &&
+      "${CRASH_WAIT_CLEAR}" -ne 1 ]]; then
+    echo "ERROR: BLOCKED evidence attacks require --crash-wait-clear." >&2
     exit 1
 fi
 if [[ "${FABRICATE_CLEARANCE}" -eq 1 && "${CRASH_WAIT_CLEAR}" -ne 1 ]]; then
@@ -735,7 +819,10 @@ SIM_DIR="$(cd "${SIM_DIR}" && pwd)"
 [[ "${RANDOMIZE}" -eq 1 ]] || rm -f "${SIM_DIR}/random_scenario.ini"
 rm -f "${SIM_DIR}/attack_defense_silence_override.ini"
 [[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 ]] || rm -f "${SIM_DIR}/rollback_late_emergency.ini"
-[[ "${CRASH_WAIT_CLEAR}" -eq 1 ]] || rm -f "${SIM_DIR}/crash_wait_clear.ini"
+[[ -n "${FIXED_AMBULANCE_REPLICA}" ]] || rm -f "${SIM_DIR}/ambulance_priority_override.ini"
+if [[ "${CRASH_WAIT_CLEAR}" -ne 1 && "${CRASH_OCCUPANCY_CONTROL}" -ne 1 ]]; then
+    rm -f "${SIM_DIR}/crash_wait_clear.ini"
+fi
 [[ -n "${INITIAL_LEADER}" ]] || rm -f "${SIM_DIR}/leader_override.ini"
 [[ -n "${CHANNEL_METRICS_DIR}" ]] || rm -f "${SIM_DIR}/channel_metrics_override.ini"
 [[ -n "${PHASE2_ATTACK_KIND}${PHASE2_ATTACK_TARGET}${PHASE2_EVIDENCE_COLLUDERS}${PHASE2_ACTUAL_B}" ]] || rm -f "${SIM_DIR}/phase2_attack_override.ini"
@@ -798,14 +885,30 @@ if [[ "${RANDOMIZE}" -ne 1 && -n "${CERT_RELAY_SILENT_IDS}${PBFT_SILENT_IDS}${PR
 fi
 
 if [[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 ]]; then
+    case "${ACTIVE_CONFIG}" in
+        EighteenVehiclesResDB)
+            ROLLBACK_LAUNCH="resdb_bft_18veh_rollback_late.launchd.xml"
+            ROLLBACK_NORMAL_ROUTE="rN"
+            ROLLBACK_AMBULANCE_ROUTE="rE"
+            ;;
+        EighteenVehiclesTwoLaneEmergencyResDB)
+            ROLLBACK_LAUNCH="resdb_bft_18veh_2lane_emergency.launchd.xml"
+            ROLLBACK_NORMAL_ROUTE="rN_T_straight"
+            ROLLBACK_AMBULANCE_ROUTE="rE_T_straight"
+            ;;
+        *)
+            echo "ERROR: --rollback-late-emergency requires -c EighteenVehiclesResDB or -c EighteenVehiclesTwoLaneEmergencyResDB." >&2
+            exit 1
+            ;;
+    esac
     ROLLBACK_INI="${SIM_DIR}/rollback_late_emergency.ini"
     {
         echo "# Auto-generated by run-resdb-simulation.sh --rollback-late-emergency"
         echo "# Do not edit by hand — regenerated each run."
-        # This file is loaded while -c EighteenVehiclesResDB is active.  Put
+        # Put overrides under the active named config so they win over the
         # overrides in that named section: its inherited sim-time-limit takes
         # precedence over the same key in [General].
-        echo "[Config EighteenVehiclesResDB]"
+        echo "[Config ${ACTIVE_CONFIG}]"
         # Honest/guarded recovery gets the normal 120s bound. Scenario 17 is a
         # deliberately stalled liveness ablation, so record a bounded 60s
         # observation window instead of waiting for its impossible departure
@@ -815,7 +918,7 @@ if [[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 ]]; then
         else
             echo "sim-time-limit = 120s"
         fi
-        echo "*.manager.launchConfig = xmldoc(\"resdb_bft_18veh_rollback_late.launchd.xml\")"
+        echo "*.manager.launchConfig = xmldoc(\"${ROLLBACK_LAUNCH}\")"
         # All 16 original vehicles plus the two dynamically spawned vehicles
         # must reach a terminal departure.  A target of 16 let the manager end
         # the run before veh16/veh17 reached the stop zone, so the honest
@@ -829,10 +932,10 @@ if [[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 ]]; then
         echo "*.manager.r0LateSpawnMaxRetries = 25"
         echo "*.manager.r0LateNormalVehicleId = \"veh16\""
         echo "*.manager.r0LateNormalType = \"car\""
-        echo "*.manager.r0LateNormalRoute = \"rN\""
+        echo "*.manager.r0LateNormalRoute = \"${ROLLBACK_NORMAL_ROUTE}\""
         echo "*.manager.r0LateEmergencyVehicleId = \"veh17\""
         echo "*.manager.r0LateEmergencyType = \"ambulance\""
-        echo "*.manager.r0LateEmergencyRoute = \"rE\""
+        echo "*.manager.r0LateEmergencyRoute = \"${ROLLBACK_AMBULANCE_ROUTE}\""
         # totalVehicles=16 (NOT 18) so epoch 0's proposeAll does not QUIET-pad the
         # late vehicle slots: the padding loop runs rid in [0, totalVehicles).
         # Late replicas 16/17 still get correct ids from NED node[16]/node[17].replicaId
@@ -845,6 +948,12 @@ if [[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 ]]; then
         echo "*.node[*].appl.enableAmbulanceCertGate = true"
         echo "*.node[*].appl.cancelCertRetryIntervalSec = 0.1s"
         echo "*.node[*].appl.cancelCertRetryMax = 20"
+        # Recovery ORDER(1) may initially commit at the minimum active view.
+        # Disseminate its f+1 signed decision votes before the first recovery
+        # batch can leave radio range; the default exponential schedule only
+        # produced one retry before an early committer departed.
+        echo "*.node[*].appl.decisionGossipInitialIntervalSec = 0.05s"
+        echo "*.node[*].appl.decisionGossipMaxRetries = 8"
         echo "*.node[*].appl.rollbackVcTimeoutSec = 8s"
         if [[ "${SUPPRESS_INITIAL_CANCEL_LEADER}" -eq 1 ]]; then
             echo "*.node[*].appl.injectSuppressInitialCancelLeader = true"
@@ -863,27 +972,94 @@ if [[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 ]]; then
     fi
 fi
 
-if [[ "${CRASH_WAIT_CLEAR}" -eq 1 ]]; then
+# Deterministic pre-decision ambulance assignment for paired priority
+# experiments.  This named-config overlay is loaded after random_scenario.ini,
+# whose --no-ambulance reset prevents a second randomly selected ambulance.
+if [[ -n "${FIXED_AMBULANCE_REPLICA}" ]]; then
+    if [[ -z "${ACTIVE_CONFIG}" ]]; then
+        echo "ERROR: --ambulance-replica requires a forwarded -c <ConfigName>." >&2
+        exit 1
+    fi
+    AMBULANCE_PRIORITY_INI="${SIM_DIR}/ambulance_priority_override.ini"
+    {
+        echo "# Auto-generated by run-resdb-simulation.sh --ambulance-replica"
+        echo "[Config ${ACTIVE_CONFIG}]"
+        echo "*.node[*].appl.ambulanceReplicaId = ${FIXED_AMBULANCE_REPLICA}"
+        echo "*.node[*].appl.enableAmbulanceCertGate = true"
+    } > "${AMBULANCE_PRIORITY_INI}"
+    echo "  Fixed authenticated ambulance: replica=${FIXED_AMBULANCE_REPLICA} config=${ACTIVE_CONFIG} (ambulance_priority_override.ini)" >&2
+    if [[ ${#EXTRA_INI_ARG[@]} -gt 0 ]]; then
+        EXTRA_INI_ARG+=(-f "${AMBULANCE_PRIORITY_INI}")
+    else
+        EXTRA_INI_ARG=(-f "omnetpp.ini" -f "${AMBULANCE_PRIORITY_INI}")
+    fi
+fi
+
+if [[ "${CRASH_WAIT_CLEAR}" -eq 1 || "${CRASH_OCCUPANCY_CONTROL}" -eq 1 ]]; then
+    export PHASE2_LOG_PROFILE=e7
+    if [[ -z "${ACTIVE_CONFIG}" ]]; then
+        echo "ERROR: crash perception scenarios require -c <ConfigName>." >&2
+        exit 1
+    fi
+    if [[ "${ACTIVE_CONFIG}" != "SixteenVehiclesResDB" &&
+          "${ACTIVE_CONFIG}" != "SixteenVehiclesTwoLaneRollbackResDB" ]]; then
+        echo "ERROR: crash perception is validated only for SixteenVehiclesResDB or SixteenVehiclesTwoLaneRollbackResDB." >&2
+        exit 1
+    fi
+    validate_replica_csv "--blocked-silent-ids" "${BLOCKED_SILENT_IDS}" 16
+    if [[ -n "${FORGED_BLOCKED_ID}" ]] &&
+          { ! [[ "${FORGED_BLOCKED_ID}" =~ ^[0-9]+$ ]] ||
+            (( FORGED_BLOCKED_ID < 0 || FORGED_BLOCKED_ID >= 16 )); }; then
+        echo "ERROR: --forge-blocked-id must be a replica in [0,15]." >&2
+        exit 1
+    fi
     CRASH_INI="${SIM_DIR}/crash_wait_clear.ini"
     {
         echo "# Auto-generated by run-resdb-simulation.sh --crash-wait-clear"
         echo "# Do not edit by hand — regenerated each run."
         echo "#"
-        echo "# IMPORTANT: overrides must live under [Config SixteenVehiclesResDB],"
-        echo "# not [General]. OMNeT++ gives named config sections higher priority"
-        echo "# than General."
-        echo "[Config SixteenVehiclesResDB]"
+        echo "# Overrides live under the active named configuration."
+        echo "[Config ${ACTIVE_CONFIG}]"
         echo "sim-time-limit = 120s"
-        echo "*.manager.enableCrashSupervisor = true"
-        echo "*.manager.crashWreckCount = 2"
+        if [[ "${CRASH_WAIT_CLEAR}" -eq 1 ]]; then
+            echo "*.manager.enableCrashSupervisor = true"
+        else
+            echo "*.manager.enableCrashSupervisor = false"
+        fi
+        echo "*.manager.crashWreckCount = ${CRASH_WRECK_COUNT}"
         echo "*.manager.crashPollPeriodSec = 0.1s"
         echo "*.manager.crashOnBoxEntrySec = 1s"
-        echo "*.manager.clearDelaySec = 30s"
+        echo "*.manager.clearDelaySec = 15s"
         echo "*.node[*].appl.totalVehicles = 16"
         echo "*.node[*].appl.toleratedFaults = 5"
         echo "*.node[*].appl.ambulanceReplicaId = -1"
         echo "*.node[*].appl.enableRollback = true"
+        echo "*.node[*].appl.enableNoisyCrashPerception = true"
+        if [[ "${OCCUPANCY_TRACE}" -eq 1 ]]; then
+            echo "*.node[*].appl.enableOccupancyPerceptionTrace = true"
+        else
+            echo "*.node[*].appl.enableOccupancyPerceptionTrace = false"
+        fi
+        echo "*.node[*].appl.crashDwellSec = ${CRASH_DWELL}s"
+        echo "*.node[*].appl.clearDwellSec = 1s"
         echo "*.node[*].appl.crashMacGraceSec = 0.2s"
+        # Replica IDs must be mapped to OMNeT node[] indices (veh10 < veh2).
+        crash_n="${RANDOMIZE_N:-16}"
+        if [[ -n "${BLOCKED_SILENT_IDS}" ]]; then
+            IFS=',' read -r -a blocked_silent_tokens <<< "${BLOCKED_SILENT_IDS}"
+            for rid in "${blocked_silent_tokens[@]}"; do
+                silent_node="$(replica_to_node_idx "${crash_n}" "${rid}")"
+                echo "*.node[${silent_node}].appl.suppressCrashBlockedEcho = true"
+                echo "*.node[${silent_node}].appl.isByzantine = true"
+            done
+        fi
+        if [[ -n "${FORGED_BLOCKED_ID}" ]]; then
+            forged_node="$(replica_to_node_idx "${crash_n}" "${FORGED_BLOCKED_ID}")"
+            echo "*.node[${forged_node}].appl.injectForgedCrashBlockedEcho = true"
+            echo "*.node[${forged_node}].appl.isByzantine = true"
+        fi
+        echo "*.node[*].appl.suppressCrashBlockedEcho = false"
+        echo "*.node[*].appl.injectForgedCrashBlockedEcho = false"
         if [[ "${SUPPRESS_INITIAL_CANCEL_LEADER}" -eq 1 ]]; then
             echo "*.node[*].appl.injectSuppressInitialCancelLeader = true"
         fi
@@ -891,13 +1067,16 @@ if [[ "${CRASH_WAIT_CLEAR}" -eq 1 ]]; then
             echo "*.node[*].appl.enableCancelLeaderFailover = false"
         fi
         if [[ "${FABRICATE_CLEARANCE}" -eq 1 ]]; then
+            fab_node="$(replica_to_node_idx "${crash_n}" 2)"
             echo "*.node[*].appl.injectFabricatedClearanceLeader = true"
+            echo "*.node[*].appl.fabricatedClearanceLeaderReplicaId = 2"
+            echo "*.node[${fab_node}].appl.isByzantine = true"
         fi
         if [[ "${ENABLE_RECOVERY_CLEAR_EVIDENCE_GATE}" -eq 0 ]]; then
             echo "*.node[*].appl.enableRecoveryClearEvidenceGate = false"
         fi
     } > "${CRASH_INI}"
-    echo "  Crash wait-clear scenario: 16 commit ORDER(0), freeze two batch-0 wrecks, tow after clearDelaySec (crash_wait_clear.ini)" >&2
+    echo "  Crash perception: config=${ACTIVE_CONFIG} inject=${CRASH_WAIT_CLEAR} wrecks=${CRASH_WRECK_COUNT} blocked_dwell=${CRASH_DWELL}s clear_dwell=1s tow_delay=15s sigma_lon=${LONGITUDINAL_SIGMA:-NED-default} suppressed=${BLOCKED_SILENT_IDS:-none} forged=${FORGED_BLOCKED_ID:-none} (crash_wait_clear.ini)" >&2
     if [[ ${#EXTRA_INI_ARG[@]} -gt 0 ]]; then
         EXTRA_INI_ARG+=(-f "${CRASH_INI}")
     else
@@ -1013,6 +1192,8 @@ if [[ -n "${APPROACH_SIGMA}${SIGNAL_ERROR}${DIRECTION_COLLECTION_WINDOW}${SIMULA
           "${ACTIVE_CONFIG}" != "SixteenVehiclesTwoLaneResDB" &&
           "${ACTIVE_CONFIG}" != "SixteenVehiclesTwoLaneConflictReleaseResDB" &&
           "${ACTIVE_CONFIG}" != "SixteenVehiclesTwoLaneSweepResDB" &&
+          "${ACTIVE_CONFIG}" != "SixteenVehiclesTwoLaneRollbackResDB" &&
+          "${ACTIVE_CONFIG}" != "EighteenVehiclesTwoLaneEmergencyResDB" &&
           ! "${ACTIVE_CONFIG}" =~ ^SixteenVehiclesDirectionAblationFixture[0-3]ResDB$ &&
           "${ACTIVE_CONFIG}" != "FourVehiclesTwoLaneScaleResDB" &&
           "${ACTIVE_CONFIG}" != "EightVehiclesTwoLaneScaleResDB" &&
