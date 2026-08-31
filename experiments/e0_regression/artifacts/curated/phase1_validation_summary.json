@@ -1,0 +1,336 @@
+{
+  "passed": true,
+  "repetitions": 1,
+  "results": [
+    {
+      "cell": "e0_n4",
+      "checks": [
+        {
+          "detail": "lane evaluations=7",
+          "name": "perception evaluated",
+          "passed": true
+        },
+        {
+          "detail": "duplicates=0, analyzer_invariant=True",
+          "name": "single-shot cache",
+          "passed": true
+        },
+        {
+          "detail": "self evaluations=0",
+          "name": "no self perception evaluations",
+          "passed": true
+        },
+        {
+          "detail": "valid=4/4, distinct=4/4",
+          "name": "one self-attestation per claimant",
+          "passed": true
+        },
+        {
+          "detail": "self ECHO-SEND records=0",
+          "name": "self-attestation stays off Type-4 radio",
+          "passed": true
+        },
+        {
+          "detail": "count=4/4, duplicates=0",
+          "name": "self-attestation analyzer invariant",
+          "passed": true
+        },
+        {
+          "detail": "certificates=4, self-counts=[1, 1, 1, 1], over-cap=0",
+          "name": "certificate self signer and N cap",
+          "passed": true
+        },
+        {
+          "detail": "failure markers=0",
+          "name": "certificate validation",
+          "passed": true
+        },
+        {
+          "detail": "matching undisposed timers=0",
+          "name": "perception timers disposed",
+          "passed": true
+        },
+        {
+          "detail": "unique departed=4/4",
+          "name": "vehicles departed",
+          "passed": true
+        },
+        {
+          "detail": "unsafe conflict pairs=0, collision vehicles=0",
+          "name": "physical safety",
+          "passed": true
+        },
+        {
+          "detail": "certificates=4/4",
+          "name": "lane certificates",
+          "passed": true
+        },
+        {
+          "detail": "SIGNED-dir=4, SIGNED-UNKNOWN=0, QUIET=0",
+          "name": "E0 trust tiers",
+          "passed": true
+        },
+        {
+          "detail": "STRAIGHT=4/4",
+          "name": "E0 direction",
+          "passed": true
+        },
+        {
+          "detail": "zero-draw replicas=4/4",
+          "name": "E0 perception RNG",
+          "passed": true
+        }
+      ],
+      "failures": [],
+      "kind": "e0",
+      "n": 4,
+      "passed": true,
+      "rep": 0,
+      "result_dir": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Priority4cars/no_amb/sigma_0_signal_0/run_0"
+    },
+    {
+      "cell": "signal_error_n4",
+      "checks": [
+        {
+          "detail": "lane evaluations=7",
+          "name": "perception evaluated",
+          "passed": true
+        },
+        {
+          "detail": "duplicates=0, analyzer_invariant=True",
+          "name": "single-shot cache",
+          "passed": true
+        },
+        {
+          "detail": "self evaluations=0",
+          "name": "no self perception evaluations",
+          "passed": true
+        },
+        {
+          "detail": "valid=4/4, distinct=4/4",
+          "name": "one self-attestation per claimant",
+          "passed": true
+        },
+        {
+          "detail": "self ECHO-SEND records=0",
+          "name": "self-attestation stays off Type-4 radio",
+          "passed": true
+        },
+        {
+          "detail": "count=4/4, duplicates=0",
+          "name": "self-attestation analyzer invariant",
+          "passed": true
+        },
+        {
+          "detail": "certificates=4, self-counts=[1, 1, 1, 1], over-cap=0",
+          "name": "certificate self signer and N cap",
+          "passed": true
+        },
+        {
+          "detail": "failure markers=0",
+          "name": "certificate validation",
+          "passed": true
+        },
+        {
+          "detail": "matching undisposed timers=0",
+          "name": "perception timers disposed",
+          "passed": true
+        },
+        {
+          "detail": "unique departed=4/4",
+          "name": "vehicles departed",
+          "passed": true
+        },
+        {
+          "detail": "unsafe conflict pairs=0, collision vehicles=0",
+          "name": "physical safety",
+          "passed": true
+        },
+        {
+          "detail": "certificates=4/4",
+          "name": "lane certificates survive cue noise",
+          "passed": true
+        },
+        {
+          "detail": "SIGNED-dir=0, SIGNED-UNKNOWN=4, QUIET=0",
+          "name": "signal-error trust tiers",
+          "passed": true
+        },
+        {
+          "detail": "UNKNOWN=4/4",
+          "name": "signal-error direction",
+          "passed": true
+        }
+      ],
+      "failures": [],
+      "kind": "signal",
+      "n": 4,
+      "passed": true,
+      "rep": 0,
+      "result_dir": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Priority4cars/no_amb/sigma_0_signal_1/run_0"
+    },
+    {
+      "cell": "lane_error_n4",
+      "checks": [
+        {
+          "detail": "lane evaluations=8",
+          "name": "perception evaluated",
+          "passed": true
+        },
+        {
+          "detail": "duplicates=0, analyzer_invariant=True",
+          "name": "single-shot cache",
+          "passed": true
+        },
+        {
+          "detail": "self evaluations=0",
+          "name": "no self perception evaluations",
+          "passed": true
+        },
+        {
+          "detail": "valid=4/4, distinct=4/4",
+          "name": "one self-attestation per claimant",
+          "passed": true
+        },
+        {
+          "detail": "self ECHO-SEND records=0",
+          "name": "self-attestation stays off Type-4 radio",
+          "passed": true
+        },
+        {
+          "detail": "count=4/4, duplicates=0",
+          "name": "self-attestation analyzer invariant",
+          "passed": true
+        },
+        {
+          "detail": "certificates=4, self-counts=[1, 1, 1, 1], over-cap=0",
+          "name": "certificate self signer and N cap",
+          "passed": true
+        },
+        {
+          "detail": "failure markers=0",
+          "name": "certificate validation",
+          "passed": true
+        },
+        {
+          "detail": "matching undisposed timers=0",
+          "name": "perception timers disposed",
+          "passed": true
+        },
+        {
+          "detail": "unique departed=4/4",
+          "name": "vehicles departed",
+          "passed": true
+        },
+        {
+          "detail": "unsafe conflict pairs=0, collision vehicles=0",
+          "name": "physical safety",
+          "passed": true
+        },
+        {
+          "detail": "accepted=5/8, rate=0.625",
+          "name": "lane noise exercised",
+          "passed": true
+        }
+      ],
+      "failures": [],
+      "kind": "lane",
+      "n": 4,
+      "passed": true,
+      "rep": 0,
+      "result_dir": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Priority4cars/no_amb/sigma_2_signal_0/run_0"
+    },
+    {
+      "cell": "e0_n16",
+      "checks": [
+        {
+          "detail": "lane evaluations=232",
+          "name": "perception evaluated",
+          "passed": true
+        },
+        {
+          "detail": "duplicates=0, analyzer_invariant=True",
+          "name": "single-shot cache",
+          "passed": true
+        },
+        {
+          "detail": "self evaluations=0",
+          "name": "no self perception evaluations",
+          "passed": true
+        },
+        {
+          "detail": "valid=16/16, distinct=16/16",
+          "name": "one self-attestation per claimant",
+          "passed": true
+        },
+        {
+          "detail": "self ECHO-SEND records=0",
+          "name": "self-attestation stays off Type-4 radio",
+          "passed": true
+        },
+        {
+          "detail": "count=16/16, duplicates=0",
+          "name": "self-attestation analyzer invariant",
+          "passed": true
+        },
+        {
+          "detail": "certificates=16, self-counts=[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], over-cap=0",
+          "name": "certificate self signer and N cap",
+          "passed": true
+        },
+        {
+          "detail": "failure markers=0",
+          "name": "certificate validation",
+          "passed": true
+        },
+        {
+          "detail": "matching undisposed timers=0",
+          "name": "perception timers disposed",
+          "passed": true
+        },
+        {
+          "detail": "unique departed=16/16",
+          "name": "vehicles departed",
+          "passed": true
+        },
+        {
+          "detail": "unsafe conflict pairs=0, collision vehicles=0",
+          "name": "physical safety",
+          "passed": true
+        },
+        {
+          "detail": "certificates=16/16",
+          "name": "lane certificates",
+          "passed": true
+        },
+        {
+          "detail": "SIGNED-dir=16, SIGNED-UNKNOWN=0, QUIET=0",
+          "name": "E0 trust tiers",
+          "passed": true
+        },
+        {
+          "detail": "STRAIGHT=16/16",
+          "name": "E0 direction",
+          "passed": true
+        },
+        {
+          "detail": "zero-draw replicas=16/16",
+          "name": "E0 perception RNG",
+          "passed": true
+        },
+        {
+          "detail": "certificates above threshold=5",
+          "name": "collect beyond f+1",
+          "passed": true
+        }
+      ],
+      "failures": [],
+      "kind": "e0",
+      "n": 16,
+      "passed": true,
+      "rep": 0,
+      "result_dir": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Priority16cars/no_amb/sigma_0_signal_0/run_0"
+    }
+  ],
+  "start_rep": 0
+}

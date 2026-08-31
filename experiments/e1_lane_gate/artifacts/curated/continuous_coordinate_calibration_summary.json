@@ -1,0 +1,17 @@
+{
+  "checkpoint": "P7-calibration",
+  "fixtures": [
+    {
+      "canonical_summary": "/Users/yashmalegaonkar/Documents/v2v/fourway/adjacent_lane_calibration/canonical_validation_summary.json",
+      "fixture": "adjacent_lane_calibration",
+      "passed": true
+    },
+    {
+      "canonical_summary": "/Users/yashmalegaonkar/Documents/v2v/fourway/longitudinal_distance_calibration/canonical_validation_summary.json",
+      "fixture": "longitudinal_distance_calibration",
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "protocol_integration_started": false
+}

@@ -1,0 +1,864 @@
+{
+  "calibration_trace": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2Metrology/phase2_calibration_trace.csv",
+  "cases": {
+    "conflicting": {
+      "metrology": {
+        "actual_egress": {
+          "veh0": {
+            "actual_egress": "C2S",
+            "match": true,
+            "observed_at_ms": 5000.0,
+            "planned_egress": "C2S",
+            "vehicle": "veh0"
+          },
+          "veh1": {
+            "actual_egress": "C2W",
+            "match": true,
+            "observed_at_ms": 5000.0,
+            "planned_egress": "C2W",
+            "vehicle": "veh1"
+          }
+        },
+        "calibration_config": {
+          "collision_action": "none",
+          "collision_check_junctions": true,
+          "jm_ignore_foe_probability": 1.0,
+          "speed_mode": 0,
+          "speed_mps": 14.0,
+          "time_to_teleport_s": -1.0,
+          "vehicles": [
+            "veh0",
+            "veh1"
+          ]
+        },
+        "calibration_releases": {
+          "veh0": {
+            "speed_mode": 0,
+            "speed_mps": 14.0,
+            "time_ms": 0.0,
+            "vehicle": "veh0"
+          },
+          "veh1": {
+            "speed_mode": 0,
+            "speed_mps": 14.0,
+            "time_ms": 0.0,
+            "vehicle": "veh1"
+          }
+        },
+        "conflict_zone_events": [
+          {
+            "event": "ENTER",
+            "lane": ":C_1_0",
+            "movement": "N-S",
+            "road": ":C_1",
+            "time_ms": 3900.0,
+            "vehicle": "veh0"
+          },
+          {
+            "event": "ENTER",
+            "lane": ":C_5_0",
+            "movement": "E-S",
+            "road": ":C_5",
+            "time_ms": 3900.0,
+            "vehicle": "veh1"
+          },
+          {
+            "event": "EXIT",
+            "lane": "C2S_0",
+            "movement": "N-S",
+            "road": "C2S",
+            "time_ms": 5000.0,
+            "vehicle": "veh0"
+          },
+          {
+            "event": "EXIT",
+            "lane": "C2W_0",
+            "movement": "E-S",
+            "road": "C2W",
+            "time_ms": 5000.0,
+            "vehicle": "veh1"
+          }
+        ],
+        "conflicting_cooccupancy_pair_count": 1,
+        "conflicting_cooccupancy_pairs": [
+          {
+            "first": "veh0",
+            "first_movement": "N-S",
+            "second": "veh1",
+            "second_movement": "E-S",
+            "time_ms": 3900.0
+          }
+        ],
+        "entry_count_by_vehicle": {
+          "veh0": 1,
+          "veh1": 1
+        },
+        "exit_count_by_vehicle": {
+          "veh0": 1,
+          "veh1": 1
+        },
+        "ground_truth": {
+          "veh0": {
+            "movement": "N-S",
+            "observed_at_ms": 100.0,
+            "planned_egress": "C2S",
+            "planned_ingress": "N2C",
+            "vehicle": "veh0"
+          },
+          "veh1": {
+            "movement": "E-S",
+            "observed_at_ms": 100.0,
+            "planned_egress": "C2W",
+            "planned_ingress": "E2C",
+            "vehicle": "veh1"
+          }
+        },
+        "planned_actual_mismatch_vehicles": [],
+        "sumo_collision_vehicle_count": 0,
+        "sumo_collision_vehicles": {}
+      },
+      "run_dir": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2Metrology/conflicting"
+    },
+    "mixed_fixture": {
+      "metrology": {
+        "actual_egress": {
+          "veh0": {
+            "actual_egress": "C2S",
+            "match": true,
+            "observed_at_ms": 28700.0,
+            "planned_egress": "C2S",
+            "vehicle": "veh0"
+          },
+          "veh1": {
+            "actual_egress": "C2E",
+            "match": true,
+            "observed_at_ms": 31500.0,
+            "planned_egress": "C2E",
+            "vehicle": "veh1"
+          },
+          "veh10": {
+            "actual_egress": "C2N",
+            "match": true,
+            "observed_at_ms": 35400.0,
+            "planned_egress": "C2N",
+            "vehicle": "veh10"
+          },
+          "veh11": {
+            "actual_egress": "C2S",
+            "match": true,
+            "observed_at_ms": 36700.0,
+            "planned_egress": "C2S",
+            "vehicle": "veh11"
+          },
+          "veh12": {
+            "actual_egress": "C2S",
+            "match": true,
+            "observed_at_ms": 38500.0,
+            "planned_egress": "C2S",
+            "vehicle": "veh12"
+          },
+          "veh13": {
+            "actual_egress": "C2N",
+            "match": true,
+            "observed_at_ms": 38500.0,
+            "planned_egress": "C2N",
+            "vehicle": "veh13"
+          },
+          "veh14": {
+            "actual_egress": "C2W",
+            "match": true,
+            "observed_at_ms": 39900.0,
+            "planned_egress": "C2W",
+            "vehicle": "veh14"
+          },
+          "veh15": {
+            "actual_egress": "C2E",
+            "match": true,
+            "observed_at_ms": 39900.0,
+            "planned_egress": "C2E",
+            "vehicle": "veh15"
+          },
+          "veh2": {
+            "actual_egress": "C2W",
+            "match": true,
+            "observed_at_ms": 36400.0,
+            "planned_egress": "C2W",
+            "vehicle": "veh2"
+          },
+          "veh3": {
+            "actual_egress": "C2N",
+            "match": true,
+            "observed_at_ms": 28200.0,
+            "planned_egress": "C2N",
+            "vehicle": "veh3"
+          },
+          "veh4": {
+            "actual_egress": "C2W",
+            "match": true,
+            "observed_at_ms": 32800.0,
+            "planned_egress": "C2W",
+            "vehicle": "veh4"
+          },
+          "veh5": {
+            "actual_egress": "C2E",
+            "match": true,
+            "observed_at_ms": 36400.0,
+            "planned_egress": "C2E",
+            "vehicle": "veh5"
+          },
+          "veh6": {
+            "actual_egress": "C2W",
+            "match": true,
+            "observed_at_ms": 30100.0,
+            "planned_egress": "C2W",
+            "vehicle": "veh6"
+          },
+          "veh7": {
+            "actual_egress": "C2S",
+            "match": true,
+            "observed_at_ms": 34100.0,
+            "planned_egress": "C2S",
+            "vehicle": "veh7"
+          },
+          "veh8": {
+            "actual_egress": "C2N",
+            "match": true,
+            "observed_at_ms": 36400.0,
+            "planned_egress": "C2N",
+            "vehicle": "veh8"
+          },
+          "veh9": {
+            "actual_egress": "C2E",
+            "match": true,
+            "observed_at_ms": 30100.0,
+            "planned_egress": "C2E",
+            "vehicle": "veh9"
+          }
+        },
+        "calibration_config": null,
+        "calibration_releases": {},
+        "conflict_zone_events": [
+          {
+            "event": "ENTER",
+            "lane": ":C_9_0",
+            "movement": "S-S",
+            "road": ":C_9",
+            "time_ms": 27100.0,
+            "vehicle": "veh3"
+          },
+          {
+            "event": "ENTER",
+            "lane": ":C_1_0",
+            "movement": "N-S",
+            "road": ":C_1",
+            "time_ms": 27600.0,
+            "vehicle": "veh0"
+          },
+          {
+            "event": "EXIT",
+            "lane": "C2N_0",
+            "movement": "S-S",
+            "road": "C2N",
+            "time_ms": 28200.0,
+            "vehicle": "veh3"
+          },
+          {
+            "event": "EXIT",
+            "lane": "C2S_0",
+            "movement": "N-S",
+            "road": "C2S",
+            "time_ms": 28700.0,
+            "vehicle": "veh0"
+          },
+          {
+            "event": "ENTER",
+            "lane": ":C_5_0",
+            "movement": "E-S",
+            "road": ":C_5",
+            "time_ms": 29000.0,
+            "vehicle": "veh6"
+          },
+          {
+            "event": "ENTER",
+            "lane": ":C_13_0",
+            "movement": "W-S",
+            "road": ":C_13",
+            "time_ms": 29000.0,
+            "vehicle": "veh9"
+          },
+          {
+            "event": "EXIT",
+            "lane": "C2W_0",
+            "movement": "E-S",
+            "road": "C2W",
+            "time_ms": 30100.0,
+            "vehicle": "veh6"
+          },
+          {
+            "event": "EXIT",
+            "lane": "C2E_0",
+            "movement": "W-S",
+            "road": "C2E",
+            "time_ms": 30100.0,
+            "vehicle": "veh9"
+          },
+          {
+            "event": "ENTER",
+            "lane": ":C_2_0",
+            "movement": "N-L",
+            "road": ":C_2",
+            "time_ms": 30400.0,
+            "vehicle": "veh1"
+          },
+          {
+            "event": "EXIT",
+            "lane": "C2E_0",
+            "movement": "N-L",
+            "road": "C2E",
+            "time_ms": 31500.0,
+            "vehicle": "veh1"
+          },
+          {
+            "event": "ENTER",
+            "lane": ":C_10_0",
+            "movement": "S-L",
+            "road": ":C_10",
+            "time_ms": 31800.0,
+            "vehicle": "veh4"
+          },
+          {
+            "event": "EXIT",
+            "lane": "C2W_0",
+            "movement": "S-L",
+            "road": "C2W",
+            "time_ms": 32800.0,
+            "vehicle": "veh4"
+          },
+          {
+            "event": "ENTER",
+            "lane": ":C_6_0",
+            "movement": "E-L",
+            "road": ":C_6",
+            "time_ms": 33100.0,
+            "vehicle": "veh7"
+          },
+          {
+            "event": "EXIT",
+            "lane": "C2S_0",
+            "movement": "E-L",
+            "road": "C2S",
+            "time_ms": 34100.0,
+            "vehicle": "veh7"
+          },
+          {
+            "event": "ENTER",
+            "lane": ":C_14_0",
+            "movement": "W-L",
+            "road": ":C_14",
+            "time_ms": 34400.0,
+            "vehicle": "veh10"
+          },
+          {
+            "event": "EXIT",
+            "lane": "C2N_0",
+            "movement": "W-L",
+            "road": "C2N",
+            "time_ms": 35400.0,
+            "vehicle": "veh10"
+          },
+          {
+            "event": "ENTER",
+            "lane": ":C_0_0",
+            "movement": "N-R",
+            "road": ":C_0",
+            "time_ms": 35700.0,
+            "vehicle": "veh2"
+          },
+          {
+            "event": "ENTER",
+            "lane": ":C_8_0",
+            "movement": "S-R",
+            "road": ":C_8",
+            "time_ms": 35700.0,
+            "vehicle": "veh5"
+          },
+          {
+            "event": "ENTER",
+            "lane": ":C_4_0",
+            "movement": "E-R",
+            "road": ":C_4",
+            "time_ms": 35700.0,
+            "vehicle": "veh8"
+          },
+          {
+            "event": "ENTER",
+            "lane": ":C_12_0",
+            "movement": "W-R",
+            "road": ":C_12",
+            "time_ms": 36100.0,
+            "vehicle": "veh11"
+          },
+          {
+            "event": "EXIT",
+            "lane": "C2W_0",
+            "movement": "N-R",
+            "road": "C2W",
+            "time_ms": 36400.0,
+            "vehicle": "veh2"
+          },
+          {
+            "event": "EXIT",
+            "lane": "C2E_0",
+            "movement": "S-R",
+            "road": "C2E",
+            "time_ms": 36400.0,
+            "vehicle": "veh5"
+          },
+          {
+            "event": "EXIT",
+            "lane": "C2N_0",
+            "movement": "E-R",
+            "road": "C2N",
+            "time_ms": 36400.0,
+            "vehicle": "veh8"
+          },
+          {
+            "event": "EXIT",
+            "lane": "C2S_0",
+            "movement": "W-R",
+            "road": "C2S",
+            "time_ms": 36700.0,
+            "vehicle": "veh11"
+          },
+          {
+            "event": "ENTER",
+            "lane": ":C_1_0",
+            "movement": "N-S",
+            "road": ":C_1",
+            "time_ms": 37500.0,
+            "vehicle": "veh12"
+          },
+          {
+            "event": "ENTER",
+            "lane": ":C_9_0",
+            "movement": "S-S",
+            "road": ":C_9",
+            "time_ms": 37500.0,
+            "vehicle": "veh13"
+          },
+          {
+            "event": "EXIT",
+            "lane": "C2S_0",
+            "movement": "N-S",
+            "road": "C2S",
+            "time_ms": 38500.0,
+            "vehicle": "veh12"
+          },
+          {
+            "event": "EXIT",
+            "lane": "C2N_0",
+            "movement": "S-S",
+            "road": "C2N",
+            "time_ms": 38500.0,
+            "vehicle": "veh13"
+          },
+          {
+            "event": "ENTER",
+            "lane": ":C_5_0",
+            "movement": "E-S",
+            "road": ":C_5",
+            "time_ms": 38800.0,
+            "vehicle": "veh14"
+          },
+          {
+            "event": "ENTER",
+            "lane": ":C_13_0",
+            "movement": "W-S",
+            "road": ":C_13",
+            "time_ms": 38900.0,
+            "vehicle": "veh15"
+          },
+          {
+            "event": "EXIT",
+            "lane": "C2W_0",
+            "movement": "E-S",
+            "road": "C2W",
+            "time_ms": 39900.0,
+            "vehicle": "veh14"
+          },
+          {
+            "event": "EXIT",
+            "lane": "C2E_0",
+            "movement": "W-S",
+            "road": "C2E",
+            "time_ms": 39900.0,
+            "vehicle": "veh15"
+          }
+        ],
+        "conflicting_cooccupancy_pair_count": 0,
+        "conflicting_cooccupancy_pairs": [],
+        "entry_count_by_vehicle": {
+          "veh0": 1,
+          "veh1": 1,
+          "veh10": 1,
+          "veh11": 1,
+          "veh12": 1,
+          "veh13": 1,
+          "veh14": 1,
+          "veh15": 1,
+          "veh2": 1,
+          "veh3": 1,
+          "veh4": 1,
+          "veh5": 1,
+          "veh6": 1,
+          "veh7": 1,
+          "veh8": 1,
+          "veh9": 1
+        },
+        "exit_count_by_vehicle": {
+          "veh0": 1,
+          "veh1": 1,
+          "veh10": 1,
+          "veh11": 1,
+          "veh12": 1,
+          "veh13": 1,
+          "veh14": 1,
+          "veh15": 1,
+          "veh2": 1,
+          "veh3": 1,
+          "veh4": 1,
+          "veh5": 1,
+          "veh6": 1,
+          "veh7": 1,
+          "veh8": 1,
+          "veh9": 1
+        },
+        "ground_truth": {
+          "veh0": {
+            "movement": "N-S",
+            "observed_at_ms": 100.0,
+            "planned_egress": "C2S",
+            "planned_ingress": "N2C",
+            "vehicle": "veh0"
+          },
+          "veh1": {
+            "movement": "N-L",
+            "observed_at_ms": 100.0,
+            "planned_egress": "C2E",
+            "planned_ingress": "N2C",
+            "vehicle": "veh1"
+          },
+          "veh10": {
+            "movement": "W-L",
+            "observed_at_ms": 100.0,
+            "planned_egress": "C2N",
+            "planned_ingress": "W2C",
+            "vehicle": "veh10"
+          },
+          "veh11": {
+            "movement": "W-R",
+            "observed_at_ms": 100.0,
+            "planned_egress": "C2S",
+            "planned_ingress": "W2C",
+            "vehicle": "veh11"
+          },
+          "veh12": {
+            "movement": "N-S",
+            "observed_at_ms": 100.0,
+            "planned_egress": "C2S",
+            "planned_ingress": "N2C",
+            "vehicle": "veh12"
+          },
+          "veh13": {
+            "movement": "S-S",
+            "observed_at_ms": 100.0,
+            "planned_egress": "C2N",
+            "planned_ingress": "S2C",
+            "vehicle": "veh13"
+          },
+          "veh14": {
+            "movement": "E-S",
+            "observed_at_ms": 100.0,
+            "planned_egress": "C2W",
+            "planned_ingress": "E2C",
+            "vehicle": "veh14"
+          },
+          "veh15": {
+            "movement": "W-S",
+            "observed_at_ms": 100.0,
+            "planned_egress": "C2E",
+            "planned_ingress": "W2C",
+            "vehicle": "veh15"
+          },
+          "veh2": {
+            "movement": "N-R",
+            "observed_at_ms": 100.0,
+            "planned_egress": "C2W",
+            "planned_ingress": "N2C",
+            "vehicle": "veh2"
+          },
+          "veh3": {
+            "movement": "S-S",
+            "observed_at_ms": 100.0,
+            "planned_egress": "C2N",
+            "planned_ingress": "S2C",
+            "vehicle": "veh3"
+          },
+          "veh4": {
+            "movement": "S-L",
+            "observed_at_ms": 100.0,
+            "planned_egress": "C2W",
+            "planned_ingress": "S2C",
+            "vehicle": "veh4"
+          },
+          "veh5": {
+            "movement": "S-R",
+            "observed_at_ms": 100.0,
+            "planned_egress": "C2E",
+            "planned_ingress": "S2C",
+            "vehicle": "veh5"
+          },
+          "veh6": {
+            "movement": "E-S",
+            "observed_at_ms": 100.0,
+            "planned_egress": "C2W",
+            "planned_ingress": "E2C",
+            "vehicle": "veh6"
+          },
+          "veh7": {
+            "movement": "E-L",
+            "observed_at_ms": 100.0,
+            "planned_egress": "C2S",
+            "planned_ingress": "E2C",
+            "vehicle": "veh7"
+          },
+          "veh8": {
+            "movement": "E-R",
+            "observed_at_ms": 100.0,
+            "planned_egress": "C2N",
+            "planned_ingress": "E2C",
+            "vehicle": "veh8"
+          },
+          "veh9": {
+            "movement": "W-S",
+            "observed_at_ms": 100.0,
+            "planned_egress": "C2E",
+            "planned_ingress": "W2C",
+            "vehicle": "veh9"
+          }
+        },
+        "planned_actual_mismatch_vehicles": [],
+        "sumo_collision_vehicle_count": 0,
+        "sumo_collision_vehicles": {}
+      },
+      "run_dir": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2Metrology/mixed_fixture"
+    },
+    "nonconflicting": {
+      "metrology": {
+        "actual_egress": {
+          "veh0": {
+            "actual_egress": "C2S",
+            "match": true,
+            "observed_at_ms": 5000.0,
+            "planned_egress": "C2S",
+            "vehicle": "veh0"
+          },
+          "veh1": {
+            "actual_egress": "C2N",
+            "match": true,
+            "observed_at_ms": 5000.0,
+            "planned_egress": "C2N",
+            "vehicle": "veh1"
+          }
+        },
+        "calibration_config": {
+          "collision_action": "none",
+          "collision_check_junctions": true,
+          "jm_ignore_foe_probability": 1.0,
+          "speed_mode": 0,
+          "speed_mps": 14.0,
+          "time_to_teleport_s": -1.0,
+          "vehicles": [
+            "veh0",
+            "veh1"
+          ]
+        },
+        "calibration_releases": {
+          "veh0": {
+            "speed_mode": 0,
+            "speed_mps": 14.0,
+            "time_ms": 0.0,
+            "vehicle": "veh0"
+          },
+          "veh1": {
+            "speed_mode": 0,
+            "speed_mps": 14.0,
+            "time_ms": 0.0,
+            "vehicle": "veh1"
+          }
+        },
+        "conflict_zone_events": [
+          {
+            "event": "ENTER",
+            "lane": ":C_1_0",
+            "movement": "N-S",
+            "road": ":C_1",
+            "time_ms": 3900.0,
+            "vehicle": "veh0"
+          },
+          {
+            "event": "ENTER",
+            "lane": ":C_9_0",
+            "movement": "S-S",
+            "road": ":C_9",
+            "time_ms": 3900.0,
+            "vehicle": "veh1"
+          },
+          {
+            "event": "EXIT",
+            "lane": "C2S_0",
+            "movement": "N-S",
+            "road": "C2S",
+            "time_ms": 5000.0,
+            "vehicle": "veh0"
+          },
+          {
+            "event": "EXIT",
+            "lane": "C2N_0",
+            "movement": "S-S",
+            "road": "C2N",
+            "time_ms": 5000.0,
+            "vehicle": "veh1"
+          }
+        ],
+        "conflicting_cooccupancy_pair_count": 0,
+        "conflicting_cooccupancy_pairs": [],
+        "entry_count_by_vehicle": {
+          "veh0": 1,
+          "veh1": 1
+        },
+        "exit_count_by_vehicle": {
+          "veh0": 1,
+          "veh1": 1
+        },
+        "ground_truth": {
+          "veh0": {
+            "movement": "N-S",
+            "observed_at_ms": 100.0,
+            "planned_egress": "C2S",
+            "planned_ingress": "N2C",
+            "vehicle": "veh0"
+          },
+          "veh1": {
+            "movement": "S-S",
+            "observed_at_ms": 100.0,
+            "planned_egress": "C2N",
+            "planned_ingress": "S2C",
+            "vehicle": "veh1"
+          }
+        },
+        "planned_actual_mismatch_vehicles": [],
+        "sumo_collision_vehicle_count": 0,
+        "sumo_collision_vehicles": {}
+      },
+      "run_dir": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2Metrology/nonconflicting"
+    }
+  },
+  "checkpoint": "2D-metrology",
+  "checks": [
+    {
+      "detail": "rows=144 movements=12",
+      "name": "12x12 table shape",
+      "passed": true
+    },
+    {
+      "detail": "symmetric=True diagonal=True",
+      "name": "conflict table symmetric with conflicting diagonal",
+      "passed": true
+    },
+    {
+      "detail": "counts={'CONSERVATIVE_OMISSION': 14, 'MATCH_CONFLICT': 40, 'MATCH_SAFE': 12, 'UNSAFE_KSAFE_ENTRY': 0}",
+      "name": "kSafe geometry audit",
+      "passed": true
+    },
+    {
+      "detail": "observed=16/16",
+      "name": "all mixed-fixture movements observed",
+      "passed": true
+    },
+    {
+      "detail": "observed=16/16 mismatches=[]",
+      "name": "all 12 planned and actual egresses agree",
+      "passed": true
+    },
+    {
+      "detail": "entries=16 exits=16",
+      "name": "all fixture vehicles enter and exit conflict zone exactly once",
+      "passed": true
+    },
+    {
+      "detail": "measured={'veh0': 'N-S', 'veh1': 'E-S'}",
+      "name": "conflicting movement pair",
+      "passed": true
+    },
+    {
+      "detail": "entries={'veh0': 1, 'veh1': 1}",
+      "name": "conflicting simultaneous conflict-zone occupancy",
+      "passed": true
+    },
+    {
+      "detail": "expected_conflict=True pair_count=1",
+      "name": "conflicting classifier outcome",
+      "passed": true
+    },
+    {
+      "detail": "config={'speed_mode': 0, 'speed_mps': 14.0, 'jm_ignore_foe_probability': 1.0, 'collision_check_junctions': True, 'collision_action': 'none', 'time_to_teleport_s': -1.0, 'vehicles': ['veh0', 'veh1']} releases=['veh0', 'veh1']",
+      "name": "conflicting pinned SUMO/TraCI settings",
+      "passed": true
+    },
+    {
+      "detail": "actual={'veh0': {'vehicle': 'veh0', 'planned_egress': 'C2S', 'actual_egress': 'C2S', 'match': True, 'observed_at_ms': 5000.0}, 'veh1': {'vehicle': 'veh1', 'planned_egress': 'C2W', 'actual_egress': 'C2W', 'match': True, 'observed_at_ms': 5000.0}}",
+      "name": "conflicting actual egress agreement",
+      "passed": true
+    },
+    {
+      "detail": "no SUMO teleport records",
+      "name": "conflicting no teleportation",
+      "passed": true
+    },
+    {
+      "detail": "measured={'veh0': 'N-S', 'veh1': 'S-S'}",
+      "name": "nonconflicting movement pair",
+      "passed": true
+    },
+    {
+      "detail": "entries={'veh0': 1, 'veh1': 1}",
+      "name": "nonconflicting simultaneous conflict-zone occupancy",
+      "passed": true
+    },
+    {
+      "detail": "expected_conflict=False pair_count=0",
+      "name": "nonconflicting classifier outcome",
+      "passed": true
+    },
+    {
+      "detail": "config={'speed_mode': 0, 'speed_mps': 14.0, 'jm_ignore_foe_probability': 1.0, 'collision_check_junctions': True, 'collision_action': 'none', 'time_to_teleport_s': -1.0, 'vehicles': ['veh0', 'veh1']} releases=['veh0', 'veh1']",
+      "name": "nonconflicting pinned SUMO/TraCI settings",
+      "passed": true
+    },
+    {
+      "detail": "actual={'veh0': {'vehicle': 'veh0', 'planned_egress': 'C2S', 'actual_egress': 'C2S', 'match': True, 'observed_at_ms': 5000.0}, 'veh1': {'vehicle': 'veh1', 'planned_egress': 'C2N', 'actual_egress': 'C2N', 'match': True, 'observed_at_ms': 5000.0}}",
+      "name": "nonconflicting actual egress agreement",
+      "passed": true
+    },
+    {
+      "detail": "no SUMO teleport records",
+      "name": "nonconflicting no teleportation",
+      "passed": true
+    }
+  ],
+  "conflict_table": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2Metrology/phase2_movement_conflicts.csv",
+  "passed": true,
+  "statistical_pilots_started": false,
+  "sumo_collisions_are_secondary": true
+}

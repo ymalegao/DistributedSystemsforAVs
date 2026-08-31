@@ -1,0 +1,287 @@
+{
+  "checkpoint": "P8-attack-defense-full-multiseed",
+  "completed_seed_groups": 5,
+  "execution": "strictly sequential; no simulations overlap",
+  "notes": {
+    "D": "one variant may certify; no honest witness may double-sign",
+    "F": "signal_error=1.0 intentionally forces SIGNED-UNKNOWN",
+    "I": "consistent declaration/cue followed by a different maneuver is deferred to conformance monitoring"
+  },
+  "passed": true,
+  "per_attack": {
+    "D": {
+      "completed": 5,
+      "passed": 5
+    },
+    "E": {
+      "completed": 5,
+      "passed": 5
+    },
+    "F": {
+      "completed": 5,
+      "passed": 5
+    },
+    "G": {
+      "completed": 5,
+      "passed": 5
+    },
+    "H": {
+      "completed": 5,
+      "passed": 5
+    },
+    "J": {
+      "completed": 5,
+      "passed": 5
+    },
+    "K": {
+      "completed": 5,
+      "passed": 5
+    }
+  },
+  "planned_simulations": 35,
+  "repetitions": 5,
+  "seed_results": [
+    {
+      "attacks": {
+        "D": {
+          "passed": true,
+          "simulation_seed": 2112359407,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/D_EquivocationV2/run_0/equivocation_validation_summary.json"
+        },
+        "E": {
+          "passed": true,
+          "simulation_seed": 1642449256,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/E_PhysicalLaneMutationV4/run_0/leader_attack_validation.json"
+        },
+        "F": {
+          "passed": true,
+          "simulation_seed": 1793014056,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/F_UnknownDirectionUpgradeV4/run_0/leader_attack_validation.json"
+        },
+        "G": {
+          "passed": true,
+          "simulation_seed": 2034635345,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/G_CertSuppressionV4/run_0/leader_attack_validation.json"
+        },
+        "H": {
+          "passed": true,
+          "simulation_seed": 497302864,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/H_SilentPrimaryV4/run_0/leader_attack_validation.json"
+        },
+        "J": {
+          "passed": true,
+          "simulation_seed": 13159093,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/J_CertRelayWithholdingV4/run_0/gossip_withholding_validation.json"
+        },
+        "K": {
+          "passed": true,
+          "simulation_seed": 99501930,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/K_ConsecutiveByzantinePrimariesV3/run_0/consecutive_byzantine_validation.json"
+        }
+      },
+      "passed": true,
+      "rep": 0,
+      "return_codes": {
+        "D": 0,
+        "E-H": 0,
+        "J": 0,
+        "K": 0
+      },
+      "stage_error": null
+    },
+    {
+      "attacks": {
+        "D": {
+          "passed": true,
+          "simulation_seed": 2112459410,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/D_EquivocationV2/run_1/equivocation_validation_summary.json"
+        },
+        "E": {
+          "passed": true,
+          "simulation_seed": 1642549259,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/E_PhysicalLaneMutationV4/run_1/leader_attack_validation.json"
+        },
+        "F": {
+          "passed": true,
+          "simulation_seed": 1793114059,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/F_UnknownDirectionUpgradeV4/run_1/leader_attack_validation.json"
+        },
+        "G": {
+          "passed": true,
+          "simulation_seed": 2034735348,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/G_CertSuppressionV4/run_1/leader_attack_validation.json"
+        },
+        "H": {
+          "passed": true,
+          "simulation_seed": 497402867,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/H_SilentPrimaryV4/run_1/leader_attack_validation.json"
+        },
+        "J": {
+          "passed": true,
+          "simulation_seed": 13259096,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/J_CertRelayWithholdingV4/run_1/gossip_withholding_validation.json"
+        },
+        "K": {
+          "passed": true,
+          "simulation_seed": 99601933,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/K_ConsecutiveByzantinePrimariesV3/run_1/consecutive_byzantine_validation.json"
+        }
+      },
+      "passed": true,
+      "rep": 1,
+      "return_codes": {
+        "D": 0,
+        "E-H": 0,
+        "J": 0,
+        "K": 0
+      },
+      "stage_error": null
+    },
+    {
+      "attacks": {
+        "D": {
+          "passed": true,
+          "simulation_seed": 2112559413,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/D_EquivocationV2/run_2/equivocation_validation_summary.json"
+        },
+        "E": {
+          "passed": true,
+          "simulation_seed": 1642649262,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/E_PhysicalLaneMutationV4/run_2/leader_attack_validation.json"
+        },
+        "F": {
+          "passed": true,
+          "simulation_seed": 1793214062,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/F_UnknownDirectionUpgradeV4/run_2/leader_attack_validation.json"
+        },
+        "G": {
+          "passed": true,
+          "simulation_seed": 2034835351,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/G_CertSuppressionV4/run_2/leader_attack_validation.json"
+        },
+        "H": {
+          "passed": true,
+          "simulation_seed": 497502870,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/H_SilentPrimaryV4/run_2/leader_attack_validation.json"
+        },
+        "J": {
+          "passed": true,
+          "simulation_seed": 13359099,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/J_CertRelayWithholdingV4/run_2/gossip_withholding_validation.json"
+        },
+        "K": {
+          "passed": true,
+          "simulation_seed": 99701936,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/K_ConsecutiveByzantinePrimariesV3/run_2/consecutive_byzantine_validation.json"
+        }
+      },
+      "passed": true,
+      "rep": 2,
+      "return_codes": {
+        "D": 0,
+        "E-H": 0,
+        "J": 0,
+        "K": 0
+      },
+      "stage_error": null
+    },
+    {
+      "attacks": {
+        "D": {
+          "passed": true,
+          "simulation_seed": 2112659416,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/D_EquivocationV2/run_3/equivocation_validation_summary.json"
+        },
+        "E": {
+          "passed": true,
+          "simulation_seed": 1642749265,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/E_PhysicalLaneMutationV4/run_3/leader_attack_validation.json"
+        },
+        "F": {
+          "passed": true,
+          "simulation_seed": 1793314065,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/F_UnknownDirectionUpgradeV4/run_3/leader_attack_validation.json"
+        },
+        "G": {
+          "passed": true,
+          "simulation_seed": 2034935354,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/G_CertSuppressionV4/run_3/leader_attack_validation.json"
+        },
+        "H": {
+          "passed": true,
+          "simulation_seed": 497602873,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/H_SilentPrimaryV4/run_3/leader_attack_validation.json"
+        },
+        "J": {
+          "passed": true,
+          "simulation_seed": 13459102,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/J_CertRelayWithholdingV4/run_3/gossip_withholding_validation.json"
+        },
+        "K": {
+          "passed": true,
+          "simulation_seed": 99801939,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/K_ConsecutiveByzantinePrimariesV3/run_3/consecutive_byzantine_validation.json"
+        }
+      },
+      "passed": true,
+      "rep": 3,
+      "return_codes": {
+        "D": 0,
+        "E-H": 0,
+        "J": 0,
+        "K": 0
+      },
+      "stage_error": null
+    },
+    {
+      "attacks": {
+        "D": {
+          "passed": true,
+          "simulation_seed": 2112759419,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/D_EquivocationV2/run_4/equivocation_validation_summary.json"
+        },
+        "E": {
+          "passed": true,
+          "simulation_seed": 1642849268,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/E_PhysicalLaneMutationV4/run_4/leader_attack_validation.json"
+        },
+        "F": {
+          "passed": true,
+          "simulation_seed": 1793414068,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/F_UnknownDirectionUpgradeV4/run_4/leader_attack_validation.json"
+        },
+        "G": {
+          "passed": true,
+          "simulation_seed": 2035035357,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/G_CertSuppressionV4/run_4/leader_attack_validation.json"
+        },
+        "H": {
+          "passed": true,
+          "simulation_seed": 497702876,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/H_SilentPrimaryV4/run_4/leader_attack_validation.json"
+        },
+        "J": {
+          "passed": true,
+          "simulation_seed": 13559105,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/J_CertRelayWithholdingV4/run_4/gossip_withholding_validation.json"
+        },
+        "K": {
+          "passed": true,
+          "simulation_seed": 99901942,
+          "summary": "/Users/yashmalegaonkar/Documents/v2v/benchmarks/Phase2AttackDefense/K_ConsecutiveByzantinePrimariesV3/run_4/consecutive_byzantine_validation.json"
+        }
+      },
+      "passed": true,
+      "rep": 4,
+      "return_codes": {
+        "D": 0,
+        "E-H": 0,
+        "J": 0,
+        "K": 0
+      },
+      "stage_error": null
+    }
+  ],
+  "start_rep": 0,
+  "stopped_early": false
+}

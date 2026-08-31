@@ -1,0 +1,1126 @@
+\documentclass[letterpaper,10pt,conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+% The preceding line is only needed to identify funding in the first footnote. If that is unneeded, please comment it out.
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{cleveref}
+\crefname{figure}{Fig.}{Figs.}
+\crefname{table}{Table}{Tables}
+\crefname{section}{Sec.}{Secs.}
+\graphicspath{{figures/}}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\begin{document}
+
+
+\begin{abstract}
+
+
+Byzantine CAVs can make false physical claims when attempting coordination at an unsignalized intersection. Agreement via PBFT yields a common decision but does not
+establish the physical truth of its inputs.
+
+Threshold witness evidence can admit or reject physical-state claims,
+but it does not by itself decide who crosses when.
+
+Setu composes threshold physical-state certification, externally
+validated Byzantine discrete agreement, and deterministic
+certification-gated execution.
+
+We characterize false-certification probability as a function of claim
+offset $\delta$, sensor noise $\sigma$, defender gate $k$, and Byzantine
+witness support, by composing per-witness gate admission with $f{+}1$
+threshold composition; we validate that prediction in simulation.
+In Veins, coupled with SUMO under a realistic V2V channel, we evaluate
+honest scaling, adversarial physical-lane and direction claims,
+multi-layer attack-defense integrity, certification-gated co-batching,
+and post-commit crash recovery, with a frozen operating point selected
+in Exp~1.
+
+We show that physical validity is a quantifiable probabilistic
+boundary---at our frozen operating point ($k{=}2$, $\delta{=}1.75$\,m),
+the $b{=}f$ shoulder false-certifies in 50\% of runs (Wilson 95\% CI
+$[30\%,70\%]$), while $b{=}f{+}1$ reaches 100\%---that must be
+characterized before deterministic Byzantine agreement can safely gate
+physical mutual exclusion; a bounded Byzantine primary then adds
+$\sim$16\,s to mean wait without breaking safety.
+
+
+\end{abstract}
+
+% ============================================================
+% CORE PAPER FRAMING
+% ============================================================
+%
+% SETU BRIDGES TWO DIFFERENT PROBLEMS:
+%
+%   PHASE I:
+%   What claims about the physical world are sufficiently supported
+%   to be used for coordination?
+%
+%       noisy physical observations
+%                   |
+%                   v
+%       threshold physical-state certificate
+%
+%   PHASE II:
+%   Given those admissible physical claims, what crossing decision
+%   should every correct vehicle execute?
+%
+%       certified physical state
+%                   |
+%                   v
+%       Byzantine discrete agreement
+%                   |
+%                   v
+%       deterministic mutual-exclusion execution
+%
+% CORE THESIS:
+%   "Agreement is not physical validity."
+%
+% IMPORTANT TERMINOLOGY:
+% - Do NOT casually call Phase I "averaging consensus."
+% - Related work may compare it to continuous / approximate /
+%   resilient consensus.
+% - Setu itself performs resilient physical-state certification:
+%   noisy continuous observations -> thresholded discrete evidence.
+%
+% PAPER CLAIM:
+% The contribution is NOT simply "physical checks before PBFT."
+% Feng and other work already perform forms of sensor/feasibility
+% checking before or during consensus.
+%
+% The bridge we need to demonstrate is:
+%
+%   noisy/adversarial physical claim
+%        -> quantified evidence admission
+%        -> Byzantine discrete ordering
+%        -> physical mutual-exclusion outcome.
+%
+% ============================================================
+% WRITING RULE FOR EVERY MAJOR SECTION
+% ============================================================
+%
+% Q1: What was already known?
+% Q2: What is missing / what do we add?
+% Q3: What exactly did we build or show?
+% Q4: Why does the robotics community care?
+% Q5: What remains unknown after this paper?
+%
+% ============================================================
+% 3-STEP RELATED-WORK RULE
+% ============================================================
+%
+% For every related-work GROUP:
+%
+%   1. WHAT IS THIS AREA?
+%      One sentence defining the problem this literature solves.
+%
+%   2. WHAT HAS THE AREA ALREADY DONE?
+%      Group the important papers by IDEA, not one sentence per paper.
+%
+%   3. HOW DO WE DIFFER FROM THE WHOLE GROUP?
+%      Do not end with "unlike X..." for only one paper.
+%      State the capability the group has, the boundary it stops at,
+%      and the specific bridge Setu adds.
+%
+% ============================================================
+% OVERVIEW RULE
+% ============================================================
+%
+% The Overview is a STORY, not a smaller Protocol section.
+%
+% Use ONE intersection and ONE set of vehicles A/B/C/D.
+% Incrementally evolve the same example:
+%
+%   Scene
+%      -> Attack
+%      -> Why existing mechanism is insufficient
+%      -> Add Setu mechanism
+%      -> Next attack
+%      -> Add next Setu mechanism
+%
+% Reader should understand the entire paper from the overview figures
+% without knowing message names, Checks 9/10, packet formats, etc.
+%
+% ============================================================
+% EVALUATION RULE
+% ============================================================
+%
+% Every experiment answers ONE research question and follows:
+%
+%   What we did.
+%   Assessment.
+%   What we learned.
+%
+% Prefer \paragraph{} rather than many subsubsections to save ICRA space.
+%
+% Never report a graph without saying what scientific question it answers.
+% Never make a system feature into a contribution merely because we tested it.
+%
+% ============================================================
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% WRITE FIRST
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+\section{Introduction}
+\label{sec:introduction}
+
+Unsignalized intersections require multiple autonomous vehicles to coordinate their access to a shared physical conflict zone. Since there is no central controller, right-of-way cannot always be determined with the available information. Crossing the intersection can be viewed as accessing a shared resource—every vehicle aims to access it, but a specific order is needed to ensure safety and fairness. The intersection shouldn't simply allow one car to pass at a time; if two vehicles at the front have routes that can be executed in parallel—such as both going straight—they should be permitted to access the resource simultaneously. Likewise, if a vehicle intends to turn left and the other front vehicles' routes could cause collisions, mutual exclusion should prevent conflicting access. If a vehicle misreports its position or intended direction, others will trust this false information until actions are taken, which could lead to unsafe situations. A malicious vehicle that falsifies its state is called a Byzantine CAV (BCAV); such vehicles are authenticated but can still transmit false physical states, as their claims are not independently verified beyond their identity. 
+
+
+
+Previous work can be categorized into Continuous Consensus and Discrete Consensus. Continuous consensus involves all proposals intersecting at a common value, followed by some form of averaging. For example, if four cars each propose all visible cars at an intersection, averaging these proposals could result in all vehicles arriving at the same value.
+
+Discrete decision consensus occurs when proposals differ; cars present their maneuvers to the group, and a discrete consensus determines the final choice. Xu introduced a perception-action framework that selects maneuvers and blocks dangerous ones.
+
+
+Intersection management has been extensively studied over the past decade. Approaches include reservation mechanisms, consensus protocols, and RSUs coordinating traffic. These studies show that intersection management can be implemented in a distributed or centralized manner, and can be both fast and safe. 
+
+
+Neither authentication nor Byzantine agreement establishes whether an authenticated physical-state claim is true. Xu et al. use a perception-as-node-reliability model, in which honest sensing error is folded into a given node-failure probability; they do not model an adversarially chosen lie — there is no notion of an adversary selecting the magnitude of a false claim to maximize the chance that honest witnesses accept it. To our knowledge, what is missing is an end-to-end characterization of the full chain: an adversarially chosen physical claim, corroborated by noisy peer evidence, admitted or rejected by certification, carried into Byzantine discrete agreement, and executed to a physical mutual-exclusion outcome. Agreement is not physical validity.
+
+We introduce Setu, a layered consensus protocol that bridges continuous physical claims and the discrete agreement of Byzantine consensus. The first layer provides resilience against adversarial and noisy claims through physical-state certification. The resulting certificate feeds the second layer, an externally validated Byzantine discrete agreement; a deterministic function then schedules co-batches gated by certification status. If execution fails, a recovery protocol re-runs the same evidence-then-agreement layering post-commit, for CANCEL and CLEAR.
+
+
+We demonstrate that physical validity remains probabilistic even when
+$b \le f$: a single lie supported by Byzantine actors can still form an
+$f{+}1$ certificate if honest witnesses on noisy sensors provide the
+remaining endorsements. We establish and verify this boundary at our
+fixed operating point: at $k=2$, $\delta = 1.75$\,m, the $b=f$ shoulder
+results in false certification in 50\% of attempts, while $b = f{+}1$ reaches 100\%. We trace admitted errors through committed states into conflicting co-occupancy, where a
+false certificate is necessary but not sufficient. Our comprehensive
+evaluation covers: Phase~I gate characterization and operating-point
+selection; Phase~II integrity tests under certificate, consensus, and
+network attacks, where a bounded Byzantine primary adds measured
+view-change delay ($\sim$16\,s to mean wait, $31 \to 48$\,s) without
+compromising safety; certification-gated co-batching under
+false-direction claims; and post-commit crash recovery. Emergency
+priority is assessed separately as a pre-decision throughput scenario.
+
+
+\begin{itemize}
+
+\item \textbf{Quantification of physical-state certification.}
+      A closed-form characterization of false admission under sensor
+      uncertainty and Byzantine witness support, validated in simulation.
+
+\item \textbf{Physical propagation of agreement error.}
+      An end-to-end mapping from false witness evidence to false
+      certification, committed state, and physical conflicting co-occupancy. 
+
+\item \textbf{Certification-gated Byzantine intersection execution.}
+      A layered composition of physical evidence, discrete BFT, and
+      conservative/compatible concurrent execution.
+
+\item \textbf{Observed Byzantine-resilient recovery.}
+      Threshold physical evidence for cancellation and clearance before
+      discrete recovery agreement.
+
+\end{itemize}
+
+
+
+\section{Overview and Motivating Attacks}
+\label{sec:overview}
+
+\subsection{One Intersection, Two Agreement Problems}
+
+Let us imagine a simple single-lane intersection.
+\begin{center}
+\begin{verbatim}
+            A
+            |
+            |
+      B ----+---- D
+            |
+            |
+            C
+\end{verbatim}
+\end{center}
+
+Vehicle A approaches from the North, Vehicle B from the West, Vehicle C from the South, and Vehicle D from the East. Each vehicle has a fixed position, lane location, and knows its intended crossing direction. If all four arrive simultaneously, who should go first? If we share our information with the group, who can we trust enough to coordinate? Based on this data, who should cross and when?
+
+In the simplest scenario, all vehicles are authenticated and honest about their information, regardless of the scheduling method used (for example, assuming the right-most lane goes first).
+
+After exchanging claims, a leader can present all claims to the group and run a Byzantine Fault Tolerance (BFT) consensus to reach an agreement.
+
+
+
+\subsection{Attack 1: Agreement on a Physical Lie}
+
+
+Suppose Vehicle A is authorized but Byzantine, aiming to exploit the system by claiming its lane as the prioritized right-most lane. When the leader submits claim set, this false claim enters the scheduling algorithm. Vehicle A is then treated as having priority under the rule and is granted first, despite being undeserving.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{attack.pdf}
+  \caption{Motivating attack: agreement replicates a false physical claim into conflicting execution.}
+  \label{fig:attack-overview}
+\end{figure}
+
+\subsection{Phase I: Physical Evidence Before Discrete Agreement}
+
+In the same scenario, Vehicle A still makes the claim, but other vehicles at the intersection must support it before it gains physical authority. Suppose B and C reject the false claim, while D, due to noisy sensors causing faulty perception, supports it. Since not enough cars support the claim, it does not receive a certificate and is not considered to have certified physical authority in this model. We use sigma to denote sensor noise, delta for the magnitude of the lie told by the Byzantine node, and k for the acceptable noise/lie tolerance from other vehicles. We also measure the probability that the system incorrectly accepts a false claim.
+
+
+
+
+
+\subsection{Phase II: From Certified State to Crossing Order}
+
+
+The gate determines which claims are admissible but does not specify who crosses first or in what sequence. By employing Byzantine consensus on a discrete set of certificates, it ensures agreement on the proposed certified state. If a leader alters the proposal, other cars can verify the information against their locally verified data. After consensus is reached, each car can run a deterministic execution function, which computes 
+\[
+[ \{A,C\}, \{B\}, \{D\} ].
+\]
+Actions in A and C can be executed together in the same batch if they are non-conflicting and have been gated. Uncertified claims remain conservative and are scheduled individually.
+
+\subsection{Attacks Across the Two Layers}
+
+With the two layers, we achieve resistance against physical claims and consensus mutation.
+
+For attacks involving a continuous value, such as lane position, direction, or lane location, the defense comprises witness evidence combined with thresholding.
+
+In layered attacks, where data passes through layer 1 and then is altered or omitted by a leader, the defense involves external validity checks and leader replacement.
+
+Attacks can also occur during execution; however, we do not claim to defend against violations of physical actions. If such an event occurs—like a car crashing or stalling after being given a slot—we have a recovery protocol. This protocol repeats the continuous gate upon cancellation evidence and then executes a discrete cancel agreement.
+
+
+These attacks motivate the protocol details in Section~\ref{sec:protocol}
+and the corresponding experiments in Section~\ref{sec:evaluation}.
+
+% MASTER FIGURE
+%
+% Make this one of the most important figures in the paper.
+%
+% PANEL A: BFT alone fails.
+%
+%     false physical claim
+%              |
+%             PBFT
+%              |
+%       everyone agrees
+%              |
+%       unsafe execution
+%
+% Message:
+% Agreement can consistently replicate a lie.
+%
+%
+% PANEL B: Phase I.
+%
+%     physical claim
+%          |
+%    noisy witnesses
+%      /   |   \
+%     +    +    -
+%      \   |   /
+%      f+1 cert
+%
+% with small labels:
+% delta / sigma / k
+%
+% Message:
+% Physical validity is probabilistic and quantified.
+%
+%
+% PANEL C: Phase II.
+%
+%   certified claims
+%          |
+%         PBFT
+%          |
+%   common discrete state
+%          |
+% deterministic scheduler
+%          |
+% compatible physical batches
+%
+% Message:
+% Discrete agreement converts admissible state into coordinated execution.
+%
+%
+% FIGURE TEST:
+%
+% If someone sees ONLY this figure and its caption, can they explain:
+%
+%   - why BFT alone does not solve your problem?
+%   - what Phase I contributes?
+%   - what Phase II contributes?
+%   - how Setu bridges them?
+%
+% If not, simplify/redesign it.
+
+
+\section{Setu Protocol and Architecture}
+\label{sec:protocol}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{systemflowplot.pdf}
+  \caption{Setu architecture: Phase~I certification, Phase~II BFT, deterministic execution, recovery.}
+  \label{fig:setu-architecture}
+\end{figure}
+
+% PURPOSE OF THIS SECTION:
+% Write ONLY what Setu actually does.
+% Do not sell novelty here.
+% Do not write broad related-work claims here.
+%
+% If we cannot explain a mechanism precisely in this section, it cannot
+% magically appear as a claim in the Overview or Introduction later.
+%
+% SECTION-LEVEL QUESTION:
+% How does Setu turn uncertain physical observations into a common,
+% executable intersection decision under Byzantine faults?
+%
+% High-level progression:
+%
+%   physical world
+%       -> witness evidence
+%       -> certificate
+%       -> externally validated BFT
+%       -> deterministic schedule
+%       -> physical execution
+%
+% The architecture should visibly expose the Phase-I / Phase-II boundary.
+
+
+
+
+% ---------------------------------------------------------------------------
+\subsection{System and Threat Model}
+\label{sec:model}
+
+The participants involved in the scenario are connected autonomous vehicles approaching an unsignalized intersection. Each vehicle is equipped with an on-board computer, a driving stack, and a consensus stack, constituting a unified architecture. N denotes the number of active participants or replicas at the intersection, with N ranging from 4 to 32. F represents the number of faulty or malicious nodes at the intersection, indicating the maximum number that can be tolerated. It is required that N is greater than or equal to 3F plus 1 wherever the fault tolerance (FT) necessitates this condition. A vehicle-to-vehicle communication protocol operating on 802.11p is employed. Messages are authenticated and signed via a public key infrastructure, which verifies the sender as Vehicle A; however, it does not confirm the legitimacy of Vehicle A's reported physical lane, direction, or other claims. Such authentication and authorization do not verify the content’s truthfulness. Byzantine nodes may disseminate false claims concerning physical attributes or maneuvers, or may equivocate among other vehicles. A Byzantine leader, if selected, can modify proposals sent to the consensus group; Byzantine nodes can remain silent, forward incorrect gossip messages, withhold claims, or be unresponsive during execution or recovery. Despite these measures, guaranteeing vehicles' physical actions remains impractical; current systems do not confirm whether a vehicle will stop at a red light or proceed through it. We assert that we can only regulate the physical admissibility of actions entering the consensus and ensure that the consensus itself is maintained. Measurements from honest sensors are subject to noise; Byzantine behavior is inherently unreliable, creating uncertainty in perception. This uncertainty is quantified in terms of physical observations—lateral and longitudinal—where lateral observations assess distance to the intersection, and longitudinal observations establish the vehicle's position within the lane. Directional perception is based on approach vector and turn signals; for example, a vehicle in the left lane flashing the left indicator is most likely intending to turn left, though this cannot be guaranteed. We use a hybrid noise model, categorical for cardinal approach and cues, Gaussian for continuous lateral/longitudinal geometry. 
+
+Perception noise is modeled using a random number generator stream, with calibrated off-line parameters selected dynamically at runtime. Gaussian noise is applied to lateral positions and longitudinal distances, both quantized in centimeters. Turn signals are subject to Bernoulli categorical noise with a certain probability of corruption; if corrupted, the intended maneuver is replaced with an incorrect option to mislead other vehicles. In the recovery model, conflict occupancy is represented similarly with Gaussian noise on the signed longitudinal distance to the intersection. The threat model excludes considerations such as compromised public keys or post-release steering modifications. The main concerns involve malicious physical vehicle behaviors, such as causing accidents through false representations of intent.
+
+
+
+\subsection{Phase I: Resilient Physical-State Certification}
+\label{sec:phase1}
+
+
+Before vehicles agree on who has the right of way, how can they determine whether a physical claim should even be considered? Without such a determination, a claim that triggers conflicting actions could be accepted and executed. Inspired by averaging continuous consensus, we use a threshold-certified witness attestation. 
+
+ As vehicle $V_I$ approaches an intersection, it makes a claim, $C_I$. This claim encompasses continuous values such as identity, approach, lane, position within that lane, declared direction, whether it is an emergency vehicle, and epoch. All of this information is signed with its public key.
+ 
+
+Once the vehicle broadcasts this claim over the network, other vehicles that receive it will utilize their perception stack to verify its accuracy. They can check the vehicle's position, its public key, and other relevant details. If a vehicle believes the claim to be truthful and is convinced of its validity, it will sign the claim and send an acknowledgment back, effectively echoing it. 
+
+When the original vehicle, $V_I$, receives signatures from $F +1$ other vehicles, this collection of signed acknowledgments forms a certificate. These certificates are significant because they are endorsed by $F$ plus one vehicles, ensuring that at least one honest node has verified the claim's truthfulness. These certificates are then introduced into the consensus process in the subsequent layer.
+
+
+
+\subsubsection{Witness observation and admission rule}
+
+
+
+\(u_{\text{true}}\) is the hidden ground truth. It comes from the TraCI simulator.
+
+\(u_{\text{claim}}\) is the claim in the arrival announcement. Honest vehicles set this based on their own position, and a Byzantine attacker sets it to a false claim if it wants.
+
+\(\delta\) is the attack or physical lie magnitude. \(\delta = u_{\text{claim}} - u_{\text{true}}\).
+
+\(u_{\text{obs}}\) is one witness-local noisy sample from the perception layer.
+
+\(\varepsilon\) is the sensor or environment noise:
+\[
+u_{\text{obs}} = u_{\text{true}} + \varepsilon, \qquad \varepsilon \sim \mathcal{N}(0,\sigma^2).
+\]
+
+\(\sigma\) is the sensor uncertainty scale in meters. It is the same \(\sigma\) used to gate the tolerance.
+
+\(k\) is the defender-controlled tolerance multiplier. Tolerance is \(\tau = k\sigma\).
+
+Admission: an honest node admits iff
+\[
+|u_{\text{obs}} - u_{\text{claim}}| \le k\sigma.
+\]
+
+
+\(q_0(\delta,\sigma,k)\) is the probability that one honest witness supports a false lateral claim — i.e., the probability that a claim is not true but still accepted.
+
+\(q_1(\sigma,k)\) is the probability that one honest witness supports a truthful claim (equivalently, \(q_0(0,\sigma,k)\)).
+
+We use a closed form in calibration:
+\[
+q_0(\delta,\sigma,k) = \Phi\!\left(k - \frac{\delta}{\sigma}\right) - \Phi\!\left(-k - \frac{\delta}{\sigma}\right),
+\]
+a 1-D interval gate around a fixed claim center (no \(\sqrt{2}\)).
+
+What \(q_0\) physically means: the honest witness’s noisy physical observation is incorrectly translated into admissible cyber evidence — a signed lane echo supporting a claim whose lateral position is wrong or false. Certificate formation depends on how many such echoes accumulate before the collection window closes. \(q_0\) itself is just the single-witness physical-to-evidence false-accept rate.
+
+
+
+\subsubsection{Threshold certificate}
+
+
+Having one witness echo is insufficient. A certificate of arrival requires at least \(f+1\) echoes, where \(f = (N-1)/3\). The target collects \(f+1\) echoes within a short collection window and finalizes a certificate only if an adequate number of signatures is obtained.
+
+\(h\) denotes the count of honest witness opportunities in the network at any given time. Honest nodes are influenced by factors such as gossip timing, deadlines, detection range, and environmental conditions like radio noise.
+
+\(b_{\text{sig}}\) indicates the number of Byzantine signatures actually available at the intersection, which can collude to produce a false certificate.
+
+\(r\) signifies the number of honest signatures still needed. Therefore,
+\[
+r = \max(0,\, f+1 - b_{\text{sig}}).
+\]
+
+Under these assumptions, an analytical baseline is established wherein the probability of a false certificate, in relation to the number of Byzantine signatures, is represented by
+\[
+P(\text{false certificate} \mid b_{\text{sig}}).
+\]
+This probability corresponds to the likelihood that the number of honest false acceptances exceeds or equals \(r\) in a binomial distribution:
+\[
+P(\text{false certificate} \mid b_{\text{sig}})
+  = P\big[\mathrm{Binomial}(h,\, q_0) \ge r\big].
+\]
+Each honest witness independently falsely accepts with probability \(q_0\).
+
+The initial scenario occurs when the Byzantine presence does not exceed the threshold, specifically when \(b_{\text{sig}} < f\). In this case, only sensor noise can cause an honest witness to provide the remaining support, as demonstrated in Peng et al.'s research. At the boundary where \(b_{\text{sig}} = f\), only one honest false acceptance is necessary, which is referred to as the probabilistic shoulder—where a false certificate is possible if only one honest node is deceived:
+\[
+P(\text{false certificate} \mid b_{\text{sig}} = f) = 1 - (1-q_0)^h.
+\]
+
+The alternative scenario involves \(b_{\text{sig}} \ge f+1\), termed the Byzantine cliff, since the certificate threshold is surpassed due to sufficient Byzantine signatures to falsify a certificate without any honest witness.
+
+Thus, the certificate thresholding is essential, and the subsequent outcomes of a false certificate can manifest as physical violations, such as conflicting movements, ordering discrepancies, or co-batching. These outcomes depend on the number of false certificates generated and their content. However, \(q_0\) and the binomial distribution primarily serve to assess the probability that a single witness's physical evidence is falsely translated into admissible cyber evidence.
+
+\subsubsection{Certificate semantics and trust tiers}
+
+We classify trust into three levels: $unknown$, $signed$, and $signed-unknown$. An $unknown$ node occurs when, during the collection phase, a car's claim does not receive F+1 signatures, preventing it from forming a certificate. Despite this, an $unknown$ node still exists in the order and is scheduled to go, under the assumption that we cannot control physical execution. This also allows us to flush the intersection in emergencies, like with an emergency vehicle. While a $unknown$ node's input is not verified, it is simply scheduled as a node with unknown direction for co-batching. An $unknown$ car can still participate later in consensus if it chooses. A $signed-unknown$ car lacks enough evidence to unlock co-batching because not enough nodes confirm its blinker claim; however, it still has other physical evidence, such as lane position and coordinates. A $signed$ car has verified physical evidence, can participate in consensus, and can be co-batched because sufficient nodes have confirmed its intended direction.
+
+
+
+\subsection{Phase II: Externally Validated Byzantine Agreement}
+\label{sec:phase2}
+
+From Layer 1, not all vehicles have agreed on a shared value; they have only attested to each other's physical claims. The shared value is a discrete value that the group needs to agree on. Using PBFT we are able to guarantee agreement on a proposed value. 
+
+\subsubsection{Proposal construction}
+
+Once a vehicle enters the stop zone, the leader emerges from the set of certificates it holds. The signed car with the lowest ID that also holds a stopped-distance certificate then constructs a proposal consisting of vehicle entries and their state using the certificates as evidence. The leader does not propose a schedule; the committed entries are certificate-derived, and every replica computes the batch schedule identically after consensus.
+
+The leader fills out the $unknown$ node's information using its own perception; If the leader misrepresents its trust-tier, lane position, queue rank, derived direction, or ambulance status to launch an attack, followers check this during the pre-verification stage described below. 
+
+A leader that stays quiet will be voted out by leader election if the followers do not hear from them when entering the stop zone. In practice, the timeout arms only after each follower's own discovery round completes, not merely at stop-zone entry.
+
+
+
+\subsubsection{External validity / pre-verification}
+
+
+External validity / pre-verification
+
+Discrete consensus alone cannot verify whether a car is physically where it claims to be. PBFT has an integrity property that states that any value decided is a value proposed. At an unsignalized intersection, there is no guarantee that the value proposed is safe. Phase~I converts a noisy, contiguous observation into inputs that Phase~II can verify deterministically: PBFT can verify that a certificate is authentic and that a proposal matches what honest replicas already collected, but it cannot directly verify physical ground truth.
+
+We add a pre-verification stage before followers vote. The firewall enforces five properties:
+
+\begin{enumerate}
+  \item \textbf{Scope.} Non-proposal traffic bypasses the firewall; only scheduling proposals are filtered.
+  \item \textbf{Structural and membership validity.} Malformed, incomplete, duplicate, or out-of-range proposals are rejected before voting.
+  \item \textbf{Leader legitimacy.} The proposer must be signed and jointly certified; an uncertified, quiet, or usurping replica cannot submit a proposal.
+  \item \textbf{Certificate suppression bound.} If a follower holds arrival certificates for more than $f$ vehicles that the leader marked quiet, the proposal is rejected. Up to $f$ omissions are tolerated as channel loss.
+  \item \textbf{Certificate-state fidelity.} For every signed vehicle whose certificate a follower holds locally, the proposal's approach lane, queue position, derived direction, physical lane index, lateral claim, and emergency status must match the validated certificate snapshot. A leader cannot promote unknown to certified direction, forge emergency priority, or alter certified lane, queue-rank, or physical-lane authority.
+\end{enumerate}
+
+Together, these checks ensure consensus decides only over structurally valid, certificate-backed state. They do not prove physical truth; they prevent a leader from altering authenticated evidence that honest replicas already validated in Phase~I. A failed proposal is rejected and triggers view change rather than committing an unsafe value.
+
+
+
+
+
+
+\subsubsection{PBFT agreement}
+
+PBFT consists of the pre-verify stage above, then PREPARE, WRITE, ACCEPT, stages. We use ResilientDB as our consensus engigine and only modify the low-level channel it operates under, making all messages go through the V2V layer of OMNET. The leader's proposal makes it way through the stages, getting 2f+1 votes for each stage before being commited. If a value is committed, PBFT provides that all honest nodes have agreed to the value, and the use of gossip in our protocol shows all members are aware of the committed value. 
+
+
+% ---------------------------------------------------------------------------
+\subsection{Deterministic Intersection Execution}
+\label{sec:execution}
+
+After reaching a consensus, a digital decision must be converted into a crossing order to enable safe physical access at the intersection. Each vehicle uses the same deterministic scheduling algorithm to generate its schedule based on the consensus outcome.
+
+Batching is managed using a movement conflict table computed offline, which is a matrix of all potential intersection movements.
+
+The greedy batching algorithm groups $signed$ cars with non-conflicting movements into batches. It then schedules the remaining intersection movements based on geometry, waiting time, trust level, and emergency status. The schedule results in a series of batches to be executed. Vehicles in batch 1 begin their movements immediately, while others poll the intersection to observe ongoing movements. Once a vehicle has fully crossed, indicated by polling, the next batch can start. Sensor noise can influence this polling process.
+
+Direction eligibility depends on the trust level. To qualify for co-batching, a vehicle must be $signed$, meaning its intent, lane, and turn signal have been verified.
+
+If a vehicle in the current batch does not clear the intersection, a cancellation phase detects this and reschedules the movements.  
+
+
+
+\subsubsection{Certification-gated concurrency}
+
+Every $signed$ car has recorded their intended direction, because certification shows that their claimed movements appear to be compatible. A false direction or claim can automatically turn to conflicting trajectories. 
+
+For this reason, 
+Cars marked $signed-unknown$ or $unknown$ status are placed in singleton batches, and only these cars are allowed to move during their batch.
+
+By this definition, we can measure how  evidence leads to concurrency, and ultimately intersection throughput. 
+
+\subsubsection{Emergency vehicle priority}
+
+We consider the scenario where an emergency vehicle needs to make its way through the intersection. An emergey vehicle has its own PKI that undeniably marks it as a authorized Ambulance or firetruck etc, and we make the assumption that these vehicles are honest. An emergency vehicle should be given priority to go before everyone else, but if other cars are in front of it, we flush them first to unobstruct the path in front of it.
+
+
+\subsection{Observed Recovery and Cancellation}
+\label{sec:recovery}
+
+Cancellation becomes necessary after execution. If a node stalls during its batch, crashes, or stops mid-intersection, we need a method to recover from a failed execution. The cancellation protocol we suggest resembles Feng et al.'s veto approach, but if used in our system, a Byzantine node could indefinitely veto proposed maneuvers. Our cancellation also follows the same two-layer principle:
+
+First, vehicles verify whether sufficient physical evidence indicates the execution is blocked. A vehicle $V_I$ can claim the intersection is $BLOCKED$, and if $f+1$ vehicles support this claim, the leader proposes a cancellation. This cancellation halts the execution and triggers a waiting phase. During this phase, the vehicle is either towed or has driven off on its own. Once the obstacle is cleared, the same $f+1$ check is performed for a $CLEAR$ signal, and then a new scheduling consensus is reached once fresh certificates are issued. 
+
+
+\subsection{Infrastructure-Assisted Resilience}
+\label{sec:rsu}
+
+
+Due to the properties of BFT, we are under the assumption that there will always be N cars that can tolerate F Byzantine nodes at the intersection. However, consider an intersection with $N$ vehicles, with $f$ Byzantine; if $5$ vehicles leave before a cancellation is proposed, we cannot assume we know whether the vehicles that left were part of the honest set or the Byzantine set. If all were honest, the possibility of a false certificate goes up. To mitigate this, we introduce RSUs that act as stationary members at the intersection. Having fixed quorum support raises the resilience floor. 
+
+\subsection{Gossip Mechanism}
+\label{sec:gossip}
+
+Assuming a lossy V2V network, messages can be lost or affected by radio noise. Network topology poses challenges; as the number $N$ of vehicles grows, cars at opposite ends of the intersection may not communicate directly. BFT has been shown to work in lossy networks, and we employ a similar gossip mechanism used by Feng et al. to disseminate messages across the network. We use gossip at every stage, from phase 1's arrival announcements and PBFT traffic to the final committed decision. This gossip process enables all vehicles to gather the set of certificates. The network tends to converge near the intersection, so gossip at the start is delayed until reaching the stop zone to avoid wasting messages that are unnecessary early on. 
+
+\section{Evaluation}
+\label{sec:evaluation}
+
+% PURPOSE:
+%
+% Test the claims made in Section~\ref{sec:protocol}.
+%
+% EVALUATION STORY:
+%
+%   Exp 1: Does Phase I behave as predicted?
+%   Exp 2: When Phase I fails, does that matter physically?
+%   Exp 3: Why are both evidence + discrete coordination needed?
+%   Exp 4: Does Phase II withstand Byzantine attacks?
+%   Exp 5: Does the two-layer principle also protect recovery?
+%   Exp 6: Where does the mobile quorum break, and can RSUs move that boundary?
+%
+% The experiments should progressively move:
+%
+%   component
+%      -> composition
+%      -> physical system.
+%
+% ICRA:
+% Always report physical robotics outcomes where meaningful:
+% wait, throughput, conflicting occupancy, collisions, completion,
+% recovery latency.
+%
+% Consensus commit success alone is NOT enough for a robotics evaluation.
+
+
+% ---------------------------------------------------------------------------
+\subsection{Experimental Setup}
+\label{sec:eval-setup}
+
+
+We evaluate in \textbf{Veins}, which couples \textbf{OMNeT++} (discrete-event
+simulation, 802.11p radio/MAC/PHY, packet loss, and propagation) with
+\textbf{SUMO} (road geometry, vehicle motion, and intersection dynamics via
+TraCI). Consensus is implemented with \textbf{ResDB} (PBFT), integrated
+socketlessly into the simulation so that all inter-vehicle consensus traffic
+is carried over the same V2V radio channel as arrival certificates and gossip.
+
+The intersection is a four-way, \textbf{two-lane-per-approach} network: the
+inner lane (L) is left-only; the outer lane (T) permits straight or right.
+$N$ vehicles approach the intersection concurrently. We sweep
+$N \in \{4,8,16,20\}$ and set the tolerated Byzantine bound to
+$f = \lfloor(N-1)/3\rfloor$ (e.g.\ $f=5$ at $N=16$). Each configuration cell
+is repeated \textbf{20 times} with fixed seeds; results are reported with
+Wilson 95\% confidence intervals.
+
+\textbf{Perception.}
+Phase~I uses a witness-local noisy sensor model. Lateral position noise is
+Gaussian with scale $\sigma_{\mathrm{lat}}$; stopped-distance noise uses
+$\sigma_{\mathrm{long}}=1.0\,\mathrm{m}$. Cardinal approach error is modeled
+by a geometry-calibrated $4\times4$ confusion matrix (fit offline, sampled at
+runtime). Turn-signal cues are corrupted independently with probability
+$0.2$. Exp~1 (\Cref{sec:eval-phase1}) characterizes the lateral gate and
+\textbf{freezes the operating point} reused in all later experiments:
+$\sigma_{\mathrm{lat}}=0.5\,\mathrm{m}$, $\delta=1.75\,\mathrm{m}$,
+$k=2$, and signal error $0.2$. The tolerance $k=2$ is selected by a separate
+honest-only sweep targeting $\approx\!95\%$ per-witness acceptance of genuine
+claims ($q_1$); it is not chosen ad hoc.
+
+\textbf{Radio and loss.}
+We use the standard Veins 802.11p stack (6\,Mbps, configured transmit power,
+$-98\,\mathrm{dBm}$ noise floor, obstacle shadowing from the scenario
+configuration). Packet loss and propagation delay arise from the simulator's
+physical-layer and MAC models rather than an injected loss parameter.
+
+\textbf{Attacks.}
+We test attacks spanning all protocol stages: \emph{certificate formation}
+(equivocation, false-lane claims, consistent liars), \emph{consensus}
+(malformed proposals, cert suppression, state-field tampering, silent primary,
+withheld PBFT forwards, consecutive Byzantine primaries), and \emph{execution}
+(false-direction unlock, rollback/crash recovery, fabricated clearance).
+Firewall-off and eligibility-off configurations serve as negative controls.
+
+\textbf{Metrics.}
+We report completed throughput (veh/min), mean stop-to-departure wait,
+intersection latency, per-witness and certificate-level false-acceptance rates,
+and \textbf{conflicting co-occupancy}---simultaneous conflicting right-of-way
+grants in the conflict zone. SUMO collision events are tracked separately:
+conflicting co-occupancy measures unsafe \emph{scheduling authority}, while a
+SUMO collision is a downstream physical outcome. We report both because safe
+execution is the goal and a crash does not necessarily imply protocol failure
+(nor does absence of collision imply safety).
+\subsection{Experiment 1: Characterizing Physical-State Certification}
+\label{sec:eval-phase1}
+
+RESEARCH QUESTION RQ1:
+
+How accurately does the Phase-I model predict false admission under
+sensor noise and Byzantine support?
+
+% ------------------------------------------------
+\paragraph{What we did.}
+
+
+We split Exp~1 into two phases. First, we sweep $\delta$, $\sigma_{\mathrm{lat}}$, and $k$ in three separate one-axis experiments: vary $\delta$ with $\sigma_{\mathrm{lat}}$ and $k$ frozen, vary $\sigma_{\mathrm{lat}}$ with $\delta$ and $k$ frozen, and vary $k$ with $\delta$ and $\sigma_{\mathrm{lat}}$ frozen. In each sweep, we compare the analytic per-witness false-accept probability $q_0(\delta,\sigma,k)$ against the measured raw false-acceptance rate. Second, using the measured honest evaluator count $h$ and Byzantine support $b_{\mathrm{sig}}$ from each run, we compare the binomial certificate prediction against the measured false-certificate frequency. Separately, an honest-only sweep selects $k$ before locking the operating point used in all later experiments.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.92\textwidth]{icra_two_lane_safety_axes.pdf}
+  \caption{False-certificate rate vs.\ $\delta$, $k$, and $\sigma_{\mathrm{lat}}$
+    ($b{=}f$ solid, $b{=}f{+}1$ dashed). Wilson 95\% CIs; $N{=}16$, $f{=}5$.}
+  \label{fig:safety-axes}
+\end{figure*}
+
+\paragraph{Assessment.}
+
+Stage~1 shows analytic $q_0(\delta,\sigma,k)$ tracks raw per-witness false acceptance within Wilson 95\% intervals;
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{icra_model_validation_q0.pdf}
+  \caption{Stage~1: analytic $q_0$ vs.\ measured per-witness false acceptance.}
+  \label{fig:model-validation-q0}
+\end{figure}
+Stage~2 shows the binomial composition from measured $h$ and $b_{\mathrm{sig}}$ tracks measured false-certificate rates the same way---each theory point is checked against an independent empirical quantity, not another model output.
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{icra_model_validation_cert.pdf}
+  \caption{Stage~2: binomial prediction vs.\ measured false-certificate rate.}
+  \label{fig:model-validation-cert}
+\end{figure}
+The probabilistic shoulder begins at $b \le f$ (e.g.\ 85\% false certification at $b{=}1$, $\delta{=}1.75\,\mathrm{m}$, CI $[64\%,95\%]$), while the Byzantine cliff saturates at $b{=}f{+}1$ (100\% for every tested $\delta$); an honest-only sweep selects $k{=}2$ ($q_1{=}95\%$ vs.\ 68\% at $k{=}1$ and cliff-like behavior at $k{=}3$), at adversarial cost on the $b{=}f$ shoulder of 5\% $\to$ 50\% false certification with nearly unchanged honest throughput/wait.
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{icra_k_operating_point.pdf}
+  \caption{Operating-point selection: honest $\hat{q}_1$ (top) and shoulder false-certification rate (bottom) vs.\ $k$. Vertical line marks $k{=}2$.}
+  \label{fig:k-operating-point}
+\end{figure}
+
+\paragraph{What we learned.}
+
+We see that classical b<=f resilience does not create a deterministic boundary for validity when honest observations are noisy; A measurable probabilistic shoulder exists before the Byzantine cliff. 
+
+The closed-form model predicts the individual physical error rate from our tunable knobs $(\delta,\sigma,k)$ and shows that certificate formation becomes a random event driven by sensor noise and that we can quantify the probabilistic shoulder that precedes the Byzantine cliff. 
+
+All experiments are then run on $\delta{=}1.75$, $k=2$, and $\sigma =0.5$  
+
+\subsection{Experiment 2: From False Evidence to Physical Failure}
+\label{sec:eval-coupling}
+
+RQ2:
+
+Does a Phase-I error actually propagate through discrete agreement into
+unsafe physical execution?
+
+\paragraph{What we did.}
+
+
+
+We trace the full chain from false witness acceptance through false
+certificate formation, committed false state, conflicting scheduled batch,
+conflicting co-occupancy in the intersection, and SUMO collision (if any).
+We sweep $N \in \{4,8,16,20\}$ with $f \in \{1,2,5,6\}$ respectively, at
+the frozen operating point from Exp~1, and compare three conditions: honest
+(no attack), shoulder ($b=f$ Byzantine signatures supporting a false lateral
+claim), and cliff ($b=f+1$). The attack is a \emph{false physical-lane
+claim}: the target authenticates a lateral position and lane authority that do not match its true location, so a certificate can authorize a maneuver that conflicts with ground truth (e.g.\ actual left-turn lane claimed as straight/right to enter a batch with an oncoming movement). 
+
+\paragraph{Assessment.}
+
+
+ At the cliff (\(b=f+1\)), false-certificate rate is 100\% at every \(N\), but conflicting co-occupancy is only 85\% at \(N{=}4/8\) and 45\% at \(N{=}16/20\). At the shoulder (\(b=f\)), co-occupancy stays \(\le 50\%\) at all scales.
+
+We see that a committed false committed does not always unlock a conflict movement. At the cliff, 85\% (\(N{=}4,8\)) and 45\% (\(N{=}16,20\)). 
+At the Shoulder: \(\le 50\%\) throughout. With the honest control: 0\% at all \(N\).
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{icra_scaling_crossover.pdf}
+  \caption{Conflicting co-occupancy vs.\ intersection size~$N$ at the
+    frozen operating point. Cliff ($b{=}f{+}1$) false certification
+    saturates at 100\%, but co-occupancy falls from 85\% ($N{=}4,8$) to
+    45\% ($N{=}16,20$); shoulder ($b{=}f$) stays $\le 50\%$.}
+  \label{fig:scaling-crossover}
+\end{figure}
+
+Larger N does not prevent cliff false certification (100\%), but reduces conflicting co-occupancy (85\% → 45\%) because a false certificate grants scheduling eligibility, not a guaranteed conflicting batch: as the intersection fills with more vehicles and more direction-unknown singletons, the greedy scheduler less often places the attacked vehicle in the same batch as its reviewed conflicting counterpart.
+
+\paragraph{What we learned.}
+
+
+Consensus and certificate metrics alone are insufficient: a false certificate creates only the \emph{possibility} of unsafe execution, while scheduling and traffic configuration determine whether that error becomes a protocol-level conflicting co-occupancy or stops after the evidence layer.
+
+At the cliff, false certification saturates to 100\% at every $N$, yet
+conflicting co-occupancy falls from 85\% to 45\% as $N$ grows---because a
+false cert grants scheduling authority, not a guaranteed conflicting batch
+mate. We shoe that the bridge from cyber evidence to physical mutual exclusion is not determined by quorum math alone.
+
+
+% ---------------------------------------------------------------------------
+\subsection{Experiment 3: Why Both Layers Are Needed}
+\label{sec:eval-layer-ablation}
+
+RQ3:
+
+What fails when physical-state certification or certification-gated
+execution is removed?
+
+
+\paragraph{What we did.}
+
+
+We test an all-signleton batch, eligibility-off, and certification-gated co-batching. We measure unsafe co-occupany, throughput, and wait time. 
+
+\paragraph{Assessment.}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{icra_direction_ablation.pdf}
+  \caption{Layer ablation under false-direction attack: (a)~unsafe co-occupancy, (b)~throughput.}
+  \label{fig:direction-ablation}
+\end{figure}
+
+
+\subsection{Experiment 4: Byzantine Integrity of Discrete Coordination}
+\label{sec:eval-phase2}
+
+
+\paragraph{What we did.}
+
+
+We attack all three protocol phases---continuous evidence (Phase~I),
+discrete agreement (Phase~II), and network delivery---with a fixed attack
+suite. At $N{=}16$, $f{=}5$, and the frozen operating point, we run a
+binary attack--defense matrix (35 simulations: 7 attacks $\times$ 5 seeds).
+Each row is pass/fail on a mechanism-specific invariant plus recovery to
+the correct committed value. Attacks cover:
+
+% \begin{itemize}
+%   \item \textbf{D (cert):} conflicting / equivocated announcement variants;
+%   \item \textbf{E (cons):} proposer mutates certified physical-lane authority;
+%   \item \textbf{F (cons):} proposer upgrades \textsc{unknown} to a declared
+%         direction;
+%   \item \textbf{G (cons):} proposer omits $\ge f{+}1$ held certificates as
+%         quiet;
+%   \item \textbf{H (cons):} silent elected proposer;
+%   \item \textbf{J (net):} $f$ replicas withhold certificate relay;
+%   \item \textbf{K (cons):} consecutive Byzantine primaries
+%         ($r_0, r_1$).
+% \end{itemize}
+
+For every consensus-stage attack (E--H, K), we log that the Byzantine
+replica was the \emph{actual elected proposer} in the attacked view before
+the mutation fires, so each result is falsifiable rather than
+configuration-only. (\Cref{tab:attack-defense}; direction/co-batching
+ablation is Exp~4.)
+
+\paragraph{Assessment.}
+
+% For EACH attack report:
+%
+% attack stage,
+% expected invariant,
+% observed defense,
+% recovery path,
+% latency penalty.
+%
+% Better than a long prose list:
+% use a compact attack-defense table.
+%
+% ------------------------------------------------
+\begin{table}[t]
+\centering
+\caption{Attack--defense integrity at $N{=}16$, $f{=}5$ (5 seeds/attack, 35/35 pass).
+  All prevented rows: no collision/teleport, no unsafe co-occupancy.
+  \textbf{Ordering recovery:} first \textsc{ProposeAll} submit to committed order
+  for the attacked epoch (includes view-change when the primary is Byzantine).
+  \textbf{Mean wait:} stop at line to intersection departure, averaged over vehicles.
+  \textbf{Throughput:} completed vehicles per minute over the run.
+  Phase~I cert time ($\sim$13.5\,s) is unchanged on all rows (omitted).}
+\label{tab:attack-defense}
+\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabularx}{\columnwidth}{@{}c l X X c c c@{}}
+\toprule
+ & Layer & Attack & Recovery &
+  \shortstack{Ordering\\recovery (s)} &
+  \shortstack{Mean\\wait (s)} &
+  \shortstack{Throughput\\(veh/min)} \\
+\midrule
+D & Cert. &
+  \textbf{Equivocation.} &
+  Contained at witness lock-in. &
+  4.4 & 31.3 & 30.7 \\
+\addlinespace
+E & Cons. &
+  \textbf{Physical-lane tamper.} &
+  Pre-verify reject $\to$ view-change $\to$ honest commit. &
+  18.1 & 47.7 & 20.3 \\
+\addlinespace
+F & Cons. &
+  \textbf{Unknown $\to$ direction upgrade.} &
+  Pre-verify reject $\to$ view-change $\to$ \textsc{unknown} committed. &
+  18.1 & 48.4 & 20.0 \\
+\addlinespace
+G & Cons. &
+  \textbf{Cert suppression.} &
+  Pre-verify reject $\to$ view-change $\to$ signed certs committed. &
+  19.2 & 47.7 & 20.3 \\
+\addlinespace
+H & Cons. &
+  \textbf{Silent primary.} &
+  View-change timeout $\to$ successor $r_1$ commits. &
+  19.2 & 47.8 & 20.3 \\
+\addlinespace
+J & Net. &
+  \textbf{Relay withholding.} &
+  Certification completes; recovery unaffected. &
+  4.4 & 32.8 & 29.3 \\
+\addlinespace
+K & Cons. &
+  \textbf{Consecutive Byzantine primaries.} &
+  Two view-changes $\to$ honest $r_2$ commits. &
+  41.0 & 69.4 & 13.8 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\Cref{tab:attack-defense} is primarily a safety/integrity table: every suite row passes, and each attack is blocked by the intended layer. The numeric columns quantify the \emph{liveness} cost of that tolerance. Proposer attacks (E--H, K) do not inflate Phase~I certification ($\sim$13.5\,s, omitted) or the final successful PBFT round ($\sim$4.5\,s); they inflate \textbf{ordering recovery}, time from first proposal submit to a safe commit after view-change. That one-epoch penalty ($\sim$18\,s for a single Byzantine primary, $\sim$41\,s for two in succession) propagates into higher per-vehicle wait ($\sim$48--69\,s vs.\ $\sim$31\,s honest) and lower throughput ($\sim$20 vs.\ $\sim$31\,veh/min). Non-proposer attacks (D, J) show no measurable ordering or service penalty here. 
+
+Safety is intact on every row; a Byzantine leader can slow the intersection via the view-change path, not break it.
+
+
+% ---------------------------------------------------------------------------
+
+% MINI EXPERIMENT / CHECK:
+%
+% Ambulance / emergency priority can fit HERE or in Exp 3 if it has data.
+%
+% Do not automatically give it a full numbered experiment.
+%
+% RQ:
+% Does valid emergency priority alter ordering without allowing forged
+% emergency status to bypass the physical/certificate checks?
+%
+% Show:
+%   ordinary ordering,
+%   valid ambulance,
+%   fake ambulance if implemented.
+%
+% If this is mainly a functionality check, say so.
+% Its purpose is THOROUGHNESS, not a fifth novelty claim.
+
+
+% ---------------------------------------------------------------------------
+\subsection{Experiment 5: Byzantine-Resilient Observed Recovery}
+\label{sec:eval-recovery}
+
+% RQ5:
+%
+% Can the system recover from a physically blocked execution without giving
+% one Byzantine participant unilateral power to cancel or clear an epoch?
+%
+% This is where the same Layer-I -> Layer-II architecture repeats.
+%
+% ------------------------------------------------
+\paragraph{What we did.}
+
+% Conditions if available:
+%
+% - real stalled/crashed vehicle;
+% - fake cancellation;
+% - fabricated CLEAR;
+% - noisy BLOCKED/CLEAR;
+% - single-veto baseline if implementable;
+% - f+1 observed cancellation.
+%
+% ------------------------------------------------
+
+Paper scope is crash-only. After a committed batch, we inject a persistent
+one-vehicle conflict-zone wreck (only when that vehicle is physically first
+in its SUMO lane), then run the recovery path:
+\begin{align*}
+  \text{BLOCKED}_{f{+}1} &\to \text{CANCEL} \to \text{WAIT while BLOCKING} \\
+  &\to \text{CLEAR}_{f{+}1} \to \text{ORDER}(e{+}1).
+\end{align*}
+
+Integrity rows (designed): forged BLOCKED, suppression by $f$ witnesses,
+and fabricated CLEAR (guarded vs.\ unguarded).
+
+\paragraph{Assessment.}
+
+% Metrics:
+%
+% - correct cancellation rate;
+% - false cancellation rate;
+% - false CLEAR acceptance;
+% - recovery completion;
+% - recovery latency;
+% - resulting new-order commit.
+%
+% ------------------------------------------------
+\paragraph{What we learned.}
+
+% Main result:
+%
+% Recovery is itself another cyber-physical agreement problem.
+%
+% Physical blockage must first obtain sufficient observational evidence;
+% only then should replicas agree on the discrete CANCEL action.
+%
+% This also gives us a clean comparison against single-veto approaches.
+
+
+% ---------------------------------------------------------------------------
+\subsection{Experiment 6: Infrastructure Resilience Floor}
+\label{sec:eval-rsu}
+
+% RQ6:
+%
+% What happens as a mobile-only quorum loses participants, and how much can
+% fixed RSUs move the resilience boundary?
+%
+% ------------------------------------------------
+\paragraph{What we did.}
+
+% Compare:
+%
+% mobile only
+% vs.
+% mobile + fixed RSUs.
+%
+% Sweep omission/fault count.
+%
+% ------------------------------------------------
+We compare the cost of running consenus with a base of $N$ nodes, and then again with $N$ vehicles and $M$ RSUs. We measure resilience floor the $M+N$ consenus provides compared to $N$
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{icra_rsu_resilience.pdf}
+  \caption{RSU resilience floor (provisional): commit success (top) and message cost (bottom) with vs.\ without static RSUs.}
+  \label{fig:rsu-resilience}
+\end{figure}
+
+\paragraph{Assessment.}
+
+% Report:
+%
+% - commit success;
+% - fault boundary;
+% - message overhead;
+% - consensus latency;
+% - any change in available f.
+%
+% Be EXTREMELY careful about comparing runs with different simulator configs.
+%
+% ------------------------------------------------
+\paragraph{What we learned.}
+
+% RSUs buy fixed quorum resilience at measurable communication/latency cost.
+%
+% Do not claim active-Byzantine protection if the experiment only exercises
+% silent/omission failures.
+
+
+% ---------------------------------------------------------------------------
+\subsection{Discussion}
+\label{sec:eval-discussion}
+
+Phase~I certification is a large, stable delay ($\sim$12--14\,s from
+$N{=}4$ to $N{=}20$) and is unchanged by proposer attacks. Honest
+Phase~II ordering is small ($\sim$4.0--4.4\,s) and likewise nearly
+flat in $N$. Wait and throughput are what grow with $N$
+($16.9\to 35.9$\,s; $14.2\to 33.6$\,veh/min) because more vehicles
+share the box. Under a bounded Byzantine primary the \emph{added}
+cost is view-change, and it is measured: first-submit-to-commit
+rises from $4.4$\,s (honest / non-proposer D, J) to $18$--$19$\,s
+(E--H) and $41.0$\,s (K, two failed primaries), with mean wait
+$\sim$31\,s $\to$ $\sim$48\,s $\to$ $69.4$\,s. Certification and the
+winning PBFT round do not move. The intersection waits longer and
+still commits the correct order.
+
+Conflicting co-occupancy refers to a coordination failure characterized by simultaneous incompatible rights-of-way. While false certification is necessary for this failure, it is not sufficient on its own. In the two-lane configuration that causes conflicts, the rates of false certification and legitimate sharing nearly equal $1{:}1$ because a false lane certificate allows the target to share a batch with its geometric counterpart. During the scale sweep, the rate of false certification remains at 100\% at every $N$, but co-occupancy decreases from 85\% ($N=4,8$) to 45\% ($N=16,20$). This suggests that greedy batching may or may not place conflicting vehicles together. Protocol safety depends on the grant; it is not guaranteed solely by a certificate.
+
+
+Physical validity is probabilistic, whereas agreement after admission is deterministic under BFT assumptions. Exp~1 demonstrates that $b\le f$ can fail due to sensor noise, but the per-witness gate $q_0(\delta,\sigma,k)=\Phi(k-\delta/\sigma)-\Phi(-k-\delta/\sigma)$ composed with remaining honest support $P[\mathrm{Binomial}(h,q_0)\ge \max(0,f{+}1-b_{\mathrm{sig}})]$
+predicts the shoulder and aligns with measured false-certificate rates. At the frozen point, a $1.61$–$1.75$ m lie with $b=1$ false-certifies in 85–95% of runs within the classic $b \le f$ bounds—because honest noisy witnesses help reach the threshold. Beyond $b=f+1$, the same setup saturates at 100% (the cliff). A Byzantine primary unable to surpass either threshold (Exp~3) incurs view-change delays and does not receive an unsafe grant.
+
+
+
+
+The $b \le f$ region is not the clean safe side of a BFT cliff: it is governed by a derived, validated probability of false certification that depends on lie geometry, sensor noise, and the defender knob  $k$. Such a certificate is necessary but not sufficient for unsafe co-occupancy; the coupling approaches $1:1$ only when the scheduling geometry places the falsified vehicle into a conflicting batch. A bounded Byzantine leader's measured cost is paid in view-change latency, not in intersection safety.
+
+
+
+
+
+
+\section{Conclusion and Future Work}
+\label{sec:conclusion}
+
+
+Resilient physical agreement, discrete vehicular BFT agreement, and
+intersection mutual-exclusion scheduling all exist, as does rolling back
+a committed decision. What has been missing is the boundary between
+physically uncertain, adversarial claims and the discrete Byzantine
+decision that controls physical execution. We characterize and quantify
+that boundary.
+
+Setu contributes a quantified physical-evidence threshold gate, discrete
+Byzantine coordination and execution, a mapping from certification error
+to physical co-occupancy, and observed Byzantine-resilient recovery. We
+show that the region traditionally treated as safe ($b \le f$) is a
+\emph{graded shoulder} of false physical certification: honest noisy
+witnesses can meet an adversary's $f{+}1$ threshold. We derive and
+validate this admission probability. A false certificate propagates to
+unsafe co-occupancy only when the scheduling geometry places the
+falsified vehicle into a conflicting batch; it is necessary but not
+sufficient. A bounded Byzantine leader's measured cost is view-change
+delay, not loss of safety.
+
+The main finding is that physical validity remains probabilistic even
+when Byzantine agreement is deterministic under its assumed fault bound.
+
+Future work includes correlated and systematic sensing errors, which our
+independence assumption does not capture; richer physical perception
+models; enforcement against post-release non-conformance, where a
+declared maneuver diverges from the executed one; dynamic membership and
+changing quorums; and on-road validation with real vehicle sensing.
+
+
+\end{document}
+
+
+

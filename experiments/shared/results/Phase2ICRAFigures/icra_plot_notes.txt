@@ -1,0 +1,24 @@
+ICRA plot notes
+===============
+
+icra_two_lane_safety_axes
+  Empirical false-certificate rate (identical to attack-induced conflicting
+  co-occupancy in these runs) with Wilson 95% intervals.  The three panels
+  isolate the adversary axis delta, defender knob k, and environmental sensor
+  noise sigma_lat.  b=f is the probabilistic shoulder; b=f+1 is a Byzantine
+  cliff/control and is drawn dashed.
+
+icra_k_safety_performance
+  End-to-end consequence of changing k.  Safety, completed throughput, and
+  mean wait are measured from the same completion runs.  The present attacked
+  fixture should not be described as a Pareto tradeoff unless the data show
+  one; unsafe co-occupancy itself can reduce throughput.
+
+icra_two_stage_model_validation
+  Panel (a) validates the analytic Gaussian gate probability against raw,
+  per-witness observations.  Panel (b) then validates the f+1 composition:
+  each cell's prediction uses the measured honest evaluator count h and the
+  Byzantine support b_sig actually present in finalized certificates.  Thus
+  neither panel plots one calculated probability against another calculated
+  probability: each theoretical x-coordinate is compared with an empirical
+  outcome on y.
