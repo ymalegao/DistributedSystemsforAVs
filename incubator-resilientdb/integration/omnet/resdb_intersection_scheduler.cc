@@ -83,8 +83,14 @@ IntersectionScheduleResult BuildIntersectionSchedule(
   IntersectionScheduleResult result;
   const char* singleton_env = std::getenv("RESDB_ALL_SINGLETON");
   const bool all_singleton = singleton_env && std::string(singleton_env) == "1";
+  const char* ambulance_priority_env =
+      std::getenv("RESDB_DISABLE_AMBULANCE_PRIORITY");
+  const bool ambulance_priority =
+      !(ambulance_priority_env && std::string(ambulance_priority_env) == "1");
   std::cout << "[SCHEDULER-MODE] allSingleton="
-            << (all_singleton ? 1 : 0) << "\n";
+            << (all_singleton ? 1 : 0)
+            << " ambulancePriority=" << (ambulance_priority ? 1 : 0)
+            << "\n";
 
   for (const auto& e : entries) {
     if (e.is_ambulance && e.cyber_status == 1) {
@@ -94,8 +100,10 @@ IntersectionScheduleResult BuildIntersectionSchedule(
   }
 
   std::vector<ResdbVehicleEntry> ambulances;
-  for (const auto& e : entries) {
-    if (e.is_ambulance && e.cyber_status == 1) ambulances.push_back(e);
+  if (ambulance_priority) {
+    for (const auto& e : entries) {
+      if (e.is_ambulance && e.cyber_status == 1) ambulances.push_back(e);
+    }
   }
   std::sort(ambulances.begin(), ambulances.end(),
             [](const ResdbVehicleEntry& a, const ResdbVehicleEntry& b) {

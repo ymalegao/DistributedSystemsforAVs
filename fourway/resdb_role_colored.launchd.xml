@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<launch>
+    <copy file="bft_intersection_2lane.net.xml" />
+    <copy file="resdb_role_colored.rou.xml" />
+    <copy file="resdb_role_colored.sumo.cfg" type="config" />
+    <copy file="resdb_role_colors.view.xml" />
+</launch>

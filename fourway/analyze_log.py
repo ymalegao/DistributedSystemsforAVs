@@ -3583,6 +3583,10 @@ if SAVE_TO:
             f.write(f"[RUN-METRICS] Throughput_User_Definition: {throughput:.6f} seconds_per_vehicle\n")
         if throughput_vps is not None:
             f.write(f"[RUN-METRICS] Throughput_Vehicles_Per_Second: {throughput_vps:.6f} vehicles_per_second\n")
+            f.write(
+                "[RUN-METRICS] Throughput_Vehicles_Per_Minute: "
+                f"{throughput_vps * 60.0:.6f} vehicles_per_minute\n"
+            )
         if all_waits:
             f.write(f"[RUN-METRICS] Wait_Intersection_All_Mean: {statistics.mean(all_waits):.6f} seconds\n")
             f.write(f"[RUN-METRICS] Wait_Intersection_All_P95: {percentile(all_waits, 0.95):.6f} seconds\n")
@@ -3757,6 +3761,30 @@ if SAVE_TO:
         f.write(f"[RUN-METRICS] SIGNED_Direction_Count: {perception_summary['signed_direction_count']}\n")
         f.write(f"[RUN-METRICS] Singleton_SIGNED_UNKNOWN_Count: {perception_summary['signed_unknown_singleton_count']}\n")
         f.write(f"[RUN-METRICS] Singleton_LEFT_Table_Forced_Count: {perception_summary['left_table_forced_singleton_count']}\n")
+
+        # Direction-ablation figures consume these run-level values.  Keep them
+        # in [RUN-METRICS] rather than deriving them from the repeated,
+        # per-vehicle attack_outcomes JSON field.
+        direction_outcomes = [
+            row for row in phase2_attack_outcomes.values()
+            if row.get("kind") == "FALSE_DIRECTION"
+        ]
+        if direction_outcomes:
+            false_eligibility = any(
+                bool(row.get("false_eligibility")) for row in direction_outcomes
+            )
+            f.write(
+                "[RUN-METRICS] Direction_FP_False_Eligibility: "
+                f"{int(false_eligibility)}\n"
+            )
+            f.write(
+                "[RUN-METRICS] Direction_FN_Signed_Unknown_Singleton_Rate: "
+                f"{perception_summary['signed_unknown_singleton_count'] / CARS:.6f}\n"
+            )
+            f.write(
+                "[RUN-METRICS] Direction_Physical_FP_Unsafe_Cooccupancy: "
+                f"{int(bool(unsafe_conflict_pairs))}\n"
+            )
 
         # Per-epoch throughput and wait
         for ep in range(N_EPOCHS):

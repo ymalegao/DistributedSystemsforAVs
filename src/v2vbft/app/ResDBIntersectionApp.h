@@ -42,6 +42,7 @@ protected:
     void initialize(int stage) override;
     void handleSelfMsg(cMessage* msg) override;
     void handlePositionUpdate(cObject* obj) override;
+    void updateRoleColor();
     void finish() override;
 
     void onBSM(DemoSafetyMessage* bsm) override {}
@@ -887,6 +888,7 @@ private:
     bool     useRadioTransport_ = false;
     bool moduleIsAmbulance = false;
     bool ambulanceColorSet = false;
+    std::string appliedRoleColor;
     int      tolerated_faults_ = -1;
     int      configured_consensus_quorum_ = -1;
     int      configured_cert_threshold_ = -1;

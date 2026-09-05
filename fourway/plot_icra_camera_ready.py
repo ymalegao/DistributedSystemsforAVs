@@ -13,20 +13,16 @@ Each figure MUST use the curated aggregate named below.  Do NOT substitute
 
 Figure (in paper)              Source file(s)                          Filters / notes
 -----------------------------  --------------------------------------  ---------------------------
-icra_two_lane_safety_axes      E2 delta_b_completion_aggregates.csv    panel (a): sigma=0.5, k=3
-                               E2 k_sweep_full_aggregates.csv          panel (b): sigma=0.5, delta=1.75
-                               E2 sigma_sweep_full_aggregates.csv      panel (c): delta=1.75, k=3
+icra_two_lane_safety_axes      E5 honest_operating_k-full_aggregates   honest FN vs k
+                               E2 k_sweep_full_aggregates.csv          shoulder FP vs k
 icra_model_validation_q0       union of the three sweeps above         Stage-1 q0 vs analytic
 icra_model_validation_cert     union of the three sweeps above         Stage-2 binomial vs measured
-icra_k_operating_point         E5 honest_operating_k-full_aggregates   honest q1 vs k (delta=0)
-                               E2 k_sweep_full_aggregates.csv          shoulder FP, b=f only
 icra_scaling_crossover         E5 two_lane_scale_adversarial_full_*    20 reps/cell; NOT *_smoke_*
-icra_direction_ablation        E4 direction_ablation_straight_heavy_*  attack_kind=FALSE_DIRECTION
+icra_direction_fp_fn           E4 saved [RUN-METRICS] logs             5 seed rounds × 4 fixtures
 icra_rsu_resilience            RSU_* constants in this file            provisional; unmerged branch
 
 Generated but NOT in icra_eval.tex:
   icra_gate_accept_delta       fourway/adjacent_lane_calibration/canonical_validation_summary.json
-  icra_direction_fp_fn         same as direction ablation
   icra_two_stage_model_validation  combined Stage-1+2 (superseded by split panels)
 
 Anti-patterns (will produce wrong plots):
@@ -43,6 +39,8 @@ from __future__ import annotations
 import csv
 import json
 import math
+import re
+import statistics
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -70,19 +68,20 @@ DIRECTION_MODE_LABEL = {
 DIRECTION_MODE_ORDER = ["all_singleton", "eligibility_off", "eligibility_on"]
 
 
-def setup_icra_style(column: str = "double", font_size: int = 8) -> tuple[float, float]:
+def setup_icra_style(column: str = "double", font_size: int = 9) -> tuple[float, float]:
     width = 3.5 if column == "single" else 7.0
     height = width * 0.40 if column == "double" else width * 0.68
     plt.rcParams.update({
         "font.family": "serif",
+        "font.serif": ["Times New Roman", "Times", "DejaVu Serif"],
         "mathtext.fontset": "stix",
         "figure.figsize": (width, height),
         "font.size": font_size,
         "axes.labelsize": font_size,
         "axes.titlesize": font_size,
-        "xtick.labelsize": font_size - 1,
-        "ytick.labelsize": font_size - 1,
-        "legend.fontsize": font_size - 2,
+        "xtick.labelsize": font_size,
+        "ytick.labelsize": font_size,
+        "legend.fontsize": font_size,
         "lines.linewidth": 1.2,
         "lines.markersize": 3.5,
         "grid.linewidth": 0.5,
@@ -120,6 +119,11 @@ def normal_cdf(x: float) -> float:
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
 
 
+def analytic_fn(k: float) -> float:
+    """False-negative rate for a genuine claim under the normalized gate."""
+    return max(0.0, 2.0 * (1.0 - normal_cdf(k)))
+
+
 def analytic_q0(sigma: float, delta: float, k: float) -> float:
     if sigma <= 0:
         return 1.0 if abs(delta) <= 0 else 0.0
@@ -132,6 +136,14 @@ def b_label(b: int) -> str:
         return f"$b={b}$ (=f, shoulder)"
     if b == F + 1:
         return f"$b={b}$ (=f+1, cliff)"
+    return f"$b={b}$"
+
+
+def b_legend_label(b: int) -> str:
+    if b == F:
+        return r"$b=f$"
+    if b == F + 1:
+        return r"$b=f+1$"
     return f"$b={b}$"
 
 
@@ -148,8 +160,104 @@ def line_style(b: int) -> dict[str, object]:
 
 def save(fig: plt.Figure, output_dir: Path, stem: str) -> None:
     fig.savefig(output_dir / f"{stem}.pdf", bbox_inches="tight")
-    fig.savefig(output_dir / f"{stem}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
+
+
+RUN_METRIC = re.compile(r"^\[RUN-METRICS\] ([A-Za-z0-9_]+):\s*([-+0-9.eE]+)")
+SEED_ROUNDS = 5
+FIXTURES_PER_SEED = 4
+
+
+def read_run_metrics(path: Path) -> dict[str, float]:
+    """Read only canonical run-level metrics from an analyzer summary log."""
+    metrics: dict[str, float] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        match = RUN_METRIC.match(line)
+        if match:
+            metrics[match.group(1)] = float(match.group(2))
+    return metrics
+
+
+def direction_run_logs(root: Path, mode: str) -> list[tuple[int, Path]]:
+    """Return the 20 E4 attack logs, keyed by five-seed round."""
+    logs: list[tuple[int, Path]] = []
+    condition = f"false_direction_b_f_{mode}"
+    for fixture in range(FIXTURES_PER_SEED):
+        for seed_round in range(SEED_ROUNDS):
+            rep = fixture + FIXTURES_PER_SEED * seed_round
+            path = root / f"fixture_{fixture}" / condition / f"run_{rep}" / f"16veh_{rep}.log"
+            if not path.is_file():
+                raise SystemExit(f"Missing E4 [RUN-METRICS] log: {path}")
+            logs.append((seed_round, path))
+    return logs
+
+
+def mean_ci(
+    values: list[float],
+    *,
+    clip_unit_interval: bool = False,
+) -> tuple[float, float, float]:
+    """Return mean and a two-sided 95% t interval for a seed distribution."""
+    if not values:
+        return math.nan, math.nan, math.nan
+    mean = statistics.mean(values)
+    if len(values) < 2:
+        return mean, mean, mean
+    # t_(0.975,4), the exact critical value for the five seed rounds.
+    critical = 2.7764451051977987 if len(values) == 5 else 1.959963984540054
+    half_width = critical * statistics.stdev(values) / math.sqrt(len(values))
+    low = max(0.0, mean - half_width)
+    high = mean + half_width
+    if clip_unit_interval:
+        high = min(1.0, high)
+    return mean, low, high
+
+
+def direction_seed_metrics(
+    root: Path,
+) -> dict[str, dict[str, tuple[float, float, float]]]:
+    """Aggregate four paired fixtures into five seed-round observations."""
+    metrics: dict[str, dict[str, tuple[float, float, float]]] = {}
+    for mode in DIRECTION_MODE_ORDER:
+        by_seed: dict[int, list[dict[str, float]]] = {}
+        for seed_round, path in direction_run_logs(root, mode):
+            by_seed.setdefault(seed_round, []).append(read_run_metrics(path))
+        if sorted(by_seed) != list(range(SEED_ROUNDS)):
+            raise SystemExit(f"E4 seed rounds are incomplete for {mode}: {sorted(by_seed)}")
+        seed_values: dict[str, list[float]] = {}
+        for seed_round in range(SEED_ROUNDS):
+            fixture_metrics = by_seed[seed_round]
+            for key in (
+                "Direction_FP_False_Eligibility",
+                "Direction_FN_Signed_Unknown_Singleton_Rate",
+                "Direction_Physical_FP_Unsafe_Cooccupancy",
+                "Throughput_Vehicles_Per_Minute",
+            ):
+                values = [row[key] for row in fixture_metrics if key in row]
+                if len(values) != FIXTURES_PER_SEED:
+                    raise SystemExit(
+                        f"E4 metric {key} has {len(values)} fixture values "
+                        f"for mode={mode}, seed_round={seed_round}; expected "
+                        f"{FIXTURES_PER_SEED}"
+                    )
+                seed_values.setdefault(key, []).append(statistics.mean(values))
+        binary_keys = {
+            "Direction_FP_False_Eligibility",
+            "Direction_Physical_FP_Unsafe_Cooccupancy",
+        }
+        metrics[mode] = {
+            key: (
+                statistics.mean(values),
+                *wilson(round(sum(values)), len(values))
+            )
+            if key in binary_keys
+            else mean_ci(
+                values,
+                clip_unit_interval=key != "Throughput_Vehicles_Per_Minute",
+            )
+            for key, values in seed_values.items()
+        }
+    return metrics
 
 
 def load_calibration_summary(path: Path) -> dict:
@@ -209,7 +317,7 @@ def plot_rate_lines(ax: plt.Axes, rows: list[dict[str, str]], x_key: str, xlabel
         lo = [number(r, "wilson95_low") for r in group]
         hi = [number(r, "wilson95_high") for r in group]
         style = line_style(b)
-        ax.plot(x, y, label=b_label(b), **style)
+        ax.plot(x, y, label=b_legend_label(b), **style)
         ax.errorbar(
             x, y,
             yerr=[[max(0.0, yy - ll) for yy, ll in zip(y, lo)],
@@ -221,84 +329,126 @@ def plot_rate_lines(ax: plt.Axes, rows: list[dict[str, str]], x_key: str, xlabel
     ax.grid(True, alpha=0.25)
 
 
-def fig_safety_axes(delta_rows, k_rows, sigma_rows, output_dir: Path) -> None:
-    setup_icra_style("double")
-    fig, axes = plt.subplots(1, 3, figsize=(7.0, 1.85), sharey=True)
-    plot_rate_lines(axes[0], [r for r in delta_rows if number(r, "b") >= 1], "delta_m",
-                     r"Claim displacement $\delta$ [$\mathrm{m}$]")
-    axes[0].set_title(r"(a) Adversary axis", fontsize=8)
-    axes[0].set_ylabel("False-cert. / unsafe\nco-occ. rate")
-    plot_rate_lines(axes[1], k_rows, "k", r"Gate tolerance $k$")
-    axes[1].set_title(r"(b) Defender knob", fontsize=8)
-    plot_rate_lines(axes[2], sigma_rows, "sigma_lat_m", r"Lateral noise $\sigma_{lat}$ [$\mathrm{m}$]")
-    axes[2].set_title(r"(c) Environment axis", fontsize=8)
-    handles, labels = axes[2].get_legend_handles_labels()
-    fig.subplots_adjust(bottom=0.18, wspace=0.08)
-    fig.legend(handles, labels, loc="lower center", ncol=4, frameon=False, bbox_to_anchor=(0.5, -0.08))
-    save(fig, output_dir, "icra_two_lane_safety_axes")
+def plot_analytic_fn(
+    ax: plt.Axes,
+    rows: list[dict[str, str]],
+    x_key: str,
+) -> None:
+    """Overlay the analytic genuine-claim FN for the frozen gate parameters."""
+    x_values = sorted({number(row, x_key) for row in rows})
+    if x_key == "k":
+        y_values = [analytic_fn(x) for x in x_values]
+    else:
+        k_values = {number(row, "k") for row in rows}
+        if len(k_values) != 1:
+            raise SystemExit(f"Expected one frozen k for {x_key} FN reference: {k_values}")
+        y_values = [analytic_fn(next(iter(k_values)))] * len(x_values)
+    ax.plot(
+        x_values,
+        y_values,
+        color=WONG[0],
+        linestyle=":",
+        linewidth=1.4,
+        marker="D",
+        markersize=3.0,
+        label="FN: analytic genuine claim",
+        zorder=2,
+    )
+
+
+def fig_safety_axes(k_rows, honest_k_rows, output_dir: Path) -> None:
+    """Headline Exp. 1 plot: measured FP and FN against the design knob k."""
+    fig_k_operating_point(
+        k_rows,
+        honest_k_rows,
+        output_dir,
+        stem="icra_two_lane_safety_axes",
+        title="Physical certification: false-positive and false-negative rates",
+    )
 
 
 def fig_k_operating_point(
     k_rows: list[dict[str, str]],
     honest_k_rows: list[dict[str, str]],
     output_dir: Path,
+    *,
+    stem: str = "icra_k_operating_point",
+    title: str = "Operating-point FP/FN versus gate tolerance",
 ) -> None:
-    """Honest q1 target vs shoulder false-cert as k varies — matches Exp~1 writing."""
+    """Show measured shoulder FP and honest-claim FN against k."""
     setup_icra_style("single")
-    fig, (ax_q1, ax_fp) = plt.subplots(2, 1, figsize=(3.5, 3.8), sharex=True)
+    fig, ax = plt.subplots(figsize=(3.5, 2.55))
 
-    honest = sorted(honest_k_rows, key=lambda r: number(r, "k"))
-    if honest:
-        x = [number(r, "k") for r in honest]
-        y = [number(r, "pooled_q1_empirical") for r in honest]
-        lo = [number(r, "q1_wilson95_low") for r in honest]
-        hi = [number(r, "q1_wilson95_high") for r in honest]
-        ax_q1.errorbar(
-            x, y,
-            yerr=[[max(0.0, yy - ll) for yy, ll in zip(y, lo)],
-                  [max(0.0, hh - yy) for yy, hh in zip(y, hi)]],
-            fmt="o-", color=WONG[3], markersize=4.0, linewidth=1.4,
-            capsize=2.0, elinewidth=0.8, label=r"Measured $\hat q_1$",
+    honest_by_k = {int(number(row, "k")): row for row in honest_k_rows}
+    shoulder_by_k = {
+        int(number(row, "k")): row
+        for row in k_rows
+        if int(number(row, "b")) == F
+    }
+    k_values = sorted(set(honest_by_k) & set(shoulder_by_k))
+    if not k_values:
+        raise SystemExit("Operating-point plot has no common honest/shoulder k values")
+
+    x = [float(k) for k in k_values]
+    fn = [1.0 - number(honest_by_k[k], "pooled_q1_empirical") for k in k_values]
+    fn_lo = [1.0 - number(honest_by_k[k], "q1_wilson95_high") for k in k_values]
+    fn_hi = [1.0 - number(honest_by_k[k], "q1_wilson95_low") for k in k_values]
+    fp = [number(shoulder_by_k[k], "false_certificate_rate") for k in k_values]
+    fp_lo = [number(shoulder_by_k[k], "wilson95_low") for k in k_values]
+    fp_hi = [number(shoulder_by_k[k], "wilson95_high") for k in k_values]
+
+    for values, low, high, color, label, marker in (
+        (fp, fp_lo, fp_hi, WONG[4], r"FP: false certificate ($b=f$)", "o"),
+        (fn, fn_lo, fn_hi, WONG[3], r"FN: rejected honest claim", "s"),
+    ):
+        ax.errorbar(
+            x,
+            values,
+            yerr=[
+                [max(0.0, value - lower) for value, lower in zip(values, low)],
+                [max(0.0, upper - value) for value, upper in zip(values, high)],
+            ],
+            fmt=f"{marker}-",
+            color=color,
+            markersize=5.0,
+            linewidth=1.3,
+            capsize=2.0,
+            elinewidth=0.8,
+            label=label,
+            zorder=3,
         )
-        for idx, row in enumerate(honest):
-            ax_q1.plot(number(row, "k"), number(row, "analytic_q1"), "s",
-                       color=WONG[0], markersize=3.5,
-                       label=r"Analytic $q_1$" if idx == 0 else None)
-    ax_q1.axhline(0.95, color="0.45", linestyle=":", linewidth=1.0)
-    ax_q1.axvline(2.0, color=WONG[4], linestyle=":", linewidth=1.0, alpha=0.85)
-    ax_q1.text(2.04, 0.62, r"$k{=}2$", fontsize=6, color=WONG[4])
-    ax_q1.text(1.05, 0.955, r"95\% target", fontsize=6, color="0.45")
-    ax_q1.set_ylabel(r"Witness accept rate $\hat q_1$")
-    ax_q1.set_ylim(0.55, 1.02)
-    ax_q1.set_title(r"(a) Honest admission ($\delta{=}0$)", fontsize=8)
-    ax_q1.grid(True, alpha=0.25)
-    ax_q1.legend(frameon=False, fontsize=6, loc="lower right")
 
-    shoulder = sorted(
-        (r for r in k_rows if int(float(r["b"])) == F),
-        key=lambda r: number(r, "k"),
+    if 2 in k_values:
+        selected = k_values.index(2)
+        ax.scatter(
+            [2.0, 2.0],
+            [fp[selected], fn[selected]],
+            marker="*",
+            s=60,
+            color=WONG[0],
+            zorder=5,
+        )
+        ax.axvline(2.0, color=WONG[0], linestyle=":", linewidth=1.0, alpha=0.8)
+        ax.text(2.04, 1.01, r"selected $k=2$", fontsize=9, color=WONG[0])
+
+    ax.set_xlabel(r"Gate tolerance $k$")
+    ax.set_ylabel("False-positive / false-negative rate")
+    ax.set_xlim(min(x) - 0.18, max(x) + 0.18)
+    ax.set_ylim(-0.04, 1.08)
+    ax.set_xticks(k_values)
+    ax.set_title(title)
+    ax.grid(True, alpha=0.25)
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(
+        handles,
+        labels,
+        frameon=False,
+        ncol=2,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.01),
     )
-    if shoulder:
-        x = [number(r, "k") for r in shoulder]
-        y = [number(r, "false_certificate_rate") for r in shoulder]
-        lo = [number(r, "wilson95_low") for r in shoulder]
-        hi = [number(r, "wilson95_high") for r in shoulder]
-        ax_fp.errorbar(
-            x, y,
-            yerr=[[max(0.0, yy - ll) for yy, ll in zip(y, lo)],
-                  [max(0.0, hh - yy) for yy, hh in zip(y, hi)]],
-            fmt="o-", color=WONG[4], markersize=4.0, linewidth=1.4,
-            capsize=2.0, elinewidth=0.8,
-        )
-    ax_fp.axvline(2.0, color=WONG[4], linestyle=":", linewidth=1.0, alpha=0.85)
-    ax_fp.set_xlabel(r"Gate tolerance $k$")
-    ax_fp.set_ylabel("False-cert.\ rate")
-    ax_fp.set_ylim(-0.02, 1.02)
-    ax_fp.set_xticks([1.0, 2.0, 3.0])
-    ax_fp.set_title(r"(b) Shoulder attack ($b{=}f$)", fontsize=8)
-    ax_fp.grid(True, alpha=0.25)
-    fig.subplots_adjust(hspace=0.35)
-    save(fig, output_dir, "icra_k_operating_point")
+    fig.subplots_adjust(bottom=0.28, top=0.95)
+    save(fig, output_dir, stem)
 
 
 def fig_gate_accept_delta(calibration: dict, output_dir: Path) -> None:
@@ -326,73 +476,124 @@ def fig_gate_accept_delta(calibration: dict, output_dir: Path) -> None:
 
     ax.axvline(1.6, color="0.35", linestyle=":", linewidth=0.9)
     ax.axvline(1.75, color=WONG[4], linestyle="--", linewidth=0.9, alpha=0.7)
-    ax.text(1.78, 0.08, r"OP $\delta$", fontsize=6, color=WONG[4])
+    ax.text(1.78, 0.08, r"OP $\delta$", fontsize=9, color=WONG[4])
     ax.set_xlabel(r"Claim displacement $\delta$ [$\mathrm{m}$]")
     ax.set_ylabel(r"P(witness accept)")
     ax.set_xlim(-0.05, 3.35)
     ax.set_ylim(-0.02, 1.02)
     ax.grid(True, alpha=0.25)
-    ax.legend(frameon=False, fontsize=6, loc="upper right", title="Tolerance")
+    ax.legend(frameon=False, fontsize=9, loc="upper right", title="Tolerance")
     fig.subplots_adjust(bottom=0.16)
     save(fig, output_dir, "icra_gate_accept_delta")
 
 
-def fig_direction_ablation(rows: list[dict[str, str]], output_dir: Path) -> None:
-    """Exp 3: layer ablation — unsafe co-occupancy and throughput."""
+def fig_direction_fp_fn(e4_run_root: Path, output_dir: Path) -> None:
+    """E4 co-batching FP/FN at the fixed operating point k=2."""
     setup_icra_style("single")
-    fig, (ax_unsafe, ax_thr) = plt.subplots(1, 2, figsize=(3.5, 2.2))
-    attacked = [r for r in rows if r.get("attack_kind") == "FALSE_DIRECTION"]
-    by_mode = {m: next(r for r in attacked if r.get("ablation_mode") == m) for m in DIRECTION_MODE_ORDER}
-
+    seed_metrics = direction_seed_metrics(e4_run_root)
+    fig, ax_error = plt.subplots(figsize=(3.5, 2.55))
     modes = DIRECTION_MODE_ORDER
-    labels = [DIRECTION_MODE_LABEL[m][0] for m in modes]
-    colors = [DIRECTION_MODE_LABEL[m][1] for m in modes]
+    labels = ["all-\nsingleton", "eligibility-\noff", "eligibility-\non"]
     x = list(range(len(modes)))
 
-    unsafe = [number(by_mode[m], "unsafe_cooccupancy_rate") for m in modes]
-    ax_unsafe.bar(x, unsafe, color=colors, width=0.55)
-    ax_unsafe.set_ylim(-0.04, 1.04)
-    ax_unsafe.set_ylabel("Unsafe co-occupancy")
-    ax_unsafe.set_title("(a) Physical FP", fontsize=8)
-    ax_unsafe.set_xticks(x)
-    ax_unsafe.set_xticklabels(labels, rotation=25, ha="right", fontsize=5.5)
-    ax_unsafe.grid(True, alpha=0.25, axis="y")
+    def draw_point(
+        ax: plt.Axes,
+        center: float,
+        mode: str,
+        key: str,
+        marker: str,
+    ) -> tuple[float, float, float]:
+        mean, low, high = seed_metrics[mode][key]
+        color = DIRECTION_MODE_LABEL[mode][1]
+        ax.errorbar(
+            center,
+            mean,
+            yerr=[[max(0.0, mean - low)], [max(0.0, high - mean)]],
+            fmt=marker,
+            color=color,
+            markerfacecolor=color,
+            markeredgecolor="0.15",
+            markersize=5.5,
+            ecolor=color,
+            capsize=2.0,
+            elinewidth=0.9,
+            zorder=4,
+        )
+        return mean, low, high
 
-    throughput = [number(by_mode[m], "mean_throughput_veh_per_min") for m in modes]
-    ax_thr.bar(x, throughput, color=colors, width=0.55)
-    ax_thr.set_ylabel(r"Throughput [veh/min]")
-    ax_thr.set_ylim(0, max(throughput) * 1.12)
-    ax_thr.set_title("(b) Service", fontsize=8)
-    ax_thr.set_xticks(x)
-    ax_thr.set_xticklabels(labels, rotation=25, ha="right", fontsize=5.5)
-    ax_thr.grid(True, alpha=0.25, axis="y")
+    def annotate_binary(
+        ax: plt.Axes,
+        center: float,
+        mean: float,
+        high: float,
+    ) -> None:
+        count = round(mean * SEED_ROUNDS)
+        y = high + 0.06
+        if center < 0.0:
+            ax.text(
+                center + 0.04,
+                y,
+                f"{count}/{SEED_ROUNDS}",
+                ha="left",
+                va="center",
+            )
+        else:
+            ax.text(center, y, f"{count}/{SEED_ROUNDS}", ha="center", va="center")
 
-    fig.subplots_adjust(bottom=0.28, wspace=0.38)
-    save(fig, output_dir, "icra_direction_ablation")
+    fp_x = [i - 0.12 for i in x]
+    fn_x = [i + 0.12 for i in x]
+    for i, mode in enumerate(modes):
+        fp_key = "Direction_FP_False_Eligibility"
+        fn_key = "Direction_FN_Signed_Unknown_Singleton_Rate"
+        fp_mean, _, fp_high = draw_point(ax_error, fp_x[i], mode, fp_key, "o")
+        draw_point(ax_error, fn_x[i], mode, fn_key, "s")
+        annotate_binary(ax_error, fp_x[i], fp_mean, fp_high)
 
+    ax_error.set_ylabel("Rate")
+    ax_error.set_ylim(-0.05, 1.16)
+    ax_error.set_yticks([0.0, 0.25, 0.5, 0.75, 1.0])
+    ax_error.set_title(r"Co-batching eligibility: FP/FN (fixed $k=2$)", pad=7)
+    ax_error.set_xticks(x)
+    ax_error.set_xticklabels(labels)
+    ax_error.grid(True, alpha=0.25, axis="y")
 
-def fig_direction_fp_fn(rows: list[dict[str, str]], output_dir: Path) -> None:
-    """Exp 4: FP/FN proxy only (Option C companion panel)."""
-    setup_icra_style("single")
-    fig, ax = plt.subplots(figsize=(3.5, 2.4))
-    attacked = [r for r in rows if r.get("attack_kind") == "FALSE_DIRECTION"]
-    by_mode = {m: next(r for r in attacked if r.get("ablation_mode") == m) for m in DIRECTION_MODE_ORDER}
-    modes = DIRECTION_MODE_ORDER
-    labels = [DIRECTION_MODE_LABEL[m][0] for m in modes]
-    x = list(range(len(modes)))
-    width = 0.36
-    fp_vals = [number(by_mode[m], "false_eligibility_rate") for m in modes]
-    fn_vals = [number(by_mode[m], "mean_signed_unknown_singleton_percent") / 100.0 for m in modes]
-    ax.bar([i - width / 2 for i in x], fp_vals, width=width, color=WONG[5], label="FP (false eligibility)")
-    ax.bar([i + width / 2 for i in x], fn_vals, width=width, color=WONG[3], label="FN proxy (signed-unknown)")
-    ax.set_xticks(x)
-    ax.set_xticklabels(labels, rotation=20, ha="right", fontsize=6)
-    ax.set_ylim(-0.04, 1.04)
-    ax.set_ylabel("Rate")
-    ax.set_title("Direction cue FP / FN proxy", fontsize=8)
-    ax.grid(True, alpha=0.25, axis="y")
-    ax.legend(frameon=False, fontsize=6, loc="upper right")
-    fig.subplots_adjust(bottom=0.28)
+    condition_handles = [
+        Line2D(
+            [],
+            [],
+            marker="o",
+            linestyle="none",
+            color=DIRECTION_MODE_LABEL[mode][1],
+            label=label,
+        )
+        for mode, label in zip(modes, ["all-singleton", "eligibility-off", "eligibility-on"])
+    ]
+    metric_handles = [
+        Line2D([], [], marker="o", linestyle="none", color="0.25", label="FP"),
+        Line2D([], [], marker="s", linestyle="none", color="0.25", label="FN"),
+    ]
+    fig.legend(
+        handles=metric_handles + condition_handles,
+        labels=["FP", "FN"] + ["all-singleton", "eligibility-off", "eligibility-on"],
+        loc="lower center",
+        ncol=2,
+        frameon=False,
+        bbox_to_anchor=(0.5, 0.005),
+    )
+
+    for mode in modes:
+        for panel, metric in (
+            ("a FP", "Direction_FP_False_Eligibility"),
+            ("a FN", "Direction_FN_Signed_Unknown_Singleton_Rate"),
+        ):
+            mean, low, high = seed_metrics[mode][metric]
+            print(
+                f"[FIGURE-MANIFEST] G4 direction {panel:>15} "
+                f"condition={mode:<16} N={SEED_ROUNDS} "
+                f"mean={mean:.6g} CI95=[{low:.6g}, {high:.6g}]"
+            )
+
+    fig.subplots_adjust(bottom=0.40, left=0.16, right=0.98, top=0.92)
     save(fig, output_dir, "icra_direction_fp_fn")
 
 
@@ -440,10 +641,10 @@ def fig_model_validation(rows, output_dir: Path) -> None:
         ax.set_ylim(-0.03, 1.03)
         ax.grid(True, alpha=0.25)
 
-    ax_q0.set_title("(a) Sensor-model validation", fontsize=8)
+    ax_q0.set_title("(a) Sensor-model validation", fontsize=9)
     ax_q0.set_xlabel(r"Analytic Gaussian $q_0$")
     ax_q0.set_ylabel(r"Measured witness false-accept rate $\hat q_0$")
-    ax_cert.set_title("(b) Protocol-model validation", fontsize=8)
+    ax_cert.set_title("(b) Protocol-model validation", fontsize=9)
     ax_cert.set_xlabel(r"Binomial prediction (measured $h$, $b_{sig}$)")
     ax_cert.set_ylabel("Measured false-certificate rate")
 
@@ -566,14 +767,40 @@ def fig_rsu_resilience(output_dir: Path) -> None:
 
     ax_avail.plot(RSU_18VEH_K, RSU_18VEH_OFF, label="OFF ($N{=}18$)", color=WONG[5],
                   linestyle="--", marker="o", linewidth=1.6, markersize=3.5)
+    off_ci = [wilson(round(rate * 6), 6) for rate in RSU_18VEH_OFF]
+    ax_avail.errorbar(
+        RSU_18VEH_K,
+        RSU_18VEH_OFF,
+        yerr=[
+            [max(0.0, rate - low) for rate, (low, _) in zip(RSU_18VEH_OFF, off_ci)],
+            [max(0.0, high - rate) for rate, (_, high) in zip(RSU_18VEH_OFF, off_ci)],
+        ],
+        fmt="none",
+        ecolor=WONG[5],
+        alpha=0.45,
+        capsize=1.5,
+        linewidth=0.8,
+    )
     ax_avail.plot(RSU_18VEH_K, RSU_18VEH_ON, label="ON ($N{=}22$, $+4$ RSU)", color=WONG[4],
                   linestyle="-", marker="o", linewidth=1.6, markersize=3.5)
-    ax_avail.set_xlabel(r"Silent (omission-faulty) replicas $k$")
+    on_ci = [wilson(round(rate * 6), 6) for rate in RSU_18VEH_ON]
+    ax_avail.errorbar(
+        RSU_18VEH_K,
+        RSU_18VEH_ON,
+        yerr=[
+            [max(0.0, rate - low) for rate, (low, _) in zip(RSU_18VEH_ON, on_ci)],
+            [max(0.0, high - rate) for rate, (_, high) in zip(RSU_18VEH_ON, on_ci)],
+        ],
+        fmt="none",
+        ecolor=WONG[4],
+        alpha=0.45,
+        capsize=1.5,
+        linewidth=0.8,
+    )
     ax_avail.set_ylabel("Epoch-0 commit success rate")
     ax_avail.set_ylim(-0.04, 1.04)
-    ax_avail.set_title("(a) Fault-tolerance frontier", fontsize=8)
+    ax_avail.set_title("(a) Fault-tolerance frontier", fontsize=9)
     ax_avail.grid(True, alpha=0.25)
-    ax_avail.legend(frameon=False, loc="lower left")
 
     ax_cost.plot(RSU_4VEH_K, RSU_4VEH_MSGS_OFF, label="OFF ($N{=}4$)", color=WONG[5],
                  linestyle="--", marker="s", linewidth=1.6, markersize=3.5)
@@ -581,13 +808,22 @@ def fig_rsu_resilience(output_dir: Path) -> None:
                  linestyle="-", marker="s", linewidth=1.6, markersize=3.5)
     ax_cost.set_xlabel(r"Silent replicas $k$")
     ax_cost.set_ylabel(r"Messages sent per run")
-    ax_cost.set_title("(b) Message cost ($N{=}4$)", fontsize=8)
+    ax_cost.set_title("(b) Message cost ($N{=}4$)", fontsize=9, pad=8)
     ax_cost.grid(True, alpha=0.25)
-    ax_cost.legend(frameon=False, loc="upper right")
     ax_cost.annotate("OFF fails\nfrom $k{=}2$", xy=(2, 295), xytext=(1.05, 520),
-                      fontsize=6, color=WONG[5], arrowprops=dict(arrowstyle="->", color=WONG[5], lw=0.7))
+                      fontsize=9, color=WONG[5], arrowprops=dict(arrowstyle="->", color=WONG[5], lw=0.7))
 
-    fig.subplots_adjust(bottom=0.20, wspace=0.32)
+    avail_handles, avail_labels = ax_avail.get_legend_handles_labels()
+    cost_handles, cost_labels = ax_cost.get_legend_handles_labels()
+    fig.legend(
+        avail_handles + cost_handles,
+        avail_labels + cost_labels,
+        frameon=False,
+        ncol=2,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.005),
+    )
+    fig.subplots_adjust(bottom=0.28, top=0.97, hspace=0.68, wspace=0.32)
     save(fig, output_dir, "icra_rsu_resilience")
 
 
@@ -658,6 +894,78 @@ def validate_sweep_data(
         )
 
 
+def print_figure_manifest(
+    root: Path,
+    e2: Path,
+    e4: Path,
+    e5: Path,
+    calibration_path: Path,
+) -> None:
+    """Print sources and statistical N before any figure is regenerated."""
+    print("[FIGURE-MANIFEST] sources and per-condition sample counts")
+    entries = [
+        (
+            "G2",
+            "icra_two_lane_safety_axes",
+            [e5 / "honest_operating_k-full_aggregates.csv",
+             e2 / "k_sweep_full_aggregates.csv"],
+            "N=20 runs/cell; Wilson 95% CI",
+        ),
+        (
+            "G2",
+            "icra_model_validation_q0",
+            [e2 / "delta_b_completion_aggregates.csv", e2 / "k_sweep_full_aggregates.csv",
+             e2 / "sigma_sweep_full_aggregates.csv"],
+            "N=20 runs/cell; Wilson 95% CI",
+        ),
+        (
+            "G2",
+            "icra_model_validation_cert",
+            [e2 / "delta_b_completion_aggregates.csv", e2 / "k_sweep_full_aggregates.csv",
+             e2 / "sigma_sweep_full_aggregates.csv"],
+            "N=20 runs/cell; Wilson 95% CI",
+        ),
+        (
+            "G2",
+            "icra_two_stage_model_validation",
+            [e2 / "delta_b_completion_aggregates.csv", e2 / "k_sweep_full_aggregates.csv",
+             e2 / "sigma_sweep_full_aggregates.csv"],
+            "N=20 runs/cell; Wilson 95% CI",
+        ),
+        (
+            "G2",
+            "icra_gate_accept_delta",
+            [calibration_path],
+            "N=10 calibration seeds × 10,000 samples/seed",
+        ),
+        (
+            "G1",
+            "icra_scaling_crossover",
+            [e5 / "two_lane_scale_adversarial_full_aggregates.csv"],
+            "N=20 runs/scale/role; Wilson 95% CI",
+        ),
+        (
+            "G4",
+            "icra_direction_fp_fn",
+            [
+                root / "experiments" / "e4_direction_eligibility" / "results"
+                / "Phase2DirectionAblationStraightHeavyFull"
+            ],
+            "N=5 seed rounds/bar (20 run logs: 4 fixtures × 5 rounds); Wilson/t 95% CI",
+        ),
+        (
+            "provisional",
+            "icra_rsu_resilience",
+            ["transcribed constants in plot_icra_camera_ready.py"],
+            "N=6 observations/k; not part of G1–G4",
+        ),
+    ]
+    for group, figure, sources, sample_count in entries:
+        print(f"  {group} {figure}: {sample_count}")
+        for source in sources:
+            print(f"    source={source}")
+
+
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     output_dir = root / "experiments" / "shared" / "results" / "Phase2ICRAFigures"
@@ -667,6 +975,10 @@ def main() -> int:
     e4 = root / "experiments" / "e4_direction_eligibility" / "artifacts" / "curated"
     e5 = root / "experiments" / "e5_operating_point" / "artifacts" / "curated"
     calibration_path = root / "fourway" / "adjacent_lane_calibration" / "canonical_validation_summary.json"
+    e4_run_root = (
+        root / "experiments" / "e4_direction_eligibility" / "results"
+        / "Phase2DirectionAblationStraightHeavyFull"
+    )
 
     # Exp~1 one-axis sweeps (20 reps/cell).  Do NOT use two_lane_grid_aggregates.csv
     # for panel (a): that file mixes axes and only has one delta point at b=f.
@@ -686,21 +998,19 @@ def main() -> int:
         k=3.0,
     )
     adversarial_rows = read_csv(e5 / "two_lane_scale_adversarial_full_aggregates.csv")
-    direction_rows = read_csv(e4 / "direction_ablation_straight_heavy_full_aggregates.csv")
     calibration = load_calibration_summary(calibration_path)
 
     validation_rows = unique_cells((delta_rows, k_rows, sigma_rows))
     honest_k_rows = read_csv(e5 / "honest_operating_k-full_aggregates.csv")
     validate_sweep_data(delta_rows, k_rows, sigma_rows, adversarial_rows, honest_k_rows)
-    fig_safety_axes(delta_rows, k_rows, sigma_rows, output_dir)
+    print_figure_manifest(root, e2, e4, e5, calibration_path)
+    fig_safety_axes(k_rows, honest_k_rows, output_dir)
     fig_gate_accept_delta(calibration, output_dir)
     fig_model_validation_q0(validation_rows, output_dir)
     fig_model_validation_cert(validation_rows, output_dir)
-    fig_k_operating_point(k_rows, honest_k_rows, output_dir)
     fig_model_validation(validation_rows, output_dir)
     fig_scaling_crossover(adversarial_rows, output_dir)
-    fig_direction_ablation(direction_rows, output_dir)
-    fig_direction_fp_fn(direction_rows, output_dir)
+    fig_direction_fp_fn(e4_run_root, output_dir)
     fig_rsu_resilience(output_dir)
 
     print(f"Wrote camera-ready ICRA figures to {output_dir}")

@@ -257,6 +257,175 @@ replica_to_node_idx() {
     echo $_count
 }
 
+# Resolve the launchd XML inherited by the selected OMNeT++ configuration.
+# Keeping this here lets the runner wrap whichever route fixture the config
+# selected, including the generated distance and rollback fixtures.
+resolve_launch_config() {
+    local ini_file="$1"
+    local config_name="$2"
+    python3 - "${ini_file}" "${config_name}" <<'PY'
+import re
+import sys
+
+ini_file, config_name = sys.argv[1:3]
+sections = {}
+section = None
+with open(ini_file, encoding="utf-8") as stream:
+    for raw in stream:
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1].strip()
+            sections.setdefault(section, {})
+            continue
+        if section is None or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        value = value.split("#", 1)[0].strip()
+        sections[section][key.strip()] = value
+
+def section_for(name):
+    if not name:
+        return sections.get("General", {})
+    return sections.get(f"Config {name}", sections.get(name, {}))
+
+def inherited_value(name, key, seen=None):
+    seen = set() if seen is None else seen
+    if name in seen:
+        return ""
+    seen.add(name)
+    current = section_for(name)
+    if key in current:
+        return current[key]
+    parent = current.get("extends", "").strip()
+    return inherited_value(parent, key, seen) if parent else (
+        sections.get("General", {}).get(key, "") if name else ""
+    )
+
+value = inherited_value(config_name, "*.manager.launchConfig")
+match = re.search(r'xmldoc\(\s*"([^"]+)"\s*\)', value)
+if match:
+    print(match.group(1))
+PY
+}
+
+# Create a SUMO route/config/launchd trio with per-vehicle role colors.
+# SUMO vType colors are static, so role colors must be written on each vehicle
+# instance.  The generated GUI settings select SUMO's "given vehicle/type/
+# route color" scheme; otherwise sumo-gui may display every vehicle uniformly.
+generate_role_colored_launch() {
+    local sim_dir="$1"
+    local source_launch="$2"
+    local ambulance_ids="$3"
+    local byzantine_ids="$4"
+    python3 - "${sim_dir}" "${source_launch}" \
+        "${ambulance_ids}" "${byzantine_ids}" <<'PY'
+import re
+import sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+sim_dir = Path(sys.argv[1])
+source_launch = Path(sys.argv[2])
+if not source_launch.is_absolute():
+    source_launch = sim_dir / source_launch
+ambulance_csv, byzantine_csv = sys.argv[3:5]
+
+def ids_from_csv(value):
+    return {
+        f"veh{token}"
+        for token in re.split(r"[\s,]+", value.strip())
+        if token.isdigit()
+    }
+
+ambulances = ids_from_csv(ambulance_csv)
+byzantines = ids_from_csv(byzantine_csv)
+
+launch_tree = ET.parse(source_launch)
+launch_root = launch_tree.getroot()
+copies = launch_root.findall(".//copy")
+route_copy = next(
+    (node for node in copies if node.get("file", "").endswith(".rou.xml")), None
+)
+config_copy = next(
+    (
+        node
+        for node in copies
+        if node.get("type") == "config"
+        or node.get("file", "").endswith(".sumo.cfg")
+    ),
+    None,
+)
+if route_copy is None or config_copy is None:
+    raise RuntimeError(f"{source_launch} does not contain a route and SUMO config copy")
+
+source_route = sim_dir / route_copy.get("file", "")
+source_config = sim_dir / config_copy.get("file", "")
+if not source_route.is_file() or not source_config.is_file():
+    raise RuntimeError(
+        f"launch inputs missing for {source_launch}: "
+        f"{source_route.name}, {source_config.name}"
+    )
+
+route_name = "resdb_role_colored.rou.xml"
+config_name = "resdb_role_colored.sumo.cfg"
+launch_name = "resdb_role_colored.launchd.xml"
+view_name = "resdb_role_colors.view.xml"
+
+route_tree = ET.parse(source_route)
+route_root = route_tree.getroot()
+for vehicle in route_root.findall(".//vehicle"):
+    vehicle_id = vehicle.get("id", "")
+    if not re.fullmatch(r"veh\d+", vehicle_id):
+        continue
+    if vehicle_id in ambulances or vehicle.get("type") == "ambulance":
+        color = "1,0,0"       # ambulance: red
+    elif vehicle_id in byzantines:
+        color = "0,0,1"       # Byzantine: blue
+    else:
+        # Leadership is certificate-driven and is applied later through
+        # TraCI.  Static route colors represent only persistent roles.
+        color = "1,1,0"       # ordinary vehicle: yellow
+    vehicle.set("color", color)
+ET.indent(route_tree, space="    ")
+route_tree.write(sim_dir / route_name, encoding="utf-8", xml_declaration=True)
+
+config_tree = ET.parse(source_config)
+route_files = config_tree.getroot().find("./input/route-files")
+if route_files is None:
+    raise RuntimeError(f"{source_config} has no input/route-files element")
+route_files.set("value", route_name)
+gui_only = config_tree.getroot().find("./gui_only")
+if gui_only is None:
+    gui_only = ET.SubElement(config_tree.getroot(), "gui_only")
+for child in list(gui_only):
+    if child.tag == "gui-settings-file":
+        gui_only.remove(child)
+ET.SubElement(gui_only, "gui-settings-file", {"value": view_name})
+ET.indent(config_tree, space="    ")
+config_tree.write(sim_dir / config_name, encoding="utf-8", xml_declaration=True)
+
+view_root = ET.Element("viewsettings")
+scheme = ET.SubElement(view_root, "scheme", {"name": "resdb role colors"})
+# SUMO's native scheme index 0 is "given vehicle/type/route color".
+ET.SubElement(scheme, "vehicles", {"vehicleMode": "0"})
+ET.indent(view_root, space="    ")
+ET.ElementTree(view_root).write(
+    sim_dir / view_name, encoding="utf-8", xml_declaration=True
+)
+
+for node in copies:
+    if node is route_copy:
+        node.set("file", route_name)
+    elif node is config_copy:
+        node.set("file", config_name)
+ET.SubElement(launch_root, "copy", {"file": view_name})
+ET.indent(launch_tree, space="    ")
+launch_tree.write(sim_dir / launch_name, encoding="utf-8", xml_declaration=True)
+PY
+}
+
 # ---------------------------------------------------------------------------
 # Random scenario generation
 # ---------------------------------------------------------------------------
@@ -360,6 +529,7 @@ generate_random_scenario() {
     {
         echo "# Auto-generated by run-resdb-simulation.sh --randomize"
         echo "# Do not edit by hand — regenerated each run."
+        echo "# Byzantine replicas: ${BYZ_IDS:-none}"
         echo "[General]"
         echo "*.node[*].appl.ambulanceReplicaId = ${AMB_ID}"
         local colluder_csv=""
@@ -687,6 +857,15 @@ for ((i=1; i<=$#; ++i)); do
     fi
 done
 
+# SUMO role-color state.  Replica IDs are converted to veh<N> by the
+# generated route wrapper, so these values remain independent of OMNeT's
+# lexicographic node[] ordering.  The certified primary is colored green
+# dynamically by the application once CertPrimary() is known.
+COLOR_AMBULANCE_IDS=""
+COLOR_BYZANTINE_IDS=""
+COLOR_SOURCE_LAUNCH=""
+COLOR_REPLICA_COUNT=""
+
 if [[ "${BASELINE}" -eq 1 ]]; then
     BYZ_LEADER=-1
     ALLOW_REPLICA0_BYZ_FOLLOWER=1
@@ -813,11 +992,36 @@ if [[ ! -d "${SIM_DIR}" ]]; then
 fi
 SIM_DIR="$(cd "${SIM_DIR}" && pwd)"
 
+# The generated roleColor parameters are indexed by OMNeT node[], so retain
+# the numeric replica count for the replica-to-node conversion below.
+if [[ -n "${RANDOMIZE_N}" ]]; then
+    COLOR_REPLICA_COUNT="${RANDOMIZE_N}"
+else
+    case "${ACTIVE_CONFIG}" in
+        FourVehicles*|baseline4veh) COLOR_REPLICA_COUNT=4 ;;
+        EightVehicles*|baseline8veh) COLOR_REPLICA_COUNT=8 ;;
+        TwelveVehicles*|baseline12veh) COLOR_REPLICA_COUNT=12 ;;
+        SixteenVehicles*|baseline16veh) COLOR_REPLICA_COUNT=16 ;;
+        EighteenVehicles*) COLOR_REPLICA_COUNT=18 ;;
+        TwentyVehicles*|baseline20veh) COLOR_REPLICA_COUNT=20 ;;
+    esac
+fi
+
+# Resolve this before scenario-specific overlays change launchConfig; those
+# overlays update COLOR_SOURCE_LAUNCH themselves below.
+COLOR_SOURCE_LAUNCH="$(resolve_launch_config "${SIM_DIR}/omnetpp.ini" "${ACTIVE_CONFIG}" || true)"
+
 # Drop generated overlays this invocation will not recreate, so a prior scenario
 # (e.g. scenario 15's rollback_late_emergency.ini) cannot linger on disk and
 # get re-applied by a later -f chain or a manual opp_run.
 [[ "${RANDOMIZE}" -eq 1 ]] || rm -f "${SIM_DIR}/random_scenario.ini"
 rm -f "${SIM_DIR}/attack_defense_silence_override.ini"
+rm -f \
+    "${SIM_DIR}/resdb_role_colored.rou.xml" \
+    "${SIM_DIR}/resdb_role_colored.sumo.cfg" \
+    "${SIM_DIR}/resdb_role_colored.launchd.xml" \
+    "${SIM_DIR}/resdb_role_colors.view.xml" \
+    "${SIM_DIR}/role_color_override.ini"
 [[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 ]] || rm -f "${SIM_DIR}/rollback_late_emergency.ini"
 [[ -n "${FIXED_AMBULANCE_REPLICA}" ]] || rm -f "${SIM_DIR}/ambulance_priority_override.ini"
 if [[ "${CRASH_WAIT_CLEAR}" -ne 1 && "${CRASH_OCCUPANCY_CONTROL}" -ne 1 ]]; then
@@ -872,6 +1076,10 @@ if [[ "${RANDOMIZE}" -eq 1 ]]; then
         RANDOM="${SCENARIO_RANDOM_SEED}"
     fi
     RANDOM_INI="$(generate_random_scenario "${RANDOMIZE_N}" "${RANDOMIZE_F}" "${SIM_DIR}" "${BYZ_LEADER}" "${ALLOW_REPLICA0_BYZ_FOLLOWER}" "${NO_AMBULANCE}" "${BYZ_LEADER_TYPE}" "${BYZ_FOLLOWER_TYPE}")"
+    COLOR_AMBULANCE_IDS="$(awk -F= '/ambulanceReplicaId/{gsub(/[[:space:]]/, "", $2); print $2; exit}' "${RANDOM_INI}")"
+    [[ "${COLOR_AMBULANCE_IDS}" == "-1" ]] && COLOR_AMBULANCE_IDS=""
+    COLOR_BYZANTINE_IDS="$(awk -F: '/^# Byzantine replicas:/{sub(/^[[:space:]]*/, "", $2); print $2; exit}' "${RANDOM_INI}")"
+    [[ "${COLOR_BYZANTINE_IDS}" == "none" ]] && COLOR_BYZANTINE_IDS=""
     # When any -f flag is given, OMNeT++ stops auto-loading omnetpp.ini.
     # Explicitly load omnetpp.ini first, then the override file so it wins.
     EXTRA_INI_ARG=(-f "omnetpp.ini" -f "${RANDOM_INI}")
@@ -901,6 +1109,8 @@ if [[ "${ROLLBACK_LATE_EMERGENCY}" -eq 1 ]]; then
             exit 1
             ;;
     esac
+    COLOR_SOURCE_LAUNCH="${ROLLBACK_LAUNCH}"
+    COLOR_AMBULANCE_IDS="17"
     ROLLBACK_INI="${SIM_DIR}/rollback_late_emergency.ini"
     {
         echo "# Auto-generated by run-resdb-simulation.sh --rollback-late-emergency"
@@ -981,6 +1191,7 @@ if [[ -n "${FIXED_AMBULANCE_REPLICA}" ]]; then
         exit 1
     fi
     AMBULANCE_PRIORITY_INI="${SIM_DIR}/ambulance_priority_override.ini"
+    COLOR_AMBULANCE_IDS="${FIXED_AMBULANCE_REPLICA}"
     {
         echo "# Auto-generated by run-resdb-simulation.sh --ambulance-replica"
         echo "[Config ${ACTIVE_CONFIG}]"
@@ -1128,6 +1339,7 @@ if [[ -n "${DISTANCE_REFERENCE_SEPARATION}" ]]; then
         echo "extends = SixteenVehiclesResDB"
         echo "*.manager.launchConfig = xmldoc(\"distance_grid_16veh.launchd.xml\")"
     } > "${DISTANCE_FIXTURE_INI}"
+    COLOR_SOURCE_LAUNCH="distance_grid_16veh.launchd.xml"
     echo "  Distance fixture: reference_separation=${DISTANCE_REFERENCE_SEPARATION}m ${DISTANCE_FIXTURE_JSON}" >&2
     if [[ ${#EXTRA_INI_ARG[@]} -gt 0 ]]; then
         EXTRA_INI_ARG+=(-f "${DISTANCE_FIXTURE_INI}")
@@ -1413,6 +1625,83 @@ if [[ -n "${CHANNEL_METRICS_DIR}" ]]; then
     else
         EXTRA_INI_ARG=(-f "omnetpp.ini" -f "${CM_INI}")
     fi
+fi
+
+# Rebuild the SUMO launch inputs after all scenario-specific route overlays
+# have been created.  Static colors identify persistent roles: honest vehicles
+# are yellow, Byzantine replicas blue, and ambulances red.  Green is reserved
+# for the certificate-driven primary and is applied at runtime.
+if [[ "${RANDOMIZE}" -eq 1 && "${BYZ_LEADER}" -ge 0 ]]; then
+    COLOR_BYZANTINE_IDS="${COLOR_BYZANTINE_IDS:+${COLOR_BYZANTINE_IDS},}${BYZ_LEADER}"
+fi
+for extra_byz_ids in \
+    "${CERT_RELAY_SILENT_IDS}" \
+    "${PBFT_SILENT_IDS}" \
+    "${PROPOSAL_SILENT_PRIMARY_IDS}" \
+    "${BLOCKED_SILENT_IDS}" \
+    "${FORGED_BLOCKED_ID}"
+do
+    [[ -n "${extra_byz_ids}" ]] && \
+        COLOR_BYZANTINE_IDS="${COLOR_BYZANTINE_IDS:+${COLOR_BYZANTINE_IDS},}${extra_byz_ids}"
+done
+if [[ "${PHASE2_ATTACK_TARGET}" =~ ^[0-9]+$ ]]; then
+    COLOR_BYZANTINE_IDS="${COLOR_BYZANTINE_IDS:+${COLOR_BYZANTINE_IDS},}${PHASE2_ATTACK_TARGET}"
+fi
+[[ -n "${PHASE2_EVIDENCE_COLLUDERS}" ]] && \
+    COLOR_BYZANTINE_IDS="${COLOR_BYZANTINE_IDS:+${COLOR_BYZANTINE_IDS},}${PHASE2_EVIDENCE_COLLUDERS}"
+if [[ "${FABRICATE_CLEARANCE}" -eq 1 ]]; then
+    COLOR_BYZANTINE_IDS="${COLOR_BYZANTINE_IDS:+${COLOR_BYZANTINE_IDS},}2"
+fi
+
+COLOR_SOURCE_LAUNCH_PATH="${COLOR_SOURCE_LAUNCH}"
+if [[ -n "${COLOR_SOURCE_LAUNCH_PATH}" && ! -f "${COLOR_SOURCE_LAUNCH_PATH}" ]]; then
+    COLOR_SOURCE_LAUNCH_PATH="${SIM_DIR}/${COLOR_SOURCE_LAUNCH}"
+fi
+if [[ -n "${COLOR_SOURCE_LAUNCH}" && -f "${COLOR_SOURCE_LAUNCH_PATH}" ]]; then
+    generate_role_colored_launch \
+        "${SIM_DIR}" \
+        "${COLOR_SOURCE_LAUNCH_PATH}" \
+        "${COLOR_AMBULANCE_IDS}" \
+        "${COLOR_BYZANTINE_IDS}"
+    COLOR_INI="${SIM_DIR}/role_color_override.ini"
+    {
+        echo "# Auto-generated by run-resdb-simulation.sh role-color mapping"
+        echo "# primary=green followers=yellow Byzantine=blue ambulance=red"
+        if [[ -n "${ACTIVE_CONFIG}" ]]; then
+            echo "[Config ${ACTIVE_CONFIG}]"
+        else
+            echo "[General]"
+        fi
+        if [[ -n "${COLOR_REPLICA_COUNT}" ]]; then
+            # First-match precedence: special roles must appear before the
+            # yellow wildcard.  Map replica IDs to OMNeT node[] indices
+            # because veh10 sorts before veh2.
+            for replica_id in $(printf '%s\n' "${COLOR_AMBULANCE_IDS}" | tr ',' ' '); do
+                if [[ "${replica_id}" =~ ^[0-9]+$ &&
+                      "${replica_id}" -lt "${COLOR_REPLICA_COUNT}" ]]; then
+                    color_node="$(replica_to_node_idx "${COLOR_REPLICA_COUNT}" "${replica_id}")"
+                    echo "*.node[${color_node}].appl.roleColor = \"red\""
+                fi
+            done
+            for replica_id in $(printf '%s\n' "${COLOR_BYZANTINE_IDS}" | tr ',' ' '); do
+                if [[ "${replica_id}" =~ ^[0-9]+$ &&
+                      "${replica_id}" -lt "${COLOR_REPLICA_COUNT}" ]]; then
+                    color_node="$(replica_to_node_idx "${COLOR_REPLICA_COUNT}" "${replica_id}")"
+                    echo "*.node[${color_node}].appl.roleColor = \"blue\""
+                fi
+            done
+            echo "*.node[*].appl.roleColor = \"yellow\""
+        fi
+        echo "*.manager.launchConfig = xmldoc(\"resdb_role_colored.launchd.xml\")"
+    } > "${COLOR_INI}"
+    echo "  SUMO role colors: primary=runtime-cert-primary followers=yellow byzantine=${COLOR_BYZANTINE_IDS:-none} ambulance=${COLOR_AMBULANCE_IDS:-none} (role_color_override.ini)" >&2
+    if [[ ${#EXTRA_INI_ARG[@]} -gt 0 ]]; then
+        EXTRA_INI_ARG+=(-f "${COLOR_INI}")
+    else
+        EXTRA_INI_ARG=(-f "omnetpp.ini" -f "${COLOR_INI}")
+    fi
+elif [[ -n "${ACTIVE_CONFIG}" ]]; then
+    echo "WARNING: could not resolve SUMO launch inputs for ${ACTIVE_CONFIG}; role colors not applied." >&2
 fi
 
 LOG_FILE="/tmp/resdb-simulation.log"

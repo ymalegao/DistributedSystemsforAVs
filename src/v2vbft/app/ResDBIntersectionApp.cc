@@ -1131,6 +1131,17 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
                 fabricated_clearance_attack_phase_complete_ = true;
             }
             int primary = ResdbOmnetGetPrimary(resdb_server_handle_);
+            // A prior forced view change may have already installed this
+            // replica as PBFT primary; currentOrderPrimary() only reflects
+            // that once order_vc_authoritative_ is set. Without this check,
+            // a self-elected primary keeps forcing view changes against
+            // itself forever instead of proposing (never reaches
+            // proposeAll(), stalls suspicion-timer retries indefinitely).
+            if (primary == replicaId_ && !propose_submitted_) {
+                order_vc_authoritative_ = true;
+                evaluateOrderReadiness("vc-trigger-self-elected");
+                delete msg; return;
+            }
             std::cout << "[VC-TRIGGER] r" << replicaId_
                       << " forcing view change at " << simTime()
                       << " phase=" << phaseToStr(current_phase_)
@@ -1457,15 +1468,58 @@ void ResDBIntersectionApp::handleSelfMsg(cMessage* msg)
 
 // ── handlePositionUpdate ──────────────────────────────────────────────────────
 
+void ResDBIntersectionApp::updateRoleColor()
+{
+    if (!mobility || !mobility->getVehicleCommandInterface()) return;
+
+    // roleColor identifies persistent entity roles.  Leadership is different:
+    // it is unknown until a valid certificate view exists, and can change
+    // after a PBFT view change.  Preserve ambulance/Byzantine colors over the
+    // transient green primary color.
+    const std::string configuredRole = par("roleColor").stdstringValue();
+    const bool isAmbulance = moduleIsAmbulance || configuredRole == "red";
+    const bool isByzantine = configuredRole == "blue";
+
+    int certifiedPrimary = -1;
+    if (order_vc_authoritative_ && resdb_server_handle_) {
+        certifiedPrimary = ResdbOmnetGetPrimary(resdb_server_handle_);
+    } else {
+        certifiedPrimary = CertPrimary();
+    }
+
+    std::string desiredColor;
+    if (isAmbulance) {
+        desiredColor = "red";
+    } else if (isByzantine) {
+        desiredColor = "blue";
+    } else if (certifiedPrimary >= 0 && certifiedPrimary == replicaId_) {
+        desiredColor = "green";
+    } else {
+        // Before certificate formation there is no certified primary.
+        desiredColor = "yellow";
+    }
+
+    if (desiredColor == appliedRoleColor) return;
+
+    TraCIColor color(255, 255, 0, 255);
+    if (desiredColor == "green") {
+        color = TraCIColor(0, 255, 0, 255);
+    } else if (desiredColor == "blue") {
+        color = TraCIColor(0, 0, 255, 255);
+    } else if (desiredColor == "red") {
+        color = TraCIColor(255, 0, 0, 255);
+    }
+    mobility->getVehicleCommandInterface()->setColor(color);
+    std::cout << "[ROLE COLOR] r" << replicaId_
+              << " setting color to " << desiredColor
+              << " certified_primary=" << certifiedPrimary << "\n";
+    appliedRoleColor = desiredColor;
+}
+
 void ResDBIntersectionApp::handlePositionUpdate(cObject* obj)
 {
     DemoBaseApplLayer::handlePositionUpdate(obj);
-
-    if (moduleIsAmbulance && !ambulanceColorSet && mobility && mobility->getVehicleCommandInterface()) {
-        std::cout << "[AMBULANCE COLOR] r" << replicaId_ << " setting color to red\n";
-        mobility->getVehicleCommandInterface()->setColor(TraCIColor(255, 0, 0, 255));
-        ambulanceColorSet = true;
-    }
+    updateRoleColor();
 
     discoverLane();
     applyPhase2ControlledCue();

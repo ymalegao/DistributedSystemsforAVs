@@ -1396,7 +1396,13 @@ extern "C" void* ResdbOmnetCreateKvServer(char* config_file,
     // self-restraint in evaluateOrderReadiness. Only epochs the executor
     // marked as CANCEL_CRASH recoveries are gated; ordinary epoch-0 and
     // Scenario-15 emergency-rollback proposals are untouched.
-    if (!view.is_rollback() && crash_recovery_state) {
+    // Validate at PRE_PREPARE, after the primary has disseminated the proposed
+    // value.  Rejecting the locally injected TYPE_NEW_TXNS here would prevent
+    // every honest replica from observing a Byzantine primary's malformed
+    // recovery proposal, so no distributed failover could follow the reject.
+    if (!view.is_rollback() &&
+        req.type() == resdb::Request::TYPE_PRE_PREPARE &&
+        crash_recovery_state) {
       bool requires_evidence = false;
       {
         std::lock_guard<std::mutex> lk(crash_recovery_state->mu);
@@ -2027,7 +2033,16 @@ extern "C" int ResdbOmnetTriggerConsensus(void* server_handle,
           std::cout << "[EPOCH-VIEW]"
                     << " hash=" << req.hash()
                     << " seq=" << req.seq()
-                    << " action=defer-install-to-preverify\n";
+                    << " action=install-local-pending-before-inject\n";
+          // This is the locally constructed submission path.  Install its
+          // epoch view immediately before injection so an older, in-flight
+          // PBFT view change cannot route the transaction through a different
+          // primary than hdr.leader_id.  This changes only the submitting
+          // replica's local routing state.  Remote replicas still derive and
+          // install the request-specific view only after all guarded
+          // PRE_PREPARE checks pass below.
+          h->consensus->InstallOmnetPendingForcedView(active_view);
+          req.set_proxy_id(static_cast<int64_t>(hdr.leader_id + 1));
         }
         if (hdr.epoch > 0 && !has_active_view) {
           std::cout << "[EPOCH-VIEW-REJECT]"

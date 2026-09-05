@@ -2,7 +2,7 @@
 # OMNeT++/OMNEST Makefile for fourway
 #
 # This file was generated with the command:
-#  opp_makemake -f --deep -O out -KVEINS_PROJ=$(abspath ../veins-veins-5.3.1) -DVEINS_IMPORT -I. -I$(VEINS_PROJ)/src -Isrc -L$(VEINS_PROJ)/src -lveins$(D)
+#  opp_makemake -f --deep -O out -I.
 #
 
 # Name of target to be created (-o option)
@@ -17,13 +17,13 @@ USERIF_LIBS = $(ALL_ENV_LIBS) # that is, $(QTENV_LIBS) $(CMDENV_LIBS)
 #USERIF_LIBS = $(QTENV_LIBS)
 
 # C++ include paths (with -I)
-INCLUDE_PATH = -I. -I$(VEINS_PROJ)/src -Isrc
+INCLUDE_PATH = -I.
 
 # Additional object and library files to link with
 EXTRA_OBJS =
 
 # Additional libraries (-L, -l options)
-LIBS = $(LDFLAG_LIBPATH)$(VEINS_PROJ)/src  -lveins$(D)
+LIBS =
 
 # Output directory
 PROJECT_OUTPUT_DIR = out
@@ -31,16 +31,13 @@ PROJECTRELATIVE_PATH =
 O = $(PROJECT_OUTPUT_DIR)/$(CONFIGNAME)/$(PROJECTRELATIVE_PATH)
 
 # Object files for local .cc, .msg and .sm files
-OBJS = $O/src/BaselineModule.o $O/src/IntersectionApp.o
+OBJS = $O/src/BaselineModule.o $O/src/IntersectionApp.o $O/two_lane_calibration/lateral_gate_ref.o
 
 # Message files
 MSGFILES =
 
 # SM files
 SMFILES =
-
-# Other makefile variables (-K)
-VEINS_PROJ?=$(abspath ../veins-veins-5.3.1)
 
 #------------------------------------------------------------------------------
 
@@ -60,11 +57,8 @@ include $(CONFIGFILE)
 
 # Simulation kernel and user interface libraries
 OMNETPP_LIBS = $(OPPMAIN_LIB) $(USERIF_LIBS) $(KERNEL_LIBS) $(SYS_LIBS)
-ifneq ($(PLATFORM),win32)
-LIBS += -Wl,-rpath,$(abspath $(VEINS_PROJ)/src)
-endif
 
-COPTS = $(CFLAGS) $(IMPORT_DEFINES) -DVEINS_IMPORT $(INCLUDE_PATH) -I$(OMNETPP_INCL_DIR)
+COPTS = $(CFLAGS) $(IMPORT_DEFINES)  $(INCLUDE_PATH) -I$(OMNETPP_INCL_DIR)
 MSGCOPTS = $(INCLUDE_PATH)
 SMCOPTS =
 
@@ -79,6 +73,8 @@ endif
 
 #------------------------------------------------------------------------------
 # User-supplied makefile fragment(s)
+-include makefrag
+
 #------------------------------------------------------------------------------
 
 # Main target
