@@ -12,13 +12,13 @@ namespace {
 
 ResdbVehicleEntry Entry(int32_t replica_id, uint8_t lane,
                         uint8_t physical_lane, uint8_t position,
-                        bool ambulance = false) {
+                        bool ambulance = false, uint8_t direction = 3) {
   ResdbVehicleEntry entry{};
   entry.replica_id = replica_id;
   entry.sim_time_us = 1;
   entry.is_ambulance = ambulance ? 1 : 0;
   entry.lane = lane;
-  entry.direction = 3;  // UNKNOWN keeps every vehicle in a singleton batch.
+  entry.direction = direction;
   entry.position_in_lane = position;
   entry.cyber_status = 1;
   entry.physical_lane_index = physical_lane;
@@ -89,6 +89,38 @@ TEST(IntersectionSchedulerTest, FrontPrecedesRearWithinPhysicalLane) {
       BuildIntersectionSchedule(header, entries));
 
   EXPECT_LT(batches.at(4), batches.at(5));
+}
+
+TEST(IntersectionSchedulerTest, GeometrySafeLeftPairCanCoBatch) {
+  // N-LEFT and S-LEFT are disjoint in the reviewed SUMO geometry. LEFT is no
+  // longer table-forced to singleton when the certified pair is safe.
+  std::vector<ResdbVehicleEntry> entries = {
+      Entry(0, 0, 0, 1, false, 1),
+      Entry(1, 1, 0, 1, false, 1),
+  };
+  ResdbProposeHdr header{};
+  header.n_vehicles = entries.size();
+
+  const auto batches = DecodeBatches(
+      BuildIntersectionSchedule(header, entries));
+
+  EXPECT_EQ(batches.at(0), batches.at(1));
+}
+
+TEST(IntersectionSchedulerTest, GeometryConflictingLeftPairStaysSeparate) {
+  // N-LEFT and E-STRAIGHT intersect in the same reviewed geometry and must
+  // remain separate even though LEFT is now allowed for safe pairs.
+  std::vector<ResdbVehicleEntry> entries = {
+      Entry(0, 0, 0, 1, false, 1),
+      Entry(1, 2, 0, 1, false, 0),
+  };
+  ResdbProposeHdr header{};
+  header.n_vehicles = entries.size();
+
+  const auto batches = DecodeBatches(
+      BuildIntersectionSchedule(header, entries));
+
+  EXPECT_NE(batches.at(0), batches.at(1));
 }
 
 }  // namespace

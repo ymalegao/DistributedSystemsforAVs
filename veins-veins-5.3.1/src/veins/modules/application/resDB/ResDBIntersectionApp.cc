@@ -227,6 +227,11 @@ void ResDBIntersectionApp::initialize(int stage)
             par("directionEligibilityCollectionWindowSec").doubleValue();
         direction_eligibility_enabled_ =
             par("enableDirectionEligibility").boolValue();
+        enable_stopped_distance_echo_relay_ =
+            par("enableStoppedDistanceEchoRelay").boolValue();
+        if (enable_stopped_distance_echo_relay_) {
+            std::cout << "[DIST-ECHO-RELAY-MODE] enabled=1\n";
+        }
         distance_stationary_speed_mps_ =
             par("distanceStationarySpeedMps").doubleValue();
         stopped_distance_attestation_retry_interval_sec_ =
@@ -1472,47 +1477,33 @@ void ResDBIntersectionApp::updateRoleColor()
 {
     if (!mobility || !mobility->getVehicleCommandInterface()) return;
 
-    // roleColor identifies persistent entity roles.  Leadership is different:
-    // it is unknown until a valid certificate view exists, and can change
-    // after a PBFT view change.  Preserve ambulance/Byzantine colors over the
-    // transient green primary color.
+    // roleColor identifies persistent entity roles.  Leadership is
+    // intentionally not encoded visually: leaders use the same yellow color
+    // as honest followers.
     const std::string configuredRole = par("roleColor").stdstringValue();
     const bool isAmbulance = moduleIsAmbulance || configuredRole == "red";
     const bool isByzantine = configuredRole == "blue";
-
-    int certifiedPrimary = -1;
-    if (order_vc_authoritative_ && resdb_server_handle_) {
-        certifiedPrimary = ResdbOmnetGetPrimary(resdb_server_handle_);
-    } else {
-        certifiedPrimary = CertPrimary();
-    }
 
     std::string desiredColor;
     if (isAmbulance) {
         desiredColor = "red";
     } else if (isByzantine) {
         desiredColor = "blue";
-    } else if (certifiedPrimary >= 0 && certifiedPrimary == replicaId_) {
-        desiredColor = "green";
     } else {
-        // Before certificate formation there is no certified primary.
         desiredColor = "yellow";
     }
 
     if (desiredColor == appliedRoleColor) return;
 
     TraCIColor color(255, 255, 0, 255);
-    if (desiredColor == "green") {
-        color = TraCIColor(0, 255, 0, 255);
-    } else if (desiredColor == "blue") {
+    if (desiredColor == "blue") {
         color = TraCIColor(0, 0, 255, 255);
     } else if (desiredColor == "red") {
         color = TraCIColor(255, 0, 0, 255);
     }
     mobility->getVehicleCommandInterface()->setColor(color);
     std::cout << "[ROLE COLOR] r" << replicaId_
-              << " setting color to " << desiredColor
-              << " certified_primary=" << certifiedPrimary << "\n";
+              << " setting color to " << desiredColor << "\n";
     appliedRoleColor = desiredColor;
 }
 

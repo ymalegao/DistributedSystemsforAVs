@@ -115,6 +115,7 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         int perceptionRngIndex = default(1);
         double directionEligibilityCollectionWindowSec @unit(s) = default(0.25s);
         bool enableDirectionEligibility = default(true); // false is the declared-direction ablation only
+        bool enableStoppedDistanceEchoRelay = default(false); // optional Type-19 multi-hop echo relay
         bool enablePhase2CueTrace = default(false); // observation-only mixed-route/cue trace
         bool enablePhase2ControlledCue = default(false); // deterministic route-consistent TraCI blinkers during discovery
 

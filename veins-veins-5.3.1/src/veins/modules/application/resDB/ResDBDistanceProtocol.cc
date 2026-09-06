@@ -195,6 +195,29 @@ ResDBIntersectionApp::deserializeStoppedDistanceEcho(BFTMessage* msg) const
     return echo;
 }
 
+std::string ResDBIntersectionApp::stoppedDistanceEchoRelayKey(
+    const StoppedDistanceEcho& echo) const
+{
+    return std::to_string(echo.echoingReplicaId) + "|" + echo.targetCarId + "|" +
+        std::to_string(echo.epoch) + "|" + hashHex(echo.attestationHash);
+}
+
+bool ResDBIntersectionApp::validateStoppedDistanceEchoForRelay(
+    const StoppedDistanceEcho& echo) const
+{
+    const int target = extractReplicaId(echo.targetCarId);
+    if (target < 0 || target >= total_vehicles_ ||
+            echo.epoch != static_cast<int>(current_epoch_) ||
+            !isArrivalSignerEligible(echo.echoingReplicaId) ||
+            echo.signatureLen == 0 ||
+            !WitnessKeyRegistry::instance().matches(
+                echo.echoingReplicaId, echo.signerPubKey)) return false;
+    const std::string payload = stoppedDistanceEchoSigningPayload(echo);
+    return CryptoAuth::instance().verifyBytes(
+        echo.signerPubKey, reinterpret_cast<const uint8_t*>(payload.data()), payload.size(),
+        echo.signature, echo.signatureLen);
+}
+
 std::vector<uint8_t> ResDBIntersectionApp::serializeStoppedDistanceCert(
     const StoppedDistanceCert& cert) const
 {
@@ -421,6 +444,8 @@ void ResDBIntersectionApp::handleStoppedDistanceAttestation(BFTMessage* msg)
     if (!CryptoAuth::instance().signBytes(
             ec_private_key_, reinterpret_cast<const uint8_t*>(payload.data()), payload.size(),
             echo.signature, echo.signatureLen)) return;
+    if (enable_stopped_distance_echo_relay_)
+        relayed_stopped_distance_echoes_.insert(stoppedDistanceEchoRelayKey(echo));
     sendBFTMessage(-1, serializeStoppedDistanceEcho(echo),
                    kStoppedDistanceEchoType, false, true);
 }
@@ -450,13 +475,8 @@ void ResDBIntersectionApp::collectStoppedDistanceEcho(const StoppedDistanceEcho&
             echo.earlyClaimHash != local_distance_attestation_.earlyClaimHash ||
             echo.attestationHash != stoppedDistanceAttestationHash(local_distance_attestation_) ||
             echo.distanceToStopCm != local_distance_attestation_.distanceToStopCm ||
-            echo.signatureLen == 0 || !isArrivalSignerEligible(echo.echoingReplicaId) ||
             echo.echoingReplicaId == replicaId_ ||
-            !WitnessKeyRegistry::instance().matches(echo.echoingReplicaId, echo.signerPubKey)) return;
-    const std::string payload = stoppedDistanceEchoSigningPayload(echo);
-    if (!CryptoAuth::instance().verifyBytes(
-            echo.signerPubKey, reinterpret_cast<const uint8_t*>(payload.data()), payload.size(),
-            echo.signature, echo.signatureLen)) return;
+            !validateStoppedDistanceEchoForRelay(echo)) return;
     for (const auto& prior : my_received_distance_echoes_)
         if (prior.echoingReplicaId == echo.echoingReplicaId) return;
     if (my_received_distance_echoes_.size() >= static_cast<size_t>(std::max(0, total_vehicles_ - 1)))
@@ -481,7 +501,23 @@ void ResDBIntersectionApp::collectStoppedDistanceEcho(const StoppedDistanceEcho&
 
 void ResDBIntersectionApp::handleStoppedDistanceEcho(BFTMessage* msg)
 {
-    collectStoppedDistanceEcho(deserializeStoppedDistanceEcho(msg));
+    const StoppedDistanceEcho echo = deserializeStoppedDistanceEcho(msg);
+    if (enable_stopped_distance_echo_relay_ &&
+            discovery_.state == DiscoveryState::COLLECTING &&
+            !propose_submitted_ && !order_applied_ &&
+            current_phase_ != ConsensusPhase::DEPARTED && !crashCommsDisabled_ &&
+            validateStoppedDistanceEchoForRelay(echo) &&
+            relayed_stopped_distance_echoes_.insert(
+                stoppedDistanceEchoRelayKey(echo)).second) {
+        std::cout << "[DIST-ECHO-RELAY] r" << replicaId_
+                  << " original=" << echo.echoingReplicaId
+                  << " target=" << echo.targetCarId
+                  << " epoch=" << echo.epoch
+                  << " t=" << simTime() << "\n";
+        sendBFTMessage(-1, serializeStoppedDistanceEcho(echo),
+                       kStoppedDistanceEchoType, false, true);
+    }
+    collectStoppedDistanceEcho(echo);
 }
 
 bool ResDBIntersectionApp::finalizeLocalStoppedDistanceCert(const char* reason)

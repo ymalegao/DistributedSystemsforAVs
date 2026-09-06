@@ -563,6 +563,8 @@ private:
     bool finalizeLocalStoppedDistanceCert(const char* reason);
     void cancelStoppedDistanceFinalizeTimer();
     bool validateStoppedDistanceAttestation(const StoppedDistanceAttestation& att) const;
+    bool validateStoppedDistanceEchoForRelay(const StoppedDistanceEcho& echo) const;
+    std::string stoppedDistanceEchoRelayKey(const StoppedDistanceEcho& echo) const;
     bool validateStoppedDistanceCert(const StoppedDistanceCert& cert) const;
     std::string canonicalStoppedDistanceAttestationPayload(
         const StoppedDistanceAttestation& att) const;
@@ -964,8 +966,10 @@ private:
     simtime_t arrival_cert_threshold_reached_at_ = -1;
     double direction_eligibility_collection_window_sec_ = 0.25;
     bool direction_eligibility_enabled_ = true;
+    bool enable_stopped_distance_echo_relay_ = false;
     double stopped_distance_attestation_retry_interval_sec_ = 0.5;
     int stopped_distance_attestation_retry_max_ = 4;
+    std::set<std::string> relayed_stopped_distance_echoes_;
     simtime_t cert_gossip_deadline_ = -1;
 
     // ── Post-consensus order gossip (Type 9) ──────────────────────────────────

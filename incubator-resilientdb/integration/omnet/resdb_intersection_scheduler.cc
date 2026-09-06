@@ -12,10 +12,19 @@ namespace {
 bool IsSafeToBatch(uint8_t lane_a, uint8_t dir_a,
                    uint8_t lane_b, uint8_t dir_b) {
   if (lane_a == lane_b) return false;
-  static const uint8_t kSafe[12][4] = {
-      {0, 0, 1, 0}, {2, 0, 3, 0}, {0, 2, 1, 2}, {0, 2, 2, 2},
-      {0, 2, 3, 2}, {1, 2, 2, 2}, {1, 2, 3, 2}, {2, 2, 3, 2},
-      {0, 2, 1, 0}, {1, 2, 0, 0}, {2, 2, 3, 0}, {3, 2, 2, 0},
+  // Complete geometry-derived allowlist for the 12 SUMO movements. Every
+  // unordered pair here has disjoint internal-lane centerlines; same-approach
+  // pairs are still rejected before this table is consulted.
+  static const uint8_t kSafe[26][4] = {
+      {2, 1, 0, 2}, {2, 1, 1, 2}, {2, 1, 3, 1},
+      {2, 2, 0, 1}, {2, 2, 0, 2}, {2, 2, 0, 0},
+      {2, 2, 1, 1}, {2, 2, 1, 2}, {2, 2, 3, 2},
+      {2, 2, 3, 0}, {2, 0, 1, 2}, {2, 0, 3, 2},
+      {2, 0, 3, 0}, {0, 1, 1, 1}, {0, 1, 3, 2},
+      {0, 2, 1, 2}, {0, 2, 1, 0}, {0, 2, 3, 1},
+      {0, 2, 3, 2}, {0, 2, 3, 0}, {0, 0, 1, 2},
+      {0, 0, 1, 0}, {1, 1, 3, 2}, {1, 2, 3, 1},
+      {1, 2, 3, 2}, {1, 0, 3, 2},
   };
   for (const auto& p : kSafe) {
     if ((lane_a == p[0] && dir_a == p[1] && lane_b == p[2] && dir_b == p[3]) ||

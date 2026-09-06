@@ -1107,7 +1107,8 @@ if [[ -n "${APPROACH_SIGMA}${SIGNAL_ERROR}${DIRECTION_COLLECTION_WINDOW}${SIMULA
           ! "${ACTIVE_CONFIG}" =~ ^SixteenVehiclesDirectionAblationFixture[0-3]ResDB$ &&
           "${ACTIVE_CONFIG}" != "FourVehiclesTwoLaneScaleResDB" &&
           "${ACTIVE_CONFIG}" != "EightVehiclesTwoLaneScaleResDB" &&
-          "${ACTIVE_CONFIG}" != "TwentyVehiclesTwoLaneScaleResDB" ]]; then
+          "${ACTIVE_CONFIG}" != "TwentyVehiclesTwoLaneScaleResDB" &&
+          "${ACTIVE_CONFIG}" != "ThirtyTwoVehiclesTwoLaneScaleResDB" ]]; then
         echo "ERROR: ADJACENT_LATERAL is scoped to the adjacent-lane or full two-lane validation configs." >&2
         exit 1
     fi

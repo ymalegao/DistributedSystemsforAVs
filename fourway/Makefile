@@ -31,7 +31,9 @@ PROJECTRELATIVE_PATH =
 O = $(PROJECT_OUTPUT_DIR)/$(CONFIGNAME)/$(PROJECTRELATIVE_PATH)
 
 # Object files for local .cc, .msg and .sm files
-OBJS = $O/src/BaselineModule.o $O/src/IntersectionApp.o $O/two_lane_calibration/lateral_gate_ref.o
+# lateral_gate_ref.cc is a standalone calibration utility with its own main();
+# it must not be linked into the OMNeT++ simulator executable.
+OBJS = $O/src/BaselineModule.o $O/src/IntersectionApp.o
 
 # Message files
 MSGFILES =

@@ -42,14 +42,16 @@ SIGMA_SENSITIVITY_M: Tuple[float, ...] = (
     0.0, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0,
 )
 BYZANTINE_BOUNDARY_B: Tuple[int, ...] = (0, 1, 2, 3, 4, 6)
-K_TRADEOFF: Tuple[float, ...] = (2.0, 2.5, 3.0)
+K_TRADEOFF: Tuple[float, ...] = (
+    1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0,
+)
 
 SHOULDER_REPS = 20
 # Same seed budget as δ / k / σ panels. The prior BOUNDARY_REPS=5 scout
 # produced a non-monotonic b-panel (seed-count artifact, not a real shape).
 BOUNDARY_REPS = 20
 
-EXPECTED_UNIQUE_RUNS = 400
+EXPECTED_UNIQUE_RUNS = 520
 
 # Focused cross-product used to resolve the Byzantine shoulder at three
 # reviewed claim offsets.  The smoke intentionally contains attacks only;
@@ -61,7 +63,9 @@ DELTA_B_SMOKE_RUNS = 18
 DELTA_B_FULL_ATTACK_RUNS = 360
 DELTA_B_FULL_TOTAL_RUNS = 361
 
-K_SWEEP: Tuple[float, ...] = (1.0, 2.0, 3.0)
+K_SWEEP: Tuple[float, ...] = (
+    1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0,
+)
 SIGMA_SWEEP_M: Tuple[float, ...] = (0.1, 0.3, 0.5, 0.7, 1.0, 1.5, 2.0)
 PARAMETER_SWEEP_B: Tuple[int, ...] = (1, 2, 3, 4, 5, 6)
 PARAMETER_SWEEP_REPS = 20

@@ -376,6 +376,7 @@ void ResDBIntersectionApp::startDiscoveryRound(const char* reason)
     cancelArrivalCertFinalizeTimer();
     cancelStoppedDistanceFinalizeTimer();
     my_received_distance_echoes_.clear();
+    relayed_stopped_distance_echoes_.clear();
     local_distance_attestation_ = StoppedDistanceAttestation{};
     stopped_distance_attestation_sent_ = false;
     stopped_distance_cert_broadcast_ = false;

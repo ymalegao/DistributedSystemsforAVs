@@ -31,7 +31,7 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
 
         // ── Step-3 radio transport ────────────────────────────────────────────
         bool useRadioTransport = default(true);
-        double transportPollInterval = default(0.5);
+        double transportPollInterval = default(0.001);
         double resdbBroadcastJitterMin = default(0.0002);
         double resdbBroadcastJitterMax = default(0.001);
 
@@ -45,7 +45,7 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
 
         // ── Step-4 time virtualization ────────────────────────────────────────
         bool enableSimTimeProvider = default(true);
-        double timeTickInterval = default(0.5);
+        double timeTickInterval = default(0.001);
 
         // ── Step-5 intersection geometry ──────────────────────────────────────
         double intersectionX @unit(m) = default(300m);  // accepted for .ini compat; not used in code
@@ -83,6 +83,7 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         double clearanceTimeoutSec    @unit(s) = default(120s);   // hard fallback if predecessor never clears
         bool   isAmbulance         = default(false);  // ambulance gets top priority in schedule
         int    ambulanceReplicaId  = default(-1);     // if >=0, marks veh<id> as ambulance after SUMO identity binding
+        string roleColor            = default("");     // persistent SUMO role color: yellow/blue/red; leaders remain yellow
         bool   isByzantine         = default(false);  // enables Byzantine fault injection
         int    byzantineType       = default(0);      // 0=honest 1=false_lane 2=invalid_sig 3=equivocator 4=silent_primary 5=bad_proposal 6=fake_ambulance 7=fake_ambulance_follower 8=tamper_lane 9=upgrade_unknown_direction 10=tamper_distance_rank 11=tamper_physical_lane 12=suppress_f_plus_1_certs
         bool   byzantinePbftSilent = default(false);  // when true, Byzantine replica drops PBFT outbound messages
@@ -115,6 +116,7 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         int perceptionRngIndex = default(1);
         double directionEligibilityCollectionWindowSec @unit(s) = default(0.25s);
         bool enableDirectionEligibility = default(true); // false is the declared-direction ablation only
+        bool enableStoppedDistanceEchoRelay = default(false); // optional Type-19 multi-hop echo relay
         bool enablePhase2CueTrace = default(false); // observation-only mixed-route/cue trace
         bool enablePhase2ControlledCue = default(false); // deterministic route-consistent TraCI blinkers during discovery
 
