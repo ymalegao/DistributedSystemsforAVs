@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes>
+    <vType id="car" accel="2.6" decel="4.5" sigma="0.0" length="4.5"
+           minGap="2.5" maxSpeed="13.90" color="1,1,0" speedFactor="1"
+           jmIgnoreFoeProb="1"/>
+
+    <route id="rN_T_straight" edges="N2C C2S"/>
+    <route id="rN_L_left" edges="N2C C2E"/>
+    <route id="rN_T_right" edges="N2C C2W"/>
+    <route id="rS_T_straight" edges="S2C C2N"/>
+    <route id="rS_L_left" edges="S2C C2W"/>
+    <route id="rS_T_right" edges="S2C C2E"/>
+    <route id="rE_T_straight" edges="E2C C2W"/>
+    <route id="rE_L_left" edges="E2C C2S"/>
+    <route id="rE_T_right" edges="E2C C2N"/>
+    <route id="rW_T_straight" edges="W2C C2E"/>
+    <route id="rW_L_left" edges="W2C C2N"/>
+    <route id="rW_T_right" edges="W2C C2S"/>
+
+    <!-- Three vehicles per approach, one of each maneuver, so the composition is
+         exactly 4 left / 4 straight / 4 right and no approach is biased. Lane
+         follows the maneuver, as the net's connections require: left departs
+         lane 1, straight and right depart lane 0.
+
+         Straight and right SHARE lane 0, so they take different depth tiers
+         (60 and 20). Putting both at 60 stacks them at one insertion point:
+         SUMO then holds one back, the approach discharges as a dense platoon,
+         and N=12 reads as a throughput dip that is a fixture artifact rather
+         than a property of the protocol. The 16-vehicle fixture separates its
+         shared-lane pairs the same way. -->
+    <vehicle id="veh0" type="car" route="rN_L_left" depart="0" departLane="1" departPos="60" departSpeed="max"/>
+    <vehicle id="veh1" type="car" route="rS_T_straight" depart="0" departLane="0" departPos="60" departSpeed="max"/>
+    <vehicle id="veh2" type="car" route="rE_T_right" depart="0" departLane="0" departPos="20" departSpeed="max"/>
+    <vehicle id="veh3" type="car" route="rW_L_left" depart="0" departLane="1" departPos="60" departSpeed="max"/>
+    <vehicle id="veh4" type="car" route="rN_T_straight" depart="0" departLane="0" departPos="60" departSpeed="max"/>
+    <vehicle id="veh5" type="car" route="rS_T_right" depart="0" departLane="0" departPos="20" departSpeed="max"/>
+    <vehicle id="veh6" type="car" route="rE_L_left" depart="0" departLane="1" departPos="60" departSpeed="max"/>
+    <vehicle id="veh7" type="car" route="rW_T_straight" depart="0" departLane="0" departPos="60" departSpeed="max"/>
+    <vehicle id="veh8" type="car" route="rN_T_right" depart="0" departLane="0" departPos="20" departSpeed="max"/>
+    <vehicle id="veh9" type="car" route="rS_L_left" depart="0" departLane="1" departPos="60" departSpeed="max"/>
+    <vehicle id="veh10" type="car" route="rE_T_straight" depart="0" departLane="0" departPos="60" departSpeed="max"/>
+    <vehicle id="veh11" type="car" route="rW_T_right" depart="0" departLane="0" departPos="20" departSpeed="max"/>
+</routes>

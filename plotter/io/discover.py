@@ -23,7 +23,7 @@ def load_runs(results_dir, study: int | None = None) -> Runs:
     runs: Runs = defaultdict(list)
     for path in sorted(results_dir.glob("*.log")):
         key = parse_run_name(path)
-        if key is None or (study is not None and key.study != study):
+        if key is None or key.study == 2 or (study is not None and key.study != study):
             continue
         runs[key.cell()].append(parse_log(path, key))
     return dict(runs)

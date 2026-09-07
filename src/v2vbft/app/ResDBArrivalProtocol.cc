@@ -270,7 +270,7 @@ int ResDBIntersectionApp::countStaticCollectedCerts() const
         if (ctx_.cancel_pending_) {
             if (shouldIncludeInRollbackMembership(rid))
                 ++count;
-        } else if (rid >= 0 && rid < ctx_.total_vehicles_) {
+        } else if (isNormalRoundVehicle(rid)) {
             ++count;
         }
     }
@@ -284,7 +284,7 @@ int ResDBIntersectionApp::CertPrimary() const
         const int rid = extractReplicaId(kv.first);
         const bool eligible = ctx_.cancel_pending_
             ? shouldIncludeInRollbackMembership(rid)
-            : (rid >= 0 && rid < ctx_.total_vehicles_);
+            : (isNormalRoundVehicle(rid));
         if (eligible && (primary < 0 || rid < primary)) {
             primary = rid;
         }
@@ -1208,6 +1208,8 @@ bool ResDBIntersectionApp::isArrivalSignerEligible(int signerId) const
     // ARRIVAL certificates establish the next ORDER electorate, so late
     // configured replicas may witness before that ORDER is committed. The
     // configured replica range is therefore the correct active discovery set.
+    if (!next_round_members_.empty())
+        return next_round_members_.count(signerId) || isStaticUnitReplica(signerId);
     return signerId >= 0 && signerId < ctx_.total_vehicles_;
 }
 

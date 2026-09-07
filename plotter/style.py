@@ -49,7 +49,7 @@ SERIES = {
     "accent":    dict(color=ACCENT, marker="^"),
 }
 
-DPI = 130
+DPI = 300
 FIGSIZE = (7.2, 4.4)
 
 # Mark specs: 2px lines, >=8px markers.

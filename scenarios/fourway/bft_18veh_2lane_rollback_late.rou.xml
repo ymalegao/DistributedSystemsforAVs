@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes>
+    <!-- Two-lane counterpart of bft_18veh_rollback_late.rou.xml.
+         The vTypes are copied from that file rather than from the other two-lane
+         fixtures (which use sigma=0, maxSpeed=13.90): the point of this scenario
+         is to be a controlled pair with the single-lane rollback arm, and vehicle
+         dynamics are exactly what must not differ between the two. -->
+    <vType id="car" accel="2.6" decel="4.5" sigma="0.5" length="4.5" minGap="2.5" maxSpeed="22.92" color="1,1,0"/>
+    <vType id="ambulance" accel="2.6" decel="4.5" sigma="0.5" length="4.5" minGap="2.5" maxSpeed="14" color="1,0,0"/>
+
+    <!-- Locked two-lane policy on every inbound approach:
+         lane 0 (T/outer) = STRAIGHT or RIGHT; lane 1 (L/inner) = LEFT only. -->
+    <route id="rN_T_straight" edges="N2C C2S"/>
+    <route id="rN_T_right"    edges="N2C C2W"/>
+    <route id="rN_L_left"     edges="N2C C2E"/>
+    <route id="rS_T_straight" edges="S2C C2N"/>
+    <route id="rS_T_right"    edges="S2C C2E"/>
+    <route id="rS_L_left"     edges="S2C C2W"/>
+    <route id="rE_T_straight" edges="E2C C2W"/>
+    <route id="rE_T_right"    edges="E2C C2N"/>
+    <route id="rE_L_left"     edges="E2C C2S"/>
+    <route id="rW_T_straight" edges="W2C C2E"/>
+    <route id="rW_T_right"    edges="W2C C2S"/>
+    <route id="rW_L_left"     edges="W2C C2N"/>
+
+    <!-- Aliases for the TraCI-injected pair. The R0 supervisor spawns veh16/veh17
+         by naming r0LateNormalRoute / r0LateEmergencyRoute, which are plain route
+         ids and cannot reference a distribution. Without these two the addVehicle
+         call is refused, the supervisor retries 25x and then gives up SILENTLY:
+         the run completes with 16 vehicles, no CANCEL and no recovery ORDER, and
+         still exits 0.
+         Deliberately duplicates rN_T_straight / rE_T_straight under the same ids
+         the single-lane arm uses, so both configs carry identical r0Late*Route
+         values and stay textually comparable. Both are straight movements and so
+         are served from lane 0, which is what DEPART_LANE_BEST will pick. -->
+    <route id="rN" edges="N2C C2S"/>
+    <route id="rE" edges="E2C C2W"/>
+    <route id="rS" edges="S2C C2N"/>
+    <route id="rW" edges="W2C C2E"/>
+
+    <!-- Initial wave: sixteen vehicles (veh0..veh15) for epoch 0, in exactly the
+         layout of bft_16veh_2lane.rou.xml. Keeping that layout byte-for-byte is
+         what lets the config inherit SixteenVehiclesTwoLaneResDB's node->veh
+         intendedLane/intendedDirection block unchanged; only node[16]/node[17]
+         are added. Four vehicles per approach, two per physical lane, front/rear
+         split to exercise certified rank within (approach,physicalLaneIndex). -->
+    <vehicle id="veh0"  type="car" route="rN_L_left"     depart="0" departLane="1" departPos="60" departSpeed="max"/>
+    <vehicle id="veh1"  type="car" route="rN_T_straight" depart="0" departLane="0" departPos="60" departSpeed="max"/>
+    <vehicle id="veh2"  type="car" route="rN_T_right"    depart="0" departLane="0" departPos="20" departSpeed="max"/>
+    <vehicle id="veh12" type="car" route="rN_L_left"     depart="0" departLane="1" departPos="20" departSpeed="max"/>
+
+    <vehicle id="veh3"  type="car" route="rS_L_left"     depart="0" departLane="1" departPos="60" departSpeed="max"/>
+    <vehicle id="veh4"  type="car" route="rS_T_straight" depart="0" departLane="0" departPos="60" departSpeed="max"/>
+    <vehicle id="veh5"  type="car" route="rS_T_right"    depart="0" departLane="0" departPos="20" departSpeed="max"/>
+    <vehicle id="veh13" type="car" route="rS_L_left"     depart="0" departLane="1" departPos="20" departSpeed="max"/>
+
+    <vehicle id="veh6"  type="car" route="rE_L_left"     depart="0" departLane="1" departPos="60" departSpeed="max"/>
+    <vehicle id="veh7"  type="car" route="rE_T_straight" depart="0" departLane="0" departPos="60" departSpeed="max"/>
+    <vehicle id="veh8"  type="car" route="rE_T_right"    depart="0" departLane="0" departPos="20" departSpeed="max"/>
+    <vehicle id="veh14" type="car" route="rE_L_left"     depart="0" departLane="1" departPos="20" departSpeed="max"/>
+
+    <vehicle id="veh9"  type="car" route="rW_L_left"     depart="0" departLane="1" departPos="60" departSpeed="max"/>
+    <vehicle id="veh10" type="car" route="rW_T_straight" depart="0" departLane="0" departPos="60" departSpeed="max"/>
+    <vehicle id="veh11" type="car" route="rW_T_right"    depart="0" departLane="0" departPos="20" departSpeed="max"/>
+    <vehicle id="veh15" type="car" route="rW_L_left"     depart="0" departLane="1" departPos="20" departSpeed="max"/>
+
+    <!-- Late arrivals are intentionally NOT scheduled here. The R0 manager-side
+         supervisor injects veh16 (normal, route rN) and veh17 (ambulance, route
+         rE) via TraCI after epoch-0 traffic has begun clearing, so rollback
+         timing is not coupled to SUMO route depart-time tuning. -->
+</routes>

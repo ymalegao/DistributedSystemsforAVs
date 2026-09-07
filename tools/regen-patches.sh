@@ -53,7 +53,8 @@ regen() {
   git -C "$scratch" checkout --quiet FETCH_HEAD
 
   echo "==> $name: diffing"
-  : > "$patch"
+  local generated="$scratch/generated.patch"
+  : > "$generated"
   local count=0
   while IFS= read -r rel; do
     is_excluded "$rel" && continue
@@ -63,14 +64,16 @@ regen() {
     [[ -f "$dest/$rel" ]] || continue
     local a="$scratch/$rel"
     [[ -f "$a" ]] || a=/dev/null
-    diff -u --label "a/$rel" --label "b/$rel" "$a" "$dest/$rel" >> "$patch" || true
+    diff -u --label "a/$rel" --label "b/$rel" "$a" "$dest/$rel" >> "$generated" || [[ $? == 1 ]]
     count=$((count + 1))
   done < <(
     diff -rq "$scratch" "$dest" -x .git 2>/dev/null \
-      | sed -E "s|^Files $scratch/(.*) and .* differ$|\1|; s|^Only in $dest/?(.*): (.*)$|\1/\2|; t; d" \
+      | sed -E -e "s|^Files $scratch/(.*) and .* differ$|\1|" -e "t" -e "s|^Only in $dest/?(.*): (.*)$|\1/\2|" -e "t" -e "d" \
       | sed 's|^/||' \
       | sort
   )
+  [[ $count -gt 0 ]] || die "No patch files found; refusing to replace $patch"
+  mv "$generated" "$patch"
   echo "    $patch: $count files, $(grep -cE '^[+-][^+-]' "$patch" || true) changed lines"
 }
 

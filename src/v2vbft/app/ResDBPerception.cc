@@ -62,6 +62,7 @@ void ResDBPerception::configure(TraCIMobility* mobility,
                                 double signalError,
                                 double lateralObservationSigmaM,
                                 double longitudinalObservationSigmaM,
+                                double occupancyObservationSigmaM,
                                 bool adjacentLateralEnabled,
                                 double lateralOriginX,
                                 double lateralOriginY,
@@ -75,12 +76,13 @@ void ResDBPerception::configure(TraCIMobility* mobility,
     signal_error_ = signalError;
     lateral_observation_sigma_m_ = lateralObservationSigmaM;
     longitudinal_observation_sigma_m_ = longitudinalObservationSigmaM;
+    occupancy_observation_sigma_m_ = occupancyObservationSigmaM;
     adjacent_lateral_enabled_ = adjacentLateralEnabled;
     lateral_origin_x_ = lateralOriginX;
     lateral_origin_y_ = lateralOriginY;
     double configuredNormalX = lateralNormalX;
     double configuredNormalY = lateralNormalY;
-    if (adjacent_lateral_enabled_) {
+    if (adjacent_lateral_enabled_ && mobility_) {
         // Validate the caller's own inbound pair now. Observations derive the
         // same frame from the target's lane, so a four-way fixture never uses
         // the witness approach's normal to project another approach.
@@ -118,6 +120,8 @@ void ResDBPerception::configure(TraCIMobility* mobility,
         throw cRuntimeError("lateralObservationSigmaM must be non-negative");
     if (longitudinal_observation_sigma_m_ < 0.0)
         throw cRuntimeError("longitudinalObservationSigmaM must be non-negative");
+    if (occupancy_observation_sigma_m_ < 0.0)
+        throw cRuntimeError("occupancyObservationSigmaM must be non-negative");
     if (adjacent_lateral_enabled_ && adjacent_lane_separation_m_ <= 0.0)
         throw cRuntimeError("adjacentLaneSeparationM must be positive");
 
@@ -143,8 +147,9 @@ ArrivalPerceptionSample ResDBPerception::observeArrival(const std::string& targe
 {
     ArrivalPerceptionSample sample;
     sample.observedAt = now;
-    if (!mobility_ || !mobility_->getManager()) return sample;
-    const auto& managedHosts = mobility_->getManager()->getManagedHosts();
+    auto* manager = mobility_ ? mobility_->getManager() : TraCIScenarioManagerAccess().get();
+    if (!manager) return sample;
+    const auto& managedHosts = manager->getManagedHosts();
     auto hostIt = managedHosts.find(targetCarId);
     if (hostIt == managedHosts.end()) return sample;
     cModule* targetHost = hostIt->second;
@@ -251,14 +256,16 @@ bool ResDBPerception::deriveAdjacentLaneFrame(const std::string& physicalLaneId,
                                                double& normalY,
                                                double& separationM) const
 {
-    if (!mobility_ || !mobility_->getCommandInterface() || physicalLaneId.empty() ||
+    auto* manager = mobility_ ? mobility_->getManager() : TraCIScenarioManagerAccess().get();
+    auto* traci = manager ? manager->getCommandInterface() : nullptr;
+    if (!traci || physicalLaneId.empty() ||
             physicalLaneId.front() == ':') return false;
     const size_t suffix = physicalLaneId.rfind('_');
     if (suffix == std::string::npos) return false;
     const std::string laneBase = physicalLaneId.substr(0, suffix + 1);
     try {
-        const auto lane0Shape = mobility_->getCommandInterface()->lane(laneBase + "0").getShape();
-        const auto lane1Shape = mobility_->getCommandInterface()->lane(laneBase + "1").getShape();
+        const auto lane0Shape = traci->lane(laneBase + "0").getShape();
+        const auto lane1Shape = traci->lane(laneBase + "1").getShape();
         if (lane0Shape.empty() || lane1Shape.empty()) return false;
         const Coord lane0 = lane0Shape.front();
         const Coord lane1 = lane1Shape.front();
@@ -289,8 +296,9 @@ StoppedDistancePerceptionSample ResDBPerception::observeStoppedDistance(
 {
     StoppedDistancePerceptionSample sample;
     sample.observedAt = now;
-    if (!mobility_ || !mobility_->getManager()) return sample;
-    const auto& managedHosts = mobility_->getManager()->getManagedHosts();
+    auto* manager = mobility_ ? mobility_->getManager() : TraCIScenarioManagerAccess().get();
+    if (!manager) return sample;
+    const auto& managedHosts = manager->getManagedHosts();
     auto hostIt = managedHosts.find(targetCarId);
     if (hostIt == managedHosts.end()) return sample;
     TraCIMobility* targetMobility =
@@ -314,6 +322,122 @@ StoppedDistancePerceptionSample ResDBPerception::observeStoppedDistance(
     } catch (...) {
     }
     return sample;
+}
+
+ConflictBoxPerceptionSample ResDBPerception::measureConflictBoxTruth(
+    const std::string& targetCarId, simtime_t now) const
+{
+    ConflictBoxPerceptionSample sample;
+    sample.observedAt = now;
+    auto* manager = mobility_ ? mobility_->getManager() : TraCIScenarioManagerAccess().get();
+    if (!manager) return sample;
+    const auto& managedHosts = manager->getManagedHosts();
+    auto hostIt = managedHosts.find(targetCarId);
+    if (hostIt == managedHosts.end()) return sample;
+    TraCIMobility* targetMobility =
+        FindModule<TraCIMobility*>::findSubModule(hostIt->second);
+    if (!targetMobility) return sample;
+
+    try {
+        auto targetVehicle = targetMobility->getCommandInterface()->vehicle(targetCarId);
+        const std::string laneId = targetVehicle.getLaneId();
+        const std::string roadId = targetVehicle.getRoadId();
+        if (laneId.empty()) return sample;
+        sample.detected = true;
+
+        const double lanePosition = targetVehicle.getLanePosition();
+        const double laneLength = targetMobility->getCommandInterface()
+            ->lane(laneId).getLength();
+        if (!std::isfinite(lanePosition) || !std::isfinite(laneLength) ||
+                laneLength <= 0.0) return sample;
+
+        if (laneId.front() == ':') {
+            // Inside an internal junction lane: distance to whichever end is nearer.
+            sample.trueOccupied = true;
+            sample.trueSignedMarginM =
+                std::max(0.0, std::min(lanePosition, laneLength - lanePosition));
+        } else if (roadId.size() >= 2 && roadId[0] == 'C' && roadId[1] == '2') {
+            // Outbound: distance already travelled past the internal-lane exit.
+            sample.trueOccupied = false;
+            sample.trueSignedMarginM = -std::max(0.0, lanePosition);
+        } else if (roadId.size() >= 2 &&
+                roadId[roadId.size() - 2] == '2' && roadId.back() == 'C') {
+            // Inbound: distance remaining to the internal-lane entrance.
+            sample.trueOccupied = false;
+            sample.trueSignedMarginM =
+                -std::max(0.0, laneLength - lanePosition);
+        } else {
+            return sample;
+        }
+
+        sample.observedSignedMarginM = sample.trueSignedMarginM;
+        sample.observedOccupied = sample.trueOccupied;
+        sample.valid = true;
+    } catch (...) {
+    }
+    return sample;
+}
+
+ConflictBoxPerceptionSample ResDBPerception::observeConflictBoxOccupancy(
+    const std::string& targetCarId, simtime_t now) const
+{
+    auto sample = measureConflictBoxTruth(targetCarId, now);
+    if (!sample.valid) return sample;
+    const double noise = sampleGaussian(occupancy_observation_sigma_m_);
+    sample.observedSignedMarginM = sample.trueSignedMarginM + noise;
+    // A zero draw must reproduce the truth bit exactly, and rederiving it from
+    // the margin cannot: an outbound vehicle at lanePosition 0 -- the instant it
+    // leaves the box -- has margin -0.0, and -0.0 >= 0.0 is true in IEEE-754.
+    // Same short-circuit idiom as sampleGaussian() and sampleApproach().
+    sample.observedOccupied =
+        (noise == 0.0) ? sample.trueOccupied : (sample.observedSignedMarginM >= 0.0);
+    return sample;
+}
+
+ConflictBoxPerceptionSample ResDBPerception::observeAnyConflictBoxOccupancy(
+    simtime_t now) const
+{
+    ConflictBoxPerceptionSample aggregate;
+    aggregate.observedAt = now;
+    if (!mobility_ || !mobility_->getManager()) return aggregate;
+
+    bool found = false;
+    bool anyDetected = false;
+    for (const auto& host : mobility_->getManager()->getManagedHosts()) {
+        const auto candidate = measureConflictBoxTruth(host.first, now);
+        anyDetected = anyDetected || candidate.detected;
+        if (!candidate.valid) continue;
+        // Largest margin wins: deepest inside the box, or failing that the one
+        // closest to entering it.
+        if (!found || candidate.trueSignedMarginM > aggregate.trueSignedMarginM) {
+            aggregate = candidate;
+            found = true;
+        }
+    }
+    if (!found) {
+        // Nothing classifiable. "No vehicle anywhere" is a valid observation of
+        // an empty box and must not be confused with a failed one: the CLEAR
+        // call site fails closed on invalid, so returning invalid here would
+        // livelock recovery in exactly the state where the box is most certainly
+        // clear. A vehicle that was detected but not classifiable is a genuine
+        // unknown and stays invalid. No draw either way -- there is no truth to
+        // perturb, and the draw count must not depend on how many vehicles
+        // happen to be off-net.
+        aggregate.detected = anyDetected;
+        aggregate.valid = !anyDetected;
+        return aggregate;
+    }
+
+    // One box-level observation per witness per tick. Applying independent noise
+    // to every queued vehicle and OR-ing the results would make the
+    // false-occupied rate grow with traffic count rather than with sigma.
+    const double noise = sampleGaussian(occupancy_observation_sigma_m_);
+    aggregate.observedSignedMarginM = aggregate.trueSignedMarginM + noise;
+    aggregate.observedOccupied =
+        (noise == 0.0) ? aggregate.trueOccupied
+                       : (aggregate.observedSignedMarginM >= 0.0);
+    aggregate.valid = true;
+    return aggregate;
 }
 
 double ResDBPerception::sampleGaussian(double sigma) const

@@ -99,6 +99,7 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         double precedingBatchPollPeriodSec @unit(s) = default(0.1s); // poll interval while waiting for predecessor to clear; also drives crash-dwell perception (§ crashDwellSec)
         double clearanceTimeoutSec    @unit(s) = default(120s);   // hard fallback if predecessor never clears
         bool   isAmbulance         = default(false);  // ambulance gets top priority in schedule
+        int    ambulanceReplicaCount = default(1);
         int    ambulanceReplicaId  = default(-1);     // if >=0, marks veh<id> as ambulance after SUMO identity binding
         bool   isByzantine         = default(false);  // enables Byzantine fault injection
         int    byzantineType       = default(0);      // 0=honest 1=false_lane 2=invalid_sig 3=equivocator 4=silent_primary 5=bad_proposal 6=fake_ambulance 7=fake_ambulance_follower 8=tamper_lane 9=upgrade_unknown_direction 10=tamper_distance_rank 11=tamper_physical_lane 12=suppress_certs
@@ -113,6 +114,7 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         int    decisionGossipMaxRetries                    = default(5);
 
         // ── Cancel / rollback protocol ───────────────────────────────────────
+        bool   enableNextRound = default(false);
         bool   enableRollback                              = default(false);
         double cancelCertRetryIntervalSec @unit(s)         = default(0.1s);
         int    cancelCertRetryMax                          = default(10);
@@ -163,6 +165,13 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         // flag — gated by enableRollback.
         double crashDwellSec @unit(s)                      = default(2.0s);
         double crashSpeedEps                                = default(0.1); // m/s stationary threshold
+        // Swaps the occupancy bit behind BLOCKED and CLEAR from TraCI's lane-id
+        // prefix to an occupancyObservationSigmaM-noised signed margin. Stationarity
+        // stays ground truth either way — the occupancy sample carries no speed.
+        // At sigma 0 this is the identity, so enabling it alone changes nothing.
+        bool   enableNoisyCrashPerception                  = default(false);
+        // Trace only: emits [OCC-PERCEPTION] and [OCC-DECISION]. Decides nothing.
+        bool   enableOccupancyPerceptionTrace              = default(false);
         // Clearance dwell (CLEAR trigger): a witness treats the conflict box as
         // clear once no vehicle occupies it for this long. Scanned in the same
         // precedingBatchPollPeriodSec tick as crash-dwell above.
@@ -209,6 +218,14 @@ simple ResDBIntersectionApp extends DemoBaseApplLayer
         // Witness observation noise on distance-to-stop, metres. Drawn only when
         // observing an already-stopped vehicle, not during arrival.
         double longitudinalObservationSigmaM               = default(0);
+        // Witness observation noise on the signed margin into the conflict box:
+        // positive inside the internal junction lane, negative on the adjoining
+        // external edge. Deliberately NOT longitudinalObservationSigmaM — that one
+        // also sets the type-19 distance gate width (ResDBDistanceProtocol.cc), so
+        // sharing it would move an unrelated admission threshold and make the two
+        // effects inseparable in an ablation. Drawn only under
+        // enableNoisyCrashPerception.
+        double occupancyObservationSigmaM                  = default(0);
         // CATEGORICAL_CARDINAL: one lane per approach, N/S/E/W is the whole claim.
         // ADJACENT_LATERAL: two parallel lanes per approach, so a claim also
         // names a physical lane index and is checked against a lateral coordinate.

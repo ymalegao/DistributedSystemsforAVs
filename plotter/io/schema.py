@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 class RunKey:
     """Identifies one run of one ablation.
 
-    study - ablation number, 1..6
+    study - the ablation number
     arm   - the condition, e.g. "OFF"/"ON", "ours"/"vanilla", "rollback_on"
     k     - PBFT-silent replicas; None for ablations that do not sweep it
     rep   - repetition index
@@ -82,6 +82,11 @@ class RunRecord:
     stop_at: Dict[int, float] = field(default_factory=dict)
     depart_at: Dict[int, float] = field(default_factory=dict)
     role: Dict[int, str] = field(default_factory=dict)
+    priority_spawn_at: Dict[int, float] = field(default_factory=dict)
+    expected_vehicles: Optional[int] = None
+    confirmed_clearance_ids: List[int] = field(default_factory=list)
+    incomplete_vehicle_ids: List[int] = field(default_factory=list)
+    teleported_vehicle_ids: List[int] = field(default_factory=list)
 
     # ── latency ──────────────────────────────────────────────────────────────
     bft_latency_s: List[float] = field(default_factory=list)    # PBFT ordering

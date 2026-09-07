@@ -17,24 +17,29 @@
     <route id="rW_L_left" edges="W2C C2N"/>
     <route id="rW_T_right" edges="W2C C2S"/>
 
+    <!-- Five vehicles cannot split evenly across two lanes, so every approach
+         uses the same 3/2 pattern: three inner-lane left turns, plus an outer
+         straight followed by a right turn. This keeps maneuver queue ranks
+         comparable across approaches; in particular all four right turns are
+         rank 2 and become schedulable together. -->
     <vehicle id="veh0" type="car" route="rN_L_left" depart="0" departLane="1" departPos="100" departSpeed="max"/>
     <vehicle id="veh1" type="car" route="rS_T_straight" depart="0" departLane="0" departPos="100" departSpeed="max"/>
     <vehicle id="veh2" type="car" route="rN_T_right" depart="0" departLane="0" departPos="60" departSpeed="max"/>
-    <vehicle id="veh3" type="car" route="rN_T_straight" depart="0" departLane="0" departPos="20" departSpeed="max"/>
+    <vehicle id="veh3" type="car" route="rN_T_straight" depart="0" departLane="0" departPos="100" departSpeed="max"/>
     <vehicle id="veh4" type="car" route="rN_L_left" depart="0" departLane="1" departPos="60" departSpeed="max"/>
     <vehicle id="veh5" type="car" route="rN_L_left" depart="0" departLane="1" departPos="20" departSpeed="max"/>
     <vehicle id="veh6" type="car" route="rS_T_right" depart="0" departLane="0" departPos="60" departSpeed="max"/>
     <vehicle id="veh7" type="car" route="rS_L_left" depart="0" departLane="1" departPos="100" departSpeed="max"/>
     <vehicle id="veh8" type="car" route="rS_L_left" depart="0" departLane="1" departPos="60" departSpeed="max"/>
     <vehicle id="veh9" type="car" route="rS_L_left" depart="0" departLane="1" departPos="20" departSpeed="max"/>
-    <vehicle id="veh10" type="car" route="rE_L_left" depart="0" departLane="1" departPos="60" departSpeed="max"/>
-    <vehicle id="veh11" type="car" route="rE_L_left" depart="0" departLane="1" departPos="20" departSpeed="max"/>
+    <vehicle id="veh10" type="car" route="rE_L_left" depart="0" departLane="1" departPos="100" departSpeed="max"/>
+    <vehicle id="veh11" type="car" route="rE_L_left" depart="0" departLane="1" departPos="60" departSpeed="max"/>
     <vehicle id="veh12" type="car" route="rE_T_straight" depart="0" departLane="0" departPos="100" departSpeed="max"/>
-    <vehicle id="veh13" type="car" route="rE_T_straight" depart="0" departLane="0" departPos="60" departSpeed="max"/>
-    <vehicle id="veh14" type="car" route="rE_T_right" depart="0" departLane="0" departPos="20" departSpeed="max"/>
-    <vehicle id="veh15" type="car" route="rW_L_left" depart="0" departLane="1" departPos="60" departSpeed="max"/>
-    <vehicle id="veh16" type="car" route="rW_L_left" depart="0" departLane="1" departPos="20" departSpeed="max"/>
+    <vehicle id="veh13" type="car" route="rE_T_right" depart="0" departLane="0" departPos="60" departSpeed="max"/>
+    <vehicle id="veh14" type="car" route="rE_L_left" depart="0" departLane="1" departPos="20" departSpeed="max"/>
+    <vehicle id="veh15" type="car" route="rW_L_left" depart="0" departLane="1" departPos="100" departSpeed="max"/>
+    <vehicle id="veh16" type="car" route="rW_L_left" depart="0" departLane="1" departPos="60" departSpeed="max"/>
     <vehicle id="veh17" type="car" route="rW_T_straight" depart="0" departLane="0" departPos="100" departSpeed="max"/>
     <vehicle id="veh18" type="car" route="rW_T_right" depart="0" departLane="0" departPos="60" departSpeed="max"/>
-    <vehicle id="veh19" type="car" route="rW_T_right" depart="0" departLane="0" departPos="20" departSpeed="max"/>
+    <vehicle id="veh19" type="car" route="rW_L_left" depart="0" departLane="1" departPos="20" departSpeed="max"/>
 </routes>

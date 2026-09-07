@@ -162,7 +162,26 @@ def parse_log(path, key: RunKey | None = None) -> RunRecord:
 
     with open(path, errors="ignore") as fh:
         for line in fh:
-            # Skip before extracting, not after: a spliced line can satisfy a
+            # This executor diagnostic carries no experimental measurement.
+            if line.startswith("[ORDERMSG-GAPWAIT]") and line.count("[") == 1:
+                continue
+            # A handful of manager-side records are single atomic writes
+            # (record.str() dumped in one shot with a leading '\n'), so
+            # tag+payload always travel together even when a concurrent
+            # writer's tail lands ahead of them on the same physical line.
+            # Extract those before line_defect drops the spliced line, or
+            # a real completion / spawn event is lost to interleave noise.
+            if m := re.search(r"\[PRIORITY-SPAWN\] vehicle=veh(\d+) t=([\d.]+)", line):
+                rec.priority_spawn_at.setdefault(int(m.group(1)), float(m.group(2)))
+            if m := re.search(r"\[RUN-COMPLETION\] expected=(\d+) cleared=\d+ t=[\d.]+ ids=(.*)", line):
+                rec.expected_vehicles = int(m.group(1))
+                rec.confirmed_clearance_ids = [int(x) for x in re.findall(r"veh(\d+)", m.group(2))]
+            if m := re.search(r"\[VEHICLE-INCOMPLETE\] vehicle=veh(\d+)", line):
+                rec.incomplete_vehicle_ids.append(int(m.group(1)))
+            if m := re.search(r"\[VEHICLE-TELEPORT\] vehicle=veh(\d+)", line):
+                rec.teleported_vehicle_ids.append(int(m.group(1)))
+
+            # Skip before extracting the rest: a spliced line can satisfy a
             # field pattern using a neighbouring record's value, so parsing it
             # "best effort" injects wrong numbers rather than losing right ones.
             if defect := line_defect(line.rstrip("\n")):
@@ -199,6 +218,9 @@ def parse_log(path, key: RunKey | None = None) -> RunRecord:
                 key = (int(m.group(1)), int(m.group(2)))
                 rec.sent_by_type[key] = (int(m.group(3)), int(m.group(4)))
 
+            # PRIORITY-SPAWN / RUN-COMPLETION / VEHICLE-INCOMPLETE /
+            # VEHICLE-TELEPORT are already extracted above (before line_defect),
+            # so they survive interleaved output.
             if m := RE_CAR_METRICS.search(line):
                 # First departure per vehicle wins: the TraCI distance check and
                 # the scenario-manager hook are two paths to the same event, and

@@ -470,6 +470,14 @@ private:
     void applyByzantineSuppressCerts(uint8_t* base, uint32_t n);
     int countStaticCollectedCerts() const;
     int CertPrimary() const;
+    bool enable_next_round_ = false;
+    std::set<int> next_round_members_;
+    void maybeBeginNextRound();
+    bool isNormalRoundVehicle(int rid) const {
+        return next_round_members_.empty()
+            ? rid >= 0 && rid < ctx_.total_vehicles_
+            : next_round_members_.count(rid) != 0;
+    }
     // Tolerated Byzantine faults f. Explicit toleratedFaults par wins; otherwise
     // derived from the PBFT membership size N (num_replicas_), so f scales when
     // static intersection units join the quorum.
@@ -647,6 +655,16 @@ private:
     std::set<std::string>            crash_echoed_targets_; // one echo per incident, local guard
     double                           crash_dwell_sec_     = 2.0;
     double                           crash_speed_eps_     = 0.1;
+
+    // Imperfect occupancy perception for the BLOCKED/CLEAR triggers above. Off by
+    // default: the occupancy bit then comes from TraCI's lane-id prefix, exactly
+    // as before. Only ResDBIntersectionApp.cc touches these, so they stay plain
+    // members rather than ConsensusContext fields (see its 4-file rule).
+    bool                             enable_noisy_crash_perception_ = false;
+    bool                             enable_occupancy_perception_trace_ = false;
+    // [decision][true][observed]; decision 0 = BLOCKED, 1 = CLEAR.
+    uint64_t                         occupancy_confusion_[2][2][2] = {};
+    uint64_t                         occupancy_invalid_[2] = {};
 
     // Scenario 16: CLEAR empty-box dwell, scanned in the same poll tick as
     // crash-dwell above. Keyed per incident (not per-vehicle) since the

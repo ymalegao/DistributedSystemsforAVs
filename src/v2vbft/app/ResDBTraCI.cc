@@ -33,7 +33,12 @@ double ResDBIntersectionApp::getDistanceToIntersection()
     }
 
     try {
-        std::string myId = "veh" + std::to_string(ctx_.replicaId_);
+        // Mobility updates can arrive before the application binds its replica
+        // ID. Use the SUMO identity, not the provisional default replica 0.
+        const std::string myId = mobility->getExternalId();
+        const auto active = mobility->getCommandInterface()->getVehicleIds();
+        if (myId.empty() || std::find(active.begin(), active.end(), myId) == active.end())
+            return 1e10;
         std::string myLaneId = mobility->getCommandInterface()->vehicle(myId).getLaneId();
         
         // If we are on an internal lane (inside the intersection, typical starts with ':')
@@ -120,7 +125,8 @@ bool ResDBIntersectionApp::vehicleHasClearedIntersectionTraCI(const std::string&
         // so we must not let the throw happen at all.
         std::list<std::string> active = traci->getVehicleIds();
         if (std::find(active.begin(), active.end(), carId) == active.end()) {
-            return true;  // Already left the simulation → treat as cleared
+            auto* manager = TraCIScenarioManagerAccess().get();
+            return manager && manager->hasConfirmedIntersectionClearance(carId);
         }
 
         TraCICommandInterface::Vehicle v = traci->vehicle(carId);
@@ -140,8 +146,7 @@ bool ResDBIntersectionApp::vehicleHasClearedIntersectionTraCI(const std::string&
         }
         return false;
     } catch (...) {
-        // Vehicle left the simulation
-        return true;
+        return false;  // Unknown is not proof of clearance.
     }
 }
 

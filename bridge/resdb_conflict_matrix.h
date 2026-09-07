@@ -28,24 +28,20 @@ inline constexpr uint8_t kNoPhysicalLane = 0xFF;
 
 // Cross-approach safe pairs, stored once per unordered pair.
 //
-// Rows 1-2   opposing through movements.
-// Rows 3-8   every pair of distinct approaches both turning right: a right turn
-//            leaves immediately and never reaches the middle of the junction.
-// Rows 9-12  a right turn alongside the through movement it does not cross.
-//            Deliberately absent: right + a *perpendicular* through, which is a
-//            conservative choice rather than a geometric impossibility.
-// Rows 13-14 the protected-left pairs. Two opposing lefts exit into different
-//            roads and never cross, which is why a signalised junction runs them
-//            in one phase. Without these no left turn batched with anything at
-//            all, and under mixed turn demand every left-turner crossed alone.
-//
-// Direction 3 (unknown) appears in no row, so a vehicle whose turn cue f+1
-// witnesses could not agree on can never be batched with anything.
-inline constexpr uint8_t kSafeCrossApproach[14][4] = {
-    {0, 0, 1, 0}, {2, 0, 3, 0}, {0, 2, 1, 2}, {0, 2, 2, 2},
-    {0, 2, 3, 2}, {1, 2, 2, 2}, {1, 2, 3, 2}, {2, 2, 3, 2},
-    {0, 2, 1, 0}, {1, 2, 0, 0}, {2, 2, 3, 0}, {3, 2, 2, 0},
-    {0, 1, 1, 1}, {2, 1, 3, 1},
+// Expanded turn compatibility from upstream b2d6566 (left lane batching).
+// Keep this shared between scheduling and decision validation. Same-approach
+// physical-lane rules remain below; upstream's blanket rejection is not used.
+// Unknown directions are never eligible for parallel crossing.
+inline constexpr uint8_t kSafeCrossApproach[26][4] = {
+      {2, 1, 0, 2}, {2, 1, 1, 2}, {2, 1, 3, 1},
+      {2, 2, 0, 1}, {2, 2, 0, 2}, {2, 2, 0, 0},
+      {2, 2, 1, 1}, {2, 2, 1, 2}, {2, 2, 3, 2},
+      {2, 2, 3, 0}, {2, 0, 1, 2}, {2, 0, 3, 2},
+      {2, 0, 3, 0}, {0, 1, 1, 1}, {0, 1, 3, 2},
+      {0, 2, 1, 2}, {0, 2, 1, 0}, {0, 2, 3, 1},
+      {0, 2, 3, 2}, {0, 2, 3, 0}, {0, 0, 1, 2},
+      {0, 0, 1, 0}, {1, 1, 3, 2}, {1, 2, 3, 1},
+      {1, 2, 3, 2}, {1, 0, 3, 2},
 };
 
 // May these two vehicles cross together?
@@ -54,6 +50,7 @@ inline constexpr uint8_t kSafeCrossApproach[14][4] = {
 // once and both orientations are tested. Default is deny.
 inline bool IsSafeToBatch(uint8_t lane_a, uint8_t dir_a, uint8_t physical_a,
                           uint8_t lane_b, uint8_t dir_b, uint8_t physical_b) {
+    if (lane_a > 3 || lane_b > 3 || dir_a > 2 || dir_b > 2) return false;
     if (lane_a == lane_b) {
         // Same approach. With one lane per approach this is always a refusal,
         // and it still is whenever either vehicle claims no physical lane —

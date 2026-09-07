@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<launch>
+    <copy file="bft_intersection_2lane.net.xml" />
+    <copy file="bft_18veh_2lane_rollback_late.rou.xml" />
+    <copy file="bft_18veh_2lane_rollback_late.sumo.cfg" type="config" />
+</launch>

@@ -2162,7 +2162,7 @@ ResDBIntersectionApp::buildOrderCandidate() const
         // and prevents a late r16/r17 from minting a one-member ORDER(0).
         const bool eligible = candidate->recovery
             ? shouldIncludeInRollbackMembership(rid)
-            : (rid >= 0 && rid < ctx_.total_vehicles_);
+            : isNormalRoundVehicle(rid);
         if (eligible) candidate->voterIds.push_back(rid);
     }
     std::sort(candidate->voterIds.begin(), candidate->voterIds.end());
@@ -2205,6 +2205,7 @@ int ResDBIntersectionApp::currentOrderPrimary() const
 
 void ResDBIntersectionApp::armOrderSuspicionTimer(const char* reason)
 {
+    if (ctx_.cancel_pending_ && !shouldIncludeInRollbackMembership(ctx_.replicaId_)) return;
     if (ctx_.order_applied_ || ctx_.propose_submitted_ ||
             ctx_.current_phase_ == ConsensusPhase::DEPARTED ||
             (ctx_.cancel_pending_ && hasBlockingIncidentForEpoch(cancelled_epoch_))) return;

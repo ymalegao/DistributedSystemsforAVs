@@ -531,7 +531,7 @@ defined but has no callers on the admission path.
 
 The consequence worth stating plainly: **an honest vehicle can now be refused**,
 because its witness misread it. That is not a defect, it is the physical
-situation the protocol has to survive, and Ablation 6 measures the cost.
+situation the protocol has to survive.
 
 ### One verdict per claim
 
@@ -1151,7 +1151,9 @@ BlockedIncident { cancelledEpoch, executingBatch }
 IncidentState = BLOCKING | CLEARED
 ```
 
-A vehicle continuously stationary inside the conflict box for `crashDwellSec` causes each surviving witness to emit at most one crash `CANCEL_ECHO` for the canonical `blocked_batch:e:b` statement. A valid `f+1` crash certificate both supplies the CANCEL justification and registers the batch incident as BLOCKING. The incident remains separate from the singleton CANCEL state so later CLEAR validation still has an authoritative subject.
+A vehicle continuously stationary inside the conflict box for `crashDwellSec` causes each surviving witness to emit at most one crash `CANCEL_ECHO` for the canonical `blocked_batch:e:b` statement.
+
+The *inside the conflict box* half of that predicate is a sensor reading, not an oracle. By default it is TraCI's lane-id `:` prefix, read perfectly; under `enableNoisyCrashPerception` it becomes a signed margin corrupted by `occupancyObservationSigmaM`, so the occupancy input can be ablated like any other observation. The *stationary* half is always ground truth — the occupancy sample carries no speed, and conflating the two would silently redefine a crash as mere presence, firing on an ordinary slow traversal even at zero noise. The two consumers of the sensor deliberately fail in opposite directions: BLOCKED fails **open**, so a target the witness cannot classify never triggers a cancel, while CLEAR fails **closed**, so a box the witness cannot observe is never declared clear. Both directions preserve safety at the cost of liveness, which is the correct trade for a recovery path. A valid `f+1` crash certificate both supplies the CANCEL justification and registers the batch incident as BLOCKING. The incident remains separate from the singleton CANCEL state so later CLEAR validation still has an authoritative subject.
 
 After CANCEL commits, the existing clearance poll is explicitly rearmed. This is required because the halt path cancels that timer, while both crash dwell and empty-box dwell run on it. Recovery discovery can complete while the wreck remains, but `trySubmitRollbackProposal()` refuses to propose while any incident for the cancelled epoch is BLOCKING.
 
@@ -1572,6 +1574,7 @@ opt in observes ground truth and behaves as it did before perception existed.
 | `signalObservationError` | Probability a witness misreads the turn-signal cue. |
 | `lateralObservationSigmaM` | Witness observation noise on the lane-normal axis, metres. |
 | `longitudinalObservationSigmaM` | Witness observation noise on distance-to-stop. Drawn only when observing an already-stopped vehicle, never during arrival. |
+| `occupancyObservationSigmaM` | Witness observation noise on the signed margin into the conflict box (positive inside the internal junction lane, negative on the adjoining external edge). Deliberately *not* `longitudinalObservationSigmaM`: that knob also sets the type-19 distance gate width, so sharing it would move an unrelated admission threshold and make the two effects inseparable in an ablation. Drawn only under `enableNoisyCrashPerception`, at most once per witness per poll tick. |
 | `laneObservationMode` | `CATEGORICAL_CARDINAL` (one lane per approach) or `ADJACENT_LATERAL` (two parallel lanes, so a claim also names a physical lane index checkable against a lateral coordinate). |
 | `adjacentLateralOriginX/Y`, `adjacentLateralNormalX/Y`, `adjacentLaneSeparationM` | Lane frame for `ADJACENT_LATERAL`. Validated against TraCI lane geometry at init and overwritten from it — a declaration of intent that must agree with the network, not a free parameter. |
 | `physicalGateK` | Gate radius in sigmas. A claim is admitted while its residual is within `k*sigma` of what the witness observed; applies to both lateral and longitudinal residuals. |
@@ -1598,6 +1601,8 @@ opt in observes ground truth and behaves as it did before perception existed.
 | `consensusRetryIntervalSec` | Interval for bounded PRE_PREPARE/PREPARE/COMMIT radio retransmission. |
 | `consensusRetryMax` | Maximum retransmissions retained for each local PBFT phase packet. |
 | `clearDwellSec` | Required continuously empty conflict-box interval before a witness emits CLEAR. |
+| `enableNoisyCrashPerception` | Swaps the occupancy bit behind both BLOCKED and CLEAR from TraCI's lane-id prefix to an `occupancyObservationSigmaM`-noised signed margin. Default off; at sigma 0 it is the identity, so enabling it alone changes no decision. Stationarity is *not* affected — it keeps its own perfect sensor either way. |
+| `enableOccupancyPerceptionTrace` | Emits `[OCC-PERCEPTION]` and `[OCC-DECISION]`. Trace only; decides nothing. |
 | `clearCertCandidateSlotSec` | Deterministic candidate/relay fallback slot for type 16; default `0.1s`. |
 | `waitHeartbeatIntervalSec` | Leader WAIT heartbeat cadence while recovery discovery is COMPLETE but the incident remains BLOCKING. |
 | `waitHeartbeatMaxDeferralSec` | Maximum lease extension accepted from one WAIT heartbeat. |
@@ -1662,7 +1667,10 @@ Common log markers used by benchmark scripts and debugging:
 | `[CLEAR-ECHO-HUSH]` | Late CLEAR echo ignored before accumulation because a candidate/cert/CLEARED state already exists. |
 | `[WAIT-SEND]`, `[WAIT-ACCEPT]`, `[WAIT-REJECT]`, `[WAIT-STOP]` | Advisory WAIT lease lifecycle; these are app-level logs, not PBFT decisions. |
 | `[VC-DEBUG]`, `[VC-TRIGGER]`, `[APP-VC]` | View-change instrumentation. |
-| `[PERCEPTION-CONFIG]` | Sensor model configured at stage 1: mode, sigmas, gate radius, RNG stream, and whether the distance round is enabled. |
+| `[PERCEPTION-CONFIG]` | Sensor model configured at stage 1: mode, sigmas (including `occ_sigma`), gate radius, RNG stream, whether the distance round is enabled, and whether noisy occupancy is on (`noisy_occ`). |
+| `[OCC-PERCEPTION]` | One raw occupancy observation: `valid`, true vs observed occupancy, and true vs observed signed margin. `target=BOX_NEAREST` marks the whole-box observation behind CLEAR. Only under `enableOccupancyPerceptionTrace`. |
+| `[OCC-DECISION]` | The CLEAR predicate's outcome for one incident after the observation was applied. Only under `enableOccupancyPerceptionTrace`. |
+| `[OCC-METRICS]` | Per-decision occupancy confusion at `finish()`, one line each for BLOCKED and CLEAR: the four `true{0,1}_obs{0,1}` cells plus `invalid`. Emitted only under `enableNoisyCrashPerception`. At sigma 0 the off-diagonals (`true0_obs1`, `true1_obs0`) must be zero — a non-zero one means the observation path diverged from truth with no noise drawn. |
 | `[PERCEPTION-RNG]` | Draw count at `finish()`. Zero for a zero-noise run; equal across two runs at the same seed. The reproducibility check for the sensor. |
 | `[PERC-EVAL]` | One arrival-gate verdict: claimed vs observed vs true approach, lateral residual against tolerance, and the reason (`NO_PERCEPTION`, `WRONG_APPROACH`, `INVALID_PHYSICAL_LANE`, `LATERAL_RESIDUAL`, `OK`). |
 | `[DISTANCE-COLLECTION-BEGIN]` | Discovery closed on arrivals and opened the distance round. |

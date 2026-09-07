@@ -63,9 +63,13 @@ Every figure comes off one pipeline: discover → parse → metrics → figure.
 
 ```bash
 python3 -m plotter list
-python3 -m plotter build ab1_rsu
+python3 -m plotter build ab1_rsu_1lane
 python3 -m plotter build-all          # -> figures/
 ```
+
+The compact paper figure layout and metric definitions are in
+[docs/paper-figures.md](docs/paper-figures.md). Ablation 2 is retired from both
+the runner and plotter; priority is included in the baseline figures.
 
 Log parsing lives in exactly one place, `plotter/io/logparse.py`. If the C++ log
 format changes, that is the only file to update. Adding a figure means one

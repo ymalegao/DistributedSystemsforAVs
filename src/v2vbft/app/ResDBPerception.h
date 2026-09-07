@@ -103,6 +103,28 @@ struct StoppedDistancePerceptionSample {
     omnetpp::simtime_t observedAt{};
 };
 
+// One witness's observation of whether the conflict box is occupied.
+//
+// signedMarginM is positive inside an internal junction lane (distance to the
+// nearer end of it) and negative on either adjoining external edge (distance
+// still to travel, or already travelled past). That gives BLOCKED and CLEAR a
+// continuous physical channel instead of treating TraCI's lane-id ':' prefix as
+// a perfect sensor.
+//
+// The two consumers deliberately fail in OPPOSITE directions, and both call
+// sites depend on it: BLOCKED fails open (an unobservable target never triggers
+// a cancel) while CLEAR fails closed (an unobservable box is never declared
+// clear). Read `valid` before either observed field.
+struct ConflictBoxPerceptionSample {
+    bool detected = false;
+    bool valid = false;
+    bool trueOccupied = false;
+    bool observedOccupied = false;
+    double trueSignedMarginM = 0.0;
+    double observedSignedMarginM = 0.0;
+    omnetpp::simtime_t observedAt{};
+};
+
 class ResDBPerception {
 public:
     // Throws cRuntimeError on any inconsistent configuration -- negative sigma, a
@@ -117,6 +139,7 @@ public:
                    double signalError,
                    double lateralObservationSigmaM,
                    double longitudinalObservationSigmaM,
+                   double occupancyObservationSigmaM,
                    bool adjacentLateralEnabled,
                    double lateralOriginX,
                    double lateralOriginY,
@@ -129,6 +152,14 @@ public:
     StoppedDistancePerceptionSample observeStoppedDistance(
         const std::string& targetCarId, omnetpp::simtime_t now,
         double stationarySpeedMps) const;
+    ConflictBoxPerceptionSample observeConflictBoxOccupancy(
+        const std::string& targetCarId, omnetpp::simtime_t now) const;
+    // Whole-box occupancy, for the CLEAR predicate. Takes at most ONE noise draw
+    // per call regardless of how many vehicles are queued: noising each vehicle
+    // independently and OR-ing the results would make the false-occupied rate
+    // grow with traffic count rather than with sigma.
+    ConflictBoxPerceptionSample observeAnyConflictBoxOccupancy(
+        omnetpp::simtime_t now) const;
 
     uint64_t randomDrawCount() const { return random_draw_count_; }
 
@@ -151,6 +182,12 @@ private:
     char sampleApproach(char truth) const;
     ObservedCue sampleCue(ObservedCue truth) const;
     double sampleGaussian(double sigma) const;
+    // Noise-free classification of one vehicle against the conflict box. Depends
+    // on the four-way net's edge naming (C2* outbound, *2C inbound) and yields
+    // valid=false on any net that renames them -- the same assumption
+    // vehicleHasClearedIntersectionTraCI() already makes in ResDBTraCI.cc.
+    ConflictBoxPerceptionSample measureConflictBoxTruth(
+        const std::string& targetCarId, omnetpp::simtime_t now) const;
 
     veins::TraCIMobility* mobility_ = nullptr;
     omnetpp::cRNG* rng_ = nullptr;
@@ -159,6 +196,7 @@ private:
     double signal_error_ = 0.0;
     double lateral_observation_sigma_m_ = 0.0;
     double longitudinal_observation_sigma_m_ = 0.0;
+    double occupancy_observation_sigma_m_ = 0.0;
     bool adjacent_lateral_enabled_ = false;
     double lateral_origin_x_ = 0.0;
     double lateral_origin_y_ = 0.0;

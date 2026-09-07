@@ -10,7 +10,7 @@ stable and sort usefully once there are dozens. Every name is
 `<family>_<topic>`, lower snake case:
 
     ab<N>_<topic>   presents ablation study N and reads that study's logs
-                    e.g. ab1_rsu, ab4_priority, ab5_rollback
+                    e.g. ab1_rsu, ab3_baseline, ab5_rollback
     an_<topic>      analysis across or beneath the studies, not one study's
                     headline result          e.g. an_cost_decomposition
     ref_<topic>     derived from the protocol definition, needs no run data
@@ -37,24 +37,21 @@ Optional module attributes:
 import re
 
 from . import (
+    _lanes,
     ab1_rsu,
-    ab2_attack,
     ab3_baseline,
-    ab4_priority,
+    ab3_vehicle_latency,
     ab5_rollback,
-    ab6_perception,
-    ab7_twolane,
     an_cost_decomposition,
 )
 
-FIGURE_MODULES = (
+# Five figure types x two lane arms = ten figures. See _lanes.py for why the arms
+# are never drawn on shared axes.
+FIGURE_MODULES = _lanes.expand(
     ab1_rsu,
-    ab2_attack,
     ab3_baseline,
-    ab4_priority,
+    ab3_vehicle_latency,
     ab5_rollback,
-    ab6_perception,
-    ab7_twolane,
     an_cost_decomposition,
 )
 

@@ -281,9 +281,13 @@ void ResDBIntersectionApp::initialize(int stage)
         std::cout << " position_gate=" << (enable_arrival_position_gate_ ? 1 : 0)
                   << "\n";
         ctx_.enableRollback_ = par("enableRollback").boolValue();
+        enable_next_round_ = par("enableNextRound").boolValue();
         crash_mac_grace_sec_ = par("crashMacGraceSec").doubleValue();
         crash_dwell_sec_ = par("crashDwellSec").doubleValue();
         crash_speed_eps_ = par("crashSpeedEps").doubleValue();
+        enable_noisy_crash_perception_ = par("enableNoisyCrashPerception").boolValue();
+        enable_occupancy_perception_trace_ =
+            par("enableOccupancyPerceptionTrace").boolValue();
         clear_dwell_sec_ = par("clearDwellSec").doubleValue();
         clear_cert_candidate_slot_sec_ = par("clearCertCandidateSlotSec").doubleValue();
         wait_heartbeat_interval_sec_ = par("waitHeartbeatIntervalSec").doubleValue();
@@ -346,7 +350,8 @@ void ResDBIntersectionApp::initialize(int stage)
 
         const int ambulance_replica_id = par("ambulanceReplicaId").intValue();
         if (ambulance_replica_id >= 0) {
-            is_ambulance_ = (ctx_.replicaId_ == ambulance_replica_id);
+            is_ambulance_ = ctx_.replicaId_ >= ambulance_replica_id &&
+                ctx_.replicaId_ < ambulance_replica_id + par("ambulanceReplicaCount").intValue();
 
             std::cout << "[AMBULANCE BINDING] r" << ctx_.replicaId_
                       << " ambulanceReplicaId=" << ambulance_replica_id
@@ -510,6 +515,7 @@ void ResDBIntersectionApp::initialize(int stage)
                 par("signalObservationError").doubleValue(),
                 par("lateralObservationSigmaM").doubleValue(),
                 par("longitudinalObservationSigmaM").doubleValue(),
+                par("occupancyObservationSigmaM").doubleValue(),
                 lane_observation_mode_ == LaneObservationMode::ADJACENT_LATERAL,
                 par("adjacentLateralOriginX").doubleValue(),
                 par("adjacentLateralOriginY").doubleValue(),
@@ -523,9 +529,11 @@ void ResDBIntersectionApp::initialize(int stage)
                       << " signal_error=" << par("signalObservationError").doubleValue()
                       << " lat_sigma=" << par("lateralObservationSigmaM").doubleValue()
                       << " lon_sigma=" << par("longitudinalObservationSigmaM").doubleValue()
+                      << " occ_sigma=" << par("occupancyObservationSigmaM").doubleValue()
                       << " gate_k=" << par("physicalGateK").doubleValue()
                       << " rng=" << par("perceptionRngIndex").intValue()
                       << " distance_round=" << (enable_stopped_distance_round_ ? 1 : 0)
+                      << " noisy_occ=" << (enable_noisy_crash_perception_ ? 1 : 0)
                       << "\n";
         }
         startDiscoveryRound("initial-approach");
@@ -671,6 +679,7 @@ void ResDBIntersectionApp::onTransportPoll(cMessage* msg)
 {
     drainOutboundQueue();
     processOrders();
+    maybeBeginNextRound();
     // Detect primary change after view-change.
     if (ctx_.resdb_server_handle_) {
         int current_primary = ResdbOmnetGetPrimary(ctx_.resdb_server_handle_);
@@ -1073,6 +1082,14 @@ void ResDBIntersectionApp::onVcTrigger(cMessage* msg)
 {
     vc_trigger_msg_ = nullptr;
     processOrders();
+    if (ctx_.cancel_pending_ && !shouldIncludeInRollbackMembership(ctx_.replicaId_)) {
+        // An excluded observer is not a voter in the recovery epoch and must
+        // not initiate a view change using its obsolete electorate/proofs.
+        std::cout << "[ORDER-VC-SUPPRESSED] r" << ctx_.replicaId_
+                  << " reason=not-recovery-member epoch=" << ctx_.current_epoch_ << "\n";
+        delete msg;
+        return;
+    }
     if (!ctx_.order_applied_) {
         if (cancel_consensus_pending_) {
             std::cout << "[ROLLBACK-VC-UNSUPPORTED] r" << ctx_.replicaId_
@@ -1253,9 +1270,41 @@ void ResDBIntersectionApp::onPrecedingBatchPoll(cMessage* msg)
             for (int rid : committed_order_batches_[b]) {
                 if (rid == ctx_.replicaId_) continue;
                 const std::string target = "veh" + std::to_string(rid);
-                const bool qualified = !vehicleHasClearedIntersectionTraCI(target) &&
-                    vehicleInConflictBoxTraCI(target) &&
-                    vehicleSpeedTraCI(target) < crash_speed_eps_;
+                bool qualified = false;
+                if (enable_noisy_crash_perception_ && perception_) {
+                    const auto sample =
+                        perception_->observeConflictBoxOccupancy(target, simTime());
+                    // Noise replaces the occupancy bit ONLY. Stationarity keeps its
+                    // own perfect sensor: the sample carries no speed, so dropping
+                    // the check would redefine the trigger from "stopped in the box"
+                    // to "present in the box" and fire on an ordinary slow traversal
+                    // even at sigma 0. !vehicleHasClearedIntersectionTraCI is omitted
+                    // because it is implied — it returns false whenever the lane id
+                    // begins ':' , which is exactly when the box is occupied.
+                    // Fails OPEN: an unobservable target never triggers a cancel.
+                    qualified = sample.valid && sample.observedOccupied &&
+                        vehicleSpeedTraCI(target) < crash_speed_eps_;
+                    if (sample.valid)
+                        ++occupancy_confusion_[0][sample.trueOccupied ? 1 : 0]
+                                                 [sample.observedOccupied ? 1 : 0];
+                    else
+                        ++occupancy_invalid_[0];
+                    if (enable_occupancy_perception_trace_) {
+                        std::cout << "[OCC-PERCEPTION] witness=" << ctx_.replicaId_
+                                  << " target=" << target
+                                  << " decision=BLOCKED"
+                                  << " valid=" << (sample.valid ? 1 : 0)
+                                  << " trueOccupied=" << (sample.trueOccupied ? 1 : 0)
+                                  << " observedOccupied=" << (sample.observedOccupied ? 1 : 0)
+                                  << " trueMargin=" << sample.trueSignedMarginM
+                                  << " observedMargin=" << sample.observedSignedMarginM
+                                  << " t=" << simTime() << "\n";
+                    }
+                } else {
+                    qualified = !vehicleHasClearedIntersectionTraCI(target) &&
+                        vehicleInConflictBoxTraCI(target) &&
+                        vehicleSpeedTraCI(target) < crash_speed_eps_;
+                }
                 if (!qualified) {
                     crash_dwell_since_.erase(target);
                     continue;
@@ -1281,11 +1330,51 @@ void ResDBIntersectionApp::onPrecedingBatchPoll(cMessage* msg)
         // CLEAR empty-box dwell: same tick, same ctx_.enableRollback_ gate, no
         // separate timer. Checks whole-box occupancy (not per-target) since
         // the clearance predicate is "no vehicle occupies the box at all".
+        // The box is observed at most ONCE per tick, not once per incident: it is
+        // one physical measurement, and re-drawing it per incident would let the
+        // noise (and the RNG draw count) scale with registry size.
+        bool boxObserved = false;
+        ConflictBoxPerceptionSample boxSample;
         for (const auto& kv : incidentRegistry_) {
             const BlockedIncident& incident = kv.first;
             if (kv.second.state != IncidentState::BLOCKING) continue;
             if (clear_echoed_incidents_.count(incident)) continue;
-            if (anyVehicleInConflictBoxTraCI()) {
+            bool observedAnyOccupied;
+            if (enable_noisy_crash_perception_ && perception_) {
+                if (!boxObserved) {
+                    boxSample = perception_->observeAnyConflictBoxOccupancy(simTime());
+                    boxObserved = true;
+                    if (boxSample.valid)
+                        ++occupancy_confusion_[1][boxSample.trueOccupied ? 1 : 0]
+                                                 [boxSample.observedOccupied ? 1 : 0];
+                    else
+                        ++occupancy_invalid_[1];
+                    if (enable_occupancy_perception_trace_) {
+                        std::cout << "[OCC-PERCEPTION] witness=" << ctx_.replicaId_
+                                  << " target=BOX_NEAREST"
+                                  << " decision=CLEAR"
+                                  << " valid=" << (boxSample.valid ? 1 : 0)
+                                  << " trueOccupied=" << (boxSample.trueOccupied ? 1 : 0)
+                                  << " observedOccupied=" << (boxSample.observedOccupied ? 1 : 0)
+                                  << " trueMargin=" << boxSample.trueSignedMarginM
+                                  << " observedMargin=" << boxSample.observedSignedMarginM
+                                  << " t=" << simTime() << "\n";
+                    }
+                }
+                // Fails CLOSED: an unobservable box is not a clear box.
+                observedAnyOccupied = boxSample.valid ? boxSample.observedOccupied : true;
+            } else {
+                observedAnyOccupied = anyVehicleInConflictBoxTraCI();
+            }
+            if (enable_occupancy_perception_trace_) {
+                std::cout << "[OCC-DECISION] witness=" << ctx_.replicaId_
+                          << " epoch=" << incident.cancelledEpoch
+                          << " batch=" << incident.executingBatch
+                          << " decision=CLEAR"
+                          << " observedOccupied=" << (observedAnyOccupied ? 1 : 0)
+                          << " t=" << simTime() << "\n";
+            }
+            if (observedAnyOccupied) {
                 clear_dwell_since_.erase(incident);
                 continue;
             }
@@ -1440,12 +1529,14 @@ void ResDBIntersectionApp::recordIntersectionDeparture(simtime_t departedAt)
 
     std::cout << "[DEPARTED] Replica " << ctx_.replicaId_ << " cleared intersection t=" << departedAt << "\n";
     std::cout << "[METRICS " << ctx_.replicaId_ << "] Total Latency (cleared-stop): " << wait_sec << std::endl;
-    std::cout << "[CAR-METRICS] veh" << ctx_.replicaId_
+    std::ostringstream record;
+    record << "\n[CAR-METRICS] veh" << ctx_.replicaId_
               << " role=" << role
               << " epoch=" << ctx_.current_epoch_
               << " stop_time=" << stop_dbl
               << " depart_time=" << cleared_time_.dbl()
               << " wait_stop_to_departure_sec=" << wait_sec << "\n";
+    std::cout << record.str() << std::flush;
     if (is_ambulance_) {
         std::cout << "[AMBULANCE_METRICS] veh" << ctx_.replicaId_
                   << " sim_wait_stop_to_departure_sec=" << wait_sec
@@ -1483,6 +1574,23 @@ void ResDBIntersectionApp::finish()
                          static_cast<double>(quietHonestOpportunities_))
                       : 0.0)
               << "\n";
+
+    // Occupancy sensor confusion, one line per decision. Guarded because every
+    // counter is provably zero off the noisy path — emitting two zero rows per
+    // replica on every ordinary run is log noise, not evidence. At sigma 0 the
+    // off-diagonals (true0_obs1, true1_obs0) must be zero: a non-zero one there
+    // means the observation path diverged from truth without any noise drawn.
+    if (enable_noisy_crash_perception_) {
+        for (int decision = 0; decision < 2; ++decision) {
+            std::cout << "[OCC-METRICS] witness=" << ctx_.replicaId_
+                      << " decision=" << (decision == 0 ? "BLOCKED" : "CLEAR")
+                      << " true0_obs0=" << occupancy_confusion_[decision][0][0]
+                      << " true0_obs1=" << occupancy_confusion_[decision][0][1]
+                      << " true1_obs0=" << occupancy_confusion_[decision][1][0]
+                      << " true1_obs1=" << occupancy_confusion_[decision][1][1]
+                      << " invalid=" << occupancy_invalid_[decision] << "\n";
+        }
+    }
 
     // The reproducibility check for the sensor. Two runs at the same seed must
     // draw the same number of times; a zero-noise configuration must draw zero.
@@ -1528,6 +1636,38 @@ void ResDBIntersectionApp::finish()
     deleteFinishedTimer(consensus_relay_timer_);
 
     deleteFinishedTimer(vc_trigger_msg_);
+    // Release every owned timer during finish, while the scenario manager
+    // still exists. Manager-context callbacks can own unscheduled timers;
+    // waiting until network destruction leaves dangling pointers if that
+    // manager is deleted before this application.
+    deleteFinishedTimer(smoke_test_msg_);
+    deleteFinishedTimer(transport_poll_msg_);
+    deleteFinishedTimer(time_tick_msg_);
+    deleteFinishedTimer(discovery_deadline_msg_);
+    deleteFinishedTimer(discovery_settle_msg_);
+    deleteFinishedTimer(cert_retry_timer_);
+    deleteFinishedTimer(cert_gossip_timer_);
+    deleteFinishedTimer(gossip_timer_);
+    deleteFinishedTimer(discovery_tx_flush_timer_);
+    deleteFinishedTimer(initial_announce_msg_);
+    deleteFinishedTimer(stop_sign_timeout_msg_);
+    deleteFinishedTimer(consensus_timeout_msg_);
+    deleteFinishedTimer(resume_msg_);
+    deleteFinishedTimer(cancel_cert_retry_timer_);
+    deleteFinishedTimer(clear_cert_retry_timer_);
+    deleteFinishedTimer(stopped_distance_finalize_timer_);
+    deleteFinishedTimer(stopped_distance_attestation_retry_timer_);
+    deleteFinishedTimer(clear_cert_candidate_timer_);
+    deleteFinishedTimer(clear_cert_relay_timer_);
+    deleteFinishedTimer(wait_leader_send_timer_);
+    deleteFinishedTimer(wait_follower_expiry_timer_);
+    deleteFinishedTimer(cancel_drain_timer_);
+    deleteFinishedTimer(cancel_vc_timer_);
+    deleteFinishedTimer(cancel_gossip_timer_);
+    deleteFinishedTimer(preceding_batch_poll_msg_);
+    deleteFinishedTimer(crash_mac_grace_msg_);
+    deleteFinishedTimer(broadcastArrivalAnnouncement_timer_);
+
     if (ctx_.resdb_server_handle_) {
         std::cerr << "[FINISH-PROBE] r" << ctx_.replicaId_ << " calling StopServer" << std::endl;
         ResdbOmnetStopServer(ctx_.resdb_server_handle_);
@@ -1867,4 +2007,59 @@ bool ResDBIntersectionApp::applyGossipOrder(const std::vector<uint8_t>& order_by
     announcement_relay_tracker_.reset();
     cancelPendingConsensusRelays("gossip-order-adopted");
     return true;
+}
+
+// A normal successor round does not interrupt an executing order. Each replica
+// waits for confirmed physical clearance of every vehicle in that order before
+// collecting fresh certificates and running PBFT over the remaining roster.
+void ResDBIntersectionApp::maybeBeginNextRound()
+{
+    if (!enable_next_round_ || ctx_.enableRollback_ || !next_round_members_.empty() ||
+            !ctx_.has_committed_order_ || ctx_.current_epoch_ != 0 ||
+            ctx_.is_departed_ || ctx_.current_phase_ == ConsensusPhase::DEPARTED) return;
+    for (int rid : ctx_.committed_order_vehicle_ids_) {
+        if (!isStaticUnitReplica(rid) && !hasCompletedReplicaEpoch(rid, 0)) return;
+    }
+    // This experiment provisions the late roster after the initial vehicle IDs.
+    // Do not invent members from a transient observation or admit unknown keys.
+    for (int rid = ctx_.total_vehicles_; rid < num_replicas_ - num_units_; ++rid)
+        next_round_members_.insert(rid);
+    if (next_round_members_.empty()) return;
+    if (!is_intersection_unit_ && !next_round_members_.count(ctx_.replicaId_)) return;
+    const int voters = static_cast<int>(next_round_members_.size()) + num_units_;
+    ctx_.tolerated_faults_ = (voters - 1) / 3;
+    ResdbOmnetSetToleratedFaults(ctx_.resdb_server_handle_, ctx_.tolerated_faults_);
+    ctx_.current_epoch_ = 1;
+    ctx_.order_applied_ = false;
+    ctx_.propose_submitted_ = false;
+    ctx_.current_phase_ = ConsensusPhase::COLLECTING_CERTS;
+    cert_broadcast_ = false;
+    stopCertBroadcastRetries();
+    cancelPendingDiscoveryTxs("next-round");
+    clearConsensusRetries("next-round");
+    gossip_order_bytes_.clear();
+    {
+        std::lock_guard<std::mutex> lk(certs_mutex_);
+        ctx_.collected_certs_.clear();
+        local_vehicle_states_.clear();
+        observed_intent_cars_.clear();
+    }
+    my_received_echoes_.clear();
+    arrival_announcements_received_.clear();
+    echoed_cars_.clear();
+    announcement_relay_tracker_.reset();
+    cert_relay_tracker_.reset();
+    pending_relays_.clear();
+    startDiscoveryRound("previous-order-cleared");
+    if (!is_intersection_unit_) {
+        broadcastArrivalAnnouncement();
+        if (!broadcastArrivalAnnouncement_timer_)
+            broadcastArrivalAnnouncement_timer_ = new cMessage("resdbBroadcastArrivalAnnouncement");
+        if (broadcastArrivalAnnouncement_timer_->isScheduled())
+            cancelEvent(broadcastArrivalAnnouncement_timer_);
+        scheduleAt(simTime() + broadcast_arrival_announcement_interval_, broadcastArrivalAnnouncement_timer_);
+    }
+    armDiscoveryTimers("next-round");
+    std::cout << "[NEXT-ROUND] r" << ctx_.replicaId_ << " epoch=1 voters=" << voters
+              << " f=" << ctx_.tolerated_faults_ << " t=" << simTime() << "\n";
 }

@@ -1,3 +1,5 @@
+Binary files a/src/libveins.dylib and b/src/libveins.dylib differ
+Binary files a/src/libveins_dbg.dylib and b/src/libveins_dbg.dylib differ
 --- a/src/veins/modules/application/ieee80211p/DemoBaseApplLayer.cc
 +++ b/src/veins/modules/application/ieee80211p/DemoBaseApplLayer.cc
 @@ -263,8 +263,8 @@
@@ -87,10 +89,13 @@
 +} // namespace veins
 --- a/src/veins/modules/mobility/traci/TraCICommandInterface.cc
 +++ b/src/veins/modules/mobility/traci/TraCICommandInterface.cc
-@@ -150,6 +150,16 @@
-     ASSERT(buf.eof());
- }
- 
+@@ -147,6 +147,16 @@
+     uint8_t variableId = VAR_SPEED;
+     uint8_t variableType = TYPE_DOUBLE;
+     TraCIBuffer buf = traci->connection.query(CMD_SET_VEHICLE_VARIABLE, TraCIBuffer() << variableId << nodeId << variableType << speed);
++    ASSERT(buf.eof());
++}
++
 +void TraCICommandInterface::Vehicle::remove(uint8_t reason)
 +{
 +    uint8_t variableId = REMOVE;
@@ -98,12 +103,9 @@
 +    TraCIBuffer buf = traci->connection.query(
 +        CMD_SET_VEHICLE_VARIABLE,
 +        TraCIBuffer() << variableId << nodeId << variableType << reason);
-+    ASSERT(buf.eof());
-+}
-+
- void TraCICommandInterface::Vehicle::setMaxSpeed(double speed)
- {
-     uint8_t variableId = VAR_MAXSPEED;
+     ASSERT(buf.eof());
+ }
+ 
 --- a/src/veins/modules/mobility/traci/TraCICommandInterface.h
 +++ b/src/veins/modules/mobility/traci/TraCICommandInterface.h
 @@ -158,6 +158,8 @@
@@ -156,7 +158,7 @@
  }
  
  namespace {
-@@ -271,6 +283,35 @@
+@@ -271,6 +283,37 @@
          throw cRuntimeError("TraCI Port autoconfiguration failed, set 'port' != -1 in omnetpp.ini or provide VEINS_TRACI_PORT environment variable.");
      }
      autoShutdown = par("autoShutdown");
@@ -178,6 +180,8 @@
 +    r0LateNormalVehicleId = par("r0LateNormalVehicleId").stdstringValue();
 +    r0LateNormalType = par("r0LateNormalType").stdstringValue();
 +    r0LateNormalRoute = par("r0LateNormalRoute").stdstringValue();
++    r0LateEmergencyCount = par("r0LateEmergencyCount").intValue();
++    if (r0LateEmergencyCount < 1 || r0LateEmergencyCount > 3) throw cRuntimeError("r0LateEmergencyCount must be 1..3");
 +    r0LateEmergencyVehicleId = par("r0LateEmergencyVehicleId").stdstringValue();
 +    r0LateEmergencyType = par("r0LateEmergencyType").stdstringValue();
 +    r0LateEmergencyRoute = par("r0LateEmergencyRoute").stdstringValue();
@@ -192,7 +196,7 @@
  
      annotations = AnnotationManagerAccess().getIfExists();
  
-@@ -286,7 +327,24 @@
+@@ -286,7 +329,24 @@
      activeVehicleCount = 0;
      parkingVehicleCount = 0;
      drivingVehicleCount = 0;
@@ -217,7 +221,7 @@
  
      world = FindModule<BaseWorldUtility*>::findGlobalModule();
  
-@@ -297,6 +355,8 @@
+@@ -297,6 +357,8 @@
      scheduleAt(connectAt, connectAndStartTrigger);
      executeOneTimestepTrigger = new cMessage("step");
      scheduleAt(firstStepAt, executeOneTimestepTrigger);
@@ -226,7 +230,27 @@
  
      EV_DEBUG << "initialized TraCIScenarioManager" << endl;
  }
-@@ -508,6 +568,14 @@
+@@ -485,6 +547,19 @@
+ void TraCIScenarioManager::finish()
+ {
+     recordScalar("roiArea", areaSum);
++    std::ostringstream summary;
++    summary << "[RUN-COMPLETION] expected=" << intersectionBatchSize
++              << " cleared=" << vehiclesClearedIntersection.size()
++              << " t=" << simTime() << " ids=";
++    for (const auto& id : vehiclesClearedIntersection) summary << id << ",";
++    summary << "\n";
++    std::cout << summary.str() << std::flush;
++    for (int i = 0; i < intersectionBatchSize; ++i) {
++        const auto id = "veh" + std::to_string(i);
++        if (!vehiclesClearedIntersection.count(id))
++            std::cout << "[VEHICLE-INCOMPLETE] vehicle=" << id
++                      << " t=" << simTime() << "\n";
++    }
+ }
+ 
+ void TraCIScenarioManager::handleMessage(cMessage* msg)
+@@ -508,6 +583,14 @@
          executeOneTimestep();
          return;
      }
@@ -241,7 +265,7 @@
      throw cRuntimeError("TraCIScenarioManager received unknown self-message");
  }
  
-@@ -694,8 +762,13 @@
+@@ -694,8 +777,13 @@
      std::string objectId = vehicleId;
      uint8_t variableNumber = 0;
  
@@ -257,7 +281,7 @@
  }
  void TraCIScenarioManager::subscribeToTrafficLightVariables(std::string tlId)
  {
-@@ -812,6 +885,7 @@
+@@ -812,6 +900,7 @@
  
              activeVehicleCount += count;
              drivingVehicleCount += count;
@@ -265,7 +289,7 @@
          }
          else if (variable1_resp == VAR_ARRIVED_VEHICLES_IDS) {
              uint8_t varType;
-@@ -838,7 +912,6 @@
+@@ -838,7 +927,6 @@
                  }
              }
  
@@ -273,7 +297,7 @@
              activeVehicleCount -= count;
              drivingVehicleCount -= count;
          }
-@@ -880,6 +953,7 @@
+@@ -880,6 +968,7 @@
  
              activeVehicleCount += count;
              drivingVehicleCount += count;
@@ -281,7 +305,7 @@
          }
          else if (variable1_resp == VAR_PARKING_STARTING_VEHICLES_IDS) {
              uint8_t varType;
-@@ -942,6 +1016,10 @@
+@@ -942,6 +1031,10 @@
              for (uint32_t i = 0; i < count; ++i) {
                  std::string idstring;
                  buf >> idstring;
@@ -292,10 +316,12 @@
                  cModule* mod = getManagedModule(idstring);
                  if (mod) {
                      auto mobilityModules = getSubmodulesOfType<TraCIMobility>(mod);
-@@ -955,6 +1033,458 @@
-             throw cRuntimeError("Received unhandled sim subscription result");
+@@ -953,10 +1046,481 @@
          }
-     }
+         else {
+             throw cRuntimeError("Received unhandled sim subscription result");
++        }
++    }
 +
 +    pollIntersectionCooccupancy();
 +
@@ -353,10 +379,10 @@
 +                      << " second=" << second
 +                      << " second_approach=" << b
 +                      << " t=" << simTime() << "\n";
-+        }
-+    }
-+}
-+
+         }
+     }
+ }
+ 
 +bool TraCIScenarioManager::vehiclePastIntersectionDepartureLeg(const std::string& vehicleId)
 +{
 +    if (!commandIfc) {
@@ -384,8 +410,11 @@
 +        }
 +        return false;
 +    } catch (...) {
-+        // Vehicle left the simulation (aligned with V2VTraCI::vehicleHasClearedIntersectionTraCI)
-+        return true;
++        // An unavailable TraCI observation is not evidence of physical clearance.
++        // Retry on a later update; never inflate the terminal-vehicle count.
++        std::cout << "[CLEARANCE-UNKNOWN] vehicle=" << vehicleId
++                  << " t=" << simTime() << " reason=traci-query-failed\n";
++        return false;
 +    }
 +}
 +
@@ -436,7 +465,10 @@
 +            << (enableCrashSupervisor ? crashTowed_.size() : 0)
 +            << ", latest=" << latestVehicleId
 +            << ":" << (latestOutcome ? latestOutcome : "unknown") << ")" << endl;
-+    if ((int) terminalVehicles.size() >= intersectionBatchSize) {
++    bool allExpectedTerminal = true;
++    for (int i = 0; i < intersectionBatchSize; ++i)
++        allExpectedTerminal = allExpectedTerminal && terminalVehicles.count("veh" + std::to_string(i));
++    if (allExpectedTerminal) {
 +        autoShutdownTriggered = true;
 +        EV_INFO << "Auto-shutdown: " << intersectionBatchSize
 +                << " vehicles reached a terminal intersection outcome (crossed or crash-towed)."
@@ -453,6 +485,10 @@
 +    if (enableCrashSupervisor) {
 +        onCrashBatch0Started(vehicleId);
 +    }
++}
++
++void TraCIScenarioManager::notifyR0OrderDecided(const std::string& vehicleId)
++{
 +    if (!enableR0Supervisor) {
 +        return;
 +    }
@@ -466,9 +502,8 @@
 +    }
 +    scheduleAt(when, r0LateEmergencySpawnTrigger);
 +    std::cout << "[R0-SUPERVISOR] scheduled late vehicle injection"
-+              << " trigger=batch-start"
++              << " trigger=order-decision"
 +              << " trigger_vehicle=" << vehicleId
-+              << " batch=" << batchIndex
 +              << " at=" << when
 +              << " delta=" << lateEmergencyDeltaSec
 +              << "\n";
@@ -516,11 +551,21 @@
 +                r0LateNormalVehicleId, r0LateNormalType, r0LateNormalRoute,
 +                simTime(), r0LateSpawnDepartPos, TraCICommandInterface::DEPART_SPEED_MAX,
 +                TraCICommandInterface::DEPART_LANE_BEST);
-+        emergencyOk = vehicleExists(r0LateEmergencyVehicleId) ||
-+            commandIfc->addVehicle(
-+                r0LateEmergencyVehicleId, r0LateEmergencyType, r0LateEmergencyRoute,
-+                simTime(), r0LateSpawnDepartPos, TraCICommandInterface::DEPART_SPEED_MAX,
-+                TraCICommandInterface::DEPART_LANE_BEST);
++        for (int i = 0; i < r0LateEmergencyCount; ++i) {
++            const int first = std::stoi(r0LateEmergencyVehicleId.substr(3));
++            const std::string id = "veh" + std::to_string(first + i);
++            const std::string route = i == 0 ? r0LateEmergencyRoute : (i == 1 ? "rS" : "rW");
++            const bool ok = vehicleExists(id) || commandIfc->addVehicle(
++                id, r0LateEmergencyType, route, simTime(), r0LateSpawnDepartPos,
++                TraCICommandInterface::DEPART_SPEED_MAX, TraCICommandInterface::DEPART_LANE_BEST);
++            emergencyOk = emergencyOk && ok;
++            if (ok && recordedLateSpawns.insert(id).second) {
++                std::ostringstream record;
++                record << "[PRIORITY-SPAWN] vehicle=" << id << " t=" << simTime()
++                       << " route=" << route << " position=" << r0LateSpawnDepartPos << "\n";
++                std::cout << record.str() << std::flush;
++            }
++        }
 +    } catch (const std::exception& e) {
 +        normalOk = false;
 +        emergencyOk = false;
@@ -748,10 +793,12 @@
 +    if (workRemaining && crashSupervisorPollTrigger_) {
 +        scheduleAt(simTime() + crashPollPeriodSec, crashSupervisorPollTrigger_);
 +    }
- }
- 
++}
++
  void TraCIScenarioManager::processVehicleSubscription(std::string objectId, TraCIBuffer& buf)
-@@ -1126,6 +1656,9 @@
+ {
+     bool isSubscribed = (subscribedVehicles.find(objectId) != subscribedVehicles.end());
+@@ -1126,6 +1690,9 @@
  
      Heading heading = connection->traci2omnetHeading(angle_traci);
  
@@ -773,16 +820,21 @@
  
  #include "veins/veins.h"
  
-@@ -115,6 +118,8 @@
+@@ -115,6 +118,13 @@
          return hosts;
      }
  
++    bool hasConfirmedIntersectionClearance(const std::string& id) const {
++        return vehiclesClearedIntersection.count(id) != 0;
++    }
++
++    void notifyR0OrderDecided(const std::string& vehicleId);
 +    void notifyR0BatchStarted(const std::string& vehicleId, int batchIndex);
 +
      /**
       * Predicate indicating a successful connection to the TraCI server.
       *
-@@ -144,6 +149,26 @@
+@@ -144,6 +154,28 @@
      std::vector<std::string> trafficLightModuleIds; /**< list of traffic light module ids that is subscribed to (whitelist) */
  
      bool autoShutdown; /**< Shutdown module as soon as no more vehicles are in the simulation */
@@ -798,6 +850,8 @@
 +    std::string r0LateNormalVehicleId;
 +    std::string r0LateNormalType;
 +    std::string r0LateNormalRoute;
++    int r0LateEmergencyCount = 1;
++    std::set<std::string> recordedLateSpawns;
 +    std::string r0LateEmergencyVehicleId;
 +    std::string r0LateEmergencyType;
 +    std::string r0LateEmergencyRoute;
@@ -809,7 +863,7 @@
      double penetrationRate;
      bool ignoreGuiCommands; /**< whether to ignore all TraCI commands that only make sense when the server has a graphical user interface */
      int order; // specific position in the multi-client execution order of the TraCI server to request upon connecting (-1: do not request a position)
-@@ -163,15 +188,49 @@
+@@ -163,16 +195,50 @@
      uint32_t activeVehicleCount; /**< number of vehicles, be it parking or driving **/
      uint32_t parkingVehicleCount; /**< number of parking vehicles, derived from parking start/end events */
      uint32_t drivingVehicleCount; /**< number of driving, as reported by sumo */
@@ -842,7 +896,7 @@
  
      void executeOneTimestep(); /**< read and execute all commands for the next timestep */
 +    void pollIntersectionCooccupancy(); /**< TraCI-ground-truth conflicting internal-lane occupants */
-+
+ 
 +    /** Same predicate as V2VProxyModule::vehicleHasClearedIntersectionTraCI (four-way C2* departure legs). */
 +    bool vehiclePastIntersectionDepartureLeg(const std::string& vehicleId);
 +    void notifyIntersectionDeparture(const std::string& vehicleId);
@@ -856,9 +910,46 @@
 +    void freezeCrashWreck(const std::string& vehicleId);
 +    void towCrashWreck(const std::string& vehicleId);
 +    bool vehicleOnInternalConflictLane(const std::string& vehicleId) const;
- 
++
      virtual void init_traci();
  
+     virtual void preInitializeModule(cModule* mod, const std::string& nodeId, const Coord& position, const std::string& road_id, double speed, Heading heading, VehicleSignalSet signals);
+--- a/src/veins/modules/mobility/traci/TraCIScenarioManager.ned
++++ b/src/veins/modules/mobility/traci/TraCIScenarioManager.ned
+@@ -75,6 +75,28 @@
+         int port = default(9999);  // server port (-1: automatic)
+         int seed = default(-1); // seed value to set in launch configuration, if missing (-1: current run number)
+         bool autoShutdown = default(true);  // Shutdown module as soon as no more vehicles are in the simulation
++        bool shutdownOnIntersectionBatchCleared = default(false);  // If true, end simulation globally when intersectionBatchSize distinct vehicles satisfy C2* departure-leg clearance (same idea as V2VTraCI)
++        int intersectionBatchSize = default(4);  // Number of vehicles that must clear (TraCI predicate) before endSimulation
++        double intersectionDepartureMinMeters @unit("m") = default(3m);  // Min lane position on C2* edge to count as cleared
++        bool enableR0Supervisor = default(false);  // R0-only supervisor: inject late emergency pair after initial batch progress
++        int r0SpawnAfterCleared = default(1);  // Schedule late injection after this many vehicles satisfy departure-leg clearance
++        double lateEmergencyDeltaSec @unit("s") = default(0s);  // Delay from the manager trigger to late vehicle insertion
++        double r0LateSpawnDepartPos @unit("m") = default(250m);  // Position on incoming lane for injected vehicles
++        double r0LateSpawnRetrySec @unit("s") = default(0.2s);  // Retry interval if SUMO rejects insertion because the spot is blocked
++        int r0LateSpawnMaxRetries = default(25);
++        string r0LateNormalVehicleId = default("veh16");
++        string r0LateNormalType = default("car");
++        string r0LateNormalRoute = default("rN");
++        int r0LateEmergencyCount = default(1);
++        string r0LateEmergencyVehicleId = default("veh17");
++        string r0LateEmergencyType = default("ambulance");
++        string r0LateEmergencyRoute = default("rE");
++        // Scenario 16 crash supervisor: freeze two batch-0 vehicles in the conflict box, then tow.
++        bool enableCrashSupervisor = default(false);
++        int crashWreckCount = default(2);  // lowest replica IDs from notified batch-0 members
++        double crashPollPeriodSec @unit("s") = default(0.1s);
++        double crashOnBoxEntrySec @unit("s") = default(0s);  // delay after first internal-lane sighting
++        double clearDelaySec @unit("s") = default(10s);  // tow delay after freeze
+         int margin = default(25);  // margin to add to all received vehicle positions
+         string roiRoads = default("");  // which roads (e.g. "hwy1 hwy2") are considered to consitute the region of interest, if not empty
+         string roiRects = default("");  // which rectangles (e.g. "0,0-10,10 20,20-30,30) are considered to consitute the region of interest, if not empty. Note that these rectangles have to use TraCI (SUMO) coordinates and not OMNeT++. They can be easily read from sumo-gui.
+@@ -83,4 +105,3 @@
+         int order = default(-1); // specific position in the multi-client execution order of the TraCI server to request upon connecting (-1: do not request a position)
+         bool ignoreUnknownSubscriptionResults = default(false); // whether to (try and) ignore any subscription result we did not request (but another client might have)
+ }
+-
 --- a/src/veins/modules/mobility/traci/TraCIScenarioManagerLaunchd.cc
 +++ b/src/veins/modules/mobility/traci/TraCIScenarioManagerLaunchd.cc
 @@ -55,11 +55,16 @@
@@ -895,38 +986,3 @@
 + 
      TraCIScenarioManager::init_traci();
  }
---- a/src/veins/modules/mobility/traci/TraCIScenarioManager.ned
-+++ b/src/veins/modules/mobility/traci/TraCIScenarioManager.ned
-@@ -75,6 +75,27 @@
-         int port = default(9999);  // server port (-1: automatic)
-         int seed = default(-1); // seed value to set in launch configuration, if missing (-1: current run number)
-         bool autoShutdown = default(true);  // Shutdown module as soon as no more vehicles are in the simulation
-+        bool shutdownOnIntersectionBatchCleared = default(false);  // If true, end simulation globally when intersectionBatchSize distinct vehicles satisfy C2* departure-leg clearance (same idea as V2VTraCI)
-+        int intersectionBatchSize = default(4);  // Number of vehicles that must clear (TraCI predicate) before endSimulation
-+        double intersectionDepartureMinMeters @unit("m") = default(3m);  // Min lane position on C2* edge to count as cleared
-+        bool enableR0Supervisor = default(false);  // R0-only supervisor: inject late emergency pair after initial batch progress
-+        int r0SpawnAfterCleared = default(1);  // Schedule late injection after this many vehicles satisfy departure-leg clearance
-+        double lateEmergencyDeltaSec @unit("s") = default(0s);  // Delay from the manager trigger to late vehicle insertion
-+        double r0LateSpawnDepartPos @unit("m") = default(250m);  // Position on incoming lane for injected vehicles
-+        double r0LateSpawnRetrySec @unit("s") = default(0.2s);  // Retry interval if SUMO rejects insertion because the spot is blocked
-+        int r0LateSpawnMaxRetries = default(25);
-+        string r0LateNormalVehicleId = default("veh16");
-+        string r0LateNormalType = default("car");
-+        string r0LateNormalRoute = default("rN");
-+        string r0LateEmergencyVehicleId = default("veh17");
-+        string r0LateEmergencyType = default("ambulance");
-+        string r0LateEmergencyRoute = default("rE");
-+        // Scenario 16 crash supervisor: freeze two batch-0 vehicles in the conflict box, then tow.
-+        bool enableCrashSupervisor = default(false);
-+        int crashWreckCount = default(2);  // lowest replica IDs from notified batch-0 members
-+        double crashPollPeriodSec @unit("s") = default(0.1s);
-+        double crashOnBoxEntrySec @unit("s") = default(0s);  // delay after first internal-lane sighting
-+        double clearDelaySec @unit("s") = default(10s);  // tow delay after freeze
-         int margin = default(25);  // margin to add to all received vehicle positions
-         string roiRoads = default("");  // which roads (e.g. "hwy1 hwy2") are considered to consitute the region of interest, if not empty
-         string roiRects = default("");  // which rectangles (e.g. "0,0-10,10 20,20-30,30) are considered to consitute the region of interest, if not empty. Note that these rectangles have to use TraCI (SUMO) coordinates and not OMNeT++. They can be easily read from sumo-gui.
-@@ -83,4 +104,3 @@
-         int order = default(-1); // specific position in the multi-client execution order of the TraCI server to request upon connecting (-1: do not request a position)
-         bool ignoreUnknownSubscriptionResults = default(false); // whether to (try and) ignore any subscription result we did not request (but another client might have)
- }
--

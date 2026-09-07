@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""Generate and query the checked-in approach confusion-matrix catalog.
+"""Generate approach confusion matrices from the network's real lane geometry.
 
 The four incoming approaches are separated by the intersection's 3.2 m lane
 width.  A Gaussian lateral error that crosses half a lane is assigned equally
 to the two geometrically adjacent approaches; direct opposite-approach errors
 are excluded by geometry.  Rows and columns use N,S,E,W order.
+
+This is the documented provenance of the `approachConfusionMatrix` NED
+parameter: a matrix pasted into a config should be reproducible from here, so
+the parameter stays a physical quantity rather than a free knob.
 """
 
 from __future__ import annotations
 
-import argparse
-import csv
 import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -19,7 +21,6 @@ SIGMAS = (0.0, 0.25, 0.5, 1.0, 2.0)
 NETWORK = Path(__file__).with_name("bft_intersection.net.xml")
 APPROACHES = "NSEW"
 OPPOSITE = {"N": "S", "S": "N", "E": "W", "W": "E"}
-CATALOG = Path(__file__).with_name("perception_matrices.csv")
 
 
 def lane_width_m(network: Path = NETWORK) -> float:
@@ -60,41 +61,9 @@ def fmt(values: list[float]) -> str:
     return " ".join(f"{value:.12g}" for value in values)
 
 
-def read_catalog(path: Path = CATALOG) -> dict[float, list[float]]:
-    with path.open(newline="") as stream:
-        reader = csv.reader(stream)
-        next(reader)
-        return {float(row[0]): [float(value) for value in row[1:]] for row in reader}
-
-
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--lookup", type=float)
-    parser.add_argument("--write", action="store_true")
-    args = parser.parse_args()
-    rows = {sigma: matrix(sigma) for sigma in SIGMAS}
-    if args.lookup is not None:
-        catalog = read_catalog()
-        if args.lookup not in catalog:
-            parser.error(f"sigma must be one of: {', '.join(map(str, SIGMAS))}")
-        generated = rows[args.lookup]
-        checked_in = catalog[args.lookup]
-        if len(checked_in) != 16 or any(
-            not math.isclose(a, b, rel_tol=1e-11, abs_tol=1e-14)
-            for a, b in zip(generated, checked_in)
-        ):
-            parser.error("checked-in matrix catalog is stale; run with --write")
-        print(fmt(checked_in))
-        return 0
-    if args.write:
-        with CATALOG.open("w", newline="") as stream:
-            writer = csv.writer(stream)
-            writer.writerow(["sigma_m", *[f"{a}_to_{b}" for a in APPROACHES for b in APPROACHES]])
-            for sigma, values in rows.items():
-                writer.writerow([sigma, *[f"{value:.12g}" for value in values]])
-        return 0
-    for sigma, values in rows.items():
-        print(f"{sigma}: {fmt(values)}")
+    for sigma in SIGMAS:
+        print(f"{sigma}: {fmt(matrix(sigma))}")
     return 0
 
 

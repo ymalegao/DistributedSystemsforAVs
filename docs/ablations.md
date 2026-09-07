@@ -1,18 +1,31 @@
-# Ablation studies — what each figure shows, and why it looks that way
+# Ablation studies — earlier experiment analysis
 
-Generated from the run of **2026-09-01**: all seven studies, 3 repetitions, 417 runs, one consistent sweep. Regenerate with, inside
+**For the current compact figure layout, metrics, and captions, see
+[paper-figures.md](paper-figures.md).** The panel descriptions and numerical
+interpretations below document the earlier renders and are not current figure
+captions. Ablation 2 has been retired; its raw logs are retained.
+
+Generated from the run of **2026-09-01**: all five studies, 3 repetitions, one consistent sweep, each run on both the one-lane and two-lane network. Regenerate with, inside
 `opp_env` and with `veins_launchd` on :9999 (see
 [../INSTALLATION.md](../INSTALLATION.md)):
 
 ```bash
-benchmarks/ablations/run_ablations.sh <1..7|all> [reps]   # -> benchmarks/ablations/results/
+benchmarks/ablations/run_ablations.sh <1|3|4|5|all> [reps]      # -> benchmarks/ablations/results/
 python3 -m plotter build-all                              # -> figures/
 python3 -m plotter summary                                # -> figures/results.md
 ```
 
 ## Scenario, in one paragraph
 
-Four approaches, **one lane each**, no turn pockets. Every vehicle draws its exit
+Every study is run on **two networks** and reported as two figures, never on
+shared axes: a one-lane junction and a two-lane one. They are different physical
+worlds — different approach length, junction radius and movements per phase — so
+a shared axis would invite subtracting numbers never measured under the same
+conditions. On the two-lane network lane 0 carries straight and right, lane 1
+carries left only, which also makes protected left-turn signal phases possible
+for the ablation 3 baseline where one lane forbids them.
+
+Four approaches, one or two lanes each, no turn pockets. Every vehicle draws its exit
 uniformly from its approach's three valid exits (`<routeDistribution>`), so
 roughly a third turn left; the U-turn is absent from the distribution, so nobody
 leaves the way they came. `*.manager.seed` is set per repetition, so each rep
@@ -25,7 +38,7 @@ and printed per cell in [`figures/results.md`](../figures/results.md).
 
 ---
 
-## 1. RSU units — [ab1_rsu.png](../figures/ab1_rsu.png)
+## 1. RSU units — [1 lane](../figures/ab1_rsu_1lane.png) · [2 lanes](../figures/ab1_rsu_2lane.png)
 
 Three panels: throughput, stop-to-clearing delay, message cost. Vehicles 4–20,
 with and without 4 static intersection units, **all at k=0 (no faults)**.
@@ -65,31 +78,7 @@ timeouts because consensus never committed.
 
 ---
 
-## 2. Fake-ambulance attack — [ab2_attack.png](../figures/ab2_attack.png)
-
-**This study currently measures nothing. Do not present it.**
-
-Colluders take the *highest* replica ids, so `CertPrimary()` — which elects the
-smallest certified id — always picks an honest proposer. That isolates the
-certificate gate from leader succession, which is what we want. Arms are
-`enableAmbulanceCertGate` on vs off.
-
-The gate now fires correctly (90 rejections in the gate arm, 0 in the control).
-But in the **control** arm, where the certless claim is deliberately allowed
-through, the liars still gain nothing — they wait ~0.9s *longer* than honest
-vehicles, and both arms grant zero false priority.
-
-So the attack does not succeed even when undefended. The lie is accepted at the
-announce layer and never becomes priority at the scheduler: `e.is_ambulance` is
-set from the proposer's `local_vehicle_states_`
-([ResDBDecision.cc:146](../src/v2vbft/app/ResDBDecision.cc)) and the scheduler
-prioritises on `is_ambulance && cyber_status == 1`, but something between those
-points drops it. Until that path is traced, both arms will be flat regardless of
-the gate.
-
----
-
-## 3. Actuated traffic light vs consensus — [ab3_baseline.png](../figures/ab3_baseline.png)
+## 3. Actuated traffic light vs consensus — [1 lane](../figures/ab3_baseline_1lane.png) · [2 lanes](../figures/ab3_baseline_2lane.png)
 
 **These delay numbers are not reportable yet — the two arms start their clock
 37.8 m apart.** Ours triggers at `stopDistance = 5m` measured as
@@ -140,7 +129,7 @@ constrains the signal exactly as it constrains our protocol.
 
 ---
 
-## 4. Ambulance priority — [ab4_priority.png](../figures/ab4_priority.png)
+## 4. Ambulance priority — [1 lane](../figures/ab3_vehicle_latency_1lane.png) · [2 lanes](../figures/ab3_vehicle_latency_2lane.png)
 
 **9 repetitions**, not 3. The ambulance is *one vehicle*, so this study samples
 n=1 per run where the others average 8–20; at 3 reps its wait swung 3.4s between
@@ -183,7 +172,7 @@ divides by the fleet mean, cancelling run-level variation.
 
 ---
 
-## 5. Late-emergency rollback — [ab5_rollback.png](../figures/ab5_rollback.png)
+## 5. Late-emergency rollback — [1 lane](../figures/ab5_rollback_1lane.png) · [2 lanes](../figures/ab5_rollback_2lane.png)
 
 | | cleared | wait | msgs/vehicle |
 |---|---|---|---|
@@ -206,109 +195,7 @@ cheapest study (~5 min for 3 reps) — it should be run at 9–12.
 ---
 
 
-## 6. Imperfect perception — [ab6_perception.png](../figures/ab6_perception.png)
-
-Three panels: certificate-collection time, commit rate, vehicles cleared.
-Lateral observation sigma 0 to 2.0 m, N = 4 to 20, 3 repetitions, all replicas
-honest.
-
-This study exists because the arrival gate stopped being an oracle. A witness
-used to ask TraCI where a vehicle really was; it now endorses a claim only if
-its own observation agrees ([ResDBArrivalProtocol.cc](../src/v2vbft/app/ResDBArrivalProtocol.cc)).
-That is what makes a lane lie catchable by sensing rather than by consulting the
-simulator — and it also means an honest vehicle can be refused because its
-witness misread it.
-
-**Sigma is a physical quantity, not a knob.** Each arm's confusion matrix is the
-one implied by a Gaussian lateral error of that sigma against the junction's real
-3.2 m lane width, generated by
-[generate_perception_matrices.py](../scenarios/fourway/generate_perception_matrices.py).
-The generator reproduces the checked-in catalog byte-for-byte, so the x axis
-cannot drift from the geometry it claims to describe.
-
-**There is a frontier at sigma ≈ 0.5 m, and past it consensus fails.**
-
-| commit rate | σ=0 | 0.25 | 0.5 | 1.0 | 2.0 |
-|---|---|---|---|---|---|
-| N=4 | 100 | 100 | 100 | 100 | 100 |
-| N=8 | 100 | 100 | 100 | 33 | 0 |
-| N=12 | 100 | 100 | 100 | 33 | 33 |
-| N=16 | 100 | 100 | 100 | 100 | 0 |
-| N=20 | 100 | 100 | 100 | 0 | 0 |
-
-Below 0.5 m the cost is paid entirely in collection latency and every
-configuration still commits. Above it the protocol stops working, and **scale
-makes it worse, not better**: more witnesses means more vehicles that must each
-reach `f+1` agreement, so the chance that at least one cannot rises with N.
-
-**An earlier version of this figure claimed the opposite.** Built from an N=4,
-1-repetition slice, it said perception error was absorbed by certificate
-collection before reaching consensus. That is true at N=4 — which is the only
-configuration where it is true — and the full sweep contradicts it everywhere
-else. The caption has been corrected.
-
-**Do not read the crossings panel as success.** It stays high even where the
-commit rate is zero, because the stop-sign timeout releases vehicles consensus
-never scheduled. That is the safety fallback doing its job, not the protocol
-doing its job; only the middle panel distinguishes them.
-
-**Open:** at 3 repetitions the frontier is located but its shape is not. N=16
-survives sigma 1.0 while N=8 and N=12 do not, which is sampling rather than a
-real inversion. Resolving the frontier per N needs more repetitions.
-
----
-
-## 7. One lane vs two lanes — [ab7_twolane.png](../figures/ab7_twolane.png)
-
-Three panels: schedule length, throughput, delay. N = 4, 8, 16, 20, 3
-repetitions, all honest, both arms on the same routes and seeds.
-
-The scheduler used to refuse to batch any two vehicles from the same approach.
-With one lane that is right — one is behind the other. With two it discards the
-reason the lane exists: an inner-lane left-turner and an outer-lane
-straight-goer enter from different points and leave by different roads, which is
-exactly the pair a signalised junction runs in one phase. The rule now permits
-that pair and only that pair
-([resdb_conflict_matrix.h](../bridge/resdb_conflict_matrix.h)).
-
-| N | batches 1L → 2L | throughput 1L → 2L | delay 1L → 2L |
-|---|---|---|---|
-| 4 | 3.7 → 4.0 | 0.50 → 0.48 | 6.04 → 5.82 |
-| 8 | 5.7 → **4.0** | 0.61 → **0.79** | 7.38 → **6.95** |
-| 16 | 10.3 → **7.0** | 0.73 → **0.93** | 11.54 → **9.96** |
-| 20 | 12.7 → **10.0** | 0.73 → 0.79 | 13.90 → 14.48 |
-
-**The schedule gets shorter at every load above N=4, by roughly a third.**
-30% fewer batches at N=8, 32% at N=16, narrowing to 21% at N=20: with more
-vehicles per approach, the queue behind each pair comes to dominate the saving
-from running the pair together. Throughput follows the same shape.
-
-An earlier version of this table reported 48% at N=8 with throughput doubling.
-That was measuring a broken one-lane baseline, not the second lane — see the
-N=8 defect below.
-
-**N=4 is a wash, and should be.** One vehicle per approach means there is rarely
-a same-approach pair to run in parallel, so the second lane has nothing to
-exploit. Two lanes are slightly *worse* on batches (4.0 vs 3.7) and throughput
-(0.48 vs 0.50), within noise.
-
-**Delay crosses over at N=20** — 14.48 s against 13.90 s, the one cell where the
-two-lane arm loses. Not explained yet. The stop-zone geometry is corrected
-(both arms trigger the same distance from the junction centre, see
-`stopDistance` in the two-lane configs), so it is not the confound that
-invalidates ablation 3. Most likely the longer per-lane queues interact with the
-clearance-gated release, but that is a hypothesis, not a finding.
-
-**This does not show two lanes are safer.** They are not: more parallelism means
-more vehicles in the conflict box at once, and the protection is the conflict
-matrix rather than the geometry. The scheduler re-tests every batch it emits
-against its own safety predicate and logs `[SCHEDULER-UNSAFE-BATCH]`; that
-marker is absent from all 24 runs behind this figure, and the claim is "more
-throughput at equal safety" only while it stays absent.
-
----
-
-## Cost decomposition — [an_cost_decomposition.png](../figures/an_cost_decomposition.png)
+## Cost decomposition — [1 lane](../figures/an_cost_decomposition_1lane.png) · [2 lanes](../figures/an_cost_decomposition_2lane.png)
 
 Honest operation only (`k=0`); with replicas silenced the traffic mix reflects
 failure, not normal composition.
@@ -362,8 +249,8 @@ own → a proposal that is mostly QUIET → no commit → stop-sign fallback.
 
 Intermittent rather than constant, because extra echoes sometimes arrive before
 the certificate latches — which is why it presented as "N=4 instability". It
-explained ab1's phantom RSU delay penalty *and* ab6's S4/S5 attack cells, which
-decided nothing in every rep and now decide normally.
+explained ab1's phantom RSU delay penalty, in cells which decided nothing in
+every rep and now decide normally.
 
 Three further sites used the same wrong formula and were unified on
 `toleratedF()`: gossip propagation confirmation, consensus relay carrier
@@ -374,7 +261,6 @@ threshold, and a Byzantine-injection log line.
 - **ab3 measures the two arms from different start points** — 37.8 m of
   approach charged only to the signal (above); delay and throughput are not
   reportable until the `tl` arm is re-run
-- **ab2 measures nothing** — attack does not succeed even undefended (above)
 - **ab1 does not plot the fault frontier**, which is the RSU benefit
 - **ab1 N=12** fault tolerance goes the wrong way with units
 - **ab5 needs more repetitions** — rollback fired 2/3 vs 3/3 across runs

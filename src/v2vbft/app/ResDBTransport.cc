@@ -212,10 +212,9 @@ bool ResDBIntersectionApp::ConsensusRetryManager::remember(
                 key.requestHash.size());
 
     PhaseMap& phases = instances_[key];
-    if (info.type == 5) {
-        phases.erase(3);
-        phases.erase(4);
-    }
+    // Local COMMIT does not prove peers received our PREPARE. Retain earlier
+    // phases until retryConsensusPackets observes verified quorum progress
+    // (or the bounded retry limit), rather than stranding peers after a loss.
     if (phases.count(info.type)) return false;
 
     ConsensusRetryPacket packet;

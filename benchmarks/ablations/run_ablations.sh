@@ -8,13 +8,12 @@
 # keys cells by (study, arm, k, n).
 #
 #   1  RSU on/off      — commit rate vs injected faults, and throughput, vs N
-#   2  attack          — attack success AND liveness vs number of colluders
 #   3  baseline        — actuated traffic light vs ours: delay and throughput vs N
 #   4  priority        — ambulance wait vs queue length
 #   5  rollback        — late-emergency outcome and its throughput cost
 #
 # Usage (inside opp_env, with veins_launchd running on :9999):
-#   benchmarks/ablations/run_ablations.sh <1|2|3|4|5|6|7|all> [reps]
+#   benchmarks/ablations/run_ablations.sh <1|3|4|5|all> [reps]
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,12 +23,43 @@ FASTXML="$FOURWAY/config_fast.xml"
 WHICH="${1:-all}"
 REPS="${2:-3}"
 
-RES="$HERE/results"
+RES="${RESULTS_DIR:-$HERE/results}"
 mkdir -p "$RES"
 
 # Vehicle counts and their scenario-name prefixes.
 NS=(4 8 12 16 20)
 declare -A WORD=( [4]=Four [8]=Eight [12]=Twelve [16]=Sixteen [20]=Twenty )
+
+# ── Lane arms ────────────────────────────────────────────────────────────────
+# Every study runs twice: once on the one-lane network, once on the two-lane
+# one. The two are never plotted on shared axes (see plotter/figures/_lanes.py);
+# each produces its own figure.
+#
+# The lane rides in the log's ARM field, which plotter.io.logparse already
+# parses -- its arm pattern is lazy, so "OFF_2lane" survives the _n/_k split.
+# The one-lane arm keeps the BARE name on purpose: run()'s cache keys on the log
+# filename, so renaming it would orphan every existing one-lane log and force a
+# full re-sweep of work that is already measured and unchanged.
+LANES=(1lane 2lane)
+lane_sfx() { [[ "$1" == 1lane ]] && echo "" || echo "_$1"; }
+
+declare -A TWO_BASE=( [4]=FourVehiclesTwoLaneScaleResDB  [8]=EightVehiclesTwoLaneScaleResDB
+                      [12]=TwelveVehiclesTwoLaneScaleResDB [16]=SixteenVehiclesTwoLaneResDB
+                      [20]=TwentyVehiclesTwoLaneScaleResDB )
+
+# Scenario config for (N, lane, kind). kind: base | units | tl
+cfg_for() {
+  local n="$1" lane="$2" kind="$3"
+  case "$kind:$lane" in
+    base:1lane)  echo "${WORD[$n]}VehiclesResDB" ;;
+    base:2lane)  echo "${TWO_BASE[$n]}" ;;
+    units:1lane) echo "${WORD[$n]}VehiclesFourUnitsResDB" ;;
+    units:2lane) echo "${WORD[$n]}VehiclesTwoLaneFourUnitsResDB" ;;
+    tl:1lane)    echo "tl${n}veh" ;;
+    tl:2lane)    echo "tl${n}veh2lane" ;;
+    *) echo "cfg_for: bad kind/lane $kind:$lane" >&2; return 1 ;;
+  esac
+}
 # Faults a view of N tolerates: f = (N-1)/3.
 f_of() { echo $((($1 - 1) / 3)); }
 
@@ -69,7 +99,7 @@ common_ini() {   # $1=path  $2=repetition (seeds SUMO)
 }
 
 # Silence replicas 1..k (never the primary at 0, so the run tests quorum loss
-# rather than leader failure, which ablation 2 covers separately).
+# rather than leader failure).
 silence_k() {   # $1=ini $2=n $3=k
   local ini="$1" n="$2" k="$3" r idx
   for (( r=1; r<=k; r++ )); do
@@ -85,7 +115,7 @@ run() {   # $1=logname $2=config ; $3.. = extra args
   # Resumable: a log that reached finish() is a complete cell, so a re-invoked
   # matrix fills gaps instead of re-running hours of work. Partial logs (killed
   # run, crash before finish) have no [METRICS line and are re-run.
-  if [[ -s "$log" ]] && grep -q '^\[METRICS ' "$log"; then
+  if [[ "${FORCE_RERUN:-0}" != 1 && -s "$log" ]] && grep -q '^\[METRICS ' "$log"; then
     echo "    -> cached"
     return
   fi
@@ -93,7 +123,7 @@ run() {   # $1=logname $2=config ; $3.. = extra args
   # interleaved runs produced a log with two finish markers that still parsed.
   ( cd "$FOURWAY" && LOG_FILE="$RES/.${name}.simlog" timeout 900 \
       "$REPO/tools/run-resdb-simulation.sh" -f "$FOURWAY/omnetpp.ini" "$@" \
-      -u Cmdenv -c "$cfg" ) > "$log" 2>&1
+      --debug-on-errors=false -u Cmdenv -c "$cfg" ) > "$log" 2>&1
   local rc=$?
   echo "    -> rc=$rc decided=$(grep -c Order_Decided_Time "$log") cars=$(grep -c CAR-METRICS "$log")"
 }
@@ -107,57 +137,13 @@ ablation1() {
       # fails and the panel is a flat line locating nothing.
       for k in $(seq 0 $(( $(tolerated_of "$n") + 1 ))); do
         local ini="$RES/_a1_n${n}_k${k}.ini"; common_ini "$ini" "$r"; silence_k "$ini" "$n" "$k"
-        echo "  N=$n k=$k rep=$r OFF"; run "ab1_OFF_n${n}_k${k}_rep${r}.log" "${WORD[$n]}VehiclesResDB" -f "$ini"
-        echo "  N=$n k=$k rep=$r ON";  run "ab1_ON_n${n}_k${k}_rep${r}.log"  "${WORD[$n]}VehiclesFourUnitsResDB" -f "$ini"
-      done
-    done
-  done
-}
-
-# ── 2: attack, swept over number of colluding Byzantine proposers ────────────
-# A bar of "attack committed" is 100 vs 0 and says nothing. Sweeping colluders
-# to f+1 tests the assumption the firewall actually rests on, and reports
-# liveness alongside safety -- refusing to commit is not the same as being fine.
-# The swept value rides in the filename's k field, so here k means colluders.
-ablation2() {
-  echo "### Ablation 2: attack vs colluder count ###"
-  for r in $(seq 1 "$REPS"); do
-    for n in 4 8 16; do
-      local f; f=$(f_of "$n")
-      for (( c=1; c<=f+1; c++ )); do
-        local ini="$RES/_a2_n${n}_c${c}.ini"; common_ini "$ini" "$r"
-        # Colluders take the HIGHEST replica ids, never the lowest. CertPrimary()
-        # elects the smallest certified id, so this keeps every proposer honest
-        # and isolates the certificate gate from leader succession. With the
-        # colluders at 0..c-1 instead, the first c leaders are all corrupt and
-        # the round dies of leader starvation rather than of the attack.
-        #
-        # Type 7, not 6: type 6 is injected while building a proposal (see the
-        # "Byzantine primary fault injection" block in ResDBDecision.cc) and so
-        # does nothing at all on a replica that never leads. Type 7 lies in the
-        # ARRIVAL_ANNOUNCE, which every replica sends regardless of role.
-        local j idx
-        for (( j=0; j<c; j++ )); do
-          idx=$(replica_to_node_idx "$n" "$(( n - 1 - j ))")
-          echo "*.node[${idx}].appl.isByzantine = true" >> "$ini"
-          echo "*.node[${idx}].appl.byzantineType = 7"  >> "$ini"
+        for lane in "${LANES[@]}"; do
+          local sfx; sfx=$(lane_sfx "$lane")
+          echo "  N=$n k=$k rep=$r $lane OFF"
+          run "ab1_OFF${sfx}_n${n}_k${k}_rep${r}.log" "$(cfg_for "$n" "$lane" base)"  -f "$ini"
+          echo "  N=$n k=$k rep=$r $lane ON"
+          run "ab1_ON${sfx}_n${n}_k${k}_rep${r}.log"  "$(cfg_for "$n" "$lane" units)" -f "$ini"
         done
-        # The arms are the ambulance cert gate on vs off, NOT --no-firewall.
-        # --no-firewall disables PreVerify, which never sees this attack: type 7
-        # lies in the ANNOUNCE, that lie enters a legitimate certificate, and
-        # PreVerify only checks proposal-against-certificate, so the two agree
-        # and nothing is flagged. enableAmbulanceCertGate is the switch that
-        # actually rejects an ambulance claim carrying no certificate, so it is
-        # the only on/off that makes this a controlled comparison. Written into
-        # the ini directly rather than via --cert-gate, whose line lands in a
-        # scenario ini that is only generated on some invocation paths.
-        local gate="$RES/_a2_n${n}_c${c}_gate.ini"
-        cp "$ini" "$gate"
-        echo "*.node[*].appl.enableAmbulanceCertGate = true" >> "$gate"
-        echo "  N=$n colluders=$c rep=$r ours (cert gate on)"
-        run "ab2_ours_n${n}_k${c}_rep${r}.log"    "${WORD[$n]}VehiclesResDB" -f "$gate"
-        echo "  N=$n colluders=$c rep=$r vanilla (no gate)"
-        run "ab2_vanilla_n${n}_k${c}_rep${r}.log" "${WORD[$n]}VehiclesResDB" -f "$ini"
       done
     done
   done
@@ -175,8 +161,13 @@ ablation3() {
       # Actuated traffic light. The AIM surveys report fixed-time as the
       # most-used comparison (46%) while calling for actuated or adaptive
       # instead, so this is the baseline the field actually asks for.
-      echo "  N=$n rep=$r trafficlight"; run "ab3_tl_n${n}_rep${r}.log" "tl${n}veh" -f "$ini"
-      echo "  N=$n rep=$r ours";     run "ab3_ours_n${n}_rep${r}.log" "${WORD[$n]}VehiclesResDB" -f "$ini"
+      for lane in "${LANES[@]}"; do
+        local sfx; sfx=$(lane_sfx "$lane")
+        echo "  N=$n rep=$r $lane trafficlight"
+        run "ab3_tl${sfx}_n${n}_rep${r}.log"   "$(cfg_for "$n" "$lane" tl)"   -f "$ini"
+        echo "  N=$n rep=$r $lane ours"
+        run "ab3_ours${sfx}_n${n}_rep${r}.log" "$(cfg_for "$n" "$lane" base)" -f "$ini"
+      done
     done
   done
 }
@@ -191,9 +182,14 @@ ablation4() {
       local amb=$(( n - 1 )) idx; idx=$(replica_to_node_idx "$n" "$amb")
       local on="$RES/_a4on_n${n}.ini"; common_ini "$on" "$r"
       echo "*.node[${idx}].appl.isAmbulance = true" >> "$on"
-      echo "  N=$n rep=$r priority-on";  run "ab4_prio_n${n}_rep${r}.log"   "${WORD[$n]}VehiclesResDB" -f "$on"
       local off="$RES/_a4off_n${n}.ini"; common_ini "$off" "$r"
-      echo "  N=$n rep=$r priority-off"; run "ab4_noprio_n${n}_rep${r}.log" "${WORD[$n]}VehiclesResDB" -f "$off"
+      for lane in "${LANES[@]}"; do
+        local sfx; sfx=$(lane_sfx "$lane")
+        echo "  N=$n rep=$r $lane priority-on"
+        run "ab4_prio${sfx}_n${n}_rep${r}.log"   "$(cfg_for "$n" "$lane" base)" -f "$on"
+        echo "  N=$n rep=$r $lane priority-off"
+        run "ab4_noprio${sfx}_n${n}_rep${r}.log" "$(cfg_for "$n" "$lane" base)" -f "$off"
+      done
     done
   done
 }
@@ -204,115 +200,55 @@ ablation4() {
 # sim-time-limit is 90s so the ambulance physically clears; at 30s the claim
 # could only ever be "re-ordered into the schedule".
 ablation5() {
-  echo "### Ablation 5: rollback on/off ###"
-  local offini="$HERE/ab5_off.ini"
-  local on="$RES/_a5on.ini"
-  # Both inis are rebuilt per repetition: they carry *.manager.seed, which is
-  # what varies the turn draw between reps. Building them once before the loop
-  # gave every repetition the same scenario -- and referenced $r before the loop
-  # defined it, which under set -u aborted the study outright.
-  for r in $(seq 1 "$REPS"); do
-    {
-      echo "[General]"
-      echo "*.**.nic.phy80211p.analogueModels = xmldoc(\"${FASTXML}\")"
-      echo "*.node[*].appl.transportPollInterval = 0.005"
-      echo "*.node[*].appl.timeTickInterval      = 0.005"
-      echo "*.iu[*].appl.transportPollInterval   = 0.005"
-      echo "*.iu[*].appl.timeTickInterval        = 0.005"
-      echo "*.manager.seed = $r"
-      echo ""
-      echo "[Config Ab5RollbackOff]"
-      echo "extends = EighteenVehFourUnitsRollback"
-      echo "*.node[*].appl.enableRollback = false"
-      echo "*.iu[*].appl.enableRollback   = false"
-    } > "$offini"
-    common_ini "$on" "$r"
-    echo "  rep=$r rollback-on"
-    run "ab5_rollback_on_rep${r}.log"  EighteenVehFourUnitsRollback -f "$on"     --sim-time-limit=90s
-    echo "  rep=$r rollback-off"
-    run "ab5_rollback_off_rep${r}.log" Ab5RollbackOff               -f "$offini" --sim-time-limit=90s
-  done
-}
-
-# ── 6: imperfect perception, across sigma ────────────────────────────────────
-# The arrival gate is no longer an oracle: a witness endorses a claim only if
-# its own noisy observation agrees. So an honest vehicle can be refused, and the
-# question this study answers is how much sensor error the protocol absorbs
-# before that starts costing certificates and, past that, crossings.
-#
-# Sigma is not a free parameter here. Each row of perception_matrices.csv is the
-# confusion matrix implied by a Gaussian lateral error of that sigma against the
-# junction's real 3.2 m lane width, generated by
-# scenarios/fourway/generate_perception_matrices.py. Inventing a matrix by hand
-# would decouple the x axis from any physical quantity.
-#
-# The k field carries sigma in centimetres, because the log-name grammar has an
-# integer there and the plotter keys cells by it.
-SIGMAS=(0 25 50 100 200)
-
-matrix_for_sigma_cm() {   # $1 = sigma in cm
-  python3 - "$1" <<'PYEOF'
-import csv, sys, pathlib
-sigma = int(sys.argv[1]) / 100.0
-cat = pathlib.Path("scenarios/fourway/perception_matrices.csv")
-with cat.open() as fh:
-    for row in csv.DictReader(fh):
-        if abs(float(row["sigma_m"]) - sigma) < 1e-9:
-            print(" ".join(row[k] for k in row if k != "sigma_m"))
-            break
-    else:
-        raise SystemExit(f"no catalog row for sigma={sigma}")
-PYEOF
-}
-
-ablation6() {
-  echo "### Ablation 6: imperfect perception across sigma ###"
-  for r in $(seq 1 "$REPS"); do
-    for n in "${NS[@]}"; do
-      for sc in "${SIGMAS[@]}"; do
-        local m; m="$( cd "$REPO" && matrix_for_sigma_cm "$sc" )"
-        local ini="$RES/_a6_n${n}_s${sc}.ini"; common_ini "$ini" "$r"
-        {
-          echo "*.node[*].appl.approachConfusionMatrix = \"${m}\""
-          echo "*.iu[*].appl.approachConfusionMatrix = \"${m}\""
-        } >> "$ini"
-        echo "  N=$n sigma=${sc}cm rep=$r"
-        run "ab6_perception_n${n}_k${sc}_rep${r}.log" "${WORD[$n]}VehiclesResDB" -f "$ini"
+  echo "### Ablation 5: matched late-priority arrivals ###"
+  local count total replicas lane sfx cfg r mode ini name
+  # count>1 needs a bigger node[] vector than the 18-slot base network
+  # provides (r18/r19 currently spawn in SUMO but never get a ResDB replica,
+  # so they never clear). Keep the correctness comparison at count=1 until
+  # the network topology is scaled up.
+  for count in 1; do
+    total=$((17 + count)); replicas=$((total + 4))
+    if [[ ! -f "$FOURWAY/resdb_crypto_rb_${replicas}/server.config" ]]; then
+      "$REPO/tools/gen_crypto_dir.sh" "$replicas" "$FOURWAY/resdb_crypto_rb_${replicas}" || return 1
+    fi
+    for lane in "${LANES[@]}"; do
+      sfx=$(lane_sfx "$lane")
+      if [[ "$lane" == 1lane ]]; then cfg=EighteenVehFourUnitsRollback
+      else cfg=EighteenVehTwoLaneFourUnitsRollback; fi
+      for r in $(seq 1 "$REPS"); do
+        for mode in on off; do
+          ini="$RES/_a5_${mode}${sfx}_n${total}_rep${r}.ini"
+          common_ini "$ini" "$r"
+          {
+            echo "[Config Ab5Validated]"
+            echo "extends = $cfg"
+            echo "*.manager.intersectionBatchSize = $total"
+            echo "*.manager.r0LateEmergencyCount = $count"
+            echo "*.node[*].appl.ambulanceReplicaCount = $count"
+            echo "*.node[*].appl.totalReplicas = $replicas"
+            echo "*.iu[*].appl.totalReplicas = $replicas"
+            echo "*.node[*].appl.resdbCryptoDir = \"resdb_crypto_rb_${replicas}\""
+            echo "*.iu[*].appl.resdbCryptoDir = \"resdb_crypto_rb_${replicas}\""
+            for i in 0 1 2 3; do echo "*.iu[$i].appl.replicaId = $((total+i))"; done
+            if [[ "$mode" == off ]]; then
+              echo "*.node[*].appl.enableRollback = false"
+              echo "*.iu[*].appl.enableRollback = false"
+              echo "*.node[*].appl.enableNextRound = true"
+              echo "*.iu[*].appl.enableNextRound = true"
+            fi
+          } >> "$ini"
+          name="ab5_rollback_${mode}${sfx}_n${total}_rep${r}.log"
+          run "$name" Ab5Validated -f "$ini" --sim-time-limit=90s
+        done
       done
     done
   done
 }
 
-# ── 7: one lane vs two lanes per approach ────────────────────────────────────
-# The scheduler used to refuse to batch any two vehicles from the same approach.
-# With two lanes that is wrong: an inner-lane left-turner and an outer-lane
-# straight-goer leave by different roads and a signalised junction runs them
-# together. This measures what the second lane actually buys.
-#
-# The arms are NOT the same physical world, and the difference is controlled
-# rather than ignored: the two-lane junction has a larger radius, so its
-# configs correct stopDistance to 5 - 3.2/(N/2) and both arms begin their stop
-# zone the same distance from the junction centre. Without that every delay
-# number here would carry the offset that already invalidates ablation 3.
-ablation7() {
-  echo "### Ablation 7: one lane vs two lanes ###"
-  local -A TWO=( [4]=FourVehiclesTwoLaneScaleResDB [8]=EightVehiclesTwoLaneScaleResDB
-                 [16]=SixteenVehiclesTwoLaneResDB  [20]=TwentyVehiclesTwoLaneScaleResDB )
-  for r in $(seq 1 "$REPS"); do
-    for n in 4 8 16 20; do
-      local ini="$RES/_a7_n${n}.ini"; common_ini "$ini" "$r"
-      echo "  N=$n rep=$r one-lane"
-      run "ab7_one_n${n}_rep${r}.log" "${WORD[$n]}VehiclesResDB" -f "$ini"
-      echo "  N=$n rep=$r two-lane"
-      run "ab7_two_n${n}_rep${r}.log" "${TWO[$n]}" -f "$ini"
-    done
-  done
-}
-
 case "$WHICH" in
-  1) ablation1 ;; 2) ablation2 ;; 3) ablation3 ;;
-  4) ablation4 ;; 5) ablation5 ;; 6) ablation6 ;; 7) ablation7 ;;
-  all) ablation1; ablation3; ablation4; ablation2; ablation5; ablation6; ablation7 ;;
-  *) echo "usage: run_ablations.sh <1|2|3|4|5|6|7|all> [reps]"; exit 1 ;;
+  1) ablation1 ;; 3) ablation3 ;;
+  4) ablation4 ;; 5) ablation5 ;;
+  all) ablation1; ablation3; ablation4; ablation5 ;;
+  *) echo "usage: run_ablations.sh <1|3|4|5|all> [reps]"; exit 1 ;;
 esac
 echo "ABLATION_${WHICH}_DONE results in $RES"

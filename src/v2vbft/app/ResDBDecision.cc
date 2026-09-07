@@ -1,5 +1,6 @@
 #include "v2vbft/app/ResDBIntersectionApp.h"
 #include "v2vbft/app/ResDBUtil.h"
+#include "veins/modules/mobility/traci/TraCIScenarioManager.h"
 #include "v2vbft/app/ResdbV2VWire.h"
 
 // The one definition of which vehicles may cross together, shared with the
@@ -142,7 +143,7 @@ void ResDBIntersectionApp::proposeAll()
         const int rid = extractReplicaId(kv.first);
         const bool eligible = rollbackOrderEpoch
             ? shouldIncludeInRollbackMembership(rid)
-            : (rid >= 0 && (rid < ctx_.total_vehicles_ || kv.second.isAmbulance));
+            : (rid >= 0 && (isNormalRoundVehicle(rid) || (next_round_members_.empty() && kv.second.isAmbulance)));
         if (!eligible) {
             std::cout << "[PROPOSE-PACK] r" << ctx_.replicaId_
                       << " skip regular late/static-external cert rid=" << rid
@@ -242,7 +243,7 @@ void ResDBIntersectionApp::proposeAll()
     } else {
         for (const auto& kv : candidate.vehicleStates) {
             const int rid = extractReplicaId(kv.first);
-            if (rid >= 0 && (rid < ctx_.total_vehicles_ || kv.second.isAmbulance))
+            if (rid >= 0 && (isNormalRoundVehicle(rid) || (next_round_members_.empty() && kv.second.isAmbulance)))
                 appendQuiet(rid, &kv.second);
         }
     }
@@ -984,6 +985,11 @@ void ResDBIntersectionApp::processOrders()
                  << " stop_to_decision(sim)="
                  << (stop_dec >= 0.0 ? std::to_string(stop_dec) + "s" : "N/A") << '\n';
             std::cout << line.str() << std::flush;
+        }
+
+        if (ohdr.epoch == 0) {
+            if (auto* manager = veins::TraCIScenarioManagerAccess().get())
+                manager->notifyR0OrderDecided("veh" + std::to_string(ctx_.replicaId_));
         }
 
         // Cancel safety timers now that consensus delivered.
