@@ -194,6 +194,7 @@ TWO_LANE_SCALE_CONFIGS = {
     32: "ThirtyTwoVehiclesTwoLaneScaleResDB",
 }
 TWO_LANE_SCALE_NS = (4, 8, 16, 20, 32)
+TWO_LANE_SCALE_PAPER_NS = (4, 8, 16, 20)
 TWO_LANE_TARGET = 0
 TWO_LANE_VALIDATION_SEED = 26081502
 TWO_LANE_VALIDATION_CELLS: Tuple[Dict[str, Any], ...] = (
@@ -3489,7 +3490,9 @@ def _two_lane_grid_metadata(row: Dict[str, Any]) -> Dict[str, Any]:
         "simulation_seed": _adjacent_grid_seed(int(row["rep"])),
         "paired_seed_policy": "same repetition uses same seed across parameter cells",
         "attack_kind": attack_kind,
-        "evidence_colluder_ids": grid.nested_colluders(b),
+        "evidence_colluder_ids": grid.nested_colluders(
+            b, target=int(row.get("attack_target", grid.TARGET))
+        ),
         "colluder_policy": "nested_ascending_replica_ids",
         "lane_observation_mode": "ADJACENT_LATERAL",
         "config": str(row.get("config") or (
@@ -3539,7 +3542,10 @@ def _two_lane_grid_metadata(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _run_two_lane_grid_cell(
-    args: argparse.Namespace, row: Dict[str, Any], run_dir_override: Path | None = None
+    args: argparse.Namespace,
+    row: Dict[str, Any],
+    run_dir_override: Path | None = None,
+    force_recompute: bool = False,
 ) -> Path:
     from fourway import adjacent_lane_grid as grid
 
@@ -3549,7 +3555,10 @@ def _run_two_lane_grid_cell(
     json_path = run_dir / f"{grid.N}veh_{int(row['rep'])}.json"
     raw_log = run_dir / "raw_simulation.log"
 
-    if metadata_path.is_file() and json_path.is_file() and raw_log.is_file():
+    if (
+        not force_recompute and
+        metadata_path.is_file() and json_path.is_file() and raw_log.is_file()
+    ):
         existing = json.loads(metadata_path.read_text())
         if existing != metadata:
             raise ValueError(f"refusing mismatched resume artifact: {run_dir}")
@@ -3564,7 +3573,8 @@ def _run_two_lane_grid_cell(
     run_dir.mkdir(parents=True, exist_ok=True)
     metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
     b = int(row["b"])
-    colluders = grid.nested_colluders(b)
+    attack_target = int(row.get("attack_target", grid.TARGET))
+    colluders = grid.nested_colluders(b, target=attack_target)
     active_config = str(metadata["config"])
     argv = [
         str(RUN_SCRIPT),
@@ -3593,7 +3603,7 @@ def _run_two_lane_grid_cell(
         ),
         "--simulation-seed", str(metadata["simulation_seed"]),
         "--phase2-attack-kind", metadata["attack_kind"],
-        "--phase2-attack-target", str(grid.TARGET),
+        "--phase2-attack-target", str(attack_target),
         "--phase2-evidence-colluders", ",".join(str(value) for value in colluders),
         "--phase2-actual-b", str(b),
         "--phase2-lateral-claim-offset", str(metadata["signed_lateral_claim_offset_m"]),
@@ -3629,6 +3639,39 @@ def _run_two_lane_grid_cell(
     ):
         _compact_direction_analyzer_json(json_path)
     return run_dir
+
+
+def _existing_two_lane_grid_cell_result(
+    row: Dict[str, Any], run_dir: Path
+) -> Dict[str, Any] | None:
+    """Return a passing existing cell, or ``None`` when it must be rerun.
+
+    A complete artifact is not necessarily a valid artifact: the interrupted
+    final sweep can leave metadata and simulator outputs behind, and a prior
+    completed run can fail the physical-consequence checks.  Reuse therefore
+    requires exact metadata, parseable analyzer output, a nonempty raw log,
+    and a passing analysis result.
+    """
+    from fourway import adjacent_lane_grid as grid
+
+    metadata_path = run_dir / "two_lane_grid_run_metadata.json"
+    json_path = run_dir / f"{grid.N}veh_{int(row['rep'])}.json"
+    raw_log = run_dir / "raw_simulation.log"
+    if not all(path.is_file() and path.stat().st_size > 0
+               for path in (metadata_path, json_path, raw_log)):
+        return None
+    try:
+        if json.loads(metadata_path.read_text()) != _two_lane_grid_metadata(row):
+            return None
+        records = json.loads(json_path.read_text())
+        if not isinstance(records, list) or not records:
+            return None
+        result = _analyze_two_lane_grid_cell(row, run_dir)
+        if not result["passed"]:
+            return None
+        return result
+    except (OSError, ValueError, KeyError, json.JSONDecodeError):
+        return None
 
 
 def _compact_direction_analyzer_json(json_path: Path) -> None:
@@ -4562,6 +4605,7 @@ def run_two_lane_direction_ablation(
             "arm_b_full": "Phase2DirectionAblationArmBPerfectCueFull",
             "arm_c_smoke": "Phase2DirectionAblationArmCCueSweep",
             "arm_c_full": "Phase2DirectionAblationArmCCueSweepFull",
+            "arm_c_extension": "Phase2DirectionAblationArmCCueSweepExtension",
         }[profile]
         maneuver_mix = dict(grid.STRAIGHT_HEAVY_MANEUVER_MIX)
         stem = {
@@ -4572,10 +4616,15 @@ def run_two_lane_direction_ablation(
             "arm_b_full": "direction_ablation_arm_b_perfect_cue_full",
             "arm_c_smoke": "direction_ablation_arm_c_cue_sweep",
             "arm_c_full": "direction_ablation_arm_c_cue_sweep_full",
+            "arm_c_extension": "direction_ablation_arm_c_cue_sweep_extension",
         }[profile]
         if arm_c:
+            arm_c_errors = (
+                grid.ARM_C_EXTENSION_SIGNAL_ERRORS
+                if profile == "arm_c_extension" else grid.ARM_C_SIGNAL_ERRORS
+            )
             signal_error_label = (
-                "[" + ", ".join(f"{eps:g}" for eps in grid.ARM_C_SIGNAL_ERRORS) + "]"
+                "[" + ", ".join(f"{eps:g}" for eps in arm_c_errors) + "]"
             )
         elif arm_b:
             signal_error_label = f"{grid.ARM_B_SIGNAL_ERROR:g}"
@@ -4629,7 +4678,10 @@ def run_two_lane_direction_ablation(
         "operating_point": {
             "sigma_lat_m": 0.5, "sigma_long_m": 1.0,
             "signal_error": (
-                list(grid.ARM_C_SIGNAL_ERRORS) if arm_c else
+                list(
+                    grid.ARM_C_EXTENSION_SIGNAL_ERRORS
+                    if profile == "arm_c_extension" else grid.ARM_C_SIGNAL_ERRORS
+                ) if arm_c else
                 (grid.ARM_B_SIGNAL_ERROR if arm_b else 0.2)
             ),
             "physical_gate_k": 2.0,
@@ -4698,7 +4750,10 @@ def run_two_lane_direction_ablation(
             break
 
     aggregates = _aggregate_direction_ablation(results)
-    curve_checks = _arm_c_curve_pass(aggregates) if arm_c else {}
+    curve_checks = (
+        {} if profile == "arm_c_extension" else
+        _arm_c_curve_pass(aggregates) if arm_c else {}
+    )
     overall = (
         len(results) == len(rows) and
         all(row.get("passed") for row in results) and
@@ -4868,6 +4923,37 @@ def _two_lane_scale_adversarial_smoke_rows() -> List[Dict[str, Any]]:
 
 def _two_lane_scale_adversarial_full_rows() -> List[Dict[str, Any]]:
     return _two_lane_scale_adversarial_rows("full")
+
+
+def _two_lane_scale_shoulder_extension_row(n: int, rep: int) -> Dict[str, Any]:
+    """Build one post-full shoulder cell without extending the N=32 suite."""
+    template = next(
+        row for row in _two_lane_scale_adversarial_full_rows()
+        if int(row["n"]) == int(n) and row["role"] == "shoulder_bf"
+    )
+    return {**template, "rep": int(rep)}
+
+
+def _two_lane_scale_adversarial_artifact_complete(row: Dict[str, Any]) -> bool:
+    run_dir = _two_lane_scale_adversarial_run_dir(row)
+    return all((run_dir / name).is_file() for name in (
+        "two_lane_scale_adversarial_run_metadata.json",
+        f"{int(row['n'])}veh_{int(row['rep'])}.json",
+        "raw_simulation.log",
+    ))
+
+
+def _next_two_lane_scale_shoulder_rep() -> int:
+    """Return the first extension repetition not complete at every paper scale."""
+    rep = TWO_LANE_SCALE_ADVERSARIAL_FULL_REPS
+    while all(
+        _two_lane_scale_adversarial_artifact_complete(
+            _two_lane_scale_shoulder_extension_row(n, rep)
+        )
+        for n in TWO_LANE_SCALE_PAPER_NS
+    ):
+        rep += 1
+    return rep
 
 
 def _two_lane_scale_run_dir(row: Dict[str, Any]) -> Path:
@@ -6050,6 +6136,212 @@ def run_two_lane_scale_adversarial_full(args: argparse.Namespace) -> int:
     print(f"Aggregates: {aggregate_path}")
     print(f"Results: {results_path}")
     return 0 if overall else 1
+
+
+def _reanalyze_two_lane_scale_paper_matrix() -> List[Dict[str, Any]]:
+    """Rebuild N=4--20 results, including every completed shoulder extension."""
+    results: List[Dict[str, Any]] = []
+
+    honest_by_cell = {
+        (int(row["n"]), int(row["rep"])): row
+        for row in _two_lane_scale_rows("full")
+        if int(row["n"]) in TWO_LANE_SCALE_PAPER_NS
+    }
+    for n in TWO_LANE_SCALE_PAPER_NS:
+        for rep in range(TWO_LANE_SCALE_HONEST_REPS):
+            base = honest_by_cell[(n, rep)]
+            run_dir = _two_lane_scale_run_dir(base)
+            required = (
+                run_dir / "two_lane_scale_run_metadata.json",
+                run_dir / f"{n}veh_{rep}.json",
+                run_dir / "raw_simulation.log",
+            )
+            if not all(path.is_file() for path in required):
+                raise FileNotFoundError(
+                    f"missing completed honest scale artifact required for reuse: {run_dir}"
+                )
+            row = {
+                **base,
+                "role": "honest",
+                "profile": "adversarial_full",
+                **TWO_LANE_SCALE_OPERATING_POINT,
+                "effective_delta_m": 0.0,
+            }
+            result = _analyze_two_lane_scale_adversarial_cell(row, run_dir)
+            result["artifact_policy"] = "REUSED_COMPLETED_HONEST_FULL"
+            results.append(result)
+
+    for n in TWO_LANE_SCALE_PAPER_NS:
+        for rep in range(TWO_LANE_SCALE_ADVERSARIAL_FULL_REPS):
+            cliff = {
+                **_two_lane_scale_shoulder_extension_row(n, rep),
+                "role": "cliff_bf1",
+                "b": bft_f(n) + 1,
+            }
+            run_dir = _two_lane_scale_adversarial_run_dir(cliff)
+            if not _two_lane_scale_adversarial_artifact_complete(cliff):
+                raise FileNotFoundError(
+                    f"missing completed cliff scale artifact required for reuse: {run_dir}"
+                )
+            results.append(_analyze_two_lane_scale_adversarial_cell(cliff, run_dir))
+
+        shoulder_root = (
+            REPO_ROOT / "benchmarks" / "Phase2TwoLaneScaleAdversarialFull" /
+            f"N{n}" / "shoulder_bf"
+        )
+        rep_ids = sorted(
+            int(path.name.removeprefix("run_"))
+            for path in shoulder_root.glob("run_*")
+            if path.name.removeprefix("run_").isdigit()
+        )
+        for rep in rep_ids:
+            shoulder = _two_lane_scale_shoulder_extension_row(n, rep)
+            if not _two_lane_scale_adversarial_artifact_complete(shoulder):
+                continue
+            run_dir = _two_lane_scale_adversarial_run_dir(shoulder)
+            results.append(_analyze_two_lane_scale_adversarial_cell(shoulder, run_dir))
+
+    return sorted(
+        results,
+        key=lambda row: (int(row["n"]), int(row["rep"]), str(row["role"])),
+    )
+
+
+def run_two_lane_scale_shoulder_extension(args: argparse.Namespace) -> int:
+    """Add the next shoulder repetitions at N=4--20 and refresh aggregates."""
+    additional = int(args.additional_repetitions)
+    start_rep = _next_two_lane_scale_shoulder_rep()
+    rep_ids = range(start_rep, start_rep + additional)
+    rows = [
+        _two_lane_scale_shoulder_extension_row(n, rep)
+        for n in TWO_LANE_SCALE_PAPER_NS
+        for rep in rep_ids
+    ]
+    output_dir = REPO_ROOT / "benchmarks" / "Phase2TwoLaneScaleAdversarialFull"
+
+    if args.dry_run:
+        print(
+            "[dry-run] two-lane shoulder extension: "
+            f"N={TWO_LANE_SCALE_PAPER_NS}, reps={start_rep}--{start_rep + additional - 1}, "
+            f"cells={len(rows)}"
+        )
+        for row in rows:
+            status = (
+                "reuse" if _two_lane_scale_adversarial_artifact_complete(row)
+                else "run"
+            )
+            print(
+                f"[dry-run] {status} N={row['n']} rep={row['rep']} "
+                f"seed={_two_lane_scale_adversarial_metadata(row)['simulation_seed']} "
+                f"result_dir={_two_lane_scale_adversarial_run_dir(row)}"
+            )
+        return 0
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = output_dir / "two_lane_scale_shoulder_extension_manifest.json"
+    manifest_path.write_text(json.dumps({
+        "checkpoint": "P8-two-lane-multiscale-shoulder-extension",
+        "profile": "shoulder_extension",
+        "execution": "strictly sequential",
+        "n_values": list(TWO_LANE_SCALE_PAPER_NS),
+        "role": "shoulder_bf",
+        "additional_repetitions": additional,
+        "start_rep": start_rep,
+        "end_rep": start_rep + additional - 1,
+        "operating_point": TWO_LANE_SCALE_OPERATING_POINT,
+        "rows": [_two_lane_scale_adversarial_metadata(row) for row in rows],
+    }, indent=2, sort_keys=True) + "\n")
+
+    extension_results: List[Dict[str, Any]] = []
+    current_n: int | None = None
+    for index, row in enumerate(rows, 1):
+        print(
+            f"\n--- Shoulder extension {index}/{len(rows)}: "
+            f"N={row['n']} rep={row['rep']} b={row['b']} ---"
+        )
+        try:
+            if not _two_lane_scale_adversarial_artifact_complete(row):
+                if current_n != int(row["n"]):
+                    run_key_generation(dry_run=False, scale=int(row["n"]))
+                    current_n = int(row["n"])
+                clear_stale_random_ini()
+            run_dir = _run_two_lane_scale_adversarial_cell(row)
+            result = _analyze_two_lane_scale_adversarial_cell(row, run_dir)
+            extension_results.append(result)
+            print(
+                f"[{'PASS' if result['passed'] else 'FAIL'}] "
+                f"false_cert={result['false_lane_certificate']} "
+                f"cooccupancy={result['target_pair_conflicting_cooccupancy']}"
+            )
+        except (subprocess.CalledProcessError, OSError, ValueError, KeyError) as exc:
+            extension_results.append({**row, "passed": False, "error": str(exc)})
+            print(
+                f"[FAIL] N={row['n']} rep={row['rep']}: {exc}",
+                file=sys.stderr,
+            )
+            break
+
+    completed = (
+        len(extension_results) == len(rows) and
+        all(row.get("passed") for row in extension_results)
+    )
+    combined_results: List[Dict[str, Any]] = []
+    aggregates: List[Dict[str, Any]] = []
+    if completed:
+        combined_results = _reanalyze_two_lane_scale_paper_matrix()
+        aggregates = _aggregate_two_lane_scale_adversarial(combined_results)
+
+        aggregate_path = output_dir / "two_lane_scale_adversarial_full_aggregates.csv"
+        with aggregate_path.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(aggregates[0]))
+            writer.writeheader()
+            writer.writerows(aggregates)
+
+        result_fields = [
+            "n", "f", "role", "b", "rep", "false_lane_certificate",
+            "target_direction_authorized", "target_cobatched",
+            "target_pair_conflicting_cooccupancy", "physical_chain_classification",
+            "b_sig_attempt", "b_sig_cert", "h_lane", "honest_lane_accepts",
+            "q0_lane_empirical_run", "q0_lane_model", "required_honest_support",
+            "binomial_tail_prediction", "throughput_veh_per_min", "mean_wait_s",
+            "p95_wait_s", "cert_latency_mean_ms", "cert_latency_p95_ms",
+            "mean_batch_size", "quiet_count", "signed_unknown_count",
+            "left_table_forced_singleton_count", "sumo_collision_vehicle_count",
+            "passed", "result_dir",
+        ]
+        results_path = output_dir / "two_lane_scale_adversarial_full_results.csv"
+        with results_path.open("w", newline="") as handle:
+            writer = csv.DictWriter(
+                handle, fieldnames=result_fields, extrasaction="ignore"
+            )
+            writer.writeheader()
+            writer.writerows(combined_results)
+
+    summary_path = output_dir / "two_lane_scale_shoulder_extension_summary.json"
+    summary_path.write_text(json.dumps({
+        "checkpoint": "P8-two-lane-multiscale-shoulder-extension",
+        "passed": completed,
+        "n_values": list(TWO_LANE_SCALE_PAPER_NS),
+        "role": "shoulder_bf",
+        "start_rep": start_rep,
+        "end_rep": start_rep + additional - 1,
+        "planned": len(rows),
+        "completed": len(extension_results),
+        "aggregates": aggregates,
+        "extension_results": extension_results,
+    }, indent=2, sort_keys=True) + "\n")
+
+    print("\n========== TWO-LANE SHOULDER EXTENSION ==========")
+    print(f"Repetitions: {start_rep}--{start_rep + additional - 1}")
+    print(f"Completed: {len(extension_results)}/{len(rows)}")
+    print(f"Overall: {'PASS' if completed else 'FAIL'}")
+    print(f"Summary: {summary_path}")
+    if completed:
+        print(
+            "Aggregates: "
+            f"{output_dir / 'two_lane_scale_adversarial_full_aggregates.csv'}"
+        )
+    return 0 if completed else 1
 
 
 def run_attack_defense_equivocation_validation(args: argparse.Namespace) -> int:
@@ -7641,9 +7933,20 @@ def run_two_lane_parameter_sweep(
         print(f"\n--- Two-lane {sweep_name} {index}/{len(manifest)} {row} ---")
         run_dir = grid.parameter_sweep_run_dir(REPO_ROOT, row, sweep)
         try:
-            clear_stale_random_ini()
-            run_dir = _run_two_lane_grid_cell(args, row, run_dir_override=run_dir)
-            result = _analyze_two_lane_grid_cell(row, run_dir)
+            result = _existing_two_lane_grid_cell_result(row, run_dir)
+            if result is not None:
+                result["reused_existing_artifact"] = True
+                print(f"[REUSE] passing artifact {run_dir}")
+            else:
+                clear_stale_random_ini()
+                run_dir = _run_two_lane_grid_cell(
+                    args,
+                    row,
+                    run_dir_override=run_dir,
+                    force_recompute=True,
+                )
+                result = _analyze_two_lane_grid_cell(row, run_dir)
+                result["reused_existing_artifact"] = False
             _check_parameter_sweep_anchor(row, result)
             results.append(result)
             if not result["passed"]:
@@ -9312,6 +9615,15 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         ),
     )
     p.add_argument(
+        "--two-lane-direction-arm-c-extension",
+        action="store_true",
+        help=(
+            "Run only the honest eligibility-on Arm C extension at "
+            "signalObservationError={0.4,0.5}, 10 paired repetitions per "
+            "cell (20 runs), in a separate output directory."
+        ),
+    )
+    p.add_argument(
         "--two-lane-scale-smoke",
         action="store_true",
         help=(
@@ -9342,6 +9654,24 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help=(
             "Run 200 new paired attack cells at N=4,8,16,20,32 for b=f and "
             "b=f+1, 20 repetitions each, and reuse the completed 100 honest runs."
+        ),
+    )
+    p.add_argument(
+        "--two-lane-scale-shoulder-extension",
+        action="store_true",
+        help=(
+            "Run the next shoulder-only repetitions at N=4,8,16,20, resume "
+            "partial cells, and refresh the combined adversarial-scale aggregates."
+        ),
+    )
+    p.add_argument(
+        "--additional-repetitions",
+        type=int,
+        default=5,
+        metavar="COUNT",
+        help=(
+            "Number of new repetition indices allocated by "
+            "--two-lane-scale-shoulder-extension (default: 5)."
         ),
     )
     p.add_argument(
@@ -9599,10 +9929,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         or args.two_lane_direction_arm_b_full
         or args.two_lane_direction_arm_c
         or args.two_lane_direction_arm_c_full
+        or args.two_lane_direction_arm_c_extension
         or args.two_lane_scale_smoke
         or args.two_lane_scale_honest_full
         or args.two_lane_scale_adversarial_smoke
         or args.two_lane_scale_adversarial_full
+        or args.two_lane_scale_shoulder_extension
         or args.attack_defense_equivocation_validation
         or args.attack_defense_leader_validation
         or args.attack_defense_gossip_validation
@@ -9633,6 +9965,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if repetitions <= 0:
         print("ERROR: --reps must be >= 1.", file=sys.stderr)
         return 2
+    if args.additional_repetitions <= 0:
+        print("ERROR: --additional-repetitions must be >= 1.", file=sys.stderr)
+        return 2
     if not 0.0 <= args.signal_error <= 1.0:
         print("ERROR: --signal-error must be in [0,1].", file=sys.stderr)
         return 2
@@ -9660,10 +9995,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                  args.two_lane_direction_arm_b_full or
                  args.two_lane_direction_arm_c or
                  args.two_lane_direction_arm_c_full or
+                 args.two_lane_direction_arm_c_extension or
                  args.two_lane_scale_smoke or
                  args.two_lane_scale_honest_full or
                  args.two_lane_scale_adversarial_smoke or
                  args.two_lane_scale_adversarial_full or
+                 args.two_lane_scale_shoulder_extension or
                  args.attack_defense_equivocation_validation or
                  args.attack_defense_leader_validation or
                  args.attack_defense_gossip_validation or
@@ -9762,10 +10099,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.two_lane_direction_arm_b_full,
         args.two_lane_direction_arm_c,
         args.two_lane_direction_arm_c_full,
+        args.two_lane_direction_arm_c_extension,
         args.two_lane_scale_smoke,
         args.two_lane_scale_honest_full,
         args.two_lane_scale_adversarial_smoke,
         args.two_lane_scale_adversarial_full,
+        args.two_lane_scale_shoulder_extension,
         args.attack_defense_equivocation_validation,
         args.attack_defense_leader_validation,
         args.attack_defense_gossip_validation,
@@ -9904,6 +10243,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.two_lane_direction_arm_b_full or
             args.two_lane_direction_arm_c or
             args.two_lane_direction_arm_c_full
+            or args.two_lane_direction_arm_c_extension
         ):
             if (
                 args.two_lane_direction_straight_heavy_prerequisite or
@@ -9913,6 +10253,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.two_lane_direction_arm_b_full or
                 args.two_lane_direction_arm_c or
                 args.two_lane_direction_arm_c_full
+                or args.two_lane_direction_arm_c_extension
             ):
                 fixture_summary = (
                     FOURWAY_DIR / "two_lane_calibration" / "results" /
@@ -9996,7 +10337,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     else "arm_b_smoke",
                     "straight_heavy",
                 )
-            if args.two_lane_direction_arm_c or args.two_lane_direction_arm_c_full:
+            if (
+                args.two_lane_direction_arm_c or
+                args.two_lane_direction_arm_c_full or
+                args.two_lane_direction_arm_c_extension
+            ):
                 if args.two_lane_direction_arm_c_full:
                     arm_c_smoke = (
                         REPO_ROOT / "benchmarks" /
@@ -10013,7 +10358,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         return 2
                 return run_two_lane_direction_ablation(
                     args,
-                    "arm_c_full" if args.two_lane_direction_arm_c_full
+                    "arm_c_extension" if args.two_lane_direction_arm_c_extension
+                    else "arm_c_full" if args.two_lane_direction_arm_c_full
                     else "arm_c_smoke",
                     "straight_heavy",
                 )
@@ -10040,7 +10386,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.two_lane_scale_smoke or
             args.two_lane_scale_honest_full or
             args.two_lane_scale_adversarial_smoke or
-            args.two_lane_scale_adversarial_full
+            args.two_lane_scale_adversarial_full or
+            args.two_lane_scale_shoulder_extension
         ):
             fixture_prerequisite = (
                 FOURWAY_DIR / "two_lane_calibration" / "results" /
@@ -10055,6 +10402,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return 2
             if args.two_lane_scale_adversarial_smoke:
                 return run_two_lane_scale_adversarial_smoke(args)
+            if args.two_lane_scale_shoulder_extension:
+                return run_two_lane_scale_shoulder_extension(args)
             if args.two_lane_scale_adversarial_full:
                 smoke_summary = (
                     REPO_ROOT / "benchmarks" /
