@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the N=4/8/16/20 mixed two-lane fixtures before OMNeT smokes."""
+"""Validate the N=4/8/16/20/32 mixed two-lane fixtures before OMNeT smokes."""
 
 from __future__ import annotations
 
