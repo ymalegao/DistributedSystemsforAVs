@@ -43,17 +43,19 @@ from . import (
     ab3_vehicle_latency,
     ab5_rollback,
     an_cost_decomposition,
+    an_raft_vs_bft,
 )
 
-# Five figure types x two lane arms = ten figures. See _lanes.py for why the arms
-# are never drawn on shared axes.
+# Five figure types x two lane arms = ten figures, plus one cross-protocol
+# comparison that only has 1-lane data. See _lanes.py for why the arms are
+# never drawn on shared axes.
 FIGURE_MODULES = _lanes.expand(
     ab1_rsu,
     ab3_baseline,
     ab3_vehicle_latency,
     ab5_rollback,
     an_cost_decomposition,
-)
+) + (an_raft_vs_bft,)
 
 NAME_PATTERN = re.compile(r"^(ab[1-9]\d*|an)_[a-z0-9]+(_[a-z0-9]+)*$")
 
