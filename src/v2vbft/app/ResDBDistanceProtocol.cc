@@ -206,7 +206,12 @@ bool ResDBIntersectionApp::validateStoppedDistanceEchoForRelay(
     const StoppedDistanceEcho& echo) const
 {
     const int target = extractReplicaId(echo.targetCarId);
-    if (target < 0 || target >= total_vehicles_ ||
+    // Recovery may admit a late identity just beyond the original
+    // totalVehicles electorate.  Its signed arrival/attestation is already
+    // bound to the process-wide witness-key registry, so use that same
+    // authenticated identity universe here instead of rejecting it solely
+    // because it was absent from epoch 0.
+    if (target < 0 || !WitnessKeyRegistry::instance().known(target) ||
             echo.epoch != static_cast<int>(current_epoch_) ||
             !isArrivalSignerEligible(echo.echoingReplicaId) ||
             echo.signatureLen == 0 ||

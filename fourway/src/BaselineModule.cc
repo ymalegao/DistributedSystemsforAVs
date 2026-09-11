@@ -137,8 +137,8 @@ void BaselineModule::handlePositionUpdate(cObject* obj)
     }
 
     if (ambulanceReplicaId >= 0 && replicaId == ambulanceReplicaId && !ambulanceColorSet && mobility->getVehicleCommandInterface()) {
-        std::cout << "[AMBULANCE COLOR] r" << replicaId << " setting color to red\n";
-        mobility->getVehicleCommandInterface()->setColor(TraCIColor(255, 0, 0, 255));
+        std::cout << "[AMBULANCE COLOR] r" << replicaId << " setting color to green\n";
+        mobility->getVehicleCommandInterface()->setColor(TraCIColor(0, 255, 0, 255));
         ambulanceColorSet = true;
     }
 

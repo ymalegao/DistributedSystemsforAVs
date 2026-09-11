@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Exploratory analysis for E4 direction-eligibility ablation (FP / FN proxy).
+"""Exploratory analysis for E4 direction-eligibility ablation (FP / FN).
 
 Loads the curated direction-ablation aggregates and prints per-mode breakdowns
-for false-eligibility (FP) and signed-unknown singleton share (FN proxy).
+for false-eligibility (FP) and signed-unknown singleton share (FN).
 
 IEEE/ICRA sizing belongs in fourway/plot_icra_camera_ready.py — not here.
 
@@ -30,7 +30,7 @@ def main() -> int:
     attacked = [r for r in rows if r.get("attack_kind") == "FALSE_DIRECTION"]
 
     print("E4 direction ablation — FALSE_DIRECTION (b=5)\n")
-    print(f"{'mode':<18} {'FP elig.':>10} {'FN proxy':>10} {'unsafe':>8} {'thruput':>10}")
+    print(f"{'mode':<18} {'FP elig.':>10} {'FN':>10} {'unsafe':>8} {'thruput':>10}")
     for row in attacked:
         mode = row["ablation_mode"]
         fp = float(row["false_eligibility_rate"])
@@ -39,7 +39,7 @@ def main() -> int:
         thr = float(row["mean_throughput_veh_per_min"])
         print(f"{mode:<18} {fp:10.3f} {fn:10.3f} {unsafe:8.3f} {thr:10.2f}")
 
-    print("\nRecommendation: grouped FP/FN bars per ablation mode (attack runs only);")
+    print("\nRecommendation: grouped FP/FN points per ablation mode (attack runs only);")
     print("keep unsafe / throughput / wait as companion panels.")
 
     if SUMMARY.is_file():

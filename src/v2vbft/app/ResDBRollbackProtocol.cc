@@ -1521,7 +1521,14 @@ void ResDBIntersectionApp::beginPostCancelDiscovery(
     // epoch's discovery membership.  Refresh the physical eligibility at the
     // common post-commit transition so direct committers and gossip adopters
     // enter rollback discovery with identical local state.
-    rollback_local_recallable_ = isRecallable();
+    // Direct CANCEL participants already evaluated recallability and may have
+    // cancelled their prior-batch poll before this common post-commit path.
+    // Preserve that positive decision: re-evaluating immediately can observe
+    // residual braking motion, flip true to false, and permanently omit a
+    // vehicle that was safely halted for recovery. Gossip-only adopters still
+    // start from false and take the fresh physical check below.
+    rollback_local_recallable_ =
+        rollback_local_recallable_ || isRecallable();
     if (rollback_local_recallable_ &&
             current_phase_ != ConsensusPhase::DEPARTED) {
         if (resume_msg_ && resume_msg_->isScheduled()) cancelEvent(resume_msg_);

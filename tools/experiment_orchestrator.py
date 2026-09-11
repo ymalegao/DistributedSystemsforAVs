@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import csv
 from collections import Counter, defaultdict
+import fcntl
 import hashlib
 import json
 import math
@@ -61,6 +62,8 @@ FOURWAY_DIR = REPO_ROOT / "fourway"
 CONFIG_DIR = FOURWAY_DIR / "resdb_crypto"
 RUN_SCRIPT = REPO_ROOT / "fourway" / "run-resdb-simulation.sh"
 LOG_FILE = Path("/tmp/resdb-simulation.log")
+ORCHESTRATOR_LOCK_FILE = Path("/tmp/v2v-experiment-orchestrator.lock")
+_ORCHESTRATOR_LOCK_HANDLE: Any = None
 
 HOST_LINE = re.compile(r"^(\s*#?\s*)(\d+)(\s+127\.0\.0\.1\s+\d+\s+\d+)\s*$")
 
@@ -216,6 +219,35 @@ TWO_LANE_VALIDATION_CELLS: Tuple[Dict[str, Any], ...] = (
 
 def bft_f(n: int) -> int:
     return (n - 1) // 3
+
+
+def _acquire_orchestrator_lock() -> bool:
+    """Prevent concurrent suites from clobbering shared INI and log files."""
+    global _ORCHESTRATOR_LOCK_HANDLE
+    if _ORCHESTRATOR_LOCK_HANDLE is not None:
+        return True
+
+    handle = ORCHESTRATOR_LOCK_FILE.open("a+")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.seek(0)
+        owner = handle.read().strip() or "another experiment process"
+        handle.close()
+        print(
+            "ERROR: another experiment orchestrator is running "
+            f"({owner}). Wait for it to finish before starting this suite; "
+            "the simulations share generated INI overrides and /tmp logs.",
+            file=sys.stderr,
+        )
+        return False
+
+    handle.seek(0)
+    handle.truncate()
+    handle.write(f"pid={os.getpid()} cwd={REPO_ROOT}\n")
+    handle.flush()
+    _ORCHESTRATOR_LOCK_HANDLE = handle
+    return True
 
 
 def bft_quorum(n: int, f: int) -> int:
@@ -4228,11 +4260,18 @@ def _analyze_direction_ablation_cell(
     expected_singleton = bool(row["all_singleton_scheduling"])
     unsafe_pairs = metrics.get("unsafe_conflict_cooccupancy_pairs") or []
     cert_latency = metrics.get("cert_creation_latency_ms") or {}
+    # The attacked vehicle is whoever the row's attack_target names (Arm C
+    # retargets this per experiment); a hardcoded veh0/veh1 pair silently
+    # reclassifies a real target-caused conflict as "background" once the
+    # target moves, so key off row["attack_target"] instead.
+    attack_target_vehicle = f"veh{int(row.get('attack_target', 0))}"
     target_pair_conflict = any(
-        {str(pair.get("first")), str(pair.get("second"))} == {"veh0", "veh1"}
+        attack_target_vehicle in {str(pair.get("first")), str(pair.get("second"))}
         for pair in unsafe_pairs if isinstance(pair, dict)
     )
-    target_direction = (perception.get("direction_eligibility") or {}).get("veh0@0") or {}
+    target_direction = (perception.get("direction_eligibility") or {}).get(
+        f"{attack_target_vehicle}@0"
+    ) or {}
     batch_distribution = metrics.get("batch_index_distribution") or {}
     batch_vehicle_count = sum(int(value) for value in batch_distribution.values())
     singleton_vehicle_count = sum(
@@ -4606,6 +4645,9 @@ def run_two_lane_direction_ablation(
             "arm_c_smoke": "Phase2DirectionAblationArmCCueSweep",
             "arm_c_full": "Phase2DirectionAblationArmCCueSweepFull",
             "arm_c_extension": "Phase2DirectionAblationArmCCueSweepExtension",
+            "arm_c_honest_k085": (
+                "Phase2DirectionAblationArmCCueSweepK085Honest"
+            ),
         }[profile]
         maneuver_mix = dict(grid.STRAIGHT_HEAVY_MANEUVER_MIX)
         stem = {
@@ -4617,6 +4659,9 @@ def run_two_lane_direction_ablation(
             "arm_c_smoke": "direction_ablation_arm_c_cue_sweep",
             "arm_c_full": "direction_ablation_arm_c_cue_sweep_full",
             "arm_c_extension": "direction_ablation_arm_c_cue_sweep_extension",
+            "arm_c_honest_k085": (
+                "direction_ablation_arm_c_cue_sweep_k085_honest"
+            ),
         }[profile]
         if arm_c:
             arm_c_errors = (
@@ -4645,7 +4690,8 @@ def run_two_lane_direction_ablation(
             f"{len(rows)} sequential runs, maneuvers="
             f"{maneuver_mix['straight']}S/{maneuver_mix['left']}L/"
             f"{maneuver_mix['right']}R, "
-            f"sigma_lat=.5 sigma_long=1 signal_error={signal_error_label} k=2"
+            f"sigma_lat=.5 sigma_long=1 signal_error={signal_error_label} "
+            f"k={float(rows[0]['k']):g}"
             f"{' arm=B perfect-cue' if arm_b else ''}"
             f"{' arm=C cue-sweep' if arm_c else ''}"
         )
@@ -4684,7 +4730,7 @@ def run_two_lane_direction_ablation(
                 ) if arm_c else
                 (grid.ARM_B_SIGNAL_ERROR if arm_b else 0.2)
             ),
-            "physical_gate_k": 2.0,
+            "physical_gate_k": float(rows[0]["k"]),
         },
         "execution": "strictly sequential",
         "paired_seed_policy": (
@@ -4701,7 +4747,11 @@ def run_two_lane_direction_ablation(
             1 if profile in (
                 "prerequisite", "smoke", "arm_b_smoke", "arm_c_smoke",
             )
-            else (grid.ARM_C_REPS if arm_c else grid.DIRECTION_ABLATION_REPS)
+            else (
+                grid.COBATCH_SELECTION_REPS
+                if profile == "arm_c_honest_k085" else
+                grid.ARM_C_REPS if arm_c else grid.DIRECTION_ABLATION_REPS
+            )
         ),
         "rows": rows,
     }, indent=2, sort_keys=True) + "\n")
@@ -4750,10 +4800,17 @@ def run_two_lane_direction_ablation(
             break
 
     aggregates = _aggregate_direction_ablation(results)
-    curve_checks = (
-        {} if profile == "arm_c_extension" else
-        _arm_c_curve_pass(aggregates) if arm_c else {}
-    )
+    curve_checks = _arm_c_curve_pass(aggregates) if arm_c else {}
+    if profile == "arm_c_extension":
+        curve_checks = {}
+    elif profile == "arm_c_honest_k085":
+        curve_checks = {
+            name: passed for name, passed in curve_checks.items()
+            if name in {
+                "batch_falls_as_cues_worsen",
+                "unknown_rises_as_cues_worsen",
+            }
+        }
     overall = (
         len(results) == len(rows) and
         all(row.get("passed") for row in results) and
@@ -4943,14 +5000,16 @@ def _two_lane_scale_adversarial_artifact_complete(row: Dict[str, Any]) -> bool:
     ))
 
 
-def _next_two_lane_scale_shoulder_rep() -> int:
-    """Return the first extension repetition not complete at every paper scale."""
+def _next_two_lane_scale_shoulder_rep(
+    n_values: Sequence[int] = TWO_LANE_SCALE_PAPER_NS,
+) -> int:
+    """Return the first extension repetition incomplete at a selected scale."""
     rep = TWO_LANE_SCALE_ADVERSARIAL_FULL_REPS
     while all(
         _two_lane_scale_adversarial_artifact_complete(
             _two_lane_scale_shoulder_extension_row(n, rep)
         )
-        for n in TWO_LANE_SCALE_PAPER_NS
+        for n in n_values
     ):
         rep += 1
     return rep
@@ -6208,13 +6267,14 @@ def _reanalyze_two_lane_scale_paper_matrix() -> List[Dict[str, Any]]:
 
 
 def run_two_lane_scale_shoulder_extension(args: argparse.Namespace) -> int:
-    """Add the next shoulder repetitions at N=4--20 and refresh aggregates."""
+    """Add shoulder repetitions at selected paper scales and refresh aggregates."""
     additional = int(args.additional_repetitions)
-    start_rep = _next_two_lane_scale_shoulder_rep()
+    n_values = tuple(args.scale_n or TWO_LANE_SCALE_PAPER_NS)
+    start_rep = _next_two_lane_scale_shoulder_rep(n_values)
     rep_ids = range(start_rep, start_rep + additional)
     rows = [
         _two_lane_scale_shoulder_extension_row(n, rep)
-        for n in TWO_LANE_SCALE_PAPER_NS
+        for n in n_values
         for rep in rep_ids
     ]
     output_dir = REPO_ROOT / "benchmarks" / "Phase2TwoLaneScaleAdversarialFull"
@@ -6222,7 +6282,7 @@ def run_two_lane_scale_shoulder_extension(args: argparse.Namespace) -> int:
     if args.dry_run:
         print(
             "[dry-run] two-lane shoulder extension: "
-            f"N={TWO_LANE_SCALE_PAPER_NS}, reps={start_rep}--{start_rep + additional - 1}, "
+            f"N={n_values}, reps={start_rep}--{start_rep + additional - 1}, "
             f"cells={len(rows)}"
         )
         for row in rows:
@@ -6243,7 +6303,7 @@ def run_two_lane_scale_shoulder_extension(args: argparse.Namespace) -> int:
         "checkpoint": "P8-two-lane-multiscale-shoulder-extension",
         "profile": "shoulder_extension",
         "execution": "strictly sequential",
-        "n_values": list(TWO_LANE_SCALE_PAPER_NS),
+        "n_values": list(n_values),
         "role": "shoulder_bf",
         "additional_repetitions": additional,
         "start_rep": start_rep,
@@ -6318,17 +6378,39 @@ def run_two_lane_scale_shoulder_extension(args: argparse.Namespace) -> int:
             writer.writerows(combined_results)
 
     summary_path = output_dir / "two_lane_scale_shoulder_extension_summary.json"
+    prior_results: List[Dict[str, Any]] = []
+    if summary_path.is_file():
+        try:
+            prior_results = list(
+                json.loads(summary_path.read_text()).get("extension_results", [])
+            )
+        except (json.JSONDecodeError, OSError, TypeError):
+            prior_results = []
+    cumulative_by_cell = {
+        (int(row["n"]), int(row["rep"])): row
+        for row in prior_results
+        if "n" in row and "rep" in row
+    }
+    cumulative_by_cell.update({
+        (int(row["n"]), int(row["rep"])): row
+        for row in extension_results
+        if "n" in row and "rep" in row
+    })
+    cumulative_results = [
+        cumulative_by_cell[key] for key in sorted(cumulative_by_cell)
+    ]
     summary_path.write_text(json.dumps({
         "checkpoint": "P8-two-lane-multiscale-shoulder-extension",
         "passed": completed,
-        "n_values": list(TWO_LANE_SCALE_PAPER_NS),
+        "n_values": list(n_values),
         "role": "shoulder_bf",
         "start_rep": start_rep,
         "end_rep": start_rep + additional - 1,
         "planned": len(rows),
         "completed": len(extension_results),
         "aggregates": aggregates,
-        "extension_results": extension_results,
+        "batch_results": extension_results,
+        "extension_results": cumulative_results,
     }, indent=2, sort_keys=True) + "\n")
 
     print("\n========== TWO-LANE SHOULDER EXTENSION ==========")
@@ -7837,9 +7919,13 @@ def _parameter_sweep_sanity(
         row for row in results
         if "parameter_sweep_shared_anchor" in row.get("purposes", [])
     ]
-    anchor_identity = bool(anchor_results) and all(
-        row["checks"].get("anchor_parameter_identity")
-        for row in anchor_results
+    anchor_required = profile != "selection"
+    anchor_identity = (
+        bool(anchor_results) and all(
+            row["checks"].get("anchor_parameter_identity")
+            for row in anchor_results
+        )
+        if anchor_required else True
     )
     anchor_statistics = _anchor_statistical_comparison(aggregate, profile)
     # One-repetition smoke cells are for plumbing/accounting.  Their finite
@@ -7858,6 +7944,7 @@ def _parameter_sweep_sanity(
         "empirical_q0_monotonic_required": profile == "full",
         "empirical_q0_monotonic_pass": monotonic_pass,
         "throughput_and_wait_complete": throughput_complete,
+        "shared_anchor_required": anchor_required,
         "shared_anchor_parameter_identity": anchor_identity,
         "delta_b_anchor_statistical_comparison": anchor_statistics,
         "passed": all((
@@ -7907,8 +7994,16 @@ def run_two_lane_parameter_sweep(
         "sigma_lat_m": (
             grid.MAIN_SIGMA_M if sweep == "k" else list(grid.SIGMA_SWEEP_M)
         ),
-        "k": list(grid.K_SWEEP) if sweep == "k" else grid.MAIN_K,
-        "repetitions_per_cell": 1 if profile == "smoke" else grid.PARAMETER_SWEEP_REPS,
+        "k": (
+            list(grid.K_SELECTION_SWEEP) if profile == "selection"
+            else list(grid.K_SWEEP) if sweep == "k"
+            else grid.MAIN_K
+        ),
+        "repetitions_per_cell": (
+            grid.K_SELECTION_REPS if profile == "selection"
+            else 1 if profile == "smoke"
+            else grid.PARAMETER_SWEEP_REPS
+        ),
         "runs": manifest,
     }
     if args.dry_run:
@@ -8152,9 +8247,14 @@ def run_two_lane_honest_operating_sweep(
         "b": 0,
         "delta_m": 0.0,
         "sigma_lat_m": sorted({float(row["sigma_lat_m"]) for row in manifest}),
-        "k": list(grid.HONEST_K_SWEEP),
+        "k": (
+            list(grid.K_SELECTION_SWEEP) if profile == "selection"
+            else list(grid.HONEST_K_SWEEP)
+        ),
         "repetitions_per_cell": (
-            1 if profile == "smoke" else grid.HONEST_OPERATING_REPS
+            grid.K_SELECTION_REPS if profile == "selection"
+            else 1 if profile == "smoke"
+            else grid.HONEST_OPERATING_REPS
         ),
         "paired_seed_policy": "same repetition uses same seed across k and sigma cells",
         "purpose": (
@@ -8480,6 +8580,16 @@ def _first_cancel_commit_time(text: str, after: float | None = None) -> float | 
     return None
 
 
+def _first_rollback_commit_time(text: str) -> float | None:
+    """Return a complete rollback-commit timestamp, ignoring interleaved lines."""
+    match = re.search(
+        r"\[ROLLBACK-COMMIT\] r\d+ cancelled_epoch=\d+ "
+        r"new_epoch=\d+ t=([0-9]+(?:\.[0-9]+)?)",
+        text,
+    )
+    return float(match.group(1)) if match else None
+
+
 def _parse_e7_run(row: Dict[str, Any], run_dir: Path, rep: int) -> Dict[str, Any]:
     text = (run_dir / "raw_simulation.log").read_text(errors="replace")
     occupancy = {"true0_obs0": 0, "true0_obs1": 0,
@@ -8499,7 +8609,7 @@ def _parse_e7_run(row: Dict[str, Any], run_dir: Path, rep: int) -> Dict[str, Any
     )
     t_tow = _first_log_time(text, "[TOW]")
     t_clear = _first_log_time(text, "[CLEAR-CERT]")
-    t_recovery = _first_log_time(text, "[ROLLBACK-COMMIT]")
+    t_recovery = _first_rollback_commit_time(text)
     departure_times = [float(value) for value in re.findall(
         r"\[DEPARTED\] Replica \d+ cleared intersection t=([0-9]+(?:\.[0-9]+)?)", text
     )]
@@ -8815,6 +8925,7 @@ def run_rollback_recovery(args: argparse.Namespace, profile: str) -> int:
 E8_RESULT_ROOT = REPO_ROOT / "experiments" / "e8_emergency_priority" / "results"
 E8_EARLY_TARGET = 15
 E8_LATE_AMBULANCE = 16
+E8_LATE_SPAWN_DEPART_POS_M = 250.0
 
 
 def _e8_rows() -> List[Dict[str, Any]]:
@@ -8972,7 +9083,7 @@ def _e8_parse_run(row: Dict[str, Any], run_dir: Path, rep: int) -> Dict[str, Any
         )
         spawn_time = float(movement_match.group(1)) if movement_match else None
     cancel_time = _first_cancel_commit_time(text, after=spawn_time)
-    rollback_time = _first_log_time(text, "[ROLLBACK-COMMIT]")
+    rollback_time = _first_rollback_commit_time(text)
     cert_formed = f"[CERT-ASSEMBLE] target=veh{target}" in text
     late_emergency_witnesses: set[int] = set()
     for direct_witness, cancel_witness in re.findall(
@@ -9158,12 +9269,19 @@ def run_emergency_priority(args: argparse.Namespace, profile: str) -> int:
     """Evaluate initial-order priority and post-commit emergency preemption."""
     if profile not in ("smoke", "full"):
         raise ValueError(f"unsupported emergency-priority profile: {profile}")
+    byzantine_count = args.emergency_priority_byzantine_count
+    if not 0 <= byzantine_count <= bft_f(16):
+        raise ValueError(
+            f"emergency-priority Byzantine count must be in [0,{bft_f(16)}]"
+        )
     rows = _e8_rows()
     scope = args.emergency_priority_scope
     if scope == "predecision":
         rows = [row for row in rows if row["timing"] == "before_decision"]
     elif scope == "postdecision":
         rows = [row for row in rows if row["timing"] == "after_decision"]
+    elif scope == "postdecision_priority":
+        rows = [row for row in rows if row["name"] == "postdecision_ambulance_preemption"]
     repetitions = args.reps if args.reps is not None else (1 if profile == "smoke" else 20)
     total = repetitions * len(rows)
     root = E8_RESULT_ROOT / profile
@@ -9180,12 +9298,20 @@ def run_emergency_priority(args: argparse.Namespace, profile: str) -> int:
         for row in rows:
             index += 1
             run_dir = root / row["name"] / f"run_{rep}"
-            command = [str(RUN_SCRIPT)]
+            command = ["env", f"SCENARIO_RANDOM_SEED={seed}", str(RUN_SCRIPT)]
             if row["timing"] == "after_decision":
-                command += ["--rollback-late-emergency", str(FOURWAY_DIR)]
+                command += [
+                    "--randomize", "17", str(byzantine_count),
+                    "--no-ambulance", "--exclude-byzantine-ids", "16",
+                    "--rollback-late-emergency", str(FOURWAY_DIR),
+                ]
                 config = "EighteenVehiclesTwoLaneEmergencyResDB"
             else:
-                command += [str(FOURWAY_DIR)]
+                command += [
+                    "--randomize", "16", str(byzantine_count),
+                    "--no-ambulance", "--exclude-byzantine-ids", "15",
+                    str(FOURWAY_DIR),
+                ]
                 config = "SixteenVehiclesTwoLaneResDB"
             command += [
                 "--compact-log", "--channel-metrics-dir", str(run_dir.resolve()),
@@ -9225,6 +9351,8 @@ def run_emergency_priority(args: argparse.Namespace, profile: str) -> int:
                     '--*.manager.r0LateEmergencyVehicleId="veh16"',
                     '--*.manager.r0LateEmergencyType="ambulance"',
                     '--*.manager.r0LateEmergencyRoute="rE_T_straight"',
+                    f"--*.manager.r0LateSpawnDepartPos="
+                    f"{E8_LATE_SPAWN_DEPART_POS_M:g}m",
                     "--*.manager.intersectionBatchSize=17",
                     "--*.node[*].appl.ambulanceReplicaId=16",
                     '--*.node[16].appl.intendedLane="E"',
@@ -9258,8 +9386,13 @@ def run_emergency_priority(args: argparse.Namespace, profile: str) -> int:
                     "late_emergency_delta_sec": (
                         0.1 if row["timing"] == "after_decision" else None
                     ),
+                    "late_spawn_depart_pos_m": (
+                        E8_LATE_SPAWN_DEPART_POS_M
+                        if row["timing"] == "after_decision" else None
+                    ),
                 },
                 "execution": "strictly sequential",
+                "byzantine_count": byzantine_count,
             }, indent=2, sort_keys=True) + "\n")
             result = _e8_parse_run(row, run_dir, rep)
             results.append(result)
@@ -9303,6 +9436,7 @@ def run_emergency_priority(args: argparse.Namespace, profile: str) -> int:
             "predecision": "same veh15 route and queue position, normal versus authenticated ambulance",
             "postdecision": "paired authenticated veh16 arrival after ORDER(0), with identical CANCEL/ORDER(1) recovery and ambulance scheduling priority disabled versus enabled",
             "paired_seed_policy": "same repetition seed across both pre-decision rows and both post-decision rows",
+            "byzantine_count": byzantine_count,
             "noise": "same frozen two-lane operating point: sigma_lat=0.5m, sigma_lon=1.0m, signal_error=0.2, k=2",
         },
         "predecision_mean_wait_reduction_sec": early_wait_reduction,
@@ -9624,6 +9758,15 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         ),
     )
     p.add_argument(
+        "--two-lane-cobatching-k085",
+        action="store_true",
+        help=(
+            "Run the figure co-batching sweep at frozen k=0.85: honest "
+            "eligibility-on traffic over 10 cue-error levels with 25 "
+            "repetitions per cell (250 sequential runs)."
+        ),
+    )
+    p.add_argument(
         "--two-lane-scale-smoke",
         action="store_true",
         help=(
@@ -9672,6 +9815,17 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help=(
             "Number of new repetition indices allocated by "
             "--two-lane-scale-shoulder-extension (default: 5)."
+        ),
+    )
+    p.add_argument(
+        "--scale-n",
+        nargs="+",
+        type=int,
+        choices=TWO_LANE_SCALE_PAPER_NS,
+        metavar="N",
+        help=(
+            "Restrict --two-lane-scale-shoulder-extension to selected paper "
+            "scales (choices: 4, 8, 16, 20; default: all four)."
         ),
     )
     p.add_argument(
@@ -9749,11 +9903,12 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     )
     p.add_argument(
         "--two-lane-k-sweep",
-        choices=("smoke", "final", "full"),
+        choices=("smoke", "final", "full", "selection"),
         help=(
             "Run Figure B on the completion-capable two-lane fixture: "
             "smoke is one repetition at b={1..6}; final is 20 repetitions "
-            "at b={f,f+1}; full is 20 repetitions at b={1..6}."
+            "at b={f,f+1}; full is 20 repetitions at b={1..6}; selection "
+            "is 25 repetitions at b=f for k={.85,.875,.90,1.0}."
         ),
     )
     p.add_argument(
@@ -9766,11 +9921,12 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     )
     p.add_argument(
         "--two-lane-honest-operating-sweep",
-        choices=("smoke", "k-full", "full"),
+        choices=("smoke", "k-full", "full", "selection"),
         help=(
             "Run the attack-free completion fixture: smoke is 24 wiring cells; "
             "k-full is 60 runs at sigma=.5; full is the 480-run k x sigma "
-            "surface. Delta is correctly fixed at zero."
+            "surface; selection is 25 repetitions at sigma=.5 for "
+            "k={.85,.875,.90,1.0}. Delta is correctly fixed at zero."
         ),
     )
     p.add_argument(
@@ -9850,11 +10006,22 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     )
     p.add_argument(
         "--emergency-priority-scope",
-        choices=("all", "predecision", "postdecision"),
+        choices=("all", "predecision", "postdecision", "postdecision_priority"),
         default="all",
         help=(
             "Select both E8 questions, only the paired pre-decision normal/"
             "ambulance comparison, or only the post-decision preemption row."
+        ),
+    )
+    p.add_argument(
+        "--emergency-priority-byzantine-count",
+        type=int,
+        choices=range(0, 6),
+        default=2,
+        metavar="COUNT",
+        help=(
+            "Number of Byzantine follower vehicles in each E8 paired run "
+            "(default: 2; maximum: 5). The ambulance is excluded from this set."
         ),
     )
     p.add_argument(
@@ -9909,6 +10076,8 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
+    if not args.dry_run and not _acquire_orchestrator_lock():
+        return 2
     fixed_validation = (
         args.phase1_validation or args.phase2_fixture_validation or
         args.phase2_self_attestation_validation
@@ -9930,6 +10099,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         or args.two_lane_direction_arm_c
         or args.two_lane_direction_arm_c_full
         or args.two_lane_direction_arm_c_extension
+        or args.two_lane_cobatching_k085
         or args.two_lane_scale_smoke
         or args.two_lane_scale_honest_full
         or args.two_lane_scale_adversarial_smoke
@@ -9996,6 +10166,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                  args.two_lane_direction_arm_c or
                  args.two_lane_direction_arm_c_full or
                  args.two_lane_direction_arm_c_extension or
+                 args.two_lane_cobatching_k085 or
                  args.two_lane_scale_smoke or
                  args.two_lane_scale_honest_full or
                  args.two_lane_scale_adversarial_smoke or
@@ -10077,6 +10248,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.start_rep < 0:
         print("ERROR: --start-rep must be >= 0", file=sys.stderr)
         return 2
+    if (
+        args.emergency_priority_byzantine_count != 2
+        and args.emergency_priority is None
+    ):
+        print(
+            "--emergency-priority-byzantine-count requires --emergency-priority.",
+            file=sys.stderr,
+        )
+        return 2
 
     fixed_presets = sum(bool(value) for value in (
         args.phase1_validation,
@@ -10100,6 +10280,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.two_lane_direction_arm_c,
         args.two_lane_direction_arm_c_full,
         args.two_lane_direction_arm_c_extension,
+        args.two_lane_cobatching_k085,
         args.two_lane_scale_smoke,
         args.two_lane_scale_honest_full,
         args.two_lane_scale_adversarial_smoke,
@@ -10244,6 +10425,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.two_lane_direction_arm_c or
             args.two_lane_direction_arm_c_full
             or args.two_lane_direction_arm_c_extension
+            or args.two_lane_cobatching_k085
         ):
             if (
                 args.two_lane_direction_straight_heavy_prerequisite or
@@ -10254,6 +10436,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.two_lane_direction_arm_c or
                 args.two_lane_direction_arm_c_full
                 or args.two_lane_direction_arm_c_extension
+                or args.two_lane_cobatching_k085
             ):
                 fixture_summary = (
                     FOURWAY_DIR / "two_lane_calibration" / "results" /
@@ -10340,7 +10523,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             if (
                 args.two_lane_direction_arm_c or
                 args.two_lane_direction_arm_c_full or
-                args.two_lane_direction_arm_c_extension
+                args.two_lane_direction_arm_c_extension or
+                args.two_lane_cobatching_k085
             ):
                 if args.two_lane_direction_arm_c_full:
                     arm_c_smoke = (
@@ -10358,7 +10542,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         return 2
                 return run_two_lane_direction_ablation(
                     args,
-                    "arm_c_extension" if args.two_lane_direction_arm_c_extension
+                    "arm_c_honest_k085" if args.two_lane_cobatching_k085
+                    else "arm_c_extension" if args.two_lane_direction_arm_c_extension
                     else "arm_c_full" if args.two_lane_direction_arm_c_full
                     else "arm_c_smoke",
                     "straight_heavy",

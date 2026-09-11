@@ -6,7 +6,7 @@ Joins the two headline result roots:
   1) Phase2TwoLaneHonestOperatingSweep
      — honest k selection at σ_lat=0.5 (q1, certification, throughput)
   2) Phase2TwoLaneScaleAdversarialFull
-     — N∈{4,8,16,20} × {honest, shoulder b=f, cliff b=f+1}
+    — N∈{4,8,16,20,32} × {honest, shoulder b=f, cliff b=f+1}
 
 Optionally cross-checks the curated honest-scale aggregates (reused into
 adversarial full). IEEE/ICRA sizing belongs in a separate publication script.
@@ -303,7 +303,7 @@ def _save_plots(
     ax1.set_xlabel(r"Fleet size $N$")
     ax1.set_ylabel("False certificate rate")
     ax1.set_ylim(-0.05, 1.08)
-    ax1.set_xticks([4, 8, 16, 20])
+    ax1.set_xticks([4, 8, 16, 20, 32])
     ax1.grid(True, alpha=0.35, linestyle="--")
     ax1.legend(frameon=False, fontsize=8)
     ax1.set_title(r"(b) Adversarial scale at locked OP")
@@ -332,7 +332,7 @@ def _save_plots(
         )
     ax.set_xlabel(r"Fleet size $N$")
     ax.set_ylabel(r"Throughput [$\mathrm{veh/min}$]")
-    ax.set_xticks([4, 8, 16, 20])
+    ax.set_xticks([4, 8, 16, 20, 32])
     ax.grid(True, alpha=0.35, linestyle="--")
     ax.legend(frameon=False, fontsize=8)
     ax.set_title("E5 exploratory: throughput vs N (companion)")
@@ -369,7 +369,7 @@ def _save_plots(
     ax.set_xlabel(r"Fleet size $N$")
     ax.set_ylabel("Unsafe co-occupancy rate")
     ax.set_ylim(-0.05, 1.08)
-    ax.set_xticks([4, 8, 16, 20])
+    ax.set_xticks([4, 8, 16, 20, 32])
     ax.grid(True, alpha=0.35, linestyle="--")
     ax.legend(frameon=False, fontsize=8)
     ax.set_title("E5 exploratory: unsafe co-occupancy vs N")

@@ -1479,16 +1479,16 @@ void ResDBIntersectionApp::updateRoleColor()
 
     // roleColor identifies persistent entity roles.  Leadership is
     // intentionally not encoded visually: leaders use the same yellow color
-    // as honest followers.
+    // as honest followers.  Byzantine vehicles are red; ambulances are green.
     const std::string configuredRole = par("roleColor").stdstringValue();
-    const bool isAmbulance = moduleIsAmbulance || configuredRole == "red";
-    const bool isByzantine = configuredRole == "blue";
+    const bool isAmbulance = moduleIsAmbulance || configuredRole == "green";
+    const bool isByzantine = configuredRole == "red";
 
     std::string desiredColor;
     if (isAmbulance) {
-        desiredColor = "red";
+        desiredColor = "green";
     } else if (isByzantine) {
-        desiredColor = "blue";
+        desiredColor = "red";
     } else {
         desiredColor = "yellow";
     }
@@ -1496,10 +1496,10 @@ void ResDBIntersectionApp::updateRoleColor()
     if (desiredColor == appliedRoleColor) return;
 
     TraCIColor color(255, 255, 0, 255);
-    if (desiredColor == "blue") {
-        color = TraCIColor(0, 0, 255, 255);
-    } else if (desiredColor == "red") {
+    if (desiredColor == "red") {
         color = TraCIColor(255, 0, 0, 255);
+    } else if (desiredColor == "green") {
+        color = TraCIColor(0, 255, 0, 255);
     }
     mobility->getVehicleCommandInterface()->setColor(color);
     std::cout << "[ROLE COLOR] r" << replicaId_

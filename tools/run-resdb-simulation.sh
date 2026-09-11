@@ -380,9 +380,9 @@ for vehicle in route_root.findall(".//vehicle"):
     if not re.fullmatch(r"veh\d+", vehicle_id):
         continue
     if vehicle_id in ambulances or vehicle.get("type") == "ambulance":
-        color = "1,0,0"       # ambulance: red
+        color = "0,1,0"       # ambulance: green
     elif vehicle_id in byzantines:
-        color = "0,0,1"       # Byzantine: blue
+        color = "1,0,0"       # Byzantine: red
     else:
         # Leadership is certificate-driven and is applied later through
         # TraCI.  Static route colors represent only persistent roles.
@@ -433,10 +433,11 @@ PY
 # node assignments.  The file uses [General] so it applies to any config.
 # Prints the path to the generated ini file on stdout; all other output goes
 # to stderr so callers can safely capture the path with $(...).
-# Usage: generate_random_scenario <N> <F> <sim_dir> <byz_leader|-1> <allow_r0_follower> <no_ambulance> <leader_byz_type> <follower_byz_type>
+# Usage: generate_random_scenario <N> <F> <sim_dir> <byz_leader|-1> <allow_r0_follower> <no_ambulance> <leader_byz_type> <follower_byz_type> [exclude_byzantine_ids]
 #   byz_leader:        replica ID reserved as silent leader (-1 = none)
 #   allow_r0_follower: legacy compatibility flag; replica 0 is allowed by default
 #   no_ambulance:      "1" = force no ambulance (ambulanceReplicaId=-1)
+#   exclude_byzantine_ids: comma-separated replicas reserved for later injection
 #   leader_byz_type:   byzantineType for the byz leader (default 5=bad_proposal; 6=fake_ambulance)
 #   follower_byz_type: byzantineType for Byzantine followers (default 1=false_lane; 7=fake_ambulance_follower)
 # ---------------------------------------------------------------------------
@@ -449,6 +450,7 @@ generate_random_scenario() {
     local no_ambulance="${6:-0}"
     local leader_byz_type="${7:-5}"
     local follower_byz_type="${8:-1}"
+    local exclude_byzantine_ids="${9:-}"
 
     local out_ini="${sim_dir}/random_scenario.ini"
 
@@ -479,6 +481,9 @@ generate_random_scenario() {
     local i
     for (( i=0; i<n; i++ )); do
         [[ $i -eq $byz_leader ]] && continue
+        if [[ ",${exclude_byzantine_ids}," == *,"${i}",* ]]; then
+            continue
+        fi
         if [[ "${AMB_ID}" -ge 0 && $i -eq $AMB_ID ]]; then
             continue
         fi
@@ -657,6 +662,7 @@ PHASE2_LATERAL_CLAIM_OFFSET=""
 CERT_RELAY_SILENT_IDS=""
 PBFT_SILENT_IDS=""
 PROPOSAL_SILENT_PRIMARY_IDS=""
+EXCLUDE_BYZANTINE_IDS=""
 COMPACT_LOG=0
 EXTRA_INI_ARG=()
 
@@ -683,6 +689,10 @@ while [[ $i -lt ${#args[@]} ]]; do
         --follower-byz-type)
             i=$(( i + 1 ))
             BYZ_FOLLOWER_TYPE="${args[$i]}"
+            ;;
+        --exclude-byzantine-ids)
+            i=$(( i + 1 ))
+            EXCLUDE_BYZANTINE_IDS="${args[$i]}"
             ;;
         --no-firewall)
             export RESDB_NO_FIREWALL=1
@@ -1051,6 +1061,7 @@ if [[ "${RANDOMIZE}" -eq 1 ]]; then
     validate_replica_csv "--cert-relay-silent-ids" "${CERT_RELAY_SILENT_IDS}" "${RANDOMIZE_N}"
     validate_replica_csv "--pbft-silent-ids" "${PBFT_SILENT_IDS}" "${RANDOMIZE_N}"
     validate_replica_csv "--proposal-silent-primary-ids" "${PROPOSAL_SILENT_PRIMARY_IDS}" "${RANDOMIZE_N}"
+    validate_replica_csv "--exclude-byzantine-ids" "${EXCLUDE_BYZANTINE_IDS}" "${RANDOMIZE_N}"
     if [[ -n "${TOLERATED_F}" ]]; then
         if ! [[ "${TOLERATED_F}" =~ ^[0-9]+$ ]]; then
             echo "ERROR: --tolerated-f requires a non-negative integer." >&2
@@ -1075,7 +1086,7 @@ if [[ "${RANDOMIZE}" -eq 1 ]]; then
     if [[ -n "${SCENARIO_RANDOM_SEED:-}" ]]; then
         RANDOM="${SCENARIO_RANDOM_SEED}"
     fi
-    RANDOM_INI="$(generate_random_scenario "${RANDOMIZE_N}" "${RANDOMIZE_F}" "${SIM_DIR}" "${BYZ_LEADER}" "${ALLOW_REPLICA0_BYZ_FOLLOWER}" "${NO_AMBULANCE}" "${BYZ_LEADER_TYPE}" "${BYZ_FOLLOWER_TYPE}")"
+    RANDOM_INI="$(generate_random_scenario "${RANDOMIZE_N}" "${RANDOMIZE_F}" "${SIM_DIR}" "${BYZ_LEADER}" "${ALLOW_REPLICA0_BYZ_FOLLOWER}" "${NO_AMBULANCE}" "${BYZ_LEADER_TYPE}" "${BYZ_FOLLOWER_TYPE}" "${EXCLUDE_BYZANTINE_IDS}")"
     COLOR_AMBULANCE_IDS="$(awk -F= '/ambulanceReplicaId/{gsub(/[[:space:]]/, "", $2); print $2; exit}' "${RANDOM_INI}")"
     [[ "${COLOR_AMBULANCE_IDS}" == "-1" ]] && COLOR_AMBULANCE_IDS=""
     COLOR_BYZANTINE_IDS="$(awk -F: '/^# Byzantine replicas:/{sub(/^[[:space:]]*/, "", $2); print $2; exit}' "${RANDOM_INI}")"
@@ -1630,7 +1641,7 @@ fi
 
 # Rebuild the SUMO launch inputs after all scenario-specific route overlays
 # have been created.  Static colors identify persistent roles: honest vehicles
-# and leaders are yellow, Byzantine replicas blue, and ambulances red.
+# and leaders are yellow, Byzantine replicas red, and ambulances green.
 if [[ "${RANDOMIZE}" -eq 1 && "${BYZ_LEADER}" -ge 0 ]]; then
     COLOR_BYZANTINE_IDS="${COLOR_BYZANTINE_IDS:+${COLOR_BYZANTINE_IDS},}${BYZ_LEADER}"
 fi
@@ -1670,7 +1681,7 @@ if [[ -n "${COLOR_SOURCE_LAUNCH}" && -f "${COLOR_SOURCE_LAUNCH_PATH}" ]]; then
     COLOR_INI="${SIM_DIR}/role_color_override.ini"
     {
         echo "# Auto-generated by run-resdb-simulation.sh role-color mapping"
-        echo "# primary=yellow followers=yellow Byzantine=blue ambulance=red"
+        echo "# primary=yellow followers=yellow Byzantine=red ambulance=green"
         if [[ -n "${ACTIVE_CONFIG}" ]]; then
             echo "[Config ${ACTIVE_CONFIG}]"
         else
@@ -1684,14 +1695,14 @@ if [[ -n "${COLOR_SOURCE_LAUNCH}" && -f "${COLOR_SOURCE_LAUNCH_PATH}" ]]; then
                 if [[ "${replica_id}" =~ ^[0-9]+$ &&
                       "${replica_id}" -lt "${COLOR_REPLICA_COUNT}" ]]; then
                     color_node="$(replica_to_node_idx "${COLOR_REPLICA_COUNT}" "${replica_id}")"
-                    echo "*.node[${color_node}].appl.roleColor = \"red\""
+                    echo "*.node[${color_node}].appl.roleColor = \"green\""
                 fi
             done
             for replica_id in $(printf '%s\n' "${COLOR_BYZANTINE_IDS}" | tr ',' ' '); do
                 if [[ "${replica_id}" =~ ^[0-9]+$ &&
                       "${replica_id}" -lt "${COLOR_REPLICA_COUNT}" ]]; then
                     color_node="$(replica_to_node_idx "${COLOR_REPLICA_COUNT}" "${replica_id}")"
-                    echo "*.node[${color_node}].appl.roleColor = \"blue\""
+                    echo "*.node[${color_node}].appl.roleColor = \"red\""
                 fi
             done
             echo "*.node[*].appl.roleColor = \"yellow\""

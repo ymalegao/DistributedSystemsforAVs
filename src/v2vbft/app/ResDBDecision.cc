@@ -280,8 +280,11 @@ void ResDBIntersectionApp::proposeAll()
         present_ids.insert(e.replica_id);
     }
     // Add QUIET entries only for observed intents that missed certification.
-    // Lane and position_in_lane are physically observable (sensors catch a lie)
-    // so we use the primary's observed announcement state directly.
+    // Lane, physical lane, lateral claim, and position_in_lane are physically
+    // observable (sensors catch a lie), so preserve the primary's observed
+    // announcement state.  In particular, physical_lane_index participates in
+    // same-queue ordering even for QUIET singleton entries; defaulting it to
+    // zero can let a rear signed vehicle bypass a QUIET blocker in lane 1.
     // Direction is irrelevant for QUIET entries because cyber_status=0 and
     // sim_time_us=UINT64_MAX force the existing singleton path.  Sentinel 3
     // is reserved for SIGNED entries whose cue support is insufficient.
@@ -301,6 +304,9 @@ void ResDBIntersectionApp::proposeAll()
                 quiet.lane             = laneCode(vs->lane);
                 quiet.position_in_lane = static_cast<uint8_t>(
                     std::min(vs->positionInLane, 255));
+                quiet.physical_lane_index =
+                    static_cast<uint8_t>(vs->physicalLaneIndex);
+                quiet.lateral_claim_cm = vs->lateralClaimCm;
             } else {
                 quiet.lane             = 0;
                 quiet.position_in_lane = 0;
@@ -313,6 +319,7 @@ void ResDBIntersectionApp::proposeAll()
                       << "] proposeAll: QUIET entry for replica " << rid
                       << " lane=" << (int)quiet.lane
                       << " pos=" << (int)quiet.position_in_lane
+                      << " physicalLane=" << (int)quiet.physical_lane_index
                       << " target_is_byzantine=" << (target_is_byzantine ? 1 : 0)
                       << "\n";
             std::cout << "[TRUST-TIER] target=veh" << rid

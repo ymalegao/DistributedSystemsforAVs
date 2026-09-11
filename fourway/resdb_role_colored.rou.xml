@@ -15,10 +15,18 @@
     <route id="rW_T_right" edges="W2C C2S" />
     <vehicle id="veh0" type="car" route="rN_L_left" depart="0" departLane="1" departPos="60" departSpeed="max" color="1,1,0" />
     <vehicle id="veh1" type="car" route="rS_T_straight" depart="0" departLane="0" departPos="60" departSpeed="max" color="1,1,0" />
-    <vehicle id="veh2" type="car" route="rE_T_right" depart="0" departLane="0" departPos="60" departSpeed="max" color="1,1,0" />
-    <vehicle id="veh3" type="car" route="rW_L_left" depart="0" departLane="1" departPos="60" departSpeed="max" color="0,0,1" />
-    <vehicle id="veh4" type="car" route="rN_T_right" depart="0" departLane="0" departPos="60" departSpeed="max" color="1,1,0" />
-    <vehicle id="veh5" type="car" route="rS_L_left" depart="0" departLane="1" departPos="60" departSpeed="max" color="1,1,0" />
-    <vehicle id="veh6" type="car" route="rE_L_left" depart="0" departLane="1" departPos="60" departSpeed="max" color="0,0,1" />
-    <vehicle id="veh7" type="car" route="rW_T_straight" depart="0" departLane="0" departPos="60" departSpeed="max" color="1,1,0" />
+    <vehicle id="veh2" type="car" route="rN_T_straight" depart="0" departLane="0" departPos="60" departSpeed="max" color="1,1,0" />
+    <vehicle id="veh3" type="car" route="rS_T_right" depart="0" departLane="0" departPos="20" departSpeed="max" color="1,1,0" />
+    <vehicle id="veh4" type="car" route="rN_T_straight" depart="0" departLane="0" departPos="20" departSpeed="max" color="1,1,0" />
+    <vehicle id="veh5" type="car" route="rS_T_straight" depart="0" departLane="0" departPos="5" departSpeed="max" color="1,1,0" />
+    <vehicle id="veh6" type="car" route="rE_T_straight" depart="0" departLane="0" departPos="60" departSpeed="max" color="1,1,0" />
+    <vehicle id="veh7" type="car" route="rE_T_right" depart="0" departLane="0" departPos="20" departSpeed="max" color="1,1,0" />
+    <vehicle id="veh8" type="car" route="rE_T_straight" depart="0" departLane="0" departPos="5" departSpeed="max" color="1,1,0" />
+    <vehicle id="veh9" type="car" route="rW_T_straight" depart="0" departLane="0" departPos="60" departSpeed="max" color="1,1,0" />
+    <vehicle id="veh10" type="car" route="rW_L_left" depart="0" departLane="1" departPos="60" departSpeed="max" color="1,1,0" />
+    <vehicle id="veh11" type="car" route="rW_T_straight" depart="0" departLane="0" departPos="20" departSpeed="max" color="1,1,0" />
+    <vehicle id="veh12" type="car" route="rN_T_right" depart="0" departLane="0" departPos="5" departSpeed="max" color="1,1,0" />
+    <vehicle id="veh13" type="car" route="rS_L_left" depart="0" departLane="1" departPos="60" departSpeed="max" color="1,1,0" />
+    <vehicle id="veh14" type="car" route="rE_L_left" depart="0" departLane="1" departPos="60" departSpeed="max" color="1,1,0" />
+    <vehicle id="veh15" type="car" route="rW_T_right" depart="0" departLane="0" departPos="5" departSpeed="max" color="1,1,0" />
 </routes>
